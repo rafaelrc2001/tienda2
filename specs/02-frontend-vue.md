@@ -1,6 +1,6 @@
 # SPEC 02 — Frontend Vue y conexión con la API
 
-> **Estado:** Borrador
+> **Estado:** Aprobado
 > **Depende de:** SPEC 01
 > **Fecha:** 2026-09-07
 > **Objetivo:** Construir la aplicación Vue que reemplaza al prototipo HTML y consume la API del SPEC 01, añadiendo al backend los tres endpoints que faltan para que ninguna pantalla se quede sin conectar.

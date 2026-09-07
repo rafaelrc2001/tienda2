@@ -81,16 +81,6 @@ export class PedidosService {
       const carrito = await this.carrito.resolver(dto.items);
       const subtotal = carrito.subtotal;
 
-      // Envio gratis segun el subtotal ANTES del descuento, igual que el
-      // prototipo: el cupon no debe hacer perder el envio gratis.
-      const envio = subtotal.greaterThanOrEqualTo(config.montoEnvioGratis)
-        ? new Decimal(0)
-        : new Decimal(config.costoEnvio);
-
-      const recargoFuera = dentroDeHorario
-        ? new Decimal(0)
-        : subtotal.mul(config.incrementoFuera).div(100).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
-
       let descuento = new Decimal(0);
       let cuponId: string | null = null;
 
@@ -115,11 +105,9 @@ export class PedidosService {
         descuento = new Decimal(validacion.descuento);
       }
 
-      const total = subtotal
-        .add(envio)
-        .add(recargoFuera)
-        .sub(descuento)
-        .toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+      // Mismo calculo que devuelve POST /carrito/previsualizar.
+      const desglose = CarritoService.calcularCarrito(subtotal, config, dentroDeHorario, descuento);
+      const { envio, recargoFuera, total } = desglose;
 
       const folio = await PedidosService.siguienteFolio(tx);
       const ahora = new Date();
@@ -132,7 +120,7 @@ export class PedidosService {
           envio,
           recargoFuera,
           descuento,
-          total: total.lessThan(0) ? new Decimal(0) : total,
+          total,
           estado: 'CONFIRMADO',
           direccion: {
             calle: cliente.calle,
@@ -195,11 +183,7 @@ export class PedidosService {
 
       // Cashback y nivel, dentro de la misma transaccion: si el pedido no se
       // guarda, tampoco se acredita saldo.
-      const cashbackGenerado = CashbackService.calcular(
-        subtotal,
-        config.multiplicadorCashback,
-        config.montoMinimoCashback,
-      );
+      const cashbackGenerado = desglose.cashback;
       await this.cashback.acreditarPorPedido(
         tx,
         clienteId,
@@ -249,7 +233,14 @@ export class PedidosService {
 
   private aDto(
     pedido: Pedido & {
-      items: { productoId: string; nombre: string; categoria: string; unidad: string; precioUnitario: Decimal; cantidad: number }[];
+      items: {
+        productoId: string;
+        nombre: string;
+        categoria: string;
+        unidad: string;
+        precioUnitario: Decimal;
+        cantidad: number;
+      }[];
       cupon?: { code: string; title: string } | null;
     },
   ): PedidoDto {

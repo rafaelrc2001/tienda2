@@ -1,7 +1,21 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { CuponEmitido, EstadoCupon, OrigenCupon, Prisma, TipoDescuento } from '@prisma/client';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import {
+  ConfiguracionNegocio,
+  CuponEmitido,
+  EstadoCupon,
+  OrigenCupon,
+  Prisma,
+  TipoDescuento,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { LineaCarritoDto } from './dto/carrito.dto';
+import { CashbackService } from '../cashback/cashback.service';
+import { ConfiguracionService } from '../configuracion/configuracion.service';
+import { LineaCarritoDto, PrevisualizarCarritoDto } from './dto/carrito.dto';
 
 const Decimal = Prisma.Decimal;
 type Decimal = Prisma.Decimal;
@@ -20,6 +34,62 @@ export interface CarritoResuelto {
   lineas: LineaResuelta[];
   subtotal: Decimal;
   categorias: string[];
+}
+
+/**
+ * Desglose de dinero de un carrito. Es lo que se cobra y tambien lo que se
+ * previsualiza: `POST /pedidos` y `POST /carrito/previsualizar` salen los dos
+ * de `CarritoService.calcularCarrito`, para que no puedan divergir.
+ */
+export interface DesgloseCarrito {
+  subtotal: Decimal;
+  envio: Decimal;
+  recargoFuera: Decimal;
+  descuento: Decimal;
+  total: Decimal;
+  cashback: Decimal;
+}
+
+/**
+ * Carrito resuelto de forma tolerante, para previsualizar.
+ *
+ * A diferencia de `resolver`, esto no lanza: las lineas que ya no se pueden
+ * comprar se marcan y se explican, porque el cliente necesita ver su carrito
+ * para poder arreglarlo.
+ */
+export interface CarritoTolerante {
+  /** Lineas comprables. Son las unicas que suman al subtotal. */
+  disponibles: LineaResuelta[];
+  /** Lineas que siguen en el carrito pero ya no se pueden pedir. */
+  agotadas: LineaResuelta[];
+  subtotal: Decimal;
+  categorias: string[];
+  avisos: string[];
+}
+
+/** Respuesta de POST /carrito/previsualizar. */
+export interface PrevisualizacionCarritoDto {
+  items: {
+    productoId: string;
+    nombre: string;
+    unidad: string;
+    precioUnitario: number;
+    cantidad: number;
+    importe: number;
+    /** El producto se agoto despues de meterlo al carrito. */
+    agotado: boolean;
+  }[];
+  subtotal: number;
+  envio: number;
+  recargoFuera: number;
+  descuento: number;
+  total: number;
+  cashbackEstimado: number;
+  cupon: { codigo: string; descripcion: string } | null;
+  dentroDeHorario: boolean;
+  /** false si no se puede confirmar el pedido tal y como esta el carrito. */
+  puedePedir: boolean;
+  avisos: string[];
 }
 
 /** Por que se rechazo un cupon. Le sirve al frontend para el toast. */
@@ -46,7 +116,10 @@ export type ResultadoCupon =
 
 @Injectable()
 export class CarritoService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly configuracion: ConfiguracionService,
+  ) {}
 
   /**
    * Resuelve el carrito contra la base de datos.
@@ -92,6 +165,66 @@ export class CarritoService {
 
     const subtotal = lineas.reduce((s, l) => s.add(l.importe), new Decimal(0));
     return { lineas, subtotal, categorias: [...new Set(lineas.map((l) => l.categoria))] };
+  }
+
+  /**
+   * Igual que `resolver`, pero sin lanzar: es lo que necesita la
+   * previsualizacion del carrito.
+   *
+   * DECISION DEL SPEC 02: una linea agotada NO suma al subtotal. Se sigue
+   * mostrando, marcada y con su aviso, pero el total que ve el cliente es el
+   * que pagaria al quitarla; ensenarle un numero que la API va a rechazar con
+   * un 409 no le sirve de nada. Un producto borrado de la base desaparece de
+   * la lista y deja solo su aviso.
+   */
+  async resolverTolerante(items: LineaCarritoDto[]): Promise<CarritoTolerante> {
+    const ids = [...new Set(items.map((i) => i.productoId))];
+    const productos = await this.prisma.producto.findMany({ where: { id: { in: ids } } });
+
+    const avisos: string[] = [];
+    const faltantes = ids.filter((id) => !productos.some((p) => p.id === id));
+    if (faltantes.length > 0) {
+      avisos.push(
+        faltantes.length === 1
+          ? 'Un producto de tu carrito ya no está disponible y lo quitamos.'
+          : `${faltantes.length} productos de tu carrito ya no están disponibles y los quitamos.`,
+      );
+    }
+
+    const cantidades = new Map<string, number>();
+    for (const item of items) {
+      cantidades.set(item.productoId, (cantidades.get(item.productoId) ?? 0) + item.cantidad);
+    }
+
+    const disponibles: LineaResuelta[] = [];
+    const agotadas: LineaResuelta[] = [];
+    for (const p of productos) {
+      const cantidad = cantidades.get(p.id) as number;
+      const linea: LineaResuelta = {
+        productoId: p.id,
+        nombre: p.nombre,
+        categoria: p.categoria,
+        unidad: p.unidad,
+        precioUnitario: p.precioVenta,
+        cantidad,
+        importe: p.precioVenta.mul(cantidad),
+      };
+      if (p.agotado) {
+        agotadas.push(linea);
+        avisos.push(`${p.nombre} ya no está disponible`);
+      } else {
+        disponibles.push(linea);
+      }
+    }
+
+    const subtotal = disponibles.reduce((s, l) => s.add(l.importe), new Decimal(0));
+    return {
+      disponibles,
+      agotadas,
+      subtotal,
+      categorias: [...new Set(disponibles.map((l) => l.categoria))],
+      avisos,
+    };
   }
 
   /**
@@ -195,6 +328,141 @@ export class CarritoService {
       titulo: cupon.title,
       subtotal: nu(subtotal),
       descuento: nu(descuento),
+    };
+  }
+
+  /**
+   * Desglose del carrito antes de confirmar (Word 4.3).
+   *
+   * `POST /pedidos` sigue siendo quien manda: esto es informativo y puede
+   * quedar obsoleto entre que se pinta y se confirma. Por eso comparte con el
+   * checkout el mismo `calcularCarrito` y la misma validacion de cupon: si
+   * ambos ven la misma base, dan el mismo numero.
+   */
+  async previsualizar(
+    clienteId: string,
+    dto: PrevisualizarCarritoDto,
+  ): Promise<PrevisualizacionCarritoDto> {
+    const config = await this.configuracion.obtener();
+    const dentroDeHorario = ConfiguracionService.estaDentroDeHorario(config);
+
+    const carrito = await this.resolverTolerante(dto.items);
+    const avisos = [...carrito.avisos];
+
+    if (!dentroDeHorario) {
+      avisos.push(
+        config.atenderFuera
+          ? `Estás fuera del horario de servicio (${config.abre} a ${config.cierra}): tu pedido lleva un recargo del ${config.incrementoFuera.toString()} %.`
+          : `Ahora mismo no estamos recibiendo pedidos. Nuestro horario es de ${config.abre} a ${config.cierra}.`,
+      );
+    }
+
+    // El cupon se valida contra las lineas comprables, que son las que suman.
+    let descuento = new Decimal(0);
+    let cupon: PrevisualizacionCarritoDto['cupon'] = null;
+
+    if (dto.codigoCupon && carrito.disponibles.length > 0) {
+      const resultado = await this.validarCupon(clienteId, dto.codigoCupon, {
+        lineas: carrito.disponibles,
+        subtotal: carrito.subtotal,
+        categorias: carrito.categorias,
+      });
+      if (resultado.valido) {
+        descuento = new Decimal(resultado.descuento);
+        cupon = { codigo: resultado.codigo, descripcion: resultado.titulo };
+      } else {
+        // El motivo se muestra en el campo del cupon, no como error de la
+        // peticion: el resto del carrito se sigue pudiendo pedir.
+        avisos.push(resultado.mensaje);
+      }
+    }
+
+    const desglose = CarritoService.calcularCarrito(
+      carrito.subtotal,
+      config,
+      dentroDeHorario,
+      descuento,
+    );
+
+    const aItem = (l: LineaResuelta, agotado: boolean): PrevisualizacionCarritoDto['items'][0] => ({
+      productoId: l.productoId,
+      nombre: l.nombre,
+      unidad: l.unidad,
+      precioUnitario: l.precioUnitario.toNumber(),
+      cantidad: l.cantidad,
+      importe: l.importe.toNumber(),
+      agotado,
+    });
+
+    // DECISION DEL SPEC 02: una linea agotada tambien bloquea el pedido. El
+    // boton de confirmar se apaga con el motivo a la vista, en vez de dejar
+    // que el cliente choque con el 409 de POST /pedidos.
+    const puedePedir =
+      (dentroDeHorario || config.atenderFuera) &&
+      carrito.agotadas.length === 0 &&
+      carrito.disponibles.length > 0;
+
+    return {
+      items: [
+        ...carrito.disponibles.map((l) => aItem(l, false)),
+        ...carrito.agotadas.map((l) => aItem(l, true)),
+      ],
+      subtotal: desglose.subtotal.toNumber(),
+      envio: desglose.envio.toNumber(),
+      recargoFuera: desglose.recargoFuera.toNumber(),
+      descuento: desglose.descuento.toNumber(),
+      total: desglose.total.toNumber(),
+      cashbackEstimado: desglose.cashback.toNumber(),
+      cupon,
+      dentroDeHorario,
+      puedePedir,
+      avisos,
+    };
+  }
+
+  /**
+   * Envio, recargo fuera de horario, total y cashback de un carrito.
+   *
+   * Unico sitio donde vive esta aritmetica. `PedidosService.crear` la llama
+   * dentro de su transaccion y `POST /carrito/previsualizar` la llama sin
+   * tocar nada: el numero que ve el cliente antes de confirmar es el mismo
+   * que se cobra, salvo que la base cambie entre una llamada y otra.
+   */
+  static calcularCarrito(
+    subtotal: Decimal,
+    config: ConfiguracionNegocio,
+    dentroDeHorario: boolean,
+    descuento: Decimal = new Decimal(0),
+  ): DesgloseCarrito {
+    // Envio gratis segun el subtotal ANTES del descuento, igual que el
+    // prototipo: el cupon no debe hacer perder el envio gratis.
+    const envio = subtotal.greaterThanOrEqualTo(config.montoEnvioGratis)
+      ? new Decimal(0)
+      : new Decimal(config.costoEnvio);
+
+    const recargoFuera = dentroDeHorario
+      ? new Decimal(0)
+      : subtotal.mul(config.incrementoFuera).div(100).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+
+    const total = subtotal
+      .add(envio)
+      .add(recargoFuera)
+      .sub(descuento)
+      .toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+
+    const cashback = CashbackService.calcular(
+      subtotal,
+      config.multiplicadorCashback,
+      config.montoMinimoCashback,
+    );
+
+    return {
+      subtotal,
+      envio,
+      recargoFuera,
+      descuento,
+      total: total.lessThan(0) ? new Decimal(0) : total,
+      cashback,
     };
   }
 

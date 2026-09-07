@@ -14,6 +14,7 @@ import { ConfiguracionModule } from './configuracion/configuracion.module';
 import { CuponesModule } from './cupones/cupones.module';
 import { PedidosModule } from './pedidos/pedidos.module';
 import { CashbackModule } from './cashback/cashback.module';
+import { ClientesModule } from './clientes/clientes.module';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { RolesGuard } from './auth/roles.guard';
 
@@ -34,6 +35,7 @@ import { RolesGuard } from './auth/roles.guard';
     RecetarioModule,
     ConfiguracionModule,
     CashbackModule,
+    ClientesModule,
     PedidosModule,
     HealthModule,
   ],

@@ -1,0 +1,43 @@
+/*
+ * Tokens de diseño de Rapidix.
+ *
+ * Portados literalmente del bloque `:root` de `rapidix_mockup (2).html`, que
+ * es la fuente de verdad de la interfaz. Lo que NO se porta es el marco de
+ * teléfono: aquí la app ocupa la pantalla en móvil y se centra en escritorio.
+ */
+
+:root {
+  /* Color */
+  --cream: #fbf3e7;
+  --cream-2: #f5e9d6;
+  --terracotta: #c1440e;
+  --terracotta-dark: #9a340a;
+  --gold: #f4b400;
+  --gold-dark: #d99a00;
+  --navy: #20304a;
+  --navy-2: #2b3e5c;
+  --sage: #6e8f5d;
+  --ink: #2a211a;
+  --muted: #8a7b6c;
+  --white: #ffffff;
+  --line: #e9dcc7;
+
+  /* Elevación y radios */
+  --shadow: 0 10px 30px rgba(42, 33, 26, 0.12);
+  --radius-lg: 22px;
+  --radius-md: 14px;
+  --radius-sm: 9px;
+
+  /* Tipografía */
+  --font-display: 'Fraunces', Georgia, serif;
+  --font-heading: 'Poppins', 'Segoe UI', sans-serif;
+  --font-body: 'Inter', 'Segoe UI', sans-serif;
+
+  /*
+   * Ancho de la columna en escritorio. El mockup medía 390px de pantalla
+   * dentro del marco; la app de cliente conserva esa medida como columna
+   * centrada, y las vistas de administración con tablas se ensanchan.
+   */
+  --ancho-cliente: 430px;
+  --ancho-admin: 900px;
+}

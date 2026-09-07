@@ -4,9 +4,30 @@ import { Logger, ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 
+/**
+ * Origenes que pueden llamar a la API.
+ *
+ * `CORS_ORIGIN` es una lista separada por comas. Sin la variable se asume
+ * desarrollo y se deja pasar a Vite en el 5173: en produccion hay que
+ * declararla con el dominio del frontend.
+ */
+function origenesPermitidos(): string[] {
+  const crudo = process.env.CORS_ORIGIN?.trim();
+  if (!crudo) return ['http://localhost:5173'];
+  return crudo
+    .split(',')
+    .map((o) => o.trim())
+    .filter((o) => o.length > 0);
+}
+
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
-  app.enableCors();
+
+  const origenes = origenesPermitidos();
+  app.enableCors({
+    origin: origenes,
+    credentials: true,
+  });
 
   app.useGlobalPipes(
     new ValidationPipe({
@@ -45,6 +66,7 @@ async function bootstrap(): Promise<void> {
 
   Logger.log(`Rapidix API escuchando en el puerto ${port}`, 'Bootstrap');
   Logger.log(`Documentación en /docs`, 'Bootstrap');
+  Logger.log(`CORS permitido para: ${origenes.join(', ')}`, 'Bootstrap');
 }
 
 void bootstrap();

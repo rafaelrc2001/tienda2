@@ -37,6 +37,7 @@ configuración que ya trae el `.env.example`.
 | `JWT_EXPIRES_IN` | no | Vigencia del token. Por defecto `7d`. |
 | `PORT` | no | Puerto de escucha. Railway lo inyecta. |
 | `NODE_ENV` | no | En `production` se activan comprobaciones extra (ver abajo). |
+| `CORS_ORIGIN` | en producción | Orígenes que pueden llamar a la API, separados por comas. Sin ella solo se permite `http://localhost:5173` (Vite en desarrollo). |
 | `APP_PUBLIC_URL` | no | Base de los enlaces de fuentes: `<APP_PUBLIC_URL>/r/CODIGO`. Por defecto `https://rapidix.mx`. |
 | `ADMIN_EMAIL` | no | Correo del administrador que crea el seed. Por defecto `admin@rapidix.mx`. |
 | `ADMIN_PASSWORD` | en producción | Contraseña de ese administrador. **El seed falla en producción si no está definida.** |
