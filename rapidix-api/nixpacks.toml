@@ -1,0 +1,4 @@
+# Fallback de compilacion nativa: si argon2 no encuentra su binario precompilado
+# para la version de Node del builder, node-gyp necesita python3 y un toolchain C++.
+[phases.setup]
+aptPkgs = ['...', 'python3', 'build-essential']
