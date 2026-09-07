@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: rapidix-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: rapidix
+      POSTGRES_PASSWORD: rapidix
+      POSTGRES_DB: rapidix
+    ports:
+      - '5432:5432'
+    volumes:
+      - rapidix-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U rapidix -d rapidix']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  rapidix-pgdata:

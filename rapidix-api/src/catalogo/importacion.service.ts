@@ -1,0 +1,208 @@
+import { BadRequestException, Injectable } from '@nestjs/common';
+import { Workbook } from 'exceljs';
+import { PrismaService } from '../prisma/prisma.service';
+
+/** Columnas del Word 6.6. `Imagen` es la unica opcional. */
+export const COLUMNAS_REQUERIDAS = [
+  'Categoria',
+  'Producto',
+  'Unidad',
+  'Precio de costo',
+  'Precio de venta',
+] as const;
+export const COLUMNA_OPCIONAL = 'Imagen';
+
+type BufferDeExcelJs = Parameters<Workbook['xlsx']['load']>[0];
+
+export type ResultadoFila =
+  | { fila: number; estado: 'creado'; producto: string }
+  | { fila: number; estado: 'actualizado'; producto: string }
+  | { fila: number; estado: 'error'; motivo: string };
+
+export interface ResumenImportacion {
+  total: number;
+  creados: number;
+  actualizados: number;
+  errores: number;
+  filas: ResultadoFila[];
+}
+
+interface FilaLeida {
+  numero: number;
+  categoria: string;
+  producto: string;
+  unidad: string;
+  precioCosto: string;
+  precioVenta: string;
+  imagen: string;
+}
+
+@Injectable()
+export class ImportacionService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * Normaliza un encabezado para compararlo: sin acentos, sin mayusculas y
+   * sin espacios de mas. Asi "PRECIO DE VENTA" y "Precio de Venta" valen igual.
+   */
+  private static normalizar(texto: string): string {
+    return texto
+      .normalize('NFD')
+      .replace(/\p{Diacritic}/gu, '')
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, ' ');
+  }
+
+  /** Convierte "1,234.50", "$18" o 18 en un numero. Devuelve null si no lo es. */
+  private static aNumero(valor: string): number | null {
+    const limpio = valor.replace(/[$\s,]/g, '');
+    if (limpio === '') return null;
+    const n = Number(limpio);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  async importar(buffer: Buffer): Promise<ResumenImportacion> {
+    const filas = await this.leerArchivo(buffer);
+    const resultados: ResultadoFila[] = [];
+
+    for (const fila of filas) {
+      resultados.push(await this.procesarFila(fila));
+    }
+
+    return {
+      total: resultados.length,
+      creados: resultados.filter((r) => r.estado === 'creado').length,
+      actualizados: resultados.filter((r) => r.estado === 'actualizado').length,
+      errores: resultados.filter((r) => r.estado === 'error').length,
+      filas: resultados,
+    };
+  }
+
+  /** Lee la primera hoja y mapea las columnas por su encabezado. */
+  private async leerArchivo(buffer: Buffer): Promise<FilaLeida[]> {
+    const libro = new Workbook();
+    try {
+      // exceljs empaqueta una definicion de Buffer anterior a la de Node 24;
+      // el objeto en tiempo de ejecucion es el mismo, solo discrepan los tipos.
+      await libro.xlsx.load(buffer as unknown as BufferDeExcelJs);
+    } catch {
+      throw new BadRequestException('No se pudo leer el archivo. ¿Es un .xlsx válido?');
+    }
+
+    const hoja = libro.worksheets[0];
+    if (!hoja || hoja.rowCount < 2) {
+      throw new BadRequestException('El archivo está vacío o no tiene filas de datos.');
+    }
+
+    // Encabezados -> indice de columna
+    const indices = new Map<string, number>();
+    hoja.getRow(1).eachCell((celda, columna) => {
+      indices.set(ImportacionService.normalizar(String(celda.value ?? '')), columna);
+    });
+
+    const faltantes = COLUMNAS_REQUERIDAS.filter(
+      (c) => !indices.has(ImportacionService.normalizar(c)),
+    );
+    if (faltantes.length > 0) {
+      throw new BadRequestException(
+        `Faltan columnas obligatorias: ${faltantes.join(', ')}. ` +
+          `El archivo debe tener: ${COLUMNAS_REQUERIDAS.join(', ')} (${COLUMNA_OPCIONAL} es opcional).`,
+      );
+    }
+
+    const leerCelda = (numeroFila: number, encabezado: string): string => {
+      const columna = indices.get(ImportacionService.normalizar(encabezado));
+      if (!columna) return '';
+      const valor = hoja.getRow(numeroFila).getCell(columna).value;
+      if (valor === null || valor === undefined) return '';
+      if (typeof valor === 'object' && 'result' in valor) return String(valor.result ?? '');
+      if (typeof valor === 'object' && 'text' in valor) return String(valor.text ?? '');
+      return String(valor).trim();
+    };
+
+    const filas: FilaLeida[] = [];
+    for (let n = 2; n <= hoja.rowCount; n++) {
+      const fila: FilaLeida = {
+        numero: n,
+        categoria: leerCelda(n, 'Categoria'),
+        producto: leerCelda(n, 'Producto'),
+        unidad: leerCelda(n, 'Unidad'),
+        precioCosto: leerCelda(n, 'Precio de costo'),
+        precioVenta: leerCelda(n, 'Precio de venta'),
+        imagen: leerCelda(n, COLUMNA_OPCIONAL),
+      };
+      // Fila completamente vacia: se ignora sin contarla como error.
+      const vacia = !fila.categoria && !fila.producto && !fila.precioVenta;
+      if (!vacia) filas.push(fila);
+    }
+
+    if (filas.length === 0) {
+      throw new BadRequestException('El archivo no tiene filas de datos.');
+    }
+    return filas;
+  }
+
+  /**
+   * Una fila invalida no aborta la importacion: se reporta y se sigue con la
+   * siguiente. Un catalogo de 300 productos no puede caerse entero porque a
+   * uno le falte el precio.
+   */
+  private async procesarFila(fila: FilaLeida): Promise<ResultadoFila> {
+    const nombre = fila.producto.trim();
+    const categoria = fila.categoria.trim();
+
+    if (!nombre) return { fila: fila.numero, estado: 'error', motivo: 'Falta el nombre del producto' };
+    if (!categoria) return { fila: fila.numero, estado: 'error', motivo: 'Falta la categoría' };
+
+    const precioVenta = ImportacionService.aNumero(fila.precioVenta);
+    if (precioVenta === null) {
+      return { fila: fila.numero, estado: 'error', motivo: 'El precio de venta falta o no es un número' };
+    }
+    if (precioVenta < 0) {
+      return { fila: fila.numero, estado: 'error', motivo: 'El precio de venta no puede ser negativo' };
+    }
+
+    const precioCosto = ImportacionService.aNumero(fila.precioCosto) ?? 0;
+    if (precioCosto < 0) {
+      return { fila: fila.numero, estado: 'error', motivo: 'El precio de costo no puede ser negativo' };
+    }
+
+    const datos = {
+      unidad: fila.unidad.trim() || 'pza',
+      precioCosto,
+      precioVenta,
+      ...(fila.imagen.trim() && { imagenUrl: fila.imagen.trim() }),
+    };
+
+    // Mismo nombre y misma categoria = mismo producto: se actualiza en vez de
+    // duplicarse, que es como se usa una carga masiva para refrescar precios.
+    const existente = await this.prisma.producto.findFirst({
+      where: {
+        nombre: { equals: nombre, mode: 'insensitive' },
+        categoria: { equals: categoria, mode: 'insensitive' },
+      },
+      select: { id: true },
+    });
+
+    if (existente) {
+      await this.prisma.producto.update({ where: { id: existente.id }, data: datos });
+      return { fila: fila.numero, estado: 'actualizado', producto: nombre };
+    }
+
+    await this.prisma.producto.create({ data: { nombre, categoria, ...datos } });
+    return { fila: fila.numero, estado: 'creado', producto: nombre };
+  }
+
+  /** Plantilla de ejemplo con las columnas correctas (Word 6.6). */
+  static generarPlantillaCsv(): string {
+    const encabezado = [...COLUMNAS_REQUERIDAS, COLUMNA_OPCIONAL].join(',');
+    const ejemplos = [
+      'Frutas y Verduras,Tomate bola,kg,9,18,',
+      'Carnes,Pechuga de pollo,kg,62,89,',
+      'Abarrotes,Arroz 1kg,kg,19,28,https://cdn.rapidix.mx/productos/arroz.webp',
+    ];
+    // BOM para que Excel abra los acentos bien.
+    return `﻿${encabezado}\n${ejemplos.join('\n')}\n`;
+  }
+}

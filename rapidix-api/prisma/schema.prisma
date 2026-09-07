@@ -1,0 +1,567 @@
+// Esquema de datos de Rapidix — SPEC 01
+//
+// Los nombres de campo se toman del prototipo (`rapidix_mockup (2).html`)
+// para que el porte de la logica de negocio sea literal.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// Identidad y clientes
+// ============================================================
+
+enum RolUsuario {
+  ADMINISTRADOR
+  RUTA
+  OPERACIONES
+  FINANZAS
+}
+
+/// Personal del negocio. Nunca clientes: esos viven en `Cliente`.
+model Usuario {
+  id            String     @id @default(uuid())
+  email         String     @unique
+  passwordHash  String
+  nombre        String
+  rol           RolUsuario
+  activo        Boolean    @default(true)
+  creadoEn      DateTime   @default(now())
+  actualizadoEn DateTime   @updatedAt
+
+  @@map("usuarios")
+}
+
+model Cliente {
+  id              String    @id @default(uuid())
+  nombre          String
+  email           String?
+  /// WhatsApp. Es el identificador de login del cliente (HU-C02).
+  telefono        String    @unique
+  fechaNacimiento DateTime?
+  quienRecibe     String?
+
+  // Direccion de envio
+  calle       String?
+  colonia     String?
+  cp          String?
+  ciudad      String?
+  estado      String?
+  referencias String?
+  lat         Float?
+  lng         Float?
+
+  /// Codigo de la fuente de adquisicion, capturado del enlace rapidix.mx/r/CODIGO.
+  fuenteCodigo   String?
+  notificaciones Boolean @default(true)
+
+  // Fidelizacion
+  saldoCashback Decimal         @default(0) @db.Decimal(12, 2)
+  nivelId       String?
+  nivel         NivelFidelidad? @relation(fields: [nivelId], references: [id])
+
+  // Contadores derivados de Pedido, mantenidos dentro de la transaccion de pedido
+  pedidos      Int       @default(0)
+  totalGastado Decimal   @default(0) @db.Decimal(12, 2)
+  primerPedido DateTime?
+  ultimoPedido DateTime?
+
+  creado        DateTime @default(now())
+  actualizadoEn DateTime @updatedAt
+
+  solicitudes       SolicitudProducto[]
+  recetasCreadas    Receta[]
+  recetasGuardadas  RecetaGuardada[]
+  recetaPausada     RecetaPausada?
+  recetasCocinadas  RecetaCocinada[]
+  calificaciones    RecetaCalificacion[]
+  ordenes           Pedido[]
+  cupones           CuponEmitido[]
+  movimientos       MovimientoCashback[]
+  lecturaDestacados LecturaDestacados?
+
+  @@index([ultimoPedido])
+  @@index([ciudad])
+  @@map("clientes")
+}
+
+/// Codigos de un solo uso para el login del cliente por WhatsApp.
+model CodigoOtp {
+  id          String    @id @default(uuid())
+  telefono    String
+  codigoHash  String
+  expiraEn    DateTime
+  intentos    Int       @default(0)
+  consumidoEn DateTime?
+  creadoEn    DateTime  @default(now())
+
+  @@index([telefono, expiraEn])
+  @@map("codigos_otp")
+}
+
+// ============================================================
+// Catalogo
+// ============================================================
+
+model Producto {
+  id String @id @default(uuid())
+
+  nombre      String
+  /// Texto libre. Las categorias del sistema se derivan de los valores usados aqui.
+  categoria   String
+  unidad      String
+  precioCosto Decimal @db.Decimal(12, 2)
+  precioVenta Decimal @db.Decimal(12, 2)
+  imagenUrl   String?
+  emoji       String?
+  agotado     Boolean @default(false)
+
+  creadoEn      DateTime @default(now())
+  actualizadoEn DateTime @updatedAt
+
+  solicitudes SolicitudProducto[]
+  lineas      PedidoItem[]
+
+  @@index([categoria])
+  @@map("productos")
+}
+
+/// Boton "Programar" de un producto agotado: intencion de compra futura.
+model SolicitudProducto {
+  id         String   @id @default(uuid())
+  clienteId  String
+  cliente    Cliente  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  productoId String
+  producto   Producto @relation(fields: [productoId], references: [id], onDelete: Cascade)
+  creadoEn   DateTime @default(now())
+
+  @@index([productoId])
+  @@index([clienteId])
+  @@map("solicitudes_producto")
+}
+
+// ============================================================
+// Recetario
+// ============================================================
+
+enum OrigenReceta {
+  RECETARIO
+  PROPIA
+  COMUNIDAD
+}
+
+model Receta {
+  id         String   @id @default(uuid())
+  nombre     String
+  tiempo     String
+  porciones  Int
+  imagenUrl  String?
+  emoji      String?
+  youtube    String?
+  /// 'desayuno' | 'comida' | 'cena'
+  categorias String[]
+
+  autorNombre    String
+  /// Null en las recetas oficiales del Recetario.
+  autorClienteId String?
+  autor          Cliente? @relation(fields: [autorClienteId], references: [id], onDelete: SetNull)
+
+  origin    OrigenReceta
+  compartir Boolean      @default(false)
+
+  creadoEn      DateTime @default(now())
+  actualizadoEn DateTime @updatedAt
+
+  ingredientes   RecetaIngrediente[]
+  pasos          RecetaPaso[]
+  guardadaPor    RecetaGuardada[]
+  pausadaPor     RecetaPausada[]
+  cocinadaPor    RecetaCocinada[]
+  calificaciones RecetaCalificacion[]
+
+  @@index([origin])
+  @@index([autorClienteId])
+  @@map("recetas")
+}
+
+model RecetaIngrediente {
+  id       String @id @default(uuid())
+  recetaId String
+  receta   Receta @relation(fields: [recetaId], references: [id], onDelete: Cascade)
+  nombre   String
+  cantidad String
+  orden    Int
+
+  @@index([recetaId])
+  @@map("receta_ingredientes")
+}
+
+model RecetaPaso {
+  id       String @id @default(uuid())
+  recetaId String
+  receta   Receta @relation(fields: [recetaId], references: [id], onDelete: Cascade)
+  texto    String
+  orden    Int
+
+  @@index([recetaId])
+  @@map("receta_pasos")
+}
+
+/// "Mis Recetas": recetas ajenas que el cliente guardo.
+model RecetaGuardada {
+  clienteId String
+  cliente   Cliente  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  recetaId  String
+  receta    Receta   @relation(fields: [recetaId], references: [id], onDelete: Cascade)
+  creadoEn  DateTime @default(now())
+
+  @@id([clienteId, recetaId])
+  @@map("recetas_guardadas")
+}
+
+/// Receta en pausa. `clienteId` es la clave primaria: por esquema, solo puede
+/// haber una receta pausada por cliente a la vez (Word 6.4).
+model RecetaPausada {
+  clienteId String   @id
+  cliente   Cliente  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  recetaId  String
+  receta    Receta   @relation(fields: [recetaId], references: [id], onDelete: Cascade)
+  pausadaEn DateTime @default(now())
+
+  @@map("recetas_pausadas")
+}
+
+/// Evento "!Listo a comer!". Alimenta el Historial de los ultimos 35 dias
+/// y es requisito previo para poder calificar.
+model RecetaCocinada {
+  id         String   @id @default(uuid())
+  clienteId  String
+  cliente    Cliente  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  recetaId   String
+  receta     Receta   @relation(fields: [recetaId], references: [id], onDelete: Cascade)
+  cocinadaEn DateTime @default(now())
+
+  @@index([clienteId, cocinadaEn])
+  @@map("recetas_cocinadas")
+}
+
+model RecetaCalificacion {
+  clienteId  String
+  cliente    Cliente  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  recetaId   String
+  receta     Receta   @relation(fields: [recetaId], references: [id], onDelete: Cascade)
+  puntuacion Int
+  creadoEn   DateTime @default(now())
+
+  @@id([clienteId, recetaId])
+  @@index([recetaId])
+  @@map("recetas_calificaciones")
+}
+
+// ============================================================
+// Pedidos
+// ============================================================
+
+enum EstadoPedido {
+  CONFIRMADO
+  EN_RUTA
+  ENTREGADO
+  CANCELADO
+}
+
+model Pedido {
+  id        String  @id @default(uuid())
+  folio     String  @unique
+  clienteId String
+  cliente   Cliente @relation(fields: [clienteId], references: [id])
+
+  subtotal     Decimal @db.Decimal(12, 2)
+  envio        Decimal @db.Decimal(12, 2)
+  /// Recargo por atencion fuera de horario (Word 6.8). Columna propia para poder auditarlo.
+  recargoFuera Decimal @default(0) @db.Decimal(12, 2)
+  descuento    Decimal @default(0) @db.Decimal(12, 2)
+  total        Decimal @db.Decimal(12, 2)
+
+  cashbackGenerado Decimal      @default(0) @db.Decimal(12, 2)
+  estado           EstadoPedido @default(CONFIRMADO)
+  /// Snapshot de la direccion de envio al momento del pedido.
+  direccion        Json
+
+  creadoEn DateTime @default(now())
+
+  items       PedidoItem[]
+  /// Cupon canjeado en este pedido. Es 0 o 1: la regla "un cupon por pedido"
+  /// la garantiza el @unique de CuponEmitido.usedPedidoId.
+  cupon       CuponEmitido?
+  movimientos MovimientoCashback[]
+
+  @@index([clienteId, creadoEn])
+  @@map("pedidos")
+}
+
+model PedidoItem {
+  id       String @id @default(uuid())
+  pedidoId String
+  pedido   Pedido @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+
+  productoId String
+  producto   Producto @relation(fields: [productoId], references: [id])
+
+  // Snapshots: un cambio de precio o de categoria no reescribe la historia.
+  nombre         String
+  categoria      String
+  unidad         String
+  precioUnitario Decimal @db.Decimal(12, 2)
+  cantidad       Int
+
+  @@index([pedidoId])
+  @@map("pedido_items")
+}
+
+// ============================================================
+// Motor de cupones
+// ============================================================
+
+enum TipoDescuento {
+  FIXED
+  PERCENTAGE
+}
+
+enum EstadoCupon {
+  ACTIVE
+  USED
+  EXPIRED
+  CANCELLED
+}
+
+enum OrigenCupon {
+  LIFECYCLE
+  CAMPAIGN
+}
+
+enum TipoAudiencia {
+  ALL
+  NEW_CUSTOMERS
+  EXISTING_CUSTOMERS
+  SOURCE
+  /// Declarado pero nunca califica: el programa de referidos esta fuera del SPEC 01.
+  REFERRAL
+  SEGMENT
+}
+
+enum TipoFuente {
+  FACEBOOK
+  INSTAGRAM
+  INFLUENCER
+  QR
+  REFERIDO
+  GOOGLE
+  OTRO
+}
+
+/// Los 5 tipos fijos de ciclo de vida. El `code` no es editable; solo sus parametros.
+model TipoCuponCicloVida {
+  /// WELCOME | SECOND_PURCHASE | TICKET_INCREASE | INACTIVITY | BIRTHDAY
+  code                  String        @id
+  name                  String
+  title                 String
+  description           String
+  customerMessage       String
+  discountType          TipoDescuento
+  discountValue         Decimal       @db.Decimal(12, 2)
+  minimumOrderAmount    Decimal       @db.Decimal(12, 2)
+  maximumOrderAmount    Decimal?      @db.Decimal(12, 2)
+  validityDays          Int
+  usageLimitPerCustomer Int
+
+  /// Solo INACTIVITY.
+  inactivityDays     Int?
+  /// Solo BIRTHDAY.
+  birthdayWindowDays Int?
+
+  isActive      Boolean  @default(true)
+  actualizadoEn DateTime @updatedAt
+
+  @@map("cupones_ciclo_vida")
+}
+
+model Campania {
+  id              String  @id @default(uuid())
+  /// Nombre interno, no se repite entre campanias.
+  name            String  @unique
+  title           String
+  description     String?
+  customerMessage String?
+
+  discountType       TipoDescuento
+  discountValue      Decimal       @db.Decimal(12, 2)
+  minimumOrderAmount Decimal       @db.Decimal(12, 2)
+  maximumOrderAmount Decimal?      @db.Decimal(12, 2)
+
+  startsAt DateTime?
+  endsAt   DateTime?
+
+  /// 0 = sin limite.
+  usageLimitTotal       Int @default(0)
+  usageLimitPerCustomer Int @default(1)
+
+  targetType   TipoAudiencia @default(ALL)
+  sourceCode   String?
+  /// [{ attr, op, value }] — se combinan siempre con "Y".
+  segmentRules Json          @default("[]")
+  /// Vacio = sin restriccion de categoria.
+  categorias   String[]
+
+  isActive      Boolean  @default(true)
+  creado        DateTime @default(now())
+  actualizadoEn DateTime @updatedAt
+
+  @@index([isActive, startsAt, endsAt])
+  @@map("campanias")
+}
+
+/// Cupon individual emitido a un cliente. Sus condiciones quedan "congeladas"
+/// al momento de la emision (Word 5, regla 1).
+model CuponEmitido {
+  id        String  @id @default(uuid())
+  /// RPD + 4 caracteres de ABCDEFGHJKLMNPQRSTUVWXYZ23456789.
+  code      String  @unique
+  clienteId String
+  cliente   Cliente @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  sourceKind OrigenCupon
+  /// `code` del tipo de ciclo de vida, o `name` de la campania.
+  sourceCode String
+
+  title           String
+  description     String?
+  customerMessage String?
+
+  // Congelados desde la plantilla al momento de emitir.
+  discountType       TipoDescuento
+  discountValue      Decimal       @db.Decimal(12, 2)
+  minimumOrderAmount Decimal       @db.Decimal(12, 2)
+  maximumOrderAmount Decimal?      @db.Decimal(12, 2)
+
+  issuedAt  DateTime @default(now())
+  expiresAt DateTime
+
+  status          EstadoCupon @default(ACTIVE)
+  usedAt          DateTime?
+  /// Pedido en el que se canjeo. @unique = un cupon por pedido (Word 5, regla 2).
+  usedPedidoId    String?     @unique
+  usedPedido      Pedido?     @relation(fields: [usedPedidoId], references: [id])
+  discountApplied Decimal?    @db.Decimal(12, 2)
+
+  @@index([clienteId, status])
+  @@index([sourceKind, sourceCode, status])
+  @@index([status, expiresAt])
+  @@map("cupones_emitidos")
+}
+
+model FuenteAdquisicion {
+  id       String     @id @default(uuid())
+  name     String
+  type     TipoFuente @default(OTRO)
+  code     String     @unique
+  isActive Boolean    @default(true)
+  creado   DateTime   @default(now())
+
+  @@map("fuentes_adquisicion")
+}
+
+// ============================================================
+// Configuracion y contenido
+// ============================================================
+
+/// Fila unica (id = 1) con toda la configuracion del negocio.
+model ConfiguracionNegocio {
+  id Int @id @default(1)
+
+  // Horario de servicio
+  /// {lun:true, mar:true, ..., dom:false}
+  diasServicio    Json
+  abre            String
+  cierra          String
+  atenderFuera    Boolean
+  /// Porcentaje de incremento al atender fuera de horario.
+  incrementoFuera Decimal @db.Decimal(5, 2)
+  whatsappAyuda   String?
+
+  // Parametros del negocio
+  costoEnvio            Decimal @db.Decimal(12, 2)
+  montoEnvioGratis      Decimal @db.Decimal(12, 2)
+  multiplicadorCashback Decimal @db.Decimal(6, 2)
+  montoMinimoCashback   Decimal @db.Decimal(12, 2)
+
+  // Datos bancarios
+  banco        String?
+  beneficiario String?
+  numeroCuenta String?
+
+  actualizadoEn DateTime @updatedAt
+
+  @@map("configuracion_negocio")
+}
+
+/// Niveles de fidelidad por gasto acumulado. Configurables desde Administracion:
+/// los valores del seed son provisionales (ver Riesgos del SPEC 01).
+model NivelFidelidad {
+  id          String    @id @default(uuid())
+  nombre      String    @unique
+  umbralGasto Decimal   @db.Decimal(12, 2)
+  orden       Int       @unique
+  clientes    Cliente[]
+
+  @@map("niveles_fidelidad")
+}
+
+model MovimientoCashback {
+  id        String   @id @default(uuid())
+  clienteId String
+  cliente   Cliente  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  pedidoId  String?
+  pedido    Pedido?  @relation(fields: [pedidoId], references: [id], onDelete: SetNull)
+  monto     Decimal  @db.Decimal(12, 2)
+  concepto  String
+  creadoEn  DateTime @default(now())
+
+  @@index([clienteId, creadoEn])
+  @@map("movimientos_cashback")
+}
+
+model NoticiaDestacada {
+  id          String   @id @default(uuid())
+  badge       String
+  titulo      String
+  desc        String
+  publicadoEn DateTime @default(now())
+
+  @@index([publicadoEn])
+  @@map("noticias_destacadas")
+}
+
+model Aviso {
+  id          String   @id @default(uuid())
+  icon        String
+  titulo      String
+  desc        String
+  publicadoEn DateTime @default(now())
+
+  @@index([publicadoEn])
+  @@map("avisos")
+}
+
+/// Marca de agua del contador de no leidos de Destacados.
+model LecturaDestacados {
+  clienteId     String   @id
+  cliente       Cliente  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  ultimaLectura DateTime
+
+  @@map("lecturas_destacados")
+}

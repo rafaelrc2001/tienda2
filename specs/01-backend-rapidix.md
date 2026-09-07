@@ -354,7 +354,7 @@ Cada paso deja el proyecto arrancando y es commiteable por sí solo.
 
 ## 5. Criterios de aceptación
 
-- [ ] `npx prisma migrate deploy` corre limpio sobre una base Postgres vacía y `npx prisma db seed` deja 13 productos, 7 recetas oficiales, 3 fuentes y los 5 tipos de ciclo de vida.
+- [X] `npx prisma migrate deploy` corre limpio sobre una base Postgres vacía y `npx prisma db seed` deja 13 productos, 7 recetas oficiales, 3 fuentes y los 5 tipos de ciclo de vida.
 - [ ] `POST /auth/cliente/solicitar-codigo` con un teléfono nuevo, seguido de `verificar-codigo` con nombre, crea el cliente y devuelve un JWT de rol cliente.
 - [ ] Un cliente recién creado tiene exactamente un cupón `ACTIVE` con `sourceCode = WELCOME`.
 - [ ] Volver a iniciar sesión con ese mismo teléfono no genera un segundo cupón WELCOME.
