@@ -129,7 +129,7 @@ export class CicloVidaService {
   async emitirDePrueba(code: string, clienteId: string): Promise<{ code: string }> {
     const tipo = await this.prisma.tipoCuponCicloVida.findUnique({ where: { code } });
     if (!tipo) throw new NotFoundException('Tipo de cupón no encontrado');
-    const cupon = await this.cupones.emitir(tipo, OrigenCupon.LIFECYCLE, clienteId);
+    const cupon = await this.cupones.emitir(tipo, OrigenCupon.LIFECYCLE, { clienteId });
     return { code: cupon.code };
   }
 }

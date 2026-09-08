@@ -61,13 +61,19 @@ export class DestacadosService {
 
   /** Se llama al entrar a Destacados: limpia la insignia. */
   async marcarLeido(usuario: UsuarioAutenticado): Promise<{ noLeidos: 0 }> {
+    // La marca de lectura cuelga de `clientes`, asi que solo se guarda para
+    // quien ya compro. Al prospecto se le responde igual y la insignia se le
+    // limpia en pantalla; volvera a salir en su siguiente visita.
     if (usuario.rol === ROL_CLIENTE) {
-      const ahora = new Date();
-      await this.prisma.lecturaDestacados.upsert({
-        where: { clienteId: usuario.sub },
-        update: { ultimaLectura: ahora },
-        create: { clienteId: usuario.sub, ultimaLectura: ahora },
-      });
+      const esCliente = await this.prisma.cliente.count({ where: { id: usuario.sub } });
+      if (esCliente) {
+        const ahora = new Date();
+        await this.prisma.lecturaDestacados.upsert({
+          where: { clienteId: usuario.sub },
+          update: { ultimaLectura: ahora },
+          create: { clienteId: usuario.sub, ultimaLectura: ahora },
+        });
+      }
     }
     return { noLeidos: 0 };
   }

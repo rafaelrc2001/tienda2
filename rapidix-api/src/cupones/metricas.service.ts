@@ -50,8 +50,14 @@ export class MetricasService {
           where: { status: EstadoCupon.USED },
           _sum: { discountApplied: true },
         }),
+        // Solo clientes: los cupones de un prospecto tienen `clienteId` a null
+        // y, sin este filtro, todos juntos contarian como uno mas.
         this.prisma.cuponEmitido
-          .findMany({ distinct: ['clienteId'], select: { clienteId: true } })
+          .findMany({
+            where: { clienteId: { not: null } },
+            distinct: ['clienteId'],
+            select: { clienteId: true },
+          })
           .then((filas) => filas.length),
         this.prisma.tipoCuponCicloVida.findMany({ select: { code: true, title: true } }),
         this.prisma.campania.findMany({ select: { name: true, title: true } }),

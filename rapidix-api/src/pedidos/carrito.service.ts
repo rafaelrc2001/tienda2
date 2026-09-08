@@ -235,7 +235,7 @@ export class CarritoService {
    * cuando el pedido se confirma de verdad.
    */
   async validarCupon(
-    clienteId: string,
+    duenioId: string,
     codigo: string,
     carrito: CarritoResuelto,
   ): Promise<ResultadoCupon> {
@@ -249,7 +249,10 @@ export class CarritoService {
     if (!cupon) {
       return this.rechazo('NO_ENCONTRADO', 'Cupón no encontrado', subtotal);
     }
-    if (cupon.clienteId !== clienteId) {
+    // El cupon de bienvenida se emite antes de la primera compra, cuando su
+    // dueno todavia es un prospecto: entonces cuelga de `prospectoId` y no de
+    // `clienteId`. Vale cualquiera de las dos columnas.
+    if (cupon.clienteId !== duenioId && cupon.prospectoId !== duenioId) {
       return this.rechazo('AJENO', 'Este cupón no pertenece a tu cuenta', subtotal);
     }
     if (cupon.status !== EstadoCupon.ACTIVE) {
@@ -512,11 +515,11 @@ export class CarritoService {
 
   /** Igual que `validarCupon`, pero lanza. Lo usa el checkout del paso 19. */
   async exigirCuponValido(
-    clienteId: string,
+    duenioId: string,
     codigo: string,
     carrito: CarritoResuelto,
   ): Promise<Extract<ResultadoCupon, { valido: true }>> {
-    const resultado = await this.validarCupon(clienteId, codigo, carrito);
+    const resultado = await this.validarCupon(duenioId, codigo, carrito);
     if (!resultado.valido) {
       throw new BadRequestException({
         statusCode: 400,

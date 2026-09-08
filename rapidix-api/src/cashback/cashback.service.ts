@@ -85,12 +85,29 @@ export class CashbackService {
   }
 
   /** Tarjeta de Cashback de Mi Perfil (Word 4.7). */
+  /** Lo que ve quien aun no ha comprado: todo a cero, sin nivel. */
+  private static readonly SIN_CASHBACK: EstadoCashback = {
+    saldo: 0,
+    nivelActual: null,
+    proximoNivel: null,
+    progresoPct: 0,
+    montoFaltante: 0,
+    totalGastado: 0,
+  };
+
   async estado(clienteId: string): Promise<EstadoCashback> {
     const [cliente, niveles] = await Promise.all([
       this.prisma.cliente.findUnique({ where: { id: clienteId } }),
       this.prisma.nivelFidelidad.findMany({ orderBy: { orden: 'asc' } }),
     ]);
-    if (!cliente) throw new NotFoundException('Cliente no encontrado');
+    // Quien todavia no ha comprado no tiene fila en `clientes`. No es un
+    // error: es un cashback de cero, que es justo lo que hay que ensenarle.
+    if (!cliente) {
+      if (await this.prisma.prospecto.count({ where: { id: clienteId } })) {
+        return CashbackService.SIN_CASHBACK;
+      }
+      throw new NotFoundException('Cliente no encontrado');
+    }
 
     const gastado = cliente.totalGastado;
     const actual = CashbackService.nivelPara(niveles, gastado);

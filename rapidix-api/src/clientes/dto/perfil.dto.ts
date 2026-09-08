@@ -145,6 +145,32 @@ export interface ClienteAdminDto {
   nivel: string | null;
 }
 
+/**
+ * Fila de "Prospectos": quien se registro pero todavia no ha comprado.
+ *
+ * Es el listado para sacar registros, no una vista de clientes: en cuanto uno
+ * hace su primer pedido desaparece de aqui y aparece en Clientes.
+ */
+export interface ProspectoAdminDto {
+  id: string;
+  nombre: string;
+  telefono: string;
+  ciudad: string | null;
+  estado: string | null;
+  /** Si llego a escribir su direccion antes de comprar. */
+  tieneDireccion: boolean;
+  fuenteCodigo: string | null;
+  creado: string;
+}
+
+/** Respuesta paginada de GET /admin/prospectos. */
+export interface PaginaProspectosDto {
+  datos: ProspectoAdminDto[];
+  total: number;
+  pagina: number;
+  porPagina: number;
+}
+
 export const ORDENES_CLIENTES = ['ultimoPedido', 'totalGastado', 'pedidos', 'creado'] as const;
 export type OrdenClientes = (typeof ORDENES_CLIENTES)[number];
 

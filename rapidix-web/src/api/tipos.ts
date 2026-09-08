@@ -563,3 +563,27 @@ export interface PaginaClientes {
   pagina: number
   porPagina: number
 }
+
+/**
+ * Quien se registró por WhatsApp y todavía no ha comprado.
+ *
+ * No es un cliente: se es cliente al hacer el primer pedido, y en ese momento
+ * desaparece de esta lista y aparece en la de clientes.
+ */
+export interface ProspectoAdmin {
+  id: string
+  nombre: string
+  telefono: string
+  ciudad: string | null
+  estado: string | null
+  tieneDireccion: boolean
+  fuenteCodigo: string | null
+  creado: string
+}
+
+export interface PaginaProspectos {
+  datos: ProspectoAdmin[]
+  total: number
+  pagina: number
+  porPagina: number
+}

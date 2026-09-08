@@ -25,10 +25,20 @@ export interface EntradaHistorial {
 export class RecetarioClienteService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Todas estas acciones son del cliente sobre su propio estado. */
-  private static exigirCliente(usuario: UsuarioAutenticado): string {
+  /**
+   * Todas estas acciones son del cliente sobre su propio estado.
+   *
+   * Quien todavia no ha comprado puede leer el Recetario, pero no guardar,
+   * pausar, cocinar ni calificar: todo eso cuelga de `clientes` y el no tiene
+   * fila alli hasta su primer pedido. Se comprueba contra la base y no contra
+   * el `tipo` del token, que puede haberse quedado viejo tras convertirse.
+   */
+  private async exigirCliente(usuario: UsuarioAutenticado): Promise<string> {
     if (usuario.rol !== ROL_CLIENTE) {
       throw new ForbiddenException('Esta acción es exclusiva de clientes.');
+    }
+    if (!(await this.prisma.cliente.count({ where: { id: usuario.sub } }))) {
+      throw new ForbiddenException('Haz tu primer pedido para guardar recetas.');
     }
     return usuario.sub;
   }
@@ -43,7 +53,7 @@ export class RecetarioClienteService {
   // ----------------------------------------------------------------
 
   async guardar(recetaId: string, usuario: UsuarioAutenticado): Promise<{ guardada: true }> {
-    const clienteId = RecetarioClienteService.exigirCliente(usuario);
+    const clienteId = await this.exigirCliente(usuario);
     await this.exigirReceta(recetaId);
     await this.prisma.recetaGuardada.upsert({
       where: { clienteId_recetaId: { clienteId, recetaId } },
@@ -54,7 +64,7 @@ export class RecetarioClienteService {
   }
 
   async quitarGuardada(recetaId: string, usuario: UsuarioAutenticado): Promise<{ guardada: false }> {
-    const clienteId = RecetarioClienteService.exigirCliente(usuario);
+    const clienteId = await this.exigirCliente(usuario);
     await this.prisma.recetaGuardada.deleteMany({ where: { clienteId, recetaId } });
     return { guardada: false };
   }
@@ -64,7 +74,7 @@ export class RecetarioClienteService {
   // ----------------------------------------------------------------
 
   async verPausada(usuario: UsuarioAutenticado): Promise<RecetaPausadaDto | null> {
-    const clienteId = RecetarioClienteService.exigirCliente(usuario);
+    const clienteId = await this.exigirCliente(usuario);
     const pausada = await this.prisma.recetaPausada.findUnique({
       where: { clienteId },
       include: { receta: { select: { id: true, nombre: true, emoji: true, imagenUrl: true } } },
@@ -85,7 +95,7 @@ export class RecetarioClienteService {
    * dos recetas en pausa a la vez (Word 6.4).
    */
   async pausar(recetaId: string, usuario: UsuarioAutenticado): Promise<RecetaPausadaDto> {
-    const clienteId = RecetarioClienteService.exigirCliente(usuario);
+    const clienteId = await this.exigirCliente(usuario);
     await this.exigirReceta(recetaId);
     await this.prisma.recetaPausada.upsert({
       where: { clienteId },
@@ -97,7 +107,7 @@ export class RecetarioClienteService {
 
   /** "Continuar receta" o "Cancelar receta" del aviso de Home. */
   async quitarPausa(usuario: UsuarioAutenticado): Promise<{ pausada: null }> {
-    const clienteId = RecetarioClienteService.exigirCliente(usuario);
+    const clienteId = await this.exigirCliente(usuario);
     await this.prisma.recetaPausada.deleteMany({ where: { clienteId } });
     return { pausada: null };
   }
@@ -115,7 +125,7 @@ export class RecetarioClienteService {
     recetaId: string,
     usuario: UsuarioAutenticado,
   ): Promise<{ cocinadaEn: string; puedeCalificar: true }> {
-    const clienteId = RecetarioClienteService.exigirCliente(usuario);
+    const clienteId = await this.exigirCliente(usuario);
     await this.exigirReceta(recetaId);
 
     const registro = await this.prisma.recetaCocinada.create({
@@ -137,7 +147,7 @@ export class RecetarioClienteService {
     usuario: UsuarioAutenticado,
     puntuacion: number,
   ): Promise<{ puntuacion: number }> {
-    const clienteId = RecetarioClienteService.exigirCliente(usuario);
+    const clienteId = await this.exigirCliente(usuario);
     await this.exigirReceta(recetaId);
 
     const cocinada = await this.prisma.recetaCocinada.count({ where: { clienteId, recetaId } });
@@ -163,7 +173,7 @@ export class RecetarioClienteService {
 
   /** Lo cocinado en los ultimos 35 dias, lo mas reciente primero. */
   async historial(usuario: UsuarioAutenticado): Promise<EntradaHistorial[]> {
-    const clienteId = RecetarioClienteService.exigirCliente(usuario);
+    const clienteId = await this.exigirCliente(usuario);
     const desde = new Date(Date.now() - DIAS_HISTORIAL * 24 * 60 * 60 * 1000);
 
     const filas = await this.prisma.recetaCocinada.findMany({

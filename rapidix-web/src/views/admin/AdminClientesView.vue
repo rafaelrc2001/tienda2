@@ -10,7 +10,7 @@ import { http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
 import { dinero, fecha } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
-import type { ClienteAdmin, PaginaClientes } from '@/api/tipos'
+import type { ClienteAdmin, PaginaClientes, PaginaProspectos, ProspectoAdmin } from '@/api/tipos'
 
 const ui = useUiStore()
 
@@ -21,7 +21,17 @@ const ORDENES = [
   { valor: 'creado', etiqueta: 'Fecha de alta' },
 ] as const
 
+/**
+ * Las dos listas de la pantalla.
+ *
+ * "Clientes" es la oficial: quien ya compró. "Prospectos" son los que dieron
+ * su teléfono y su nombre pero todavía no han hecho un pedido; en cuanto lo
+ * hacen cambian de pestaña solos.
+ */
+const pestania = ref<'clientes' | 'prospectos'>('clientes')
+
 const clientes = ref<ClienteAdmin[]>([])
+const prospectos = ref<ProspectoAdmin[]>([])
 const total = ref(0)
 const pagina = ref(1)
 const porPagina = ref(25)
@@ -41,6 +51,12 @@ onBeforeUnmount(() => clearTimeout(temporizador))
 // Cambiar el orden o de página recarga al momento.
 watch([orden, pagina], cargar)
 
+// Cambiar de pestaña empieza de cero: las dos listas no comparten paginación.
+watch(pestania, () => {
+  if (pagina.value !== 1) pagina.value = 1
+  else void cargar()
+})
+
 // Teclear espera a que pares: el buscador vuelve siempre a la primera página.
 watch(busqueda, () => {
   clearTimeout(temporizador)
@@ -53,13 +69,23 @@ watch(busqueda, () => {
 async function cargar(): Promise<void> {
   cargando.value = true
   try {
+    const query = {
+      q: busqueda.value.trim() || undefined,
+      pagina: pagina.value,
+      porPagina: porPagina.value,
+    }
+
+    if (pestania.value === 'prospectos') {
+      // La lista de prospectos va siempre por fecha de registro: lo que
+      // importa aquí es a quién hay que ir a buscar, no cuánto gastó.
+      const respuesta = await http.get<PaginaProspectos>('/admin/clientes/prospectos', { query })
+      prospectos.value = respuesta.datos
+      total.value = respuesta.total
+      return
+    }
+
     const respuesta = await http.get<PaginaClientes>('/admin/clientes', {
-      query: {
-        q: busqueda.value.trim() || undefined,
-        orden: orden.value,
-        pagina: pagina.value,
-        porPagina: porPagina.value,
-      },
+      query: { ...query, orden: orden.value },
     })
     clientes.value = respuesta.datos
     total.value = respuesta.total
@@ -85,6 +111,23 @@ function iniciales(nombre: string): string {
   <div class="pantalla">
     <RouterLink to="/admin" class="admin-back-inline">← Volver al menú</RouterLink>
 
+    <div class="pestanias">
+      <button
+        type="button"
+        :class="{ activa: pestania === 'clientes' }"
+        @click="pestania = 'clientes'"
+      >
+        Clientes
+      </button>
+      <button
+        type="button"
+        :class="{ activa: pestania === 'prospectos' }"
+        @click="pestania = 'prospectos'"
+      >
+        Prospectos
+      </button>
+    </div>
+
     <div class="filtros">
       <input
         v-model="busqueda"
@@ -92,17 +135,69 @@ function iniciales(nombre: string): string {
         type="search"
         placeholder="Buscar por nombre o teléfono…"
       />
-      <select v-model="orden" class="select-input">
+      <select v-if="pestania === 'clientes'" v-model="orden" class="select-input">
         <option v-for="o in ORDENES" :key="o.valor" :value="o.valor">{{ o.etiqueta }}</option>
       </select>
     </div>
 
     <p class="admin-list-count">
-      {{ total }} {{ total === 1 ? 'cliente' : 'clientes' }}
+      <template v-if="pestania === 'clientes'">
+        {{ total }} {{ total === 1 ? 'cliente' : 'clientes' }}
+      </template>
+      <template v-else>
+        {{ total }} {{ total === 1 ? 'prospecto' : 'prospectos' }} · aún sin comprar
+      </template>
       <span v-if="totalPaginas > 1"> · página {{ pagina }} de {{ totalPaginas }}</span>
     </p>
 
     <SkeletonList v-if="cargando" :cantidad="4" />
+
+    <template v-else-if="pestania === 'prospectos'">
+      <template v-if="prospectos.length > 0">
+        <article v-for="p in prospectos" :key="p.id" class="client-card">
+          <div class="client-card-top">
+            <div class="client-avatar">{{ iniciales(p.nombre) }}</div>
+            <div class="datos">
+              <p class="client-name">{{ p.nombre }}</p>
+              <p class="client-sub">
+                {{ p.telefono }}
+                <span v-if="p.ciudad"> · {{ p.ciudad }}</span>
+                <span v-if="p.estado">, {{ p.estado }}</span>
+              </p>
+            </div>
+          </div>
+
+          <div class="client-detail-row">
+            <b>Se registró</b><span>{{ fecha(p.creado) }}</span>
+          </div>
+          <div class="client-detail-row">
+            <b>Dirección</b>
+            <span>{{ p.tieneDireccion ? 'Ya la escribió' : 'Sin capturar' }}</span>
+          </div>
+          <div v-if="p.fuenteCodigo" class="client-detail-row">
+            <b>Fuente</b><span>{{ p.fuenteCodigo }}</span>
+          </div>
+        </article>
+
+        <div v-if="totalPaginas > 1" class="paginacion">
+          <button type="button" class="btn-secondary" :disabled="!hayAnterior" @click="pagina--">
+            ← Anterior
+          </button>
+          <span class="indicador">{{ pagina }} / {{ totalPaginas }}</span>
+          <button type="button" class="btn-secondary" :disabled="!haySiguiente" @click="pagina++">
+            Siguiente →
+          </button>
+        </div>
+      </template>
+
+      <p v-else class="empty-block">
+        {{
+          busqueda
+            ? 'Ningún prospecto coincide con la búsqueda.'
+            : 'Nadie se ha registrado sin comprar todavía.'
+        }}
+      </p>
+    </template>
 
     <template v-else-if="clientes.length > 0">
       <article v-for="cliente in clientes" :key="cliente.id" class="client-card">
@@ -160,6 +255,31 @@ function iniciales(nombre: string): string {
 <style scoped>
 .pantalla {
   padding: 12px 18px 24px;
+}
+
+.pestanias {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.pestanias button {
+  flex: 1;
+  padding: 9px 12px;
+  border: 1.5px solid var(--line);
+  background: var(--white);
+  border-radius: 12px;
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 12.5px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.pestanias button.activa {
+  border-color: var(--terracotta);
+  background: var(--terracotta);
+  color: var(--white);
 }
 
 .admin-back-inline {

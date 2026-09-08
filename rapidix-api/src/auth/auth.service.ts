@@ -7,7 +7,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { RolUsuario } from '@prisma/client';
+import { Cliente, Prospecto, RolUsuario } from '@prisma/client';
 import { randomInt, randomUUID } from 'node:crypto';
 import * as argon2 from 'argon2';
 import { PrismaService } from '../prisma/prisma.service';
@@ -170,7 +170,14 @@ export class AuthService {
           data: { nombre: NOMBRE_DEMO[ROL_CLIENTE], telefono: TELEFONO_DEMO },
         }));
 
-      return this.firmarToken({ sub: cliente.id, rol: ROL_CLIENTE, nombre: cliente.nombre });
+      // El cliente de prueba entra como CLIENTE, no como prospecto: es para
+      // recorrer la app entera sin tener que comprar antes.
+      return this.firmarToken({
+        sub: cliente.id,
+        rol: ROL_CLIENTE,
+        nombre: cliente.nombre,
+        tipo: 'CLIENTE',
+      });
     }
 
     const usuario =
@@ -277,11 +284,18 @@ export class AuthService {
   }
 
   /**
-   * Verifica el codigo y devuelve el token del cliente.
+   * Verifica el codigo y devuelve el token de quien entra.
    *
-   * Si el telefono no existe en la base, hace falta el nombre para darlo de
-   * alta (HU-C03). En ese caso el codigo NO se consume, para que el cliente
-   * pueda reintentar con su nombre sin pedir otro.
+   * El telefono se busca en las dos tablas, en este orden:
+   *
+   *  1. `clientes`: ya compro alguna vez. Entra como CLIENTE.
+   *  2. `prospectos`: se registro pero nunca compro. Entra como PROSPECTO,
+   *     con el nombre que dio aquel dia: no se le vuelve a preguntar.
+   *  3. En ninguna: hace falta el nombre para registrarlo (HU-C03), y se le
+   *     crea como prospecto. Solo sera cliente cuando confirme un pedido.
+   *
+   * Cuando falta el nombre el codigo NO se consume, para que pueda reintentar
+   * sin pedir otro.
    */
   async verificarCodigo(
     dto: VerificarCodigoDto,
@@ -293,10 +307,11 @@ export class AuthService {
     // consumir mas abajo.
     const registro = otpSinEnvio() ? null : await this.comprobarOtp(telefono, dto.codigo);
 
-    let cliente = await this.prisma.cliente.findUnique({ where: { telefono } });
-    const esNuevo = !cliente;
+    const cliente = await this.prisma.cliente.findUnique({ where: { telefono } });
+    let prospecto = cliente ? null : await this.prisma.prospecto.findUnique({ where: { telefono } });
+    const esNuevo = !cliente && !prospecto;
 
-    if (!cliente) {
+    if (esNuevo) {
       const nombre = dto.nombre?.trim();
       if (!nombre) {
         // Codigo intacto a proposito: el frontend pide el nombre y reintenta.
@@ -309,8 +324,10 @@ export class AuthService {
       // Un codigo de fuente inventado se ignora en vez de guardarse: la
       // atribucion tiene que poder cruzarse con las fuentes reales.
       const fuenteCodigo = await this.fuentes.codigoValido(dto.fuenteCodigo);
-      cliente = await this.prisma.cliente.create({ data: { nombre, telefono, fuenteCodigo } });
-      this.logger.log(`Cliente nuevo dado de alta: ${cliente.id}`);
+      prospecto = await this.prisma.prospecto.create({
+        data: { nombre, telefono, fuenteCodigo },
+      });
+      this.logger.log(`Prospecto nuevo registrado: ${prospecto.id}`);
     }
 
     if (registro) {
@@ -320,24 +337,57 @@ export class AuthService {
       });
     }
 
-    // Al identificar al cliente se evaluan los cupones que le correspondan
+    // Al identificar a quien entra se evaluan los cupones que le correspondan
     // (Word 4.1). Un fallo aqui no puede impedirle entrar a la app.
-    let cuponesNuevos = 0;
+    const cuponesNuevos = cliente
+      ? await this.cuponesDelCliente(cliente)
+      : await this.cuponesDelProspecto(prospecto!);
+
+    const quien = cliente ?? prospecto!;
+    return {
+      ...this.firmarToken({
+        sub: quien.id,
+        rol: ROL_CLIENTE,
+        nombre: quien.nombre,
+        tipo: cliente ? 'CLIENTE' : 'PROSPECTO',
+      }),
+      esNuevo,
+      cuponesNuevos,
+    };
+  }
+
+  /** Ciclo de vida completo y campanias. Solo para quien ya es cliente. */
+  private async cuponesDelCliente(cliente: Cliente): Promise<number> {
     try {
       const cicloVida = await this.cupones.evaluarAlIniciarSesion(cliente);
       const deCampania = await this.campanias.emitirCampaniasElegibles(cliente);
-      cuponesNuevos = cicloVida.length + deCampania.length;
+      return cicloVida.length + deCampania.length;
     } catch (error) {
       this.logger.error(
         `No se pudieron evaluar los cupones de ${cliente.id}: ${(error as Error).message}`,
       );
+      return 0;
     }
+  }
 
-    return {
-      ...this.firmarToken({ sub: cliente.id, rol: ROL_CLIENTE, nombre: cliente.nombre }),
-      esNuevo,
-      cuponesNuevos,
-    };
+  /**
+   * Del prospecto solo se evalua el WELCOME.
+   *
+   * Los demas cupones del ciclo de vida miran el historial de compra
+   * (inactividad, segunda compra) o datos que un prospecto no tiene
+   * (cumpleanos), y las campanias segmentan sobre `clientes`. El de
+   * bienvenida es justo el que tiene sentido aqui: es el que lo empuja a
+   * hacer el primer pedido.
+   */
+  private async cuponesDelProspecto(prospecto: Prospecto): Promise<number> {
+    try {
+      return (await this.cupones.maybeIssueWelcomeProspecto(prospecto)) ? 1 : 0;
+    } catch (error) {
+      this.logger.error(
+        `No se pudo emitir el cupón de bienvenida de ${prospecto.id}: ${(error as Error).message}`,
+      );
+      return 0;
+    }
   }
 
   // ----------------------------------------------------------------

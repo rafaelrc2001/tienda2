@@ -114,7 +114,7 @@ export class CampaniasService {
   async emitirDePrueba(id: string, clienteId: string): Promise<{ code: string }> {
     const campania = await this.prisma.campania.findUnique({ where: { id } });
     if (!campania) throw new NotFoundException('Campaña no encontrada');
-    const cupon = await this.cupones.emitir(campania, OrigenCupon.CAMPAIGN, clienteId);
+    const cupon = await this.cupones.emitir(campania, OrigenCupon.CAMPAIGN, { clienteId });
     return { code: cupon.code };
   }
 
@@ -146,7 +146,7 @@ export class CampaniasService {
       if (campania.endsAt && ahora > CampaniasService.finDelDia(campania.endsAt)) continue;
       if (await this.cupones.tieneCuponActivoOUsado(cliente.id, campania.name)) continue;
       if (!CampaniasService.clienteCalifica(cliente, campania, ahora)) continue;
-      emitidos.push(await this.cupones.emitir(campania, OrigenCupon.CAMPAIGN, cliente.id));
+      emitidos.push(await this.cupones.emitir(campania, OrigenCupon.CAMPAIGN, { clienteId: cliente.id }));
     }
     return emitidos;
   }

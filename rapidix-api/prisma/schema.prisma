@@ -95,6 +95,55 @@ model Cliente {
   @@map("clientes")
 }
 
+/// Quien entro por WhatsApp y dio su nombre, pero todavia no ha comprado.
+///
+/// Es cliente el que hace un pedido, no el que se registra: hasta entonces el
+/// registro vive aqui y no en `clientes`, que es la tabla oficial del negocio
+/// y la que cuenta para metricas, campanias y segmentacion.
+///
+/// Al confirmar su primer pedido la fila se convierte: se crea el `Cliente`,
+/// sus cupones cambian de dueno y esta se borra. Por eso un telefono nunca
+/// esta en las dos tablas a la vez, y `telefono` es unico en ambas.
+model Prospecto {
+  id       String @id @default(uuid())
+  nombre   String
+  /// WhatsApp. Mismo identificador de login que en `clientes`.
+  telefono String @unique
+
+  /// Los mismos campos que edita "Mi Perfil", repetidos aqui a proposito.
+  ///
+  /// Sin ellos un prospecto no podria dar su direccion antes de comprar, y su
+  /// primer pedido llegaria sin donde entregarlo. Al convertirse se copian
+  /// tal cual al `Cliente`, asi que lo que escribio no se pierde.
+  email           String?
+  fechaNacimiento DateTime?
+  quienRecibe     String?
+  sucursal        String?
+
+  calle       String?
+  colonia     String?
+  cp          String?
+  ciudad      String?
+  estado      String?
+  referencias String?
+  lat         Float?
+  lng         Float?
+
+  notificaciones Boolean @default(true)
+
+  /// Codigo de la fuente de adquisicion, capturado del enlace rapidix.mx/r/CODIGO.
+  /// Viaja al cliente al convertirse: la atribucion es del registro, no de la compra.
+  fuenteCodigo String?
+
+  creado        DateTime @default(now())
+  actualizadoEn DateTime @updatedAt
+
+  cupones CuponEmitido[]
+
+  @@index([creado])
+  @@map("prospectos")
+}
+
 /// Codigos de un solo uso para el login del cliente por WhatsApp.
 model CodigoOtp {
   id          String    @id @default(uuid())
@@ -433,11 +482,17 @@ model Campania {
 /// Cupon individual emitido a un cliente. Sus condiciones quedan "congeladas"
 /// al momento de la emision (Word 5, regla 1).
 model CuponEmitido {
-  id        String  @id @default(uuid())
+  id   String @id @default(uuid())
   /// RPD + 4 caracteres de ABCDEFGHJKLMNPQRSTUVWXYZ23456789.
-  code      String  @unique
-  clienteId String
-  cliente   Cliente @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  code String @unique
+
+  /// Dueno del cupon. Exactamente uno de los dos esta puesto: el cupon de
+  /// bienvenida se emite antes de la primera compra, cuando todavia no hay
+  /// `Cliente`, y cambia de columna al convertirse el prospecto.
+  clienteId   String?
+  cliente     Cliente?   @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  prospectoId String?
+  prospecto   Prospecto? @relation(fields: [prospectoId], references: [id], onDelete: Cascade)
 
   sourceKind OrigenCupon
   /// `code` del tipo de ciclo de vida, o `name` de la campania.
@@ -464,6 +519,7 @@ model CuponEmitido {
   discountApplied Decimal?    @db.Decimal(12, 2)
 
   @@index([clienteId, status])
+  @@index([prospectoId, status])
   @@index([sourceKind, sourceCode, status])
   @@index([status, expiresAt])
   @@map("cupones_emitidos")

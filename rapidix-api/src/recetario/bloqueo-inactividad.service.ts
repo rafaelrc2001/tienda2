@@ -6,6 +6,13 @@ import { ROL_CLIENTE, UsuarioAutenticado } from '../auth/jwt-payload';
 const MENSAJE_BLOQUEO =
   'Haz tu primer pedido para desbloquear el Recetario. ¡Te dejamos un cupón para estrenarte!';
 
+/**
+ * El mismo bloqueo para quien todavia no ha comprado, sin prometer un cupon:
+ * el suyo ya lo tiene desde que se registro, en su pestana de Cupones.
+ */
+const MENSAJE_BLOQUEO_PROSPECTO =
+  'Haz tu primer pedido para desbloquear el Recetario. Tienes un cupón de bienvenida esperándote.';
+
 const MENSAJE_BLOQUEO_INACTIVO =
   'Hace tiempo que no nos visitas. Realiza un pedido para volver a usar el Recetario; te dejamos un cupón.';
 
@@ -35,7 +42,23 @@ export class BloqueoInactividadService {
     if (usuario.rol !== ROL_CLIENTE) return;
 
     const cliente = await this.prisma.cliente.findUnique({ where: { id: usuario.sub } });
-    if (!cliente) return;
+
+    // Quien no ha comprado nunca no tiene fila en `clientes`: es el caso de
+    // "0 pedidos" del propio bloqueo, asi que se le aplica igual. No se le
+    // emite el cupon de inactividad porque ya recibio el de bienvenida al
+    // registrarse, y ese es el que tiene que empujarle a comprar.
+    if (!cliente) {
+      if (!(await this.prisma.prospecto.count({ where: { id: usuario.sub } }))) return;
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.LOCKED,
+          code: 'RECETARIO_BLOQUEADO',
+          message: MENSAJE_BLOQUEO_PROSPECTO,
+          cupon: null,
+        },
+        HttpStatus.LOCKED,
+      );
+    }
 
     // El mismo metodo decide si esta inactivo y emite el cupon si toca, para
     // que la regla viva en un unico sitio.

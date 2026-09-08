@@ -1,5 +1,5 @@
 import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { EstadoCupon, Pedido, Prisma } from '@prisma/client';
+import { Cliente, EstadoCupon, Pedido, Prisma, Prospecto } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConfiguracionService } from '../configuracion/configuracion.service';
 import { CuponesService } from '../cupones/cupones.service';
@@ -56,16 +56,25 @@ export class PedidosService {
    *  1. Resolver el carrito contra la base (precios reales, nada del cliente).
    *  2. Calcular envio y recargo fuera de horario.
    *  3. Bloquear la fila del cupon y revalidarlo.
-   *  4. Crear el pedido y sus lineas.
-   *  5. Marcar el cupon como USED.
-   *  6. Cancelar el WELCOME sobrante.
-   *  7. Actualizar los contadores del cliente.
-   *  8. Emitir el cupon de segunda compra si corresponde.
+   *  4. Convertir al prospecto en cliente, si es su primera compra.
+   *  5. Crear el pedido y sus lineas.
+   *  6. Marcar el cupon como USED.
+   *  7. Cancelar el WELCOME sobrante.
+   *  8. Actualizar los contadores del cliente.
+   *  9. Emitir el cupon de segunda compra si corresponde.
    */
-  async crear(clienteId: string, dto: CrearPedidoDto): Promise<PedidoDto> {
-    const cliente = await this.prisma.cliente.findUnique({ where: { id: clienteId } });
-    if (!cliente) throw new NotFoundException('Cliente no encontrado');
-    if (!cliente.nombre?.trim()) {
+  async crear(duenioId: string, dto: CrearPedidoDto): Promise<PedidoDto> {
+    // `duenioId` puede ser un cliente o un prospecto: este es el pedido que lo
+    // convierte. Todavia no se toca nada, solo se comprueba que existe en
+    // alguna de las dos tablas.
+    const cliente = await this.prisma.cliente.findUnique({ where: { id: duenioId } });
+    const prospecto = cliente
+      ? null
+      : await this.prisma.prospecto.findUnique({ where: { id: duenioId } });
+
+    const quien = cliente ?? prospecto;
+    if (!quien) throw new NotFoundException('Cliente no encontrado');
+    if (!quien.nombre?.trim()) {
       throw new ConflictException('Completa tu nombre en Mi Perfil antes de pedir.');
     }
 
@@ -85,8 +94,10 @@ export class PedidosService {
       let cuponId: string | null = null;
 
       if (dto.codigoCupon) {
+        // Con el id del token, no con el del cliente que se creara luego: el
+        // cupon de bienvenida todavia cuelga del prospecto en este punto.
         const validacion = await this.carrito.exigirCuponValido(
-          clienteId,
+          duenioId,
           dto.codigoCupon,
           carrito,
         );
@@ -112,6 +123,12 @@ export class PedidosService {
       const folio = await PedidosService.siguienteFolio(tx);
       const ahora = new Date();
 
+      // Aqui es donde un prospecto se vuelve cliente: al confirmar, no al
+      // registrarse. Dentro de la transaccion, para que no quede un cliente
+      // creado si el pedido acaba fallando.
+      const comprador = prospecto ? await this.convertir(tx, prospecto) : cliente!;
+      const clienteId = comprador.id;
+
       const pedido = await tx.pedido.create({
         data: {
           folio,
@@ -123,15 +140,15 @@ export class PedidosService {
           total,
           estado: 'CONFIRMADO',
           direccion: {
-            calle: cliente.calle,
-            colonia: cliente.colonia,
-            cp: cliente.cp,
-            ciudad: cliente.ciudad,
-            estado: cliente.estado,
-            referencias: cliente.referencias,
-            lat: cliente.lat,
-            lng: cliente.lng,
-            quienRecibe: cliente.quienRecibe,
+            calle: comprador.calle,
+            colonia: comprador.colonia,
+            cp: comprador.cp,
+            ciudad: comprador.ciudad,
+            estado: comprador.estado,
+            referencias: comprador.referencias,
+            lat: comprador.lat,
+            lng: comprador.lng,
+            quienRecibe: comprador.quienRecibe,
           },
           items: {
             create: carrito.lineas.map((l) => ({
@@ -174,7 +191,7 @@ export class PedidosService {
           pedidos: { increment: 1 },
           totalGastado: { increment: total },
           ultimoPedido: ahora,
-          ...(cliente.primerPedido === null && { primerPedido: ahora }),
+          ...(comprador.primerPedido === null && { primerPedido: ahora }),
         },
       });
 
@@ -214,6 +231,56 @@ export class PedidosService {
         }),
       );
     });
+  }
+
+  /**
+   * Convierte un prospecto en cliente. Es el unico sitio donde nace un cliente
+   * que no venia ya de la base: se es cliente al comprar, no al registrarse.
+   *
+   * Tres pasos, todos dentro de la transaccion del pedido:
+   *
+   *  1. Se crea el `Cliente` con lo que el prospecto ya habia escrito, incluida
+   *     la direccion y la fuente de adquisicion: la atribucion es del registro,
+   *     no de la compra. **Con el mismo id**, que es lo que hace que el token
+   *     que el navegador ya tiene siga valiendo despues de comprar: `sub` no
+   *     cambia y nadie tiene que volver a entrar.
+   *  2. Sus cupones cambian de dueno. El de bienvenida pasa a `clienteId` justo
+   *     a tiempo de gastarse en este mismo pedido.
+   *  3. Se borra la fila de `prospectos`, para que un telefono nunca este en
+   *     las dos tablas.
+   */
+  private async convertir(tx: Prisma.TransactionClient, prospecto: Prospecto): Promise<Cliente> {
+    const cliente = await tx.cliente.create({
+      data: {
+        id: prospecto.id,
+        nombre: prospecto.nombre,
+        telefono: prospecto.telefono,
+        email: prospecto.email,
+        fechaNacimiento: prospecto.fechaNacimiento,
+        quienRecibe: prospecto.quienRecibe,
+        sucursal: prospecto.sucursal,
+        calle: prospecto.calle,
+        colonia: prospecto.colonia,
+        cp: prospecto.cp,
+        ciudad: prospecto.ciudad,
+        estado: prospecto.estado,
+        referencias: prospecto.referencias,
+        lat: prospecto.lat,
+        lng: prospecto.lng,
+        notificaciones: prospecto.notificaciones,
+        fuenteCodigo: prospecto.fuenteCodigo,
+      },
+    });
+
+    await tx.cuponEmitido.updateMany({
+      where: { prospectoId: prospecto.id },
+      data: { clienteId: cliente.id, prospectoId: null },
+    });
+
+    await tx.prospecto.delete({ where: { id: prospecto.id } });
+
+    this.logger.log(`Prospecto ${prospecto.id} convertido en cliente ${cliente.id}`);
+    return cliente;
   }
 
   /** Folio legible y sin colisiones, servido por una secuencia de Postgres. */

@@ -1,7 +1,11 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ClientesService } from './clientes.service';
-import { BuscarClientesDto, PaginaClientesDto } from './dto/perfil.dto';
+import {
+  BuscarClientesDto,
+  PaginaClientesDto,
+  PaginaProspectosDto,
+} from './dto/perfil.dto';
 import { RequiereSeccion } from '../auth/seccion.decorator';
 
 /**
@@ -20,5 +24,17 @@ export class AdminClientesController {
   @Get()
   listar(@Query() filtros: BuscarClientesDto): Promise<PaginaClientesDto> {
     return this.clientes.listarParaAdmin(filtros);
+  }
+
+  /**
+   * Los que se registraron y todavia no han comprado.
+   *
+   * No son clientes y por eso no salen en el listado de arriba: aqui estan
+   * para poder ir a buscarlos. En cuanto uno hace su primer pedido cambia de
+   * lista solo.
+   */
+  @Get('prospectos')
+  prospectos(@Query() filtros: BuscarClientesDto): Promise<PaginaProspectosDto> {
+    return this.clientes.listarProspectosParaAdmin(filtros);
   }
 }

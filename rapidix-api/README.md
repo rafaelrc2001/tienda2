@@ -77,6 +77,43 @@ la primera vez con `npx prisma db seed`.
 
 ---
 
+## Prospectos: cuándo alguien es cliente
+
+Es cliente **quien ha hecho un pedido**, no quien se registra. El registro por
+WhatsApp crea una fila en `prospectos`; `clientes` es la tabla oficial, la que
+cuenta para métricas, campañas y segmentación.
+
+Al entrar, el teléfono se busca en las dos tablas:
+
+| Dónde aparece | Qué pasa |
+| --- | --- |
+| `clientes` | Entra y se le saluda por su nombre. |
+| `prospectos` | Entra igual, con el nombre que dio al registrarse. **No se le vuelve a preguntar.** |
+| En ninguna | Se le pide el nombre y se crea como prospecto. |
+
+Un teléfono nunca está en las dos: al confirmar su primer pedido, dentro de la
+misma transacción, se crea el `Cliente` **conservando el id**, sus cupones
+cambian de dueño y la fila de `prospectos` se borra. Conservar el id es lo que
+hace que el token que ya tiene el navegador siga valiendo después de comprar,
+sin obligar a volver a entrar.
+
+Qué puede hacer un prospecto:
+
+- Navegar el catálogo y armar el carrito.
+- Recibir y gastar su **cupón de bienvenida** — cuelga de `prospectoId` y pasa
+  a ser suyo como cliente justo a tiempo de usarlo en el pedido que lo convierte.
+- Escribir su dirección en Mi Perfil, para que su primer pedido tenga dónde
+  entregarse. Esos datos viajan al cliente al convertirse.
+
+Qué no: guardar recetas, abrir el detalle del Recetario (mismo bloqueo que un
+cliente con 0 pedidos), acumular cashback ni tener historial de pedidos.
+
+El panel los lista en **Administración → Clientes → pestaña Prospectos**
+(`GET /admin/clientes/prospectos`), que es de donde se sacan los registros de
+quien se interesó pero todavía no ha comprado.
+
+---
+
 ## Estructura
 
 ```
@@ -93,8 +130,8 @@ src/
   notifications/  Interfaz de envío (WhatsApp) con implementación de consola
   prisma/         Cliente de Prisma
 prisma/
-  schema.prisma   24 modelos, 8 enums
-  migrations/     3 migraciones
+  schema.prisma   25 modelos, 8 enums
+  migrations/     5 migraciones
   seed.ts         Datos del prototipo
 ```
 

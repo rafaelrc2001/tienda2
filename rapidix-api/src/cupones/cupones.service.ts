@@ -6,6 +6,7 @@ import {
   EstadoCupon,
   OrigenCupon,
   Prisma,
+  Prospecto,
   TipoCuponCicloVida,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -33,6 +34,26 @@ const DIAS_ENTRE_CUMPLEANOS = 300;
 const DIA_MS = 24 * 60 * 60 * 1000;
 
 type Plantilla = TipoCuponCicloVida | Campania;
+
+/**
+ * A quien se le emite un cupon: a un cliente, o a un prospecto que todavia no
+ * ha comprado. Nunca a los dos, que es lo que impide el tipo.
+ */
+export type DuenioCupon =
+  | { clienteId: string; prospectoId?: never }
+  | { prospectoId: string; clienteId?: never };
+
+/**
+ * Filtro `where` de los cupones de un id, venga de la tabla que venga.
+ *
+ * Al convertirse un prospecto sus cupones cambian de columna, asi que las
+ * consultas que no necesitan saber en cual esta preguntan por las dos. Los
+ * ids son UUID y no se repiten entre tablas, de modo que la busqueda no
+ * puede traer los de otro.
+ */
+export function cuponesDe(duenioId: string): Prisma.CuponEmitidoWhereInput {
+  return { OR: [{ clienteId: duenioId }, { prospectoId: duenioId }] };
+}
 
 @Injectable()
 export class CuponesService {
@@ -63,10 +84,10 @@ export class CuponesService {
    * Un cliente no recibe dos veces el mismo tipo de cupon mientras el anterior
    * siga vivo o ya se haya usado (Word 5, reglas 6 y 8).
    */
-  async tieneCuponActivoOUsado(clienteId: string, sourceCode: string): Promise<boolean> {
+  async tieneCuponActivoOUsado(duenioId: string, sourceCode: string): Promise<boolean> {
     const n = await this.prisma.cuponEmitido.count({
       where: {
-        clienteId,
+        ...cuponesDe(duenioId),
         sourceCode,
         status: { in: [EstadoCupon.ACTIVE, EstadoCupon.USED] },
       },
@@ -85,7 +106,7 @@ export class CuponesService {
   async emitir(
     plantilla: Plantilla,
     sourceKind: OrigenCupon,
-    clienteId: string,
+    duenio: DuenioCupon,
     tx: Prisma.TransactionClient = this.prisma,
   ): Promise<CuponEmitido> {
     const esCampania = sourceKind === OrigenCupon.CAMPAIGN;
@@ -106,7 +127,7 @@ export class CuponesService {
     const cupon = await tx.cuponEmitido.create({
       data: {
         code: await this.generarCodigoUnico(),
-        clienteId,
+        ...duenio,
         sourceKind,
         sourceCode: cicloVida?.code ?? campania!.name,
         title: plantilla.title,
@@ -124,7 +145,9 @@ export class CuponesService {
       },
     });
 
-    this.logger.log(`Cupón ${cupon.code} (${cupon.sourceCode}) emitido a ${clienteId}`);
+    this.logger.log(
+      `Cupón ${cupon.code} (${cupon.sourceCode}) emitido a ${cupon.clienteId ?? cupon.prospectoId}`,
+    );
     return cupon;
   }
 
@@ -142,7 +165,22 @@ export class CuponesService {
     if (!t?.isActive) return null;
     if (cliente.pedidos > 0) return null;
     if (await this.tieneCuponActivoOUsado(cliente.id, 'WELCOME')) return null;
-    return this.emitir(t, OrigenCupon.LIFECYCLE, cliente.id);
+    return this.emitir(t, OrigenCupon.LIFECYCLE, { clienteId: cliente.id });
+  }
+
+  /**
+   * El mismo cupon de bienvenida, para quien todavia no es cliente.
+   *
+   * No hace falta comprobar `pedidos > 0`: un prospecto por definicion no ha
+   * comprado nunca, porque en cuanto lo hace deja de serlo. El cupon se queda
+   * colgado de `prospectoId` y pasa a ser suyo como cliente al convertirse,
+   * asi que puede gastarlo justo en el pedido que lo convierte.
+   */
+  async maybeIssueWelcomeProspecto(prospecto: Prospecto): Promise<CuponEmitido | null> {
+    const t = await this.tipo('WELCOME');
+    if (!t?.isActive) return null;
+    if (await this.tieneCuponActivoOUsado(prospecto.id, 'WELCOME')) return null;
+    return this.emitir(t, OrigenCupon.LIFECYCLE, { prospectoId: prospecto.id });
   }
 
   /**
@@ -157,7 +195,7 @@ export class CuponesService {
     if (!t?.isActive) return null;
     if (cliente.pedidos !== 1) return null;
     if (await this.tieneCuponActivoOUsado(cliente.id, 'SECOND_PURCHASE')) return null;
-    return this.emitir(t, OrigenCupon.LIFECYCLE, cliente.id, tx);
+    return this.emitir(t, OrigenCupon.LIFECYCLE, { clienteId: cliente.id }, tx);
   }
 
   /**
@@ -181,7 +219,7 @@ export class CuponesService {
     if (await this.tieneCuponActivoOUsado(cliente.id, 'INACTIVITY')) {
       return { inactivo, cupon: null };
     }
-    return { inactivo, cupon: await this.emitir(t, OrigenCupon.LIFECYCLE, cliente.id) };
+    return { inactivo, cupon: await this.emitir(t, OrigenCupon.LIFECYCLE, { clienteId: cliente.id }) };
   }
 
   /**
@@ -213,7 +251,7 @@ export class CuponesService {
     });
     if (reciente > 0) return null;
 
-    return this.emitir(t, OrigenCupon.LIFECYCLE, cliente.id);
+    return this.emitir(t, OrigenCupon.LIFECYCLE, { clienteId: cliente.id });
   }
 
   /** Dias entre hoy y el aniversario mas cercano, hacia atras o hacia delante. */
@@ -247,9 +285,13 @@ export class CuponesService {
   // ----------------------------------------------------------------
 
   /** Cupones ACTIVE del cliente, para la pestana Cupones (Word 4.5). */
-  async misCupones(clienteId: string): Promise<CuponEmitido[]> {
+  async misCupones(duenioId: string): Promise<CuponEmitido[]> {
     return this.prisma.cuponEmitido.findMany({
-      where: { clienteId, status: EstadoCupon.ACTIVE, expiresAt: { gt: new Date() } },
+      where: {
+        ...cuponesDe(duenioId),
+        status: EstadoCupon.ACTIVE,
+        expiresAt: { gt: new Date() },
+      },
       orderBy: { expiresAt: 'asc' },
     });
   }
