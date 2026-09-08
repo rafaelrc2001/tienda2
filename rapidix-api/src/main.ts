@@ -4,6 +4,7 @@ import { Logger, ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { demoLoginActivo, otpSinEnvio } from './auth/auth.service';
+import { consolaPermitidaEnProduccion } from './notifications/notifications.module';
 
 /**
  * Origenes que pueden llamar a la API.
@@ -82,6 +83,15 @@ async function bootstrap(): Promise<void> {
     Logger.warn(
       'AUTH_OTP_BYPASS=true — el login de cliente NO pide el código: ' +
         'cualquiera que sepa un teléfono entra como ese cliente. Apágalo antes de producción.',
+      'Bootstrap',
+    );
+  }
+
+  if (consolaPermitidaEnProduccion()) {
+    Logger.warn(
+      'NOTIFICATIONS_ALLOW_CONSOLE=true — no se envía nada por WhatsApp y los ' +
+        'códigos OTP quedan escritos en este log: quien lo lea entra como ' +
+        'cualquier cliente. Solo para demos.',
       'Bootstrap',
     );
   }

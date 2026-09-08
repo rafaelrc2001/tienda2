@@ -41,6 +41,7 @@ configuración que ya trae el `.env.example`.
 | `APP_PUBLIC_URL` | no | Base de los enlaces de fuentes: `<APP_PUBLIC_URL>/r/CODIGO`. Por defecto `https://rapidix.mx`. |
 | `ADMIN_EMAIL` | no | Correo del administrador que crea el seed. Por defecto `admin@rapidix.mx`. |
 | `ADMIN_PASSWORD` | en producción | Contraseña de ese administrador. **El seed falla en producción si no está definida.** |
+| `NOTIFICATIONS_ALLOW_CONSOLE` | no | Con `true` deja arrancar en producción sin proveedor real de WhatsApp, escribiendo los OTP en el log. Solo para demos. Por defecto `false`. |
 | `S3_ENDPOINT` | para imágenes | Endpoint S3-compatible (Cloudflare R2 o AWS S3). |
 | `S3_REGION` | no | Por defecto `auto`. |
 | `S3_BUCKET` | para imágenes | Nombre del bucket. |
@@ -56,7 +57,9 @@ con un 503 que dice qué falta.
 - El seed **se niega** a crear el administrador con la contraseña por defecto.
 - El envío de notificaciones por consola **no se registra**: el arranque falla
   si no hay un proveedor real configurado. Es deliberado: esa implementación
-  escribe los códigos OTP en el log del servidor.
+  escribe los códigos OTP en el log del servidor. Para desplegar una demo
+  mientras WhatsApp está fuera de alcance, `NOTIFICATIONS_ALLOW_CONSOLE=true`
+  levanta el bloqueo asumiendo el riesgo; el arranque lo avisa en el log.
 
 ---
 
