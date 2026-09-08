@@ -17,6 +17,7 @@ const SELECT_PERFIL = {
   telefono: true,
   fechaNacimiento: true,
   quienRecibe: true,
+  sucursal: true,
   calle: true,
   colonia: true,
   cp: true,
@@ -144,6 +145,7 @@ export class ClientesService {
       telefono: c.telefono,
       fechaNacimiento: c.fechaNacimiento?.toISOString() ?? null,
       quienRecibe: c.quienRecibe,
+      sucursal: c.sucursal,
       direccion: {
         calle: c.calle,
         colonia: c.colonia,

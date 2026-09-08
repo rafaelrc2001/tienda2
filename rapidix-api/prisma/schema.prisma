@@ -56,6 +56,11 @@ model Cliente {
   lat         Float?
   lng         Float?
 
+  /// Sucursal a la que pertenece el cliente. Se usa para segmentar campanias
+  /// (Word 4.9.3); es texto libre porque el negocio todavia no tiene un
+  /// catalogo de sucursales.
+  sucursal String?
+
   /// Codigo de la fuente de adquisicion, capturado del enlace rapidix.mx/r/CODIGO.
   fuenteCodigo   String?
   notificaciones Boolean @default(true)

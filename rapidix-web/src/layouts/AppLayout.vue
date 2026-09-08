@@ -40,8 +40,19 @@ const emit = defineEmits<{ (e: 'menu'): void }>()
           </svg>
         </button>
         <h1 class="topbar-title">{{ titulo }}</h1>
-        <!-- Equilibra el botón para que el título quede centrado. -->
-        <span class="topbar-spacer" aria-hidden="true" />
+
+        <!--
+          Mi Perfil vive arriba a la derecha, no en la barra inferior: se
+          llega igual desde cualquier pantalla y deja la cinta de abajo para
+          las secciones que se recorren a diario.
+        -->
+        <RouterLink to="/perfil" class="perfil-btn" aria-label="Mi perfil">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="8" r="3.6" />
+            <path d="M4.5 20c0-3.6 3.4-6 7.5-6s7.5 2.4 7.5 6" />
+          </svg>
+        </RouterLink>
       </header>
 
       <main class="app-screen">
@@ -147,9 +158,28 @@ const emit = defineEmits<{ (e: 'menu'): void }>()
   white-space: nowrap;
 }
 
-.topbar-spacer {
+/* Mismo tamaño que la hamburguesa: el título queda centrado entre las dos. */
+.perfil-btn {
   width: 34px;
+  height: 34px;
+  border-radius: 11px;
+  background: var(--white);
+  box-shadow: var(--shadow);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink);
   flex-shrink: 0;
+  text-decoration: none;
+}
+
+.perfil-btn svg {
+  width: 19px;
+  height: 19px;
+}
+
+.perfil-btn.router-link-active {
+  color: var(--terracotta);
 }
 
 .app-screen {

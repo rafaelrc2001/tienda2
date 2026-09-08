@@ -10,6 +10,9 @@ export const ATRIBUTOS_SEGMENTO = [
   'totalGastado',
   'diasSinComprar',
   'diasComoCliente',
+  'cliente',
+  'sucursal',
+  'colonia',
   'ciudad',
   'estado',
   'mesCumpleanos',
@@ -20,7 +23,13 @@ export const OPERADORES_SEGMENTO = ['>', '>=', '<', '<=', '=', 'contiene'] as co
 export type OperadorSegmento = (typeof OPERADORES_SEGMENTO)[number];
 
 /** `contiene` solo tiene sentido sobre los atributos de texto. */
-export const ATRIBUTOS_TEXTO: readonly AtributoSegmento[] = ['ciudad', 'estado'];
+export const ATRIBUTOS_TEXTO: readonly AtributoSegmento[] = [
+  'cliente',
+  'sucursal',
+  'colonia',
+  'ciudad',
+  'estado',
+];
 
 export interface ReglaSegmento {
   attr: AtributoSegmento;
@@ -34,6 +43,11 @@ export interface ClienteSegmentable {
   totalGastado: number;
   ultimoPedido: Date | null;
   creado: Date;
+  /** Para el atributo `cliente`: casa contra el nombre o contra el telefono. */
+  nombre: string;
+  telefono: string;
+  sucursal: string | null;
+  colonia: string | null;
   ciudad: string | null;
   estado: string | null;
   fechaNacimiento: Date | null;
@@ -53,6 +67,24 @@ export function evaluarRegla(
   regla: ReglaSegmento,
   ahora = new Date(),
 ): boolean {
+  // `cliente` apunta a una persona concreta, asi que casa contra el nombre o
+  // contra el telefono: en el panel se escribe uno u otro indistintamente y
+  // no tiene sentido obligar a acertar cual.
+  if (regla.attr === 'cliente') {
+    const objetivo = regla.value.trim().toLowerCase();
+    if (objetivo === '') return false;
+    const nombre = cliente.nombre.toLowerCase();
+    const telefono = cliente.telefono.toLowerCase();
+    switch (regla.op) {
+      case '=':
+        return nombre === objetivo || telefono === objetivo;
+      case 'contiene':
+        return nombre.includes(objetivo) || telefono.includes(objetivo);
+      default:
+        return false;
+    }
+  }
+
   const esTexto = ATRIBUTOS_TEXTO.includes(regla.attr);
   let valor: number | string | null;
 
@@ -70,6 +102,12 @@ export function evaluarRegla(
       break;
     case 'diasComoCliente':
       valor = cliente.creado ? (ahora.getTime() - cliente.creado.getTime()) / DIA_MS : 0;
+      break;
+    case 'sucursal':
+      valor = (cliente.sucursal ?? '').toLowerCase();
+      break;
+    case 'colonia':
+      valor = (cliente.colonia ?? '').toLowerCase();
       break;
     case 'ciudad':
       valor = (cliente.ciudad ?? '').toLowerCase();

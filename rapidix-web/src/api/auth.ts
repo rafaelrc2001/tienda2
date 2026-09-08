@@ -1,8 +1,11 @@
 import { http } from './http'
 import type {
   ItemMenu,
+  ModoAcceso,
+  RespuestaSolicitarCodigo,
   RespuestaToken,
   RespuestaVerificarCodigo,
+  RolToken,
   UsuarioAutenticado,
 } from './tipos'
 
@@ -14,7 +17,14 @@ import type {
  * cierre global.
  */
 export const apiAuth = {
-  solicitarCodigo: (telefono: string): Promise<{ enviado: true; expiraEnMinutos: number }> =>
+  /** Si esta API deja entrar sin credenciales. Lo consulta el login al abrirse. */
+  modo: (): Promise<ModoAcceso> => http.get('/auth/modo', { sinCierreDeSesion: true }),
+
+  /** Acceso directo por rol. Solo responde con `AUTH_DEMO_LOGIN` encendido. */
+  entrarDirecto: (rol: RolToken): Promise<RespuestaToken> =>
+    http.post('/auth/demo/entrar', { rol }, { sinCierreDeSesion: true }),
+
+  solicitarCodigo: (telefono: string): Promise<RespuestaSolicitarCodigo> =>
     http.post('/auth/cliente/solicitar-codigo', { telefono }, { sinCierreDeSesion: true }),
 
   verificarCodigo: (datos: {

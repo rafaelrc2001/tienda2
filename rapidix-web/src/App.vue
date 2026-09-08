@@ -27,9 +27,6 @@ const titulo = computed(() => (route.meta.titulo as string | undefined) ?? 'Rapi
 const enAdmin = computed(() => route.path.startsWith('/admin'))
 const variante = computed<'cliente' | 'admin'>(() => (enAdmin.value ? 'admin' : 'cliente'))
 
-/** La barra inferior es de la app de cliente; el panel no la lleva. */
-const sinNav = computed(() => enAdmin.value)
-
 /**
  * La insignia de Destacados se pinta en la barra inferior, así que hace falta
  * en cuanto hay sesión, no solo al abrir esa pantalla.
@@ -69,7 +66,6 @@ watch(
     v-else
     :titulo="titulo"
     :variante="variante"
-    :sin-nav="sinNav"
     @menu="ui.abrirDrawer()"
   >
     <RouterView />

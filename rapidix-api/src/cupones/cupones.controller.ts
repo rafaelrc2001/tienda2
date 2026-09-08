@@ -10,12 +10,20 @@ export interface MiCuponDto {
   id: string;
   code: string;
   title: string;
+  /** Texto largo del cupon. La tarjeta lo pinta bajo el titulo. */
+  description: string | null;
   customerMessage: string | null;
   discountType: string;
   discountValue: number;
   minimumOrderAmount: number;
   maximumOrderAmount: number | null;
   expiresAt: string;
+  /**
+   * De donde salio: LIFECYCLE o CAMPAIGN. El Home lo usa para destacar el
+   * cupon de ciclo de vida en "Para ti hoy" (Word 4.1).
+   */
+  sourceKind: string;
+  sourceCode: string;
 }
 
 @ApiTags('Cupones')
@@ -44,12 +52,15 @@ export class CuponesController {
       id: c.id,
       code: c.code,
       title: c.title,
+      description: c.description,
       customerMessage: c.customerMessage,
       discountType: c.discountType,
       discountValue: c.discountValue.toNumber(),
       minimumOrderAmount: c.minimumOrderAmount.toNumber(),
       maximumOrderAmount: c.maximumOrderAmount?.toNumber() ?? null,
       expiresAt: c.expiresAt.toISOString(),
+      sourceKind: c.sourceKind,
+      sourceCode: c.sourceCode,
     }));
   }
 }

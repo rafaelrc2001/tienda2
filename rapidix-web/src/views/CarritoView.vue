@@ -170,7 +170,36 @@ async function confirmar(): Promise<void> {
       <div v-if="!previsualizacion && carrito.calculando" class="cargando-lista">Calculando…</div>
     </div>
 
-    <!-- Cupón: el motivo del rechazo se pinta aquí, no como toast. -->
+    <!-- Desglose. Cada línea viene de la API tal cual. -->
+    <div v-if="previsualizacion" class="cart-summary-box" :class="{ recalculando: carrito.calculando }">
+      <div class="cart-summary-row">
+        <span>Productos</span><span>{{ dinero(previsualizacion.subtotal) }}</span>
+      </div>
+      <div class="cart-summary-row">
+        <span>Envío</span>
+        <span>{{ previsualizacion.envio === 0 ? 'Gratis' : dinero(previsualizacion.envio) }}</span>
+      </div>
+      <div v-if="previsualizacion.recargoFuera > 0" class="cart-summary-row">
+        <span>Recargo fuera de horario</span>
+        <span>{{ dinero(previsualizacion.recargoFuera) }}</span>
+      </div>
+      <div v-if="previsualizacion.descuento > 0" class="cart-summary-row descuento">
+        <span>Descuento{{ previsualizacion.cupon ? ` (${previsualizacion.cupon.codigo})` : '' }}</span>
+        <span>−{{ dinero(previsualizacion.descuento) }}</span>
+      </div>
+      <div class="cart-summary-row total">
+        <span>Total</span><span>{{ dinero(previsualizacion.total) }}</span>
+      </div>
+      <p v-if="previsualizacion.cashbackEstimado > 0" class="cashback-estimado">
+        Ganarás {{ dinero(previsualizacion.cashbackEstimado) }} de cashback
+      </p>
+    </div>
+
+    <!--
+      El cupón va DEBAJO del total: primero el cliente ve lo que va a
+      pagar y luego decide si intenta rebajarlo. El motivo del rechazo
+      se pinta aquí mismo, no como toast.
+    -->
     <div class="bloque-cupon">
       <label class="form-label" for="cupon">¿Tienes un cupón?</label>
       <div class="fila-cupon">
@@ -203,31 +232,6 @@ async function confirmar(): Promise<void> {
       <p v-if="carrito.errorCupon" class="form-error">{{ carrito.errorCupon }}</p>
       <p v-else-if="previsualizacion?.cupon" class="cupon-ok">
         {{ previsualizacion.cupon.descripcion }}
-      </p>
-    </div>
-
-    <!-- Desglose. Cada línea viene de la API tal cual. -->
-    <div v-if="previsualizacion" class="cart-summary-box" :class="{ recalculando: carrito.calculando }">
-      <div class="cart-summary-row">
-        <span>Productos</span><span>{{ dinero(previsualizacion.subtotal) }}</span>
-      </div>
-      <div class="cart-summary-row">
-        <span>Envío</span>
-        <span>{{ previsualizacion.envio === 0 ? 'Gratis' : dinero(previsualizacion.envio) }}</span>
-      </div>
-      <div v-if="previsualizacion.recargoFuera > 0" class="cart-summary-row">
-        <span>Recargo fuera de horario</span>
-        <span>{{ dinero(previsualizacion.recargoFuera) }}</span>
-      </div>
-      <div v-if="previsualizacion.descuento > 0" class="cart-summary-row descuento">
-        <span>Descuento{{ previsualizacion.cupon ? ` (${previsualizacion.cupon.codigo})` : '' }}</span>
-        <span>−{{ dinero(previsualizacion.descuento) }}</span>
-      </div>
-      <div class="cart-summary-row total">
-        <span>Total</span><span>{{ dinero(previsualizacion.total) }}</span>
-      </div>
-      <p v-if="previsualizacion.cashbackEstimado > 0" class="cashback-estimado">
-        Ganarás {{ dinero(previsualizacion.cashbackEstimado) }} de cashback
       </p>
     </div>
 

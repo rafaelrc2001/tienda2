@@ -30,6 +30,7 @@ const CAMPOS = [
   'email',
   'fechaNacimiento',
   'quienRecibe',
+  'sucursal',
   'calle',
   'colonia',
   'cp',
@@ -84,6 +85,7 @@ function volcarAlFormulario(datos: Perfil): void {
     email: datos.email ?? undefined,
     fechaNacimiento: datos.fechaNacimiento ?? undefined,
     quienRecibe: datos.quienRecibe ?? undefined,
+    sucursal: datos.sucursal ?? undefined,
     calle: datos.direccion.calle ?? undefined,
     colonia: datos.direccion.colonia ?? undefined,
     cp: datos.direccion.cp ?? undefined,
@@ -221,6 +223,18 @@ async function salir(): Promise<void> {
           v-model="formulario.quienRecibe"
           class="form-input"
           placeholder="Si no estás tú"
+        />
+
+        <!--
+          La sucursal no es parte de la dirección de entrega: la usa el panel
+          para segmentar campañas (Word 4.9.3).
+        -->
+        <label class="form-label" for="p-sucursal">Sucursal</label>
+        <input
+          id="p-sucursal"
+          v-model="formulario.sucursal"
+          class="form-input"
+          placeholder="La sucursal donde compras"
         />
       </section>
 

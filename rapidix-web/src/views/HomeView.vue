@@ -7,12 +7,13 @@
  * filtrado y la tira "Para ti hoy". Lo que el mockup simulaba con datos
  * locales aquí sale de la API.
  */
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { http, ErrorApi } from '@/api/http'
 import { useAuthStore } from '@/stores/auth'
 import { useDestacadosStore } from '@/stores/destacados'
-import type { RecetaPausada } from '@/api/tipos'
+import { dinero } from '@/utils/formato'
+import type { MiCupon, RecetaPausada } from '@/api/tipos'
 
 const auth = useAuthStore()
 const destacados = useDestacadosStore()
@@ -28,12 +29,49 @@ const CATEGORIAS = [
   { clave: 'cena', emoji: '☕', etiqueta: 'Cena' },
 ] as const
 
+/** Cupones vigentes del cliente, para la tira "Para ti hoy". */
+const cupones = ref<MiCupon[]>([])
+
+/**
+ * Cupón de ciclo de vida vigente, que encabeza "Para ti hoy" (Word 4.1).
+ *
+ * Se pinta como una noticia más, pero generada aquí a partir del cupón en vez
+ * de escrita por el administrador: es la que más le sirve al cliente y por eso
+ * va primero. Si tiene varios, gana el que antes vence.
+ *
+ * `GET /cupones` ya los devuelve solo vigentes y ordenados por vencimiento,
+ * así que basta con quedarse con el primero de origen LIFECYCLE.
+ */
+const cuponDestacado = computed<MiCupon | null>(
+  () => cupones.value.find((c) => c.sourceKind === 'LIFECYCLE') ?? null,
+)
+
+/** El descuento del cupón, en el formato corto de la insignia. */
+const descuentoCupon = computed<string>(() => {
+  const cupon = cuponDestacado.value
+  if (!cupon) return ''
+  return cupon.discountType === 'PERCENTAGE'
+    ? `${cupon.discountValue}% OFF`
+    : `${dinero(cupon.discountValue)} OFF`
+})
+
 onMounted(async () => {
-  // Las dos llamadas son independientes: una que falle no debe dejar la otra
-  // sin pintar.
+  // Las tres llamadas son independientes: una que falle no debe dejar las
+  // otras sin pintar.
   void cargarPausada()
   destacados.cargar().catch(() => {})
+  void cargarCupones()
 })
+
+async function cargarCupones(): Promise<void> {
+  try {
+    cupones.value = await http.get<MiCupon[]>('/cupones')
+  } catch {
+    // El personal del negocio no tiene cupones y la API responde 403: el Home
+    // simplemente no destaca ninguno.
+    cupones.value = []
+  }
+}
 
 async function cargarPausada(): Promise<void> {
   cargandoPausada.value = true
@@ -141,7 +179,17 @@ function irAlRecetario(categoria: string): void {
     <div v-if="destacados.cargando" class="promo-strip" aria-hidden="true">
       <div v-for="n in 2" :key="n" class="promo-mini promo-skeleton" />
     </div>
-    <div v-else-if="destacados.noticias.length > 0" class="promo-strip">
+    <div v-else-if="cuponDestacado || destacados.noticias.length > 0" class="promo-strip">
+      <!--
+        Noticia generada a partir del cupón de ciclo de vida vigente. Va
+        siempre primera: es lo que el cliente puede usar hoy mismo.
+      -->
+      <RouterLink v-if="cuponDestacado" to="/cupones" class="promo-mini es-cupon">
+        <span class="tag">{{ descuentoCupon }}</span>
+        <span class="txt">{{ cuponDestacado.customerMessage ?? cuponDestacado.title }}</span>
+        <span class="codigo">{{ cuponDestacado.code }}</span>
+      </RouterLink>
+
       <RouterLink
         v-for="noticia in destacados.noticias.slice(0, 3)"
         :key="noticia.id"
@@ -424,6 +472,26 @@ function irAlRecetario(categoria: string): void {
   color: var(--gold);
   text-transform: uppercase;
   letter-spacing: 0.08em;
+}
+
+/* La tarjeta del cupón se separa de las noticias del administrador. */
+.promo-mini.es-cupon {
+  background: var(--terracotta);
+}
+
+.promo-mini.es-cupon .tag {
+  color: var(--cream);
+}
+
+.promo-mini.es-cupon .codigo {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 3px 8px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.18);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
 }
 
 .promo-mini .txt {

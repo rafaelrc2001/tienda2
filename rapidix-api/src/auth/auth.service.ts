@@ -1,12 +1,14 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Inject,
   Injectable,
   Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { randomInt } from 'node:crypto';
+import { RolUsuario } from '@prisma/client';
+import { randomInt, randomUUID } from 'node:crypto';
 import * as argon2 from 'argon2';
 import { PrismaService } from '../prisma/prisma.service';
 import { NOTIFICATION_SENDER, NotificationSender } from '../notifications/notification-sender';
@@ -23,9 +25,73 @@ export interface TokenResponse {
   nombre: string;
 }
 
+/** Respuesta del paso 1 del login de cliente. */
+export interface RespuestaSolicitarCodigo {
+  enviado: true;
+  expiraEnMinutos: number;
+  /**
+   * El codigo recien generado. Solo viaja aqui con `AUTH_OTP_BYPASS`; en el
+   * flujo normal es `null` y el codigo unicamente sale por WhatsApp.
+   */
+  codigoAutomatico: string | null;
+}
+
 /** Parametros del OTP. Fijos: el Word no los deja configurables. */
 const OTP_VIGENCIA_MINUTOS = 5;
 const OTP_MAX_INTENTOS = 5;
+
+/**
+ * Codigo de relleno que se devuelve con el bypass.
+ *
+ * No se comprueba contra nada: solo sirve para que el paso 2 siga recibiendo
+ * los seis digitos que exige su DTO.
+ */
+const OTP_RELLENO = '000000';
+
+/**
+ * Modo sin WhatsApp (`AUTH_OTP_BYPASS=true`).
+ *
+ * La integracion real con WhatsApp queda fuera del SPEC 01 (Word 8), asi que
+ * sin ella el codigo solo aparece en el log del servidor y nadie puede pasar
+ * del login. Con la variable encendida la API devuelve el codigo recien
+ * generado en la respuesta del paso 1 y el frontend entra de largo, sin
+ * enseñar la pantalla de los seis digitos.
+ *
+ * Lo que NO cambia: el OTP se sigue creando, caducando y consumiendo igual, y
+ * `verificarCodigo` lo comprueba como siempre. Lo unico distinto es por donde
+ * viaja el codigo. Aun asi, con esto cualquiera que sepa un telefono entra
+ * como ese cliente: es para desarrollo y demos, nunca para produccion.
+ */
+export function otpSinEnvio(): boolean {
+  return process.env.AUTH_OTP_BYPASS?.trim().toLowerCase() === 'true';
+}
+
+/**
+ * Acceso directo por rol, sin credenciales (`AUTH_DEMO_LOGIN=true`).
+ *
+ * Simula lo que hara n8n: quien entra por WhatsApp ya viene identificado, asi
+ * que la app no le pide nada. Mientras esa pieza no existe, la pantalla de
+ * login ofrece los cinco modos del Word 2.4 y se entra tocando uno.
+ *
+ * Es un agujero del tamaño de la aplicacion: cualquiera se firma un token de
+ * ADMINISTRADOR. Solo para probar los flujos; se apaga antes de que la use
+ * nadie de fuera.
+ */
+export function demoLoginActivo(): boolean {
+  return process.env.AUTH_DEMO_LOGIN?.trim().toLowerCase() === 'true';
+}
+
+/** Telefono del cliente de prueba. Falso a proposito. */
+const TELEFONO_DEMO = '0000000000';
+
+/** Con que nombre se da de alta cada identidad de prueba. */
+const NOMBRE_DEMO: Readonly<Record<RolToken, string>> = {
+  [ROL_CLIENTE]: 'Cliente de prueba',
+  [RolUsuario.ADMINISTRADOR]: 'Administrador de prueba',
+  [RolUsuario.RUTA]: 'Ruta de prueba',
+  [RolUsuario.OPERACIONES]: 'Operaciones de prueba',
+  [RolUsuario.FINANZAS]: 'Finanzas de prueba',
+};
 
 @Injectable()
 export class AuthService {
@@ -78,6 +144,55 @@ export class AuthService {
   }
 
   // ----------------------------------------------------------------
+  // Acceso directo de simulacion
+  // ----------------------------------------------------------------
+
+  /**
+   * Entra como el rol pedido sin comprobar nada (`AUTH_DEMO_LOGIN`).
+   *
+   * Reutiliza la identidad real del rol cuando existe —el administrador del
+   * seed, por ejemplo— y solo inventa una cuando no hay ninguna, para que las
+   * pruebas caigan siempre sobre los mismos datos.
+   *
+   * De la puerta para dentro no cambia nada: el token es el de siempre y los
+   * permisos siguen saliendo de la matriz del Word 2.4.
+   */
+  async entrarDirecto(rol: RolToken): Promise<TokenResponse> {
+    if (!demoLoginActivo()) {
+      throw new ForbiddenException('El acceso directo está desactivado.');
+    }
+    this.logger.warn(`AUTH_DEMO_LOGIN: entrando como ${rol} sin credenciales.`);
+
+    if (rol === ROL_CLIENTE) {
+      const cliente =
+        (await this.prisma.cliente.findUnique({ where: { telefono: TELEFONO_DEMO } })) ??
+        (await this.prisma.cliente.create({
+          data: { nombre: NOMBRE_DEMO[ROL_CLIENTE], telefono: TELEFONO_DEMO },
+        }));
+
+      return this.firmarToken({ sub: cliente.id, rol: ROL_CLIENTE, nombre: cliente.nombre });
+    }
+
+    const usuario =
+      (await this.prisma.usuario.findFirst({
+        where: { rol, activo: true },
+        orderBy: { creadoEn: 'asc' },
+      })) ??
+      (await this.prisma.usuario.create({
+        data: {
+          email: `demo-${rol.toLowerCase()}@rapidix.mx`,
+          // Contrasena aleatoria que no conoce nadie: a este usuario se entra
+          // por aqui y solo por aqui, nunca por /auth/staff/login.
+          passwordHash: await AuthService.hashPassword(randomUUID()),
+          nombre: NOMBRE_DEMO[rol],
+          rol,
+        },
+      }));
+
+    return this.firmarToken({ sub: usuario.id, rol: usuario.rol, nombre: usuario.nombre });
+  }
+
+  // ----------------------------------------------------------------
   // Cliente (OTP por WhatsApp)
   // ----------------------------------------------------------------
 
@@ -88,8 +203,21 @@ export class AuthService {
    * login del prototipo no distingue entre cliente nuevo y recurrente hasta
    * despues de verificar el codigo.
    */
-  async solicitarCodigo(dto: SolicitarCodigoDto): Promise<{ enviado: true; expiraEnMinutos: number }> {
+  async solicitarCodigo(dto: SolicitarCodigoDto): Promise<RespuestaSolicitarCodigo> {
     const telefono = AuthService.normalizarTelefono(dto.telefono);
+
+    // Con el bypass no se genera ni se guarda nada: `verificarCodigo` tampoco
+    // va a comprobar ningun codigo. El relleno solo existe para que el
+    // frontend siga llamando al paso 2 sin cambiar de forma.
+    if (otpSinEnvio()) {
+      this.logger.warn(`AUTH_OTP_BYPASS activo: ${telefono} entra sin codigo.`);
+      return {
+        enviado: true,
+        expiraEnMinutos: OTP_VIGENCIA_MINUTOS,
+        codigoAutomatico: OTP_RELLENO,
+      };
+    }
+
     const codigo = randomInt(0, 1_000_000).toString().padStart(6, '0');
 
     // Un solo codigo vivo por telefono: pedir uno nuevo invalida el anterior.
@@ -108,21 +236,17 @@ export class AuthService {
 
     await this.notificaciones.enviarCodigoOtp(telefono, codigo);
 
-    return { enviado: true, expiraEnMinutos: OTP_VIGENCIA_MINUTOS };
+    return { enviado: true, expiraEnMinutos: OTP_VIGENCIA_MINUTOS, codigoAutomatico: null };
   }
 
   /**
-   * Verifica el codigo y devuelve el token del cliente.
+   * Busca el OTP vivo del telefono y comprueba el codigo.
    *
-   * Si el telefono no existe en la base, hace falta el nombre para darlo de
-   * alta (HU-C03). En ese caso el codigo NO se consume, para que el cliente
-   * pueda reintentar con su nombre sin pedir otro.
+   * Devuelve el registro sin consumirlo: quien llama lo marca solo cuando el
+   * login termina de verdad, porque un alta a la que le falta el nombre tiene
+   * que poder reintentar con el mismo codigo.
    */
-  async verificarCodigo(
-    dto: VerificarCodigoDto,
-  ): Promise<TokenResponse & { esNuevo: boolean; cuponesNuevos: number }> {
-    const telefono = AuthService.normalizarTelefono(dto.telefono);
-
+  private async comprobarOtp(telefono: string, codigo: string) {
     const registro = await this.prisma.codigoOtp.findFirst({
       where: { telefono, consumidoEn: null, expiraEn: { gt: new Date() } },
       orderBy: { creadoEn: 'desc' },
@@ -140,7 +264,7 @@ export class AuthService {
       throw new UnauthorizedException('Demasiados intentos fallidos. Pide un código nuevo.');
     }
 
-    const codigoValido = await argon2.verify(registro.codigoHash, dto.codigo).catch(() => false);
+    const codigoValido = await argon2.verify(registro.codigoHash, codigo).catch(() => false);
     if (!codigoValido) {
       await this.prisma.codigoOtp.update({
         where: { id: registro.id },
@@ -148,6 +272,26 @@ export class AuthService {
       });
       throw new UnauthorizedException('Código incorrecto');
     }
+
+    return registro;
+  }
+
+  /**
+   * Verifica el codigo y devuelve el token del cliente.
+   *
+   * Si el telefono no existe en la base, hace falta el nombre para darlo de
+   * alta (HU-C03). En ese caso el codigo NO se consume, para que el cliente
+   * pueda reintentar con su nombre sin pedir otro.
+   */
+  async verificarCodigo(
+    dto: VerificarCodigoDto,
+  ): Promise<TokenResponse & { esNuevo: boolean; cuponesNuevos: number }> {
+    const telefono = AuthService.normalizarTelefono(dto.telefono);
+
+    // Con AUTH_OTP_BYPASS no hay codigo que comprobar: el telefono entra
+    // directo y `registro` se queda a null, asi que tampoco hay nada que
+    // consumir mas abajo.
+    const registro = otpSinEnvio() ? null : await this.comprobarOtp(telefono, dto.codigo);
 
     let cliente = await this.prisma.cliente.findUnique({ where: { telefono } });
     const esNuevo = !cliente;
@@ -169,10 +313,12 @@ export class AuthService {
       this.logger.log(`Cliente nuevo dado de alta: ${cliente.id}`);
     }
 
-    await this.prisma.codigoOtp.update({
-      where: { id: registro.id },
-      data: { consumidoEn: new Date() },
-    });
+    if (registro) {
+      await this.prisma.codigoOtp.update({
+        where: { id: registro.id },
+        data: { consumidoEn: new Date() },
+      });
+    }
 
     // Al identificar al cliente se evaluan los cupones que le correspondan
     // (Word 4.1). Un fallo aqui no puede impedirle entrar a la app.

@@ -26,6 +26,17 @@ async function salir(): Promise<void> {
   auth.cerrarSesion()
   await router.replace('/login')
 }
+
+/**
+ * Vuelve a la pantalla donde se elige con qué modo entrar.
+ *
+ * El rol va dentro del JWT, así que cambiarlo obliga a pedir un token nuevo:
+ * por debajo es cerrar sesión y volver al login, que con el acceso directo
+ * encendido son dos toques.
+ */
+async function cambiarDeModo(): Promise<void> {
+  await salir()
+}
 </script>
 
 <template>
@@ -67,6 +78,15 @@ async function salir(): Promise<void> {
           <RouterLink to="/perfil" class="btn-secondary ancho" @click="ui.cerrarDrawer()">
             Mi perfil
           </RouterLink>
+          <!--
+            Cambiar de modo devuelve a la pantalla de selección de rol. Es la
+            misma salida que "Cerrar sesión" —el rol viaja en el token, así que
+            no hay forma de cambiarlo sin pedir otro—, pero dicha con el nombre
+            de lo que el usuario quiere hacer.
+          -->
+          <button type="button" class="btn-secondary ancho" @click="cambiarDeModo">
+            Cambiar de modo
+          </button>
           <button type="button" class="btn-cancel" @click="salir">Cerrar sesión</button>
         </footer>
       </aside>

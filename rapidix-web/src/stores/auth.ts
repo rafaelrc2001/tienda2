@@ -2,7 +2,13 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { apiAuth } from '@/api/auth'
 import { CLAVE_TOKEN } from '@/api/http'
-import type { ItemMenu, Seccion, UsuarioAutenticado } from '@/api/tipos'
+import type {
+  ItemMenu,
+  RespuestaSolicitarCodigo,
+  RolToken,
+  Seccion,
+  UsuarioAutenticado,
+} from '@/api/tipos'
 
 /** Código de la fuente de adquisición, capturado del enlace `/r/CODIGO`. */
 const CLAVE_FUENTE = 'rapidix.fuente'
@@ -113,7 +119,11 @@ export const useAuthStore = defineStore('auth', () => {
   // Login de cliente (tres pasos) y de personal
   // ------------------------------------------------------------------
 
-  const solicitarCodigo = (telefono: string): Promise<{ enviado: true; expiraEnMinutos: number }> =>
+  /**
+   * Paso 1. Si la API viene con `AUTH_OTP_BYPASS`, la respuesta trae el
+   * código en `codigoAutomatico` y la pantalla de login entra sin pedirlo.
+   */
+  const solicitarCodigo = (telefono: string): Promise<RespuestaSolicitarCodigo> =>
     apiAuth.solicitarCodigo(telefono)
 
   /**
@@ -132,6 +142,15 @@ export const useAuthStore = defineStore('auth', () => {
     // La atribución es del primer contacto: una vez usada, se descarta.
     escribir(CLAVE_FUENTE, null)
     return { esNuevo: respuesta.esNuevo, cuponesNuevos: respuesta.cuponesNuevos }
+  }
+
+  /**
+   * Acceso directo por rol, sin credenciales. Solo funciona contra una API con
+   * `AUTH_DEMO_LOGIN`; de la sesión para dentro es un login como cualquier otro.
+   */
+  async function entrarDirecto(rol: RolToken): Promise<void> {
+    const respuesta = await apiAuth.entrarDirecto(rol)
+    await establecerSesion(respuesta.accessToken)
   }
 
   async function loginStaff(email: string, password: string): Promise<void> {
@@ -158,6 +177,7 @@ export const useAuthStore = defineStore('auth', () => {
     cerrarSesion,
     solicitarCodigo,
     verificarCodigo,
+    entrarDirecto,
     loginStaff,
     recordarFuente,
   }

@@ -16,9 +16,41 @@ import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useUiStore } from '@/stores/ui'
+import { apiAuth } from '@/api/auth'
 import { ErrorApi } from '@/api/http'
+import type { RolToken } from '@/api/tipos'
 
 type Paso = 'modo' | 'telefono' | 'codigo' | 'nombre' | 'staff'
+
+/**
+ * Las cinco tarjetas del prototipo, tal cual.
+ *
+ * Solo salen cuando la API viene con `AUTH_DEMO_LOGIN`: entonces tocar una
+ * entra con ese rol y ya está. Es la simulación de n8n, que identificará al
+ * cliente por su WhatsApp antes de abrir la app.
+ */
+const TARJETAS: { rol: RolToken; icono: string; titulo: string; descripcion: string }[] = [
+  {
+    rol: 'CLIENTE',
+    icono: '🧑‍🍳',
+    titulo: 'Cliente',
+    descripcion: 'Pide comida, guarda recetas y acumula cashback',
+  },
+  {
+    rol: 'ADMINISTRADOR',
+    icono: '🛠️',
+    titulo: 'Administrador',
+    descripcion: 'Acceso completo al negocio',
+  },
+  { rol: 'RUTA', icono: '🛵', titulo: 'Ruta', descripcion: 'Repartidores: gestión de rutas' },
+  {
+    rol: 'OPERACIONES',
+    icono: '🧭',
+    titulo: 'Operaciones',
+    descripcion: 'Seguimiento del día a día',
+  },
+  { rol: 'FINANZAS', icono: '💵', titulo: 'Finanzas', descripcion: 'Ingresos, gastos y clientes' },
+]
 
 const auth = useAuthStore()
 const ui = useUiStore()
@@ -29,17 +61,44 @@ const paso = ref<Paso>('modo')
 const enviando = ref(false)
 const error = ref('')
 
+/** La API deja entrar sin credenciales. Se pregunta al abrir la pantalla. */
+const accesoDirecto = ref(false)
+/** Rol que se está firmando ahora mismo, para deshabilitar solo su tarjeta. */
+const entrandoComo = ref<RolToken | null>(null)
+
 const telefono = ref('')
 const codigo = ref('')
 const nombre = ref('')
 const email = ref('')
 const password = ref('')
 
-onMounted(() => {
+onMounted(async () => {
   // Enlace de fuente de adquisición: `?r=CODIGO` o `/r/CODIGO`.
   const desdeQuery = route.query.r
   if (typeof desdeQuery === 'string') auth.recordarFuente(desdeQuery)
+
+  try {
+    accesoDirecto.value = (await apiAuth.modo()).demoLogin
+  } catch {
+    // Sin respuesta se asume la puerta cerrada: mejor pedir credenciales de
+    // más que enseñar un acceso sin login que luego va a fallar.
+    accesoDirecto.value = false
+  }
 })
+
+/** Entra con el rol de la tarjeta, sin pedir nada. */
+async function entrarDirecto(rol: RolToken): Promise<void> {
+  entrandoComo.value = rol
+  error.value = ''
+  try {
+    await auth.entrarDirecto(rol)
+    await entrar()
+  } catch (fallo) {
+    mostrarFallo(fallo)
+  } finally {
+    entrandoComo.value = null
+  }
+}
 
 function irA(destino: Paso): void {
   error.value = ''
@@ -68,7 +127,17 @@ async function enviarTelefono(): Promise<void> {
   enviando.value = true
   error.value = ''
   try {
-    const { expiraEnMinutos } = await auth.solicitarCodigo(telefono.value.trim())
+    const { expiraEnMinutos, codigoAutomatico } = await auth.solicitarCodigo(telefono.value.trim())
+
+    // API con `AUTH_OTP_BYPASS`: el código viene en la respuesta y se entra de
+    // largo. La pantalla de los seis dígitos ni se enseña; si el teléfono es
+    // nuevo, `verificar` cae igual en el paso del nombre.
+    if (codigoAutomatico) {
+      codigo.value = codigoAutomatico
+      await verificar()
+      return
+    }
+
     ui.info(`Te enviamos un código. Vence en ${expiraEnMinutos} minutos.`)
     codigo.value = ''
     paso.value = 'codigo'
@@ -154,8 +223,37 @@ async function entrarComoStaff(): Promise<void> {
       <div class="login-logo-text">RAPIDIX</div>
     </div>
 
+    <!--
+      Acceso directo (AUTH_DEMO_LOGIN): las cinco tarjetas del prototipo, y
+      tocar una entra sin pedir nada. Simulación de n8n.
+    -->
+    <template v-if="paso === 'modo' && accesoDirecto">
+      <div class="login-title">¿Cómo deseas ingresar?</div>
+      <div class="login-subtitle">Elige el modo con el que quieres usar la app</div>
+
+      <button
+        v-for="tarjeta in TARJETAS"
+        :key="tarjeta.rol"
+        type="button"
+        class="role-card"
+        :class="{ 'client-card-highlight': tarjeta.rol === 'CLIENTE' }"
+        :disabled="entrandoComo !== null"
+        @click="entrarDirecto(tarjeta.rol)"
+      >
+        <span class="ico">{{ tarjeta.icono }}</span>
+        <span class="txt">
+          <span class="t">{{ tarjeta.titulo }}</span>
+          <span class="s">{{ tarjeta.descripcion }}</span>
+        </span>
+        <span class="chev">{{ entrandoComo === tarjeta.rol ? '…' : '›' }}</span>
+      </button>
+
+      <p v-if="error" class="form-error">{{ error }}</p>
+      <p class="login-aviso">Modo de pruebas: se entra sin contraseña.</p>
+    </template>
+
     <!-- Paso 1: cómo entras -->
-    <template v-if="paso === 'modo'">
+    <template v-else-if="paso === 'modo'">
       <div class="login-title">¿Cómo deseas ingresar?</div>
       <div class="login-subtitle">Elige el modo con el que quieres usar la app</div>
 
@@ -409,6 +507,18 @@ async function entrarComoStaff(): Promise<void> {
 .role-card.client-card-highlight {
   border-color: var(--terracotta);
   background: linear-gradient(135deg, #fff6ea, #fdecd2);
+}
+
+.role-card:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.login-aviso {
+  font-size: 11px;
+  color: var(--muted);
+  text-align: center;
+  margin-top: 14px;
 }
 
 .login-back {

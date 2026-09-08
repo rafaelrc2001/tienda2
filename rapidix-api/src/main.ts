@@ -3,6 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
+import { demoLoginActivo, otpSinEnvio } from './auth/auth.service';
 
 /**
  * Origenes que pueden llamar a la API.
@@ -67,6 +68,23 @@ async function bootstrap(): Promise<void> {
   Logger.log(`Rapidix API escuchando en el puerto ${port}`, 'Bootstrap');
   Logger.log(`Documentación en /docs`, 'Bootstrap');
   Logger.log(`CORS permitido para: ${origenes.join(', ')}`, 'Bootstrap');
+
+  // Que no se queden encendidos sin que nadie se dé cuenta.
+  if (demoLoginActivo()) {
+    Logger.warn(
+      'AUTH_DEMO_LOGIN=true — se entra por rol SIN credenciales, ' +
+        'cualquiera puede firmarse un token de ADMINISTRADOR. Solo para pruebas.',
+      'Bootstrap',
+    );
+  }
+
+  if (otpSinEnvio()) {
+    Logger.warn(
+      'AUTH_OTP_BYPASS=true — el login de cliente NO pide el código: ' +
+        'cualquiera que sepa un teléfono entra como ese cliente. Apágalo antes de producción.',
+      'Bootstrap',
+    );
+  }
 }
 
 void bootstrap();

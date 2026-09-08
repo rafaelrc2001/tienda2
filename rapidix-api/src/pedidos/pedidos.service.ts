@@ -181,6 +181,20 @@ export class PedidosService {
       // Word 5, regla 5: se emite justo cuando el conteo pasa a ser 1.
       await this.cupones.maybeIssueSecondPurchase(clienteActualizado, tx);
 
+      // Cierre de esa misma regla: el cupon de Segunda Compra solo vale para
+      // ese segundo pedido. Si el cliente lo hace sin aplicarlo, deja de
+      // corresponder, igual que WELCOME tras la primera compra; si lo aplico,
+      // ya quedo en USED y este filtro no lo toca.
+      if (clienteActualizado.pedidos >= 2) {
+        const retirados = await tx.cuponEmitido.updateMany({
+          where: { clienteId, sourceCode: 'SECOND_PURCHASE', status: EstadoCupon.ACTIVE },
+          data: { status: EstadoCupon.CANCELLED },
+        });
+        if (retirados.count > 0) {
+          this.logger.log(`SECOND_PURCHASE cancelado para ${clienteId} tras su segunda compra`);
+        }
+      }
+
       // Cashback y nivel, dentro de la misma transaccion: si el pedido no se
       // guarda, tampoco se acredita saldo.
       const cashbackGenerado = desglose.cashback;

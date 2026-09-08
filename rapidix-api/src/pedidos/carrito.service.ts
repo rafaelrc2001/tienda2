@@ -265,39 +265,35 @@ export class CarritoService {
       return this.rechazo('VENCIDO', 'Este cupón ya venció', subtotal);
     }
 
-    // El minimo se evalua sobre el subtotal ANTES del descuento, y el mensaje
-    // dice cuanto falta (Word 5, regla 3).
-    if (subtotal.lessThan(cupon.minimumOrderAmount)) {
-      const falta = new Decimal(cupon.minimumOrderAmount).sub(subtotal);
-      return this.rechazo(
-        'MINIMO_NO_ALCANZADO',
-        `Te faltan $${falta.toFixed(2)} para llegar al mínimo de $${new Decimal(
-          cupon.minimumOrderAmount,
-        ).toFixed(2)} (el mínimo se evalúa antes del descuento)`,
-        subtotal,
-      );
-    }
-    if (cupon.maximumOrderAmount && subtotal.greaterThan(cupon.maximumOrderAmount)) {
-      return this.rechazo(
-        'MAXIMO_SUPERADO',
-        `Este cupón aplica hasta compras de $${new Decimal(cupon.maximumOrderAmount).toFixed(2)}`,
-        subtotal,
-      );
-    }
+    /**
+     * Base sobre la que se miden el minimo, el maximo y el descuento.
+     *
+     * Sin restriccion de categorias es el subtotal entero. Con ellas es solo
+     * lo que suman las lineas de esas categorias: un cupon de "Frutas y
+     * verduras" con minimo de $100 no puede darse por cumplido porque el
+     * carrito llegue a $100 comprando carne. Siempre antes del descuento.
+     */
+    let base = subtotal;
+    let categoriasCupon: string[] = [];
 
     if (cupon.sourceKind === OrigenCupon.CAMPAIGN) {
       const campania = await this.prisma.campania.findUnique({ where: { name: cupon.sourceCode } });
 
-      // Restriccion por categoria (Word 5, regla 10).
+      // Restriccion por categoria (Word 5, regla 10). Las categorias son las
+      // que traen los propios productos, no una lista fija.
       if (campania && campania.categorias.length > 0) {
-        const coincide = carrito.categorias.some((c) => campania.categorias.includes(c));
+        categoriasCupon = campania.categorias;
+        const coincide = carrito.categorias.some((c) => categoriasCupon.includes(c));
         if (!coincide) {
           return this.rechazo(
             'CATEGORIA_NO_APLICA',
-            `Este cupón solo aplica en: ${campania.categorias.join(', ')}`,
+            `Este cupón solo aplica en: ${categoriasCupon.join(', ')}`,
             subtotal,
           );
         }
+        base = carrito.lineas
+          .filter((l) => categoriasCupon.includes(l.categoria))
+          .reduce((s, l) => s.add(l.importe), new Decimal(0));
       }
 
       // Limite total de usos de la campana (Word 4.9.2). El prototipo guarda
@@ -320,7 +316,32 @@ export class CarritoService {
       }
     }
 
-    const descuento = CarritoService.calcularDescuento(cupon, subtotal);
+    // El minimo y el maximo se evaluan sobre `base` y SIEMPRE antes del
+    // descuento (Word 5, regla 3). El mensaje dice cuanto falta y, si el cupon
+    // esta atado a categorias, sobre que se esta midiendo.
+    const enCategorias = categoriasCupon.length > 0 ? ` en ${categoriasCupon.join(', ')}` : '';
+
+    if (base.lessThan(cupon.minimumOrderAmount)) {
+      const falta = new Decimal(cupon.minimumOrderAmount).sub(base);
+      return this.rechazo(
+        'MINIMO_NO_ALCANZADO',
+        `Te faltan $${falta.toFixed(2)}${enCategorias} para llegar al mínimo de $${new Decimal(
+          cupon.minimumOrderAmount,
+        ).toFixed(2)} (el mínimo se evalúa antes del descuento)`,
+        subtotal,
+      );
+    }
+    if (cupon.maximumOrderAmount && base.greaterThan(cupon.maximumOrderAmount)) {
+      return this.rechazo(
+        'MAXIMO_SUPERADO',
+        `Este cupón aplica hasta compras de $${new Decimal(cupon.maximumOrderAmount).toFixed(2)}${enCategorias}`,
+        subtotal,
+      );
+    }
+
+    // El descuento se calcula sobre la misma base que el minimo: un 20% de un
+    // cupon de frutas descuenta el 20% de las frutas, no de todo el carrito.
+    const descuento = CarritoService.calcularDescuento(cupon, base);
     return {
       valido: true,
       cuponId: cupon.id,

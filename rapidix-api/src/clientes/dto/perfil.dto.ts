@@ -41,6 +41,12 @@ export class ActualizarPerfilDto {
   @MaxLength(120)
   quienRecibe?: string;
 
+  /** Sucursal del cliente. Solo se usa para segmentar campanias. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  sucursal?: string;
+
   // ---- Direccion de envio ----
 
   @IsOptional()
@@ -114,6 +120,7 @@ export interface PerfilDto {
   telefono: string;
   fechaNacimiento: string | null;
   quienRecibe: string | null;
+  sucursal: string | null;
   direccion: DireccionDto;
   notificaciones: boolean;
   pedidos: number;

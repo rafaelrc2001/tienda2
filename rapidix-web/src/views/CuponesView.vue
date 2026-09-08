@@ -51,6 +51,19 @@ function estado(cupon: MiCupon): { texto: string; urgente: boolean } {
   return { texto: 'Vigente', urgente: false }
 }
 
+/**
+ * Si merece la pena pintar la descripción.
+ *
+ * El título de la tarjeta ya sale de `customerMessage` o `title`; repetir ahí
+ * abajo el mismo texto solo hace ruido.
+ */
+function descripcionVisible(cupon: MiCupon): boolean {
+  const desc = cupon.description?.trim()
+  if (!desc) return false
+  const arriba = (cupon.customerMessage ?? cupon.title).trim()
+  return desc !== arriba
+}
+
 async function copiar(codigo: string): Promise<void> {
   try {
     await navigator.clipboard.writeText(codigo)
@@ -79,6 +92,11 @@ async function copiar(codigo: string): Promise<void> {
 
         <p class="coupon-monto">{{ descuento(cupon) }}</p>
         <p class="coupon-titulo">{{ cupon.customerMessage ?? cupon.title }}</p>
+        <!--
+          La descripción es el texto largo que escribió el administrador. Se
+          omite cuando repite lo que ya dice la línea de arriba.
+        -->
+        <p v-if="descripcionVisible(cupon)" class="coupon-desc">{{ cupon.description }}</p>
 
         <dl class="coupon-detail-grid">
           <div>
@@ -174,6 +192,13 @@ async function copiar(codigo: string): Promise<void> {
   color: var(--ink);
   line-height: 1.4;
   margin: 0 0 12px;
+}
+
+.coupon-desc {
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.45;
+  margin: -6px 0 12px;
 }
 
 .coupon-detail-grid {

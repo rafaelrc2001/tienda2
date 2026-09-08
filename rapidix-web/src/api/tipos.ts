@@ -43,6 +43,27 @@ export interface RespuestaVerificarCodigo extends RespuestaToken {
   cuponesNuevos: number
 }
 
+/** Modos de acceso que ofrece la API (`GET /auth/modo`). */
+export interface ModoAcceso {
+  /**
+   * La API corre con `AUTH_DEMO_LOGIN`: se entra tocando un rol, sin
+   * credenciales. Simula a n8n mientras esa pieza no existe.
+   */
+  demoLogin: boolean
+}
+
+/** Respuesta del paso 1 del login de cliente. */
+export interface RespuestaSolicitarCodigo {
+  enviado: true
+  expiraEnMinutos: number
+  /**
+   * El código ya generado, cuando la API corre con `AUTH_OTP_BYPASS`. En ese
+   * caso el login lo verifica solo y nunca enseña la pantalla del código.
+   * `null` en el flujo normal, donde el código llega por WhatsApp.
+   */
+  codigoAutomatico: string | null
+}
+
 /** Fila de `GET /admin/menu`. */
 export interface ItemMenu {
   seccion: Seccion
@@ -255,12 +276,17 @@ export interface MiCupon {
   id: string
   code: string
   title: string
+  /** Texto largo del cupón. La tarjeta lo pinta bajo el título. */
+  description: string | null
   customerMessage: string | null
   discountType: string
   discountValue: number
   minimumOrderAmount: number
   maximumOrderAmount: number | null
   expiresAt: string
+  /** `LIFECYCLE` o `CAMPAIGN`. El Home destaca el de ciclo de vida. */
+  sourceKind: string
+  sourceCode: string
 }
 
 // ------------------------------------------------------------------
@@ -286,6 +312,8 @@ export interface Perfil {
   telefono: string
   fechaNacimiento: string | null
   quienRecibe: string | null
+  /** Sucursal del cliente. Solo se usa para segmentar campañas. */
+  sucursal: string | null
   direccion: Direccion
   notificaciones: boolean
   pedidos: number
@@ -301,6 +329,7 @@ export interface ActualizarPerfil {
   email?: string
   fechaNacimiento?: string
   quienRecibe?: string
+  sucursal?: string
   calle?: string
   colonia?: string
   cp?: string
@@ -405,6 +434,9 @@ export const ATRIBUTOS_SEGMENTO = [
   'totalGastado',
   'diasSinComprar',
   'diasComoCliente',
+  'cliente',
+  'sucursal',
+  'colonia',
   'ciudad',
   'estado',
   'mesCumpleanos',
@@ -415,7 +447,13 @@ export const OPERADORES_SEGMENTO = ['>', '>=', '<', '<=', '=', 'contiene'] as co
 export type OperadorSegmento = (typeof OPERADORES_SEGMENTO)[number]
 
 /** `contiene` solo tiene sentido sobre los atributos de texto. */
-export const ATRIBUTOS_TEXTO: readonly AtributoSegmento[] = ['ciudad', 'estado']
+export const ATRIBUTOS_TEXTO: readonly AtributoSegmento[] = [
+  'cliente',
+  'sucursal',
+  'colonia',
+  'ciudad',
+  'estado',
+]
 
 export interface ReglaSegmento {
   attr: AtributoSegmento
