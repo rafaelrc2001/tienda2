@@ -95,16 +95,6 @@ async function cargar(): Promise<void> {
     cargando.value = false
   }
 }
-
-/** Iniciales para el avatar, como en el mockup. */
-function iniciales(nombre: string): string {
-  return nombre
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((parte) => parte[0]?.toUpperCase() ?? '')
-    .join('')
-}
 </script>
 
 <template>
@@ -154,30 +144,26 @@ function iniciales(nombre: string): string {
 
     <template v-else-if="pestania === 'prospectos'">
       <template v-if="prospectos.length > 0">
-        <article v-for="p in prospectos" :key="p.id" class="client-card">
-          <div class="client-card-top">
-            <div class="client-avatar">{{ iniciales(p.nombre) }}</div>
-            <div class="datos">
-              <p class="client-name">{{ p.nombre }}</p>
-              <p class="client-sub">
-                {{ p.telefono }}
-                <span v-if="p.ciudad"> · {{ p.ciudad }}</span>
-                <span v-if="p.estado">, {{ p.estado }}</span>
-              </p>
-            </div>
-          </div>
-
-          <div class="client-detail-row">
-            <b>Se registró</b><span>{{ fecha(p.creado) }}</span>
-          </div>
-          <div class="client-detail-row">
-            <b>Dirección</b>
-            <span>{{ p.tieneDireccion ? 'Ya la escribió' : 'Sin capturar' }}</span>
-          </div>
-          <div v-if="p.fuenteCodigo" class="client-detail-row">
-            <b>Fuente</b><span>{{ p.fuenteCodigo }}</span>
-          </div>
-        </article>
+        <div class="tabla-scroll">
+          <table class="tabla-clientes">
+            <thead>
+              <tr>
+                <th class="col-nombre">Nombre</th>
+                <th>Teléfono</th>
+                <th>Se registró</th>
+                <th>Fuente</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="p in prospectos" :key="p.id">
+                <th class="col-nombre" scope="row">{{ p.nombre }}</th>
+                <td class="tel">{{ p.telefono }}</td>
+                <td>{{ fecha(p.creado) }}</td>
+                <td>{{ p.fuenteCodigo ?? '—' }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
 
         <div v-if="totalPaginas > 1" class="paginacion">
           <button type="button" class="btn-secondary" :disabled="!hayAnterior" @click="pagina--">
@@ -200,40 +186,37 @@ function iniciales(nombre: string): string {
     </template>
 
     <template v-else-if="clientes.length > 0">
-      <article v-for="cliente in clientes" :key="cliente.id" class="client-card">
-        <div class="client-card-top">
-          <div class="client-avatar">{{ iniciales(cliente.nombre) }}</div>
-          <div class="datos">
-            <p class="client-name">{{ cliente.nombre }}</p>
-            <p class="client-sub">
-              {{ cliente.telefono }}
-              <span v-if="cliente.ciudad"> · {{ cliente.ciudad }}</span>
-              <span v-if="cliente.estado">, {{ cliente.estado }}</span>
-            </p>
-          </div>
-          <span v-if="cliente.nivel" class="mini-tag">{{ cliente.nivel }}</span>
-        </div>
-
-        <div class="client-stats-row">
-          <div class="client-stat">
-            <span class="n">{{ cliente.pedidos }}</span><span class="l">Pedidos</span>
-          </div>
-          <div class="client-stat">
-            <span class="n">{{ dinero(cliente.totalGastado) }}</span><span class="l">Gastado</span>
-          </div>
-        </div>
-
-        <div class="client-detail-row">
-          <b>Último pedido</b>
-          <span>{{ cliente.ultimoPedido ? fecha(cliente.ultimoPedido) : 'Nunca ha comprado' }}</span>
-        </div>
-        <div class="client-detail-row">
-          <b>Alta</b><span>{{ fecha(cliente.creado) }}</span>
-        </div>
-        <div v-if="cliente.fuenteCodigo" class="client-detail-row">
-          <b>Fuente</b><span>{{ cliente.fuenteCodigo }}</span>
-        </div>
-      </article>
+      <div class="tabla-scroll">
+        <table class="tabla-clientes">
+          <thead>
+            <tr>
+              <th class="col-nombre">Nombre</th>
+              <th>Teléfono</th>
+              <th>Nivel</th>
+              <th class="num">Pedidos</th>
+              <th class="num">Gastado</th>
+              <th>Último pedido</th>
+              <th>Alta</th>
+              <th>Fuente</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="cliente in clientes" :key="cliente.id">
+              <th class="col-nombre" scope="row">{{ cliente.nombre }}</th>
+              <td class="tel">{{ cliente.telefono }}</td>
+              <td>
+                <span v-if="cliente.nivel" class="mini-tag">{{ cliente.nivel }}</span>
+                <template v-else>—</template>
+              </td>
+              <td class="num">{{ cliente.pedidos }}</td>
+              <td class="num">{{ dinero(cliente.totalGastado) }}</td>
+              <td>{{ cliente.ultimoPedido ? fecha(cliente.ultimoPedido) : 'Nunca ha comprado' }}</td>
+              <td>{{ fecha(cliente.creado) }}</td>
+              <td>{{ cliente.fuenteCodigo ?? '—' }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
 
       <div v-if="totalPaginas > 1" class="paginacion">
         <button type="button" class="btn-secondary" :disabled="!hayAnterior" @click="pagina--">
@@ -319,101 +302,70 @@ function iniciales(nombre: string): string {
   margin: 8px 0 14px;
 }
 
-.client-card {
+/*
+ * La lista va en tabla: en el celular se desplaza dentro de su propia caja,
+ * con el encabezado y la columna del nombre fijos para no perder de vista de
+ * quién es el teléfono que se está leyendo.
+ */
+.tabla-scroll {
+  overflow: auto;
+  max-height: 62vh;
   background: var(--white);
-  border-radius: 16px;
-  padding: 14px;
+  border-radius: 14px;
   box-shadow: var(--shadow);
-  margin-bottom: 12px;
 }
 
-.client-card-top {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 10px;
+.tabla-clientes {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+  font-size: 12px;
 }
 
-.client-avatar {
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  background: var(--terracotta);
-  color: var(--white);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--font-heading);
-  font-weight: 800;
-  font-size: 15px;
-  flex-shrink: 0;
+.tabla-clientes th,
+.tabla-clientes td {
+  padding: 9px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+  background: var(--white);
 }
 
-.datos {
-  flex: 1;
-  min-width: 0;
-}
-
-.client-name {
-  font-family: var(--font-heading);
-  font-weight: 700;
-  font-size: 13.5px;
-  color: var(--ink);
-  margin: 0;
-}
-
-.client-sub {
-  font-size: 11px;
-  color: var(--muted);
-  margin: 1px 0 0;
-}
-
-.client-stats-row {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-
-.client-stat {
-  flex: 1;
+.tabla-clientes thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
   background: var(--cream);
-  border-radius: 10px;
-  padding: 8px 10px;
-  text-align: center;
-}
-
-.client-stat .n {
-  display: block;
   font-family: var(--font-heading);
-  font-weight: 800;
-  font-size: 14px;
-  color: var(--terracotta-dark);
-}
-
-.client-stat .l {
-  display: block;
+  font-weight: 700;
   font-size: 9.5px;
-  color: var(--muted);
   text-transform: uppercase;
-  letter-spacing: 0.03em;
-  font-weight: 700;
-  margin-top: 2px;
-}
-
-.client-detail-row {
-  font-size: 11.5px;
-  color: var(--ink);
-  padding: 3px 0;
-  display: flex;
-  gap: 6px;
-}
-
-.client-detail-row b {
-  font-family: var(--font-heading);
+  letter-spacing: 0.04em;
   color: var(--muted);
+}
+
+.tabla-clientes .col-nombre {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  font-family: var(--font-heading);
   font-weight: 700;
-  min-width: 90px;
-  flex-shrink: 0;
+  color: var(--ink);
+  box-shadow: 1px 0 0 var(--line);
+}
+
+.tabla-clientes thead .col-nombre {
+  z-index: 3;
+}
+
+.tel {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .paginacion {
