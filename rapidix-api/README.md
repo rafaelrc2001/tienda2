@@ -83,12 +83,15 @@ Es cliente **quien ha hecho un pedido**, no quien se registra. El registro por
 WhatsApp crea una fila en `prospectos`; `clientes` es la tabla oficial, la que
 cuenta para métricas, campañas y segmentación.
 
-Al entrar, el teléfono se busca en las dos tablas:
+**Al entrar, el teléfono se busca solo en `clientes`.** Es la única tabla que
+recuerda: quien ya compró entra reconocido, y a quien no, se le pide el nombre
+aunque se hubiera registrado antes. Es deliberado — hasta que hay una compra,
+el negocio no da a nadie por conocido.
 
 | Dónde aparece | Qué pasa |
 | --- | --- |
-| `clientes` | Entra y se le saluda por su nombre. |
-| `prospectos` | Entra igual, con el nombre que dio al registrarse. **No se le vuelve a preguntar.** |
+| `clientes` | Entra reconocido. No se le pide nada. |
+| `prospectos` | Se le pide el nombre igual. Su fila se **actualiza**, no se duplica: conserva dirección, cupón y fuente. |
 | En ninguna | Se le pide el nombre y se crea como prospecto. |
 
 Un teléfono nunca está en las dos: al confirmar su primer pedido, dentro de la

@@ -286,13 +286,15 @@ export class AuthService {
   /**
    * Verifica el codigo y devuelve el token de quien entra.
    *
-   * El telefono se busca en las dos tablas, en este orden:
+   * **Solo `clientes` recuerda.** El telefono se busca ahi y en ningun otro
+   * sitio: quien ya compro entra reconocido, y a quien no se le pide el
+   * nombre, se haya registrado antes o no. Es deliberado: se es cliente al
+   * comprar, y hasta entonces el negocio no da a nadie por conocido.
    *
-   *  1. `clientes`: ya compro alguna vez. Entra como CLIENTE.
-   *  2. `prospectos`: se registro pero nunca compro. Entra como PROSPECTO,
-   *     con el nombre que dio aquel dia: no se le vuelve a preguntar.
-   *  3. En ninguna: hace falta el nombre para registrarlo (HU-C03), y se le
-   *     crea como prospecto. Solo sera cliente cuando confirme un pedido.
+   * El registro de quien todavia no ha comprado se guarda igual en
+   * `prospectos`, una fila por telefono: volver a entrar actualiza esa fila
+   * en vez de crear otra, asi que el listado de prospectos no se llena de
+   * duplicados y no se pierde ni su direccion ni su cupon.
    *
    * Cuando falta el nombre el codigo NO se consume, para que pueda reintentar
    * sin pedir otro.
@@ -308,27 +310,37 @@ export class AuthService {
     const registro = otpSinEnvio() ? null : await this.comprobarOtp(telefono, dto.codigo);
 
     const cliente = await this.prisma.cliente.findUnique({ where: { telefono } });
-    let prospecto = cliente ? null : await this.prisma.prospecto.findUnique({ where: { telefono } });
-    const esNuevo = !cliente && !prospecto;
+    let prospecto: Prospecto | null = null;
 
-    if (esNuevo) {
+    if (!cliente) {
       const nombre = dto.nombre?.trim();
       if (!nombre) {
         // Codigo intacto a proposito: el frontend pide el nombre y reintenta.
         throw new BadRequestException({
           statusCode: 400,
           code: 'NOMBRE_REQUERIDO',
-          message: 'Es tu primera vez en Rapidix. Dinos tu nombre para crear tu cuenta.',
+          message: 'Dinos tu nombre para continuar.',
         });
       }
+
       // Un codigo de fuente inventado se ignora en vez de guardarse: la
       // atribucion tiene que poder cruzarse con las fuentes reales.
       const fuenteCodigo = await this.fuentes.codigoValido(dto.fuenteCodigo);
-      prospecto = await this.prisma.prospecto.create({
-        data: { nombre, telefono, fuenteCodigo },
+
+      // Una fila por telefono. Si ya se habia registrado se le actualiza el
+      // nombre y se conserva todo lo demas: su direccion, su cupon y la
+      // fuente por la que llego, que es del primer contacto.
+      prospecto = await this.prisma.prospecto.upsert({
+        where: { telefono },
+        update: { nombre },
+        create: { nombre, telefono, fuenteCodigo },
       });
-      this.logger.log(`Prospecto nuevo registrado: ${prospecto.id}`);
+      this.logger.log(`Prospecto registrado: ${prospecto.id}`);
     }
+
+    // Para el frontend, "nuevo" es quien no es cliente: es lo que decide si
+    // se le da la bienvenida.
+    const esNuevo = !cliente;
 
     if (registro) {
       await this.prisma.codigoOtp.update({
