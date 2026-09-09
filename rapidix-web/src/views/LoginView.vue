@@ -12,11 +12,10 @@
  * El paso del nombre reenvía **el mismo código**: la API deja el OTP vivo
  * cuando responde `NOMBRE_REQUERIDO`, justo para esto.
  *
- * `saludo` va *después* de que la API haya validado, con la sesión ya
- * abierta: es la parte visible de que te reconoció por tu WhatsApp. No pide
- * nada a nadie; solo retrasa la entrada hasta que tocas el botón. Quien se
- * registra por primera vez no pasa por ahí: entra directo, y del cupón que
- * acaba de ganar avisa un aviso flotante.
+ * Verificado el teléfono se entra sin pantallas de por medio, se venga de un
+ * alta o de un número ya conocido. El reconocimiento se nota en el Home, que
+ * saluda por el nombre guardado, y del cupón de bienvenida avisa un aviso
+ * flotante.
  */
 import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -26,7 +25,7 @@ import { apiAuth } from '@/api/auth'
 import { ErrorApi } from '@/api/http'
 import type { RolToken } from '@/api/tipos'
 
-type Paso = 'modo' | 'telefono' | 'codigo' | 'nombre' | 'saludo' | 'staff'
+type Paso = 'modo' | 'telefono' | 'codigo' | 'nombre' | 'staff'
 
 /**
  * Las cinco tarjetas del prototipo, tal cual.
@@ -76,8 +75,6 @@ const telefono = ref('')
 const codigo = ref('')
 const nombre = ref('')
 
-/** Nombre con el que la API nos reconoció. Lo pinta el saludo. */
-const nombreReconocido = ref('')
 const email = ref('')
 const password = ref('')
 
@@ -180,25 +177,14 @@ async function verificar(): Promise<void> {
       nombre: paso.value === 'nombre' ? nombre.value.trim() : undefined,
     })
 
-    // La sesión ya está abierta. Lo que sigue es solo qué se enseña antes de
-    // soltar al usuario dentro de la app.
-    nombreReconocido.value = auth.usuario?.nombre ?? nombre.value.trim()
-
-    // Quien acaba de registrarse entra directo; del cupón avisa el aviso
-    // flotante, sin pantalla de por medio.
-    if (esNuevo) {
-      if (cuponesNuevos > 0) {
-        ui.exito(
-          cuponesNuevos === 1
-            ? '¡Bienvenido! Tienes un cupón esperándote.'
-            : `¡Bienvenido! Tienes ${cuponesNuevos} cupones esperándote.`,
-        )
-      }
-      await entrar()
-      return
+    if (esNuevo && cuponesNuevos > 0) {
+      ui.exito(
+        cuponesNuevos === 1
+          ? '¡Bienvenido! Tienes un cupón esperándote.'
+          : `¡Bienvenido! Tienes ${cuponesNuevos} cupones esperándote.`,
+      )
     }
-
-    paso.value = 'saludo'
+    await entrar()
   } catch (fallo) {
     // La API pide el nombre y deja el mismo código vivo: se avanza de paso
     // sin tocar `codigo`.
@@ -211,20 +197,6 @@ async function verificar(): Promise<void> {
   } finally {
     enviando.value = false
   }
-}
-
-/**
- * "No soy yo": vuelve a empezar por el teléfono.
- *
- * Cierra la sesión que se acaba de abrir, porque el token ya está guardado y
- * dejarlo ahí metería en la app a la persona equivocada.
- */
-function noSoyYo(): void {
-  auth.cerrarSesion()
-  codigo.value = ''
-  nombre.value = ''
-  nombreReconocido.value = ''
-  irA('telefono')
 }
 
 async function entrarComoStaff(): Promise<void> {
@@ -407,24 +379,6 @@ async function entrarComoStaff(): Promise<void> {
       </button>
     </form>
 
-    <!--
-      Te reconocimos: el saludo que pidió el negocio. La sesión ya está
-      abierta; esto solo lo hace visible antes de entrar.
-    -->
-    <template v-else-if="paso === 'saludo'">
-      <div class="saludo-emoji">👋</div>
-      <div class="saludo-titulo">¡Hola de nuevo, {{ nombreReconocido }}!</div>
-      <p class="saludo-sub">
-        Te reconocimos por tu WhatsApp
-        <strong>{{ telefono }}</strong>
-      </p>
-
-      <button type="button" class="btn-primary ancho" @click="entrar">Entrar</button>
-      <button type="button" class="login-reenviar" @click="noSoyYo">
-        ¿No eres tú? Cambiar número
-      </button>
-    </template>
-
     <!-- Personal del negocio: email y contraseña -->
     <form v-else @submit.prevent="entrarComoStaff">
       <button type="button" class="login-back" @click="irA('modo')">← Elegir otro modo</button>
@@ -477,29 +431,6 @@ async function entrarComoStaff(): Promise<void> {
   flex: 1;
   height: 1px;
   background: var(--line);
-}
-
-.saludo-emoji {
-  font-size: 46px;
-  text-align: center;
-  margin-bottom: 10px;
-}
-
-.saludo-titulo {
-  font-family: var(--font-heading);
-  font-weight: 800;
-  font-size: 19px;
-  color: var(--ink);
-  text-align: center;
-  margin-bottom: 8px;
-}
-
-.saludo-sub {
-  font-size: 12.5px;
-  color: var(--muted);
-  text-align: center;
-  line-height: 1.6;
-  margin-bottom: 24px;
 }
 
 .login {
