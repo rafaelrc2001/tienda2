@@ -24,7 +24,7 @@ negocio, el [README](README.md); esto es el *dónde está cada cosa*.
 - [`src/cashback/` — saldo y niveles](#srccashback--saldo-y-niveles)
 - [`src/recetario/` — recetas](#srcrecetario--recetas)
 - [`src/configuracion/` — parámetros del negocio](#srcconfiguracion--parámetros-del-negocio)
-- [`src/uploads/` — imágenes en S3](#srcuploads--imágenes-en-s3)
+- [`src/uploads/` — imágenes](#srcuploads--imágenes)
 - [`src/health/` — healthcheck](#srchealth--healthcheck)
 - [`src/types/` — tipos globales](#srctypes--tipos-globales)
 - [Patrones que se repiten](#patrones-que-se-repiten)
@@ -70,6 +70,9 @@ negocio, el [README](README.md); esto es el *dónde está cada cosa*.
 - `SolicitudProducto` — el botón «Programar» de un producto agotado.
 - `MovimientoInventario` — la bitácora de bodega. Cada fila **congela los cuatro saldos** (antes/después × físico/apt) del instante en que se aplicó, así que se explica sola aunque alguien mueva el mismo producto un segundo después.
 - Enums: `TipoMovimiento` (ENTRADA/SALIDA), `AfectaInventario` (AMBOS/FISICO/APT) y `MotivoMovimiento` (COMPRA, VENTA, MERMA, TRASPASO, AJUSTE, DEVOLUCION) — catálogo cerrado a propósito: con texto libre no se puede agrupar por causa.
+
+**Imágenes**
+- `Imagen` — los bytes de una foto de producto o receta, en un `bytea`. Solo se llena en los entornos sin bucket S3: es lo que permite subir fotos sin tener contratado uno. Ver [`src/uploads/`](#srcuploads--imágenes).
 
 **Recetario**
 - `Receta` — nombre, tiempo, porciones, imagen, emoji, YouTube, `categorias[]`, autor, `origin`, `compartir`.
@@ -324,13 +327,24 @@ El módulo más grande. Es `@Global` porque el login y el checkout disparan emis
 
 ---
 
-## `src/uploads/` — imágenes en S3
+## `src/uploads/` — imágenes
+
+**Dos almacenes, un solo flujo.** Quien sube hace siempre lo mismo: pide firma a
+`POST /uploads/firma`, hace `PUT` a la `urlSubida` que le devuelven y guarda la
+`urlPublica`. A dónde apuntan esas URL lo decide la API según el entorno, y la
+pantalla no tiene que enterarse.
+
+- **Con las seis `S3_*` puestas** el archivo va directo al bucket y no toca la
+  API: una foto de 5 MB no atraviesa el servidor.
+- **Sin ellas** —o con solo algunas— la API guarda los bytes en la tabla
+  `imagenes` y los sirve por `GET /uploads/local/:id`. Es lo que evita que un
+  entorno sin bucket contratado se quede sin poder subir fotos.
 
 | Archivo | Qué contiene |
 | --- | --- |
-| [uploads.module.ts](src/uploads/uploads.module.ts) | Controlador y servicio. |
-| [uploads.controller.ts](src/uploads/uploads.controller.ts) | `POST /uploads/firma`. Abierto a cualquier autenticado: el admin sube fotos de producto y el cliente las de sus recetas. La carpeta la restringe el DTO. |
-| [uploads.service.ts](src/uploads/uploads.service.ts) | **El backend nunca recibe el archivo**: firma una URL (5 min) y el navegador sube directo al bucket, así una foto de 5 MB no atraviesa el servidor. La config S3 se lee en cada llamada, no al arrancar: sin ella la API levanta igual y solo este endpoint da 503 diciendo qué falta. `forcePathStyle` para R2. |
+| [uploads.module.ts](src/uploads/uploads.module.ts) | Controlador, servicio, y el middleware que deja la imagen cruda en `req.body` para el `PUT` local (ningún parser de serie recoge un `image/png`). Solo en esa ruta: el resto de la API sigue hablando JSON. Traduce el 413 de body-parser. |
+| [uploads.controller.ts](src/uploads/uploads.controller.ts) | `POST /uploads/firma`, abierto a cualquier autenticado: el admin sube fotos de producto y el cliente las de sus recetas; la carpeta la restringe el DTO. Y las dos rutas locales, **públicas**: el `PUT` porque su permiso es la firma de la query —como una URL firmada de S3—, y el `GET` porque es el `src` de un `<img>`, que no puede mandar Bearer. La base de las URL se deduce de la petición (`x-forwarded-proto` detrás de proxy), así que funciona en local y en Railway sin configurar nada; `API_PUBLIC_URL` manda si está. |
+| [uploads.service.ts](src/uploads/uploads.service.ts) | Elige almacén y firma (5 min de vigencia). En local la fila no se crea al firmar sino al recibir el `PUT`, para no dejar filas vacías si el usuario cancela; el id va dentro del token, así que una firma no sirve para sobreescribir otra imagen. Escribe con `upsert` para que un reintento no falle por clave repetida. La config S3 se lee en cada llamada, no al arrancar; `forcePathStyle` para R2. |
 | [dto/firma.dto.ts](src/uploads/dto/firma.dto.ts) | Carpeta (`productos` \| `recetas`), tipo (jpeg/png/webp) y tamaño máximo de 5 MB. |
 
 ---

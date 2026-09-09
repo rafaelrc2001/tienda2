@@ -42,15 +42,26 @@ configuración que ya trae el `.env.example`.
 | `ADMIN_EMAIL` | no | Correo del administrador que crea el seed. Por defecto `admin@rapidix.mx`. |
 | `ADMIN_PASSWORD` | en producción | Contraseña de ese administrador. **El seed falla en producción si no está definida.** |
 | `NOTIFICATIONS_ALLOW_CONSOLE` | no | Con `true` deja arrancar en producción sin proveedor real de WhatsApp, escribiendo los OTP en el log. Solo para demos. Por defecto `false`. |
-| `S3_ENDPOINT` | para imágenes | Endpoint S3-compatible (Cloudflare R2 o AWS S3). |
+| `API_PUBLIC_URL` | no | Base de las URL de imagen que sirve la propia API. Se deduce de la petición, así que normalmente sobra; solo hace falta si hay un dominio delante que la API no puede ver. |
+| `S3_ENDPOINT` | no | Endpoint S3-compatible (Cloudflare R2 o AWS S3). |
 | `S3_REGION` | no | Por defecto `auto`. |
-| `S3_BUCKET` | para imágenes | Nombre del bucket. |
-| `S3_ACCESS_KEY_ID` | para imágenes | Credencial de acceso. |
-| `S3_SECRET_ACCESS_KEY` | para imágenes | Credencial secreta. |
-| `S3_PUBLIC_BASE_URL` | para imágenes | Base pública desde la que se sirven las imágenes. |
+| `S3_BUCKET` | no | Nombre del bucket. |
+| `S3_ACCESS_KEY_ID` | no | Credencial de acceso. |
+| `S3_SECRET_ACCESS_KEY` | no | Credencial secreta. |
+| `S3_PUBLIC_BASE_URL` | no | Base pública desde la que se sirven las imágenes. |
 
-Sin las variables `S3_*` la API arranca igual; solo falla `POST /uploads/firma`,
-con un 503 que dice qué falta.
+### Dónde acaban las imágenes
+
+Las seis variables `S3_*` son opcionales y van juntas:
+
+- **Puestas las seis**, el navegador sube la foto directa al bucket y no pasa
+  por la API. Es lo que conviene en cuanto haya volumen de imágenes.
+- **Sin ellas, o con solo algunas**, la API guarda la foto en Postgres (tabla
+  `imagenes`) y la sirve por `GET /uploads/local/:id`. Funciona sin contratar
+  nada, pero cada imagen ocupa espacio en la base.
+
+Quien sube no nota la diferencia: pide firma a `POST /uploads/firma`, hace `PUT`
+a la URL que le devuelven y guarda la `urlPublica`.
 
 ### Qué se bloquea con `NODE_ENV=production`
 
@@ -129,7 +140,7 @@ src/
   cupones/        Motor completo: ciclo de vida, campañas, segmentación, fuentes, métricas
   cashback/       Acreditación, movimientos y niveles de fidelidad
   configuracion/  Horario, parámetros, datos bancarios, noticias y avisos
-  uploads/        URLs firmadas de S3
+  uploads/        Imágenes: URL firmada a S3 o a la propia API
   notifications/  Interfaz de envío (WhatsApp) con implementación de consola
   prisma/         Cliente de Prisma
 prisma/

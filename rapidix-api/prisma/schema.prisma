@@ -294,6 +294,38 @@ model MovimientoInventario {
 }
 
 // ============================================================
+// Imagenes
+// ============================================================
+
+/// Imagen guardada dentro de la propia base de datos.
+///
+/// El camino preferente sigue siendo S3: el navegador sube directo al bucket y
+/// `imagenUrl` apunta alli. Pero sin las variables `S3_*` no habria subida
+/// ninguna, y el negocio no puede quedarse sin fotos de producto por no tener
+/// contratado un bucket. Entonces la API hace de almacen: guarda los bytes en
+/// esta tabla y los sirve por `GET /uploads/local/:id`.
+///
+/// Es un almacen acotado a proposito —una foto por producto o receta, 5 MB de
+/// tope y solo dos carpetas—, no un sistema de ficheros general. Con muchas
+/// imagenes grandes conviene mover el entorno a S3, que es para lo que sigue
+/// existiendo la otra rama.
+model Imagen {
+  id String @id @default(uuid())
+
+  /// 'productos' o 'recetas': la misma particion que las carpetas del bucket.
+  carpeta     String
+  contentType String
+  tamanoBytes Int
+  /// En Postgres es un `bytea`. Se sirve tal cual, sin recodificar.
+  datos       Bytes
+
+  creadoEn DateTime @default(now())
+
+  @@index([creadoEn])
+  @@map("imagenes")
+}
+
+// ============================================================
 // Recetario
 // ============================================================
 

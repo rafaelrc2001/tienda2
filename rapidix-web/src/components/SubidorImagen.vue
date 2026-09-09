@@ -1,14 +1,16 @@
 <script setup lang="ts">
 /**
- * Subida de imágenes por URL firmada de S3.
+ * Subida de imágenes por URL firmada.
  *
  * Tres pasos: se pide la firma a `POST /uploads/firma`, se hace `PUT` del
- * archivo a la URL que devuelve, y se guarda la `urlPublica`. El archivo no
- * pasa por la API en ningún momento.
+ * archivo a la URL que devuelve, y se guarda la `urlPublica`.
  *
- * **Degradación explícita:** si la firma responde 503 —las variables `S3_*`
- * no están configuradas en ese entorno— se avisa y el formulario se sigue
- * pudiendo guardar con emoji. No es un error que bloquee.
+ * A dónde apunta esa URL lo decide la API según el entorno —al bucket S3 si
+ * está configurado, y si no a ella misma, que guarda la imagen en su base de
+ * datos—, y aquí no hay que distinguirlos: los tres pasos son los mismos.
+ *
+ * **Degradación explícita:** si la firma responde 503 se avisa y el formulario
+ * se sigue pudiendo guardar con emoji. No es un error que bloquee.
  */
 import { computed, ref } from 'vue'
 import { ErrorApi, http, subirAUrlFirmada } from '@/api/http'
@@ -72,9 +74,9 @@ async function elegir(evento: Event): Promise<void> {
     emit('update:modelValue', firma.urlPublica)
   } catch (fallo) {
     if (fallo instanceof ErrorApi && fallo.estado === 503) {
-      // El entorno no tiene S3: se explica y se sigue con emoji.
+      // El almacén de imágenes no responde: se explica y se sigue con emoji.
       noDisponible.value = true
-      error.value = 'La subida de imágenes no está configurada.'
+      error.value = 'La subida de imágenes no está disponible ahora mismo.'
     } else if (fallo instanceof ErrorApi) {
       error.value = fallo.message
     } else {
@@ -118,8 +120,7 @@ function quitar(): void {
     <p v-if="error" class="form-error">{{ error }}</p>
 
     <p v-if="noDisponible" class="nota">
-      Puedes guardar igual: se usará el emoji como imagen. Para activar la subida hay que
-      configurar las variables <code>S3_*</code> en el servidor.
+      Puedes guardar igual: se usará el emoji como imagen. Inténtalo de nuevo más tarde.
     </p>
   </div>
 </template>
@@ -204,12 +205,5 @@ function quitar(): void {
   color: var(--muted);
   line-height: 1.45;
   margin: 6px 0 0;
-}
-
-.nota code {
-  background: var(--cream-2);
-  padding: 1px 4px;
-  border-radius: 4px;
-  font-size: 10px;
 }
 </style>

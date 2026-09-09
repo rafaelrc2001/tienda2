@@ -194,10 +194,18 @@ async function guardar(): Promise<void> {
   }
 }
 
-async function alternarAgotado(producto: Producto): Promise<void> {
+/**
+ * El switch se lee como «Habilitar», así que enciende cuando el producto **no**
+ * está agotado. En la API el campo sigue llamándose `agotado` y se manda igual;
+ * la vuelta se da aquí para que el interruptor diga lo que hace: encendido, se
+ * vende. Al revés —encendido significando agotado— se presta a apagar un
+ * producto creyendo que se está publicando.
+ */
+async function alternarHabilitado(producto: Producto): Promise<void> {
+  const agotado = !producto.agotado
   try {
-    await http.patch(`/admin/productos/${producto.id}/agotado`, { agotado: !producto.agotado })
-    producto.agotado = !producto.agotado
+    await http.patch(`/admin/productos/${producto.id}/agotado`, { agotado })
+    producto.agotado = agotado
   } catch (fallo) {
     ui.errorDeApi(fallo)
   }
@@ -320,9 +328,6 @@ const filasConError = computed(() => resumen.value?.filas.filter((f) => f.estado
             <p class="detalle">
               {{ dinero(producto.precioVenta) }}
               <span v-if="producto.unidad"> · {{ producto.unidad }}</span>
-              <span v-if="producto.precioCosto > 0">
-                · costo {{ dinero(producto.precioCosto) }}</span
-              >
             </p>
             <p class="saldo">
               {{ producto.aptInventario }} para venta
@@ -332,13 +337,19 @@ const filasConError = computed(() => resumen.value?.filas.filter((f) => f.estado
             </p>
           </div>
 
-          <label class="switch agotado-switch" :title="producto.agotado ? 'Agotado' : 'Disponible'">
-            <input
-              type="checkbox"
-              :checked="producto.agotado"
-              @change="alternarAgotado(producto)"
-            />
-            <span class="slider-switch switch-danger-slider" />
+          <label
+            class="habilitar"
+            :title="producto.agotado ? 'Agotado: no aparece a la venta' : 'Habilitado: a la venta'"
+          >
+            <span class="habilitar-texto">Habilitar</span>
+            <span class="switch">
+              <input
+                type="checkbox"
+                :checked="!producto.agotado"
+                @change="alternarHabilitado(producto)"
+              />
+              <span class="slider-switch" />
+            </span>
           </label>
 
           <button type="button" class="accion" aria-label="Editar" @click="abrirEdicion(producto)">
@@ -645,7 +656,30 @@ const filasConError = computed(() => resumen.value?.filas.filter((f) => f.estado
   margin: 2px 0 0;
 }
 
-.agotado-switch {
+/**
+ * El switch va rotulado: suelto en la fila, entre un lápiz y un bote de basura,
+ * no dice si enciende o apaga el producto. La palabra ocupa casi lo mismo que
+ * el interruptor, así que la fila no se estrecha por ponerla.
+ */
+.habilitar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.habilitar-texto {
+  font-family: var(--font-heading);
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.habilitar .switch {
   transform: scale(0.85);
 }
 
