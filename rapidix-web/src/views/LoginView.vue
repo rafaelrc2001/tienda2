@@ -309,7 +309,19 @@ async function entrarComoStaff(): Promise<void> {
       </button>
 
       <p v-if="error" class="form-error">{{ error }}</p>
-      <p class="login-aviso">Modo de pruebas: se entra sin contraseña.</p>
+
+      <!--
+        Las tarjetas de arriba entran sin identificar a nadie, asi que tapaban
+        el login de verdad: con el acceso directo encendido no habia forma de
+        llegar a escribir un telefono. Esta puerta lo devuelve.
+      -->
+      <div class="separador"><span>o</span></div>
+
+      <button type="button" class="btn-secondary ancho" @click="irA('telefono')">
+        Entrar con mi WhatsApp
+      </button>
+
+      <p class="login-aviso">Modo de pruebas: las tarjetas entran sin contraseña.</p>
     </template>
 
     <!-- Paso 1: cómo entras -->
@@ -492,6 +504,24 @@ async function entrarComoStaff(): Promise<void> {
 </template>
 
 <style scoped>
+/* Separa las tarjetas de prueba del login real, para que no se confundan. */
+.separador {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 0 14px;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.separador::before,
+.separador::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
 .saludo-emoji {
   font-size: 46px;
   text-align: center;
