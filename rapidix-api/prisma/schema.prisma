@@ -162,17 +162,32 @@ model CodigoOtp {
 // Catalogo
 // ============================================================
 
+/// Catalogo de categorias de producto. No se administra a mano: cada alta o
+/// importacion que nombra una categoria nueva la da de alta aqui, y la
+/// categoria sobrevive aunque se quede sin productos, porque las campanias de
+/// cupones restringen por ella (Word 4.9.3).
+model Categoria {
+  id     String @id @default(uuid())
+  nombre String @unique
+
+  creadoEn      DateTime @default(now())
+  actualizadoEn DateTime @updatedAt
+
+  productos Producto[]
+
+  @@map("categorias")
+}
+
 model Producto {
   id String @id @default(uuid())
 
   nombre      String
-  /// Texto libre. Las categorias del sistema se derivan de los valores usados aqui.
-  categoria   String
+  categoriaId String
+  categoria   Categoria @relation(fields: [categoriaId], references: [id])
   unidad      String
   precioCosto Decimal @db.Decimal(12, 2)
   precioVenta Decimal @db.Decimal(12, 2)
   imagenUrl   String?
-  emoji       String?
   agotado     Boolean @default(false)
 
   creadoEn      DateTime @default(now())
@@ -181,7 +196,7 @@ model Producto {
   solicitudes SolicitudProducto[]
   lineas      PedidoItem[]
 
-  @@index([categoria])
+  @@index([categoriaId])
   @@map("productos")
 }
 

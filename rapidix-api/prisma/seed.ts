@@ -25,19 +25,19 @@ const prisma = new PrismaClient();
 // ------------------------------------------------------------------
 
 const PRODUCTOS = [
-  { nombre: 'Tomate bola', categoria: 'Frutas y Verduras', unidad: 'kg', precioCosto: 9, precioVenta: 18, emoji: '🍅', agotado: false },
-  { nombre: 'Lechuga romana', categoria: 'Frutas y Verduras', unidad: 'pza', precioCosto: 8, precioVenta: 15, emoji: '🥬', agotado: false },
-  { nombre: 'Aguacate hass', categoria: 'Frutas y Verduras', unidad: 'kg', precioCosto: 14, precioVenta: 22, emoji: '🥑', agotado: true },
-  { nombre: 'Limón', categoria: 'Frutas y Verduras', unidad: 'kg', precioCosto: 6, precioVenta: 12, emoji: '🍋', agotado: false },
-  { nombre: 'Pechuga de pollo', categoria: 'Carnes', unidad: 'kg', precioCosto: 62, precioVenta: 89, emoji: '🍗', agotado: false },
-  { nombre: 'Carne molida de res', categoria: 'Carnes', unidad: 'kg', precioCosto: 78, precioVenta: 110, emoji: '🥩', agotado: false },
-  { nombre: 'Leche entera 1L', categoria: 'Lácteos', unidad: 'L', precioCosto: 16, precioVenta: 24, emoji: '🥛', agotado: false },
-  { nombre: 'Queso panela', categoria: 'Lácteos', unidad: 'pza', precioCosto: 40, precioVenta: 58, emoji: '🧀', agotado: true },
-  { nombre: 'Arroz 1kg', categoria: 'Abarrotes', unidad: 'kg', precioCosto: 19, precioVenta: 28, emoji: '🍚', agotado: false },
-  { nombre: 'Frijol negro 1kg', categoria: 'Abarrotes', unidad: 'kg', precioCosto: 22, precioVenta: 32, emoji: '🫘', agotado: false },
-  { nombre: 'Aceite vegetal 1L', categoria: 'Abarrotes', unidad: 'L', precioCosto: 32, precioVenta: 45, emoji: '🫗', agotado: false },
-  { nombre: 'Agua mineral', categoria: 'Bebidas', unidad: 'pza', precioCosto: 8, precioVenta: 14, emoji: '🥤', agotado: false },
-  { nombre: 'Jugo natural de naranja', categoria: 'Bebidas', unidad: 'L', precioCosto: 13, precioVenta: 20, emoji: '🧃', agotado: false },
+  { nombre: 'Tomate bola', categoria: 'Frutas y Verduras', unidad: 'kg', precioCosto: 9, precioVenta: 18, agotado: false },
+  { nombre: 'Lechuga romana', categoria: 'Frutas y Verduras', unidad: 'pza', precioCosto: 8, precioVenta: 15, agotado: false },
+  { nombre: 'Aguacate hass', categoria: 'Frutas y Verduras', unidad: 'kg', precioCosto: 14, precioVenta: 22, agotado: true },
+  { nombre: 'Limón', categoria: 'Frutas y Verduras', unidad: 'kg', precioCosto: 6, precioVenta: 12, agotado: false },
+  { nombre: 'Pechuga de pollo', categoria: 'Carnes', unidad: 'kg', precioCosto: 62, precioVenta: 89, agotado: false },
+  { nombre: 'Carne molida de res', categoria: 'Carnes', unidad: 'kg', precioCosto: 78, precioVenta: 110, agotado: false },
+  { nombre: 'Leche entera 1L', categoria: 'Lácteos', unidad: 'L', precioCosto: 16, precioVenta: 24, agotado: false },
+  { nombre: 'Queso panela', categoria: 'Lácteos', unidad: 'pza', precioCosto: 40, precioVenta: 58, agotado: true },
+  { nombre: 'Arroz 1kg', categoria: 'Abarrotes', unidad: 'kg', precioCosto: 19, precioVenta: 28, agotado: false },
+  { nombre: 'Frijol negro 1kg', categoria: 'Abarrotes', unidad: 'kg', precioCosto: 22, precioVenta: 32, agotado: false },
+  { nombre: 'Aceite vegetal 1L', categoria: 'Abarrotes', unidad: 'L', precioCosto: 32, precioVenta: 45, agotado: false },
+  { nombre: 'Agua mineral', categoria: 'Bebidas', unidad: 'pza', precioCosto: 8, precioVenta: 14, agotado: false },
+  { nombre: 'Jugo natural de naranja', categoria: 'Bebidas', unidad: 'L', precioCosto: 13, precioVenta: 20, agotado: false },
 ];
 
 // ------------------------------------------------------------------
@@ -461,7 +461,28 @@ async function seedProductos(): Promise<void> {
     console.log(`  productos: ${existentes} ya existen, se omite`);
     return;
   }
-  await prisma.producto.createMany({ data: PRODUCTOS });
+
+  // El catalogo de categorias se llena con las que traen los productos, igual
+  // que hace la importacion de Excel.
+  const nombres = [...new Set(PRODUCTOS.map((p) => p.categoria))];
+  const categorias = new Map<string, string>();
+  for (const nombre of nombres) {
+    const categoria = await prisma.categoria.upsert({
+      where: { nombre },
+      update: {},
+      create: { nombre },
+      select: { id: true },
+    });
+    categorias.set(nombre, categoria.id);
+  }
+  console.log(`  categorias: ${nombres.length} en el catalogo`);
+
+  await prisma.producto.createMany({
+    data: PRODUCTOS.map(({ categoria, ...resto }) => ({
+      ...resto,
+      categoriaId: categorias.get(categoria) as string,
+    })),
+  });
   console.log(`  productos: ${PRODUCTOS.length} creados`);
 }
 

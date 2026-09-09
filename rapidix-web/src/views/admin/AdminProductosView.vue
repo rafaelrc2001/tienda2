@@ -16,7 +16,7 @@ import type { CategoriaConProductos, Producto } from '@/api/tipos'
 
 const ui = useUiStore()
 
-const CAMPOS = ['nombre', 'categoria', 'unidad', 'precioCosto', 'precioVenta', 'emoji'] as const
+const CAMPOS = ['nombre', 'categoria', 'unidad', 'precioCosto', 'precioVenta'] as const
 
 interface FilaImportacion {
   fila: number
@@ -30,12 +30,21 @@ interface ResumenImportacion {
   creados: number
   actualizados: number
   errores: number
+  /** Categorías que el archivo estrenó y quedaron en el catálogo. */
+  categoriasNuevas: string[]
   filas: FilaImportacion[]
 }
 
 const grupos = ref<CategoriaConProductos[]>([])
 const cargando = ref(true)
 const busqueda = ref('')
+
+/**
+ * Catálogo de categorías, para sugerirlas en el alta. Se escriben igual que
+ * siempre —el campo sigue siendo texto libre—, pero elegir una de la lista
+ * evita estrenar "Lacteos" cuando ya existe "Lácteos".
+ */
+const categorias = ref<string[]>([])
 
 const editando = ref<Producto | null>(null)
 const modalAbierto = ref(false)
@@ -52,7 +61,6 @@ const formulario = ref({
   unidad: '',
   precioCosto: null as number | null,
   precioVenta: null as number | null,
-  emoji: '',
   imagenUrl: '',
 })
 
@@ -74,7 +82,10 @@ const totalProductos = computed(() =>
   grupos.value.reduce((suma, g) => suma + g.productos.length, 0),
 )
 
-onMounted(cargar)
+onMounted(() => {
+  void cargar()
+  void cargarCategorias()
+})
 
 async function cargar(): Promise<void> {
   cargando.value = true
@@ -87,6 +98,15 @@ async function cargar(): Promise<void> {
   }
 }
 
+/** Las sugerencias son un extra: si fallan, el alta sigue funcionando. */
+async function cargarCategorias(): Promise<void> {
+  try {
+    categorias.value = await http.get<string[]>('/categorias')
+  } catch {
+    categorias.value = []
+  }
+}
+
 function abrirAlta(): void {
   editando.value = null
   formulario.value = {
@@ -95,7 +115,6 @@ function abrirAlta(): void {
     unidad: '',
     precioCosto: null,
     precioVenta: null,
-    emoji: '',
     imagenUrl: '',
   }
   errores.value = {}
@@ -111,7 +130,6 @@ function abrirEdicion(producto: Producto): void {
     unidad: producto.unidad,
     precioCosto: producto.precioCosto,
     precioVenta: producto.precioVenta,
-    emoji: producto.emoji ?? '',
     imagenUrl: producto.imagenUrl ?? '',
   }
   errores.value = {}
@@ -128,7 +146,6 @@ function cuerpo(): Record<string, unknown> {
   }
   if (formulario.value.unidad.trim()) datos.unidad = formulario.value.unidad.trim()
   if (formulario.value.precioCosto !== null) datos.precioCosto = formulario.value.precioCosto
-  if (formulario.value.emoji.trim()) datos.emoji = formulario.value.emoji.trim()
   if (formulario.value.imagenUrl.trim()) datos.imagenUrl = formulario.value.imagenUrl.trim()
   return datos
 }
@@ -146,7 +163,7 @@ async function guardar(): Promise<void> {
       ui.exito('Producto creado')
     }
     modalAbierto.value = false
-    await cargar()
+    await Promise.all([cargar(), cargarCategorias()])
   } catch (fallo) {
     if (fallo instanceof ErrorApi) {
       const { campos, generales } = fallo.porCampo(CAMPOS)
@@ -196,7 +213,7 @@ async function importar(evento: Event): Promise<void> {
     ui.exito(
       `${resumen.value.creados} creados, ${resumen.value.actualizados} actualizados, ${resumen.value.errores} con error`,
     )
-    await cargar()
+    await Promise.all([cargar(), cargarCategorias()])
   } catch (fallo) {
     ui.errorDeApi(fallo)
   } finally {
@@ -208,7 +225,7 @@ async function importar(evento: Event): Promise<void> {
 
 async function descargarPlantilla(): Promise<void> {
   try {
-    await descargarArchivo('/admin/productos/plantilla', 'plantilla-productos.csv')
+    await descargarArchivo('/admin/productos/plantilla', 'plantilla-productos.xlsx')
   } catch (fallo) {
     ui.errorDeApi(fallo)
   }
@@ -224,6 +241,11 @@ const filasConError = computed(() => resumen.value?.filas.filter((f) => f.estado
     <!-- Importación masiva -->
     <section class="admin-section">
       <h4>📥 Cargar por Excel</h4>
+      <p class="columnas-plantilla">
+        Columnas: <strong>Categoría</strong>, <strong>Producto</strong>,
+        <strong>Unidad</strong>, <strong>Precio de costo</strong> y
+        <strong>Precio de venta</strong>. <em>Imagen</em> (URL) es opcional.
+      </p>
       <label class="file-drop">
         <input type="file" accept=".xlsx" :disabled="importando" @change="importar" />
         {{ importando ? 'Subiendo el archivo…' : 'Elige un .xlsx con tus productos' }}
@@ -243,6 +265,13 @@ const filasConError = computed(() => resumen.value?.filas.filter((f) => f.estado
             <span class="n">{{ resumen.errores }}</span><span class="l">Errores</span>
           </div>
         </div>
+
+        <p v-if="resumen.categoriasNuevas.length > 0" class="categorias-nuevas">
+          Categorías nuevas en el catálogo:
+          <span v-for="nombre in resumen.categoriasNuevas" :key="nombre" class="mini-tag">{{
+            nombre
+          }}</span>
+        </p>
 
         <ul v-if="filasConError.length > 0" class="filas-error">
           <li v-for="fila in filasConError" :key="fila.fila">
@@ -268,7 +297,7 @@ const filasConError = computed(() => resumen.value?.filas.filter((f) => f.estado
         <article v-for="producto in grupo.productos" :key="producto.id" class="fila-producto">
           <div class="media">
             <img v-if="producto.imagenUrl" :src="producto.imagenUrl" :alt="producto.nombre" />
-            <template v-else>{{ producto.emoji ?? '📦' }}</template>
+            <template v-else>📦</template>
           </div>
 
           <div class="info">
@@ -332,20 +361,21 @@ const filasConError = computed(() => resumen.value?.filas.filter((f) => f.estado
           id="pr-categoria"
           v-model="formulario.categoria"
           class="form-input"
+          list="pr-categorias"
+          autocomplete="off"
+          placeholder="Elige una o escribe una nueva"
           :class="{ 'is-invalid': errores.categoria }"
         />
+        <datalist id="pr-categorias">
+          <option v-for="nombre in categorias" :key="nombre" :value="nombre" />
+        </datalist>
         <p v-if="errores.categoria" class="form-error">{{ errores.categoria }}</p>
+        <p class="form-hint">
+          Si la categoría no existe se da de alta sola en el catálogo.
+        </p>
 
-        <div class="form-row-2">
-          <div>
-            <label class="form-label" for="pr-unidad">Unidad</label>
-            <input id="pr-unidad" v-model="formulario.unidad" class="form-input" placeholder="kg" />
-          </div>
-          <div>
-            <label class="form-label" for="pr-emoji">Emoji</label>
-            <input id="pr-emoji" v-model="formulario.emoji" class="form-input" maxlength="8" />
-          </div>
-        </div>
+        <label class="form-label" for="pr-unidad">Unidad</label>
+        <input id="pr-unidad" v-model="formulario.unidad" class="form-input" placeholder="kg" />
 
         <div class="form-row-2">
           <div>
@@ -375,11 +405,7 @@ const filasConError = computed(() => resumen.value?.filas.filter((f) => f.estado
         <p v-if="errores.precioVenta" class="form-error">{{ errores.precioVenta }}</p>
 
         <label class="form-label">Imagen del producto</label>
-        <SubidorImagen
-          v-model="formulario.imagenUrl"
-          carpeta="productos"
-          :emoji="formulario.emoji"
-        />
+        <SubidorImagen v-model="formulario.imagenUrl" carpeta="productos" />
 
         <div class="modal-actions">
           <button type="button" class="btn-cancel" @click="modalAbierto = false">Cancelar</button>
@@ -419,6 +445,34 @@ const filasConError = computed(() => resumen.value?.filas.filter((f) => f.estado
   font-size: 13px;
   color: var(--ink);
   margin: 0 0 10px;
+}
+
+.columnas-plantilla {
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.5;
+  margin: 0 0 10px;
+}
+
+.columnas-plantilla strong {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.form-hint {
+  font-size: 11.5px;
+  color: var(--muted);
+  margin: 4px 0 0;
+}
+
+.categorias-nuevas {
+  font-size: 11.5px;
+  color: var(--muted);
+  margin: 12px 0 0;
+}
+
+.categorias-nuevas .mini-tag {
+  margin: 0 0 0 4px;
 }
 
 .file-drop {

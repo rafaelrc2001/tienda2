@@ -7,6 +7,7 @@ import {
   HttpStatus,
   ParseFilePipeBuilder,
   Post,
+  StreamableFile,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
@@ -53,9 +54,9 @@ export class AdminImportacionController {
 
   /** Plantilla de ejemplo con las columnas correctas (Word 6.6). */
   @Get('plantilla')
-  @Header('Content-Type', 'text/csv; charset=utf-8')
-  @Header('Content-Disposition', 'attachment; filename="plantilla-productos.csv"')
-  plantilla(): string {
-    return ImportacionService.generarPlantillaCsv();
+  @Header('Content-Type', TIPOS_XLSX[0])
+  @Header('Content-Disposition', 'attachment; filename="plantilla-productos.xlsx"')
+  async plantilla(): Promise<StreamableFile> {
+    return new StreamableFile(await ImportacionService.generarPlantillaXlsx());
   }
 }

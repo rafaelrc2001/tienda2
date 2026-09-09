@@ -108,15 +108,19 @@ model CodigoOtp {
 ### Catálogo
 
 ```prisma
+model Categoria {                // catálogo; se alimenta solo desde altas e importaciones
+  id     String @id @default(uuid())
+  nombre String @unique
+}
+
 model Producto {
   id          String  @id @default(uuid())
   nombre      String
-  categoria   String            // texto libre; las categorías del sistema se derivan de aquí
+  categoriaId String            // FK a Categoria; el nombre se escribe libre y el catálogo lo absorbe
   unidad      String
   precioCosto Decimal
   precioVenta Decimal
   imagenUrl   String?
-  emoji       String?
   agotado     Boolean @default(false)
 }
 
@@ -333,9 +337,9 @@ Cada paso deja el proyecto arrancando y es commiteable por sí solo.
 5. **Auth staff.** `POST /auth/staff/login` con email y contraseña (argon2), emite JWT con `sub` y `rol`. `JwtAuthGuard` y `RolesGuard`. Seed de un usuario administrador. Prueba: el login devuelve token; un endpoint protegido rechaza sin token.
 6. **Auth cliente por OTP.** `POST /auth/cliente/solicitar-codigo` (OTP de 6 dígitos hasheado, expira en 5 minutos, máximo 5 intentos) y `POST /auth/cliente/verificar-codigo` (si el teléfono no existe, pide `nombre` y da de alta al cliente). Interfaz `NotificationSender` con implementación `ConsoleNotificationSender`. Prueba: solicitar código, leerlo del log, verificar y recibir JWT de rol cliente.
 7. **Matriz de permisos.** Decorador `@Roles()` alimentado por la matriz `rolePermissions` del mockup: administrador ve todo, cliente solo lo suyo, ruta solo rutas, operaciones solo operaciones, finanzas solo finanzas y clientes. Prueba: un token de rol `RUTA` recibe 403 en `/admin/productos`.
-8. **Módulo Catálogo.** CRUD de productos, `PATCH /admin/productos/:id/agotado`, `GET /productos` agrupado por categoría con búsqueda por nombre, `GET /categorias` derivado de los productos, `POST /productos/:id/programar`. Validación: nombre, categoría y precio de venta obligatorios. Prueba: crear producto sin precio devuelve 400.
+8. **Módulo Catálogo.** CRUD de productos, `PATCH /admin/productos/:id/agotado`, `GET /productos` agrupado por categoría con búsqueda por nombre, `GET /categorias` desde el catálogo de categorías (una categoría sin productos sigue existiendo, porque las campañas restringen por ella), `GET /admin/categorias` con el conteo por categoría, `POST /productos/:id/programar`. Validación: nombre, categoría y precio de venta obligatorios. Prueba: crear producto sin precio devuelve 400.
 9. **Subida de imágenes.** `POST /uploads/firma` devuelve la URL firmada de S3 y la URL pública final. Productos y recetas guardan solo la URL. Prueba: subir un PNG con la URL firmada y leerlo por la URL pública.
-10. **Importación de Excel.** `POST /admin/productos/importar` recibe multipart `.xlsx`, valida las columnas `Categoria`, `Producto`, `Unidad`, `Precio de costo`, `Precio de venta` (e `Imagen` opcional) y devuelve por fila si se importó o por qué falló. `GET /admin/productos/plantilla` devuelve el CSV de ejemplo. Prueba: importar un archivo con una fila sin precio y ver esa fila reportada como error sin abortar las demás.
+10. **Importación de Excel.** `POST /admin/productos/importar` recibe multipart `.xlsx`, valida las columnas `Categoria`, `Producto`, `Unidad`, `Precio de costo`, `Precio de venta` (e `Imagen` opcional) y devuelve por fila si se importó o por qué falló. Cada categoría nueva que trae el archivo queda dada de alta en el catálogo y se reporta en `categoriasNuevas`. `GET /admin/productos/plantilla` devuelve el `.xlsx` de ejemplo — en el mismo formato que acepta la carga, no en CSV. Prueba: importar un archivo con una fila sin precio y ver esa fila reportada como error sin abortar las demás.
 11. **Módulo Recetario — lectura.** `GET /recetas` con filtro por categoría y pestaña (oficial, mías, comunidad), búsqueda por nombre o ingrediente, y `GET /recetas/:id` con ingredientes, pasos y promedio de calificación. Prueba: buscar "pollo" devuelve la receta cuyo ingrediente es "Pechuga de pollo".
 12. **Módulo Recetario — escritura.** Alta y edición de recetas propias del cliente y de recetas oficiales por administrador, con ingredientes y pasos ordenados. Validación: nombre obligatorio y al menos una categoría. Switch de compartir con la comunidad. Prueba: guardar receta sin categoría devuelve 400.
 13. **Estado del recetario por cliente.** Guardar/quitar de Mis Recetas, pausar/continuar receta (una a la vez), marcar "¡Listo a comer!" y calificar. La calificación solo se acepta si existe un `RecetaCocinada` de ese cliente para esa receta. `GET /recetario/historial` devuelve los últimos 35 días. Prueba: calificar sin haber cocinado devuelve 409.

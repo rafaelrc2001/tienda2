@@ -239,7 +239,7 @@ Cada paso deja el sistema arrancable y verificable.
 
 **Panel de administración.**
 
-21. **Productos.** Listado desde `GET /admin/productos`, alta y edición, switch de agotado, borrado con confirmación, importación `.xlsx` subiendo el archivo a `POST /admin/productos/importar` — **el navegador no procesa el Excel; SheetJS desaparece** — y descarga de la plantilla.
+21. **Productos.** Listado desde `GET /admin/productos`, alta y edición, switch de agotado, borrado con confirmación, importación `.xlsx` subiendo el archivo a `POST /admin/productos/importar` — **el navegador no procesa el Excel; SheetJS desaparece** — y descarga de la plantilla `.xlsx`. La categoría se escribe con sugerencias de `GET /categorias`: se puede elegir una existente o estrenar una nueva, que queda en el catálogo.
 22. **Recetas.** `GET`/`POST /admin/recetas` y `PATCH /admin/recetas/:id`, con el mismo editor de ingredientes y pasos que el del cliente, reutilizando el componente.
 23. **Configuración.** Submenú y las cinco pantallas: horario de servicio con días y horas y switch de atender fuera de horario; parámetros del negocio; datos bancarios con botón de copiar; noticias y avisos con alta y borrado; niveles de fidelidad (`/admin/configuracion/niveles`) con su CRUD, avisando de que los umbrales del seed son provisionales.
 24. **Cupones — ciclo de vida.** Los cinco tipos con sus contadores en vivo, switch de activo, edición de parámetros y "emitir de prueba".

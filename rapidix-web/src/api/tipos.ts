@@ -124,7 +124,6 @@ export interface Producto {
   precioCosto: number
   precioVenta: number
   imagenUrl: string | null
-  emoji: string | null
   agotado: boolean
 }
 

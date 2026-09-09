@@ -130,7 +130,10 @@ export class CarritoService {
    */
   async resolver(items: LineaCarritoDto[]): Promise<CarritoResuelto> {
     const ids = [...new Set(items.map((i) => i.productoId))];
-    const productos = await this.prisma.producto.findMany({ where: { id: { in: ids } } });
+    const productos = await this.prisma.producto.findMany({
+      where: { id: { in: ids } },
+      include: { categoria: { select: { nombre: true } } },
+    });
 
     const faltantes = ids.filter((id) => !productos.some((p) => p.id === id));
     if (faltantes.length > 0) {
@@ -155,7 +158,7 @@ export class CarritoService {
       return {
         productoId: p.id,
         nombre: p.nombre,
-        categoria: p.categoria,
+        categoria: p.categoria.nombre,
         unidad: p.unidad,
         precioUnitario: p.precioVenta,
         cantidad,
@@ -179,7 +182,10 @@ export class CarritoService {
    */
   async resolverTolerante(items: LineaCarritoDto[]): Promise<CarritoTolerante> {
     const ids = [...new Set(items.map((i) => i.productoId))];
-    const productos = await this.prisma.producto.findMany({ where: { id: { in: ids } } });
+    const productos = await this.prisma.producto.findMany({
+      where: { id: { in: ids } },
+      include: { categoria: { select: { nombre: true } } },
+    });
 
     const avisos: string[] = [];
     const faltantes = ids.filter((id) => !productos.some((p) => p.id === id));
@@ -203,7 +209,7 @@ export class CarritoService {
       const linea: LineaResuelta = {
         productoId: p.id,
         nombre: p.nombre,
-        categoria: p.categoria,
+        categoria: p.categoria.nombre,
         unidad: p.unidad,
         precioUnitario: p.precioVenta,
         cantidad,

@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, Producto } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { CategoriasService } from './categorias.service';
 import {
   ActualizarProductoDto,
   BuscarProductosDto,
@@ -17,7 +18,6 @@ export interface ProductoDto {
   precioCosto: number;
   precioVenta: number;
   imagenUrl: string | null;
-  emoji: string | null;
   agotado: boolean;
 }
 
@@ -26,25 +26,34 @@ export interface CategoriaConProductos {
   productos: ProductoDto[];
 }
 
+/**
+ * La categoria vive en su propia tabla, pero hacia fuera sigue viajando como
+ * el nombre suelto que espera la Tienda: quien consume la API no tiene por que
+ * enterarse de que por dentro es una relacion.
+ */
+type ProductoConCategoria = Producto & { categoria: { nombre: string } };
+
 @Injectable()
 export class CatalogoService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly categorias: CategoriasService,
+  ) {}
 
   /**
    * Los precios se guardan como Decimal para que las sumas del pedido no
    * arrastren error de coma flotante. Hacia fuera viajan como numero: el
    * calculo del total lo hace siempre el backend (paso 19), nunca el cliente.
    */
-  private static aDto(p: Producto): ProductoDto {
+  private static aDto(p: ProductoConCategoria): ProductoDto {
     return {
       id: p.id,
       nombre: p.nombre,
-      categoria: p.categoria,
+      categoria: p.categoria.nombre,
       unidad: p.unidad,
       precioCosto: p.precioCosto.toNumber(),
       precioVenta: p.precioVenta.toNumber(),
       imagenUrl: p.imagenUrl,
-      emoji: p.emoji,
       agotado: p.agotado,
     };
   }
@@ -56,72 +65,80 @@ export class CatalogoService {
       where.nombre = { contains: filtros.q.trim(), mode: 'insensitive' };
     }
     if (filtros.categoria?.trim()) {
-      where.categoria = { equals: filtros.categoria.trim(), mode: 'insensitive' };
+      where.categoria = { nombre: { equals: filtros.categoria.trim(), mode: 'insensitive' } };
     }
 
     const productos = await this.prisma.producto.findMany({
       where,
-      orderBy: [{ categoria: 'asc' }, { nombre: 'asc' }],
+      include: { categoria: { select: { nombre: true } } },
+      orderBy: [{ categoria: { nombre: 'asc' } }, { nombre: 'asc' }],
     });
 
     const grupos = new Map<string, ProductoDto[]>();
     for (const producto of productos) {
-      const lista = grupos.get(producto.categoria) ?? [];
+      const lista = grupos.get(producto.categoria.nombre) ?? [];
       lista.push(CatalogoService.aDto(producto));
-      grupos.set(producto.categoria, lista);
+      grupos.set(producto.categoria.nombre, lista);
     }
 
     return [...grupos.entries()].map(([categoria, items]) => ({ categoria, productos: items }));
   }
 
   /**
-   * Las categorias no son una tabla: se derivan de los productos dados de alta
-   * (Word 4.9.3). Alimentan los chips de categoria de las campanias.
+   * Catalogo de categorias (Word 4.9.3). Sale de su tabla, no de los productos:
+   * una categoria que se quedo sin productos sigue existiendo y sigue siendo
+   * elegible en una campania.
    */
-  async listarCategorias(): Promise<string[]> {
-    const filas = await this.prisma.producto.findMany({
-      distinct: ['categoria'],
-      select: { categoria: true },
-      orderBy: { categoria: 'asc' },
-    });
-    return filas.map((f) => f.categoria);
+  listarCategorias(): Promise<string[]> {
+    return this.categorias.listarNombres();
   }
 
   async obtener(id: string): Promise<ProductoDto> {
-    const producto = await this.prisma.producto.findUnique({ where: { id } });
+    const producto = await this.prisma.producto.findUnique({
+      where: { id },
+      include: { categoria: { select: { nombre: true } } },
+    });
     if (!producto) throw new NotFoundException('Producto no encontrado');
     return CatalogoService.aDto(producto);
   }
 
+  /**
+   * Alta manual (Word 6.6). La categoria se escribe como texto y el catalogo la
+   * absorbe: si ya existe se reutiliza, y si no, queda dada de alta para la
+   * siguiente vez y para las campanias de cupones.
+   */
   async crear(dto: CrearProductoDto): Promise<ProductoDto> {
+    const categoriaId = await this.categorias.resolver(dto.categoria);
     const producto = await this.prisma.producto.create({
       data: {
         nombre: dto.nombre.trim(),
-        categoria: dto.categoria.trim(),
+        categoriaId,
         unidad: dto.unidad?.trim() || 'pza',
         precioCosto: dto.precioCosto ?? 0,
         precioVenta: dto.precioVenta,
         imagenUrl: dto.imagenUrl ?? null,
-        emoji: dto.emoji ?? null,
         agotado: dto.agotado ?? false,
       },
+      include: { categoria: { select: { nombre: true } } },
     });
     return CatalogoService.aDto(producto);
   }
 
   async actualizar(id: string, dto: ActualizarProductoDto): Promise<ProductoDto> {
     await this.obtener(id);
+    const categoriaId =
+      dto.categoria !== undefined ? await this.categorias.resolver(dto.categoria) : undefined;
     const producto = await this.prisma.producto.update({
       where: { id },
       data: {
         ...(dto.nombre !== undefined && { nombre: dto.nombre.trim() }),
-        ...(dto.categoria !== undefined && { categoria: dto.categoria.trim() }),
+        ...(categoriaId !== undefined && { categoriaId }),
         ...(dto.unidad !== undefined && { unidad: dto.unidad.trim() }),
         ...(dto.precioCosto !== undefined && { precioCosto: dto.precioCosto }),
         ...(dto.precioVenta !== undefined && { precioVenta: dto.precioVenta }),
         ...(dto.imagenUrl !== undefined && { imagenUrl: dto.imagenUrl }),
-        ...(dto.emoji !== undefined && { emoji: dto.emoji }),
       },
+      include: { categoria: { select: { nombre: true } } },
     });
     return CatalogoService.aDto(producto);
   }
@@ -132,6 +149,7 @@ export class CatalogoService {
     const producto = await this.prisma.producto.update({
       where: { id },
       data: { agotado: dto.agotado },
+      include: { categoria: { select: { nombre: true } } },
     });
     return CatalogoService.aDto(producto);
   }

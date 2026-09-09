@@ -101,7 +101,7 @@ async function programar(productoId: string, nombre: string): Promise<void> {
 
             <div class="product-media">
               <img v-if="producto.imagenUrl" :src="producto.imagenUrl" :alt="producto.nombre" />
-              <template v-else>{{ producto.emoji ?? '🛒' }}</template>
+              <template v-else>🛒</template>
             </div>
 
             <p class="product-name">{{ producto.nombre }}</p>

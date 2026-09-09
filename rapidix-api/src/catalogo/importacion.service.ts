@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { Workbook } from 'exceljs';
 import { PrismaService } from '../prisma/prisma.service';
+import { CategoriasService } from './categorias.service';
 
 /** Columnas del Word 6.6. `Imagen` es la unica opcional. */
 export const COLUMNAS_REQUERIDAS = [
@@ -24,6 +25,8 @@ export interface ResumenImportacion {
   creados: number;
   actualizados: number;
   errores: number;
+  /** Categorias que no existian y quedaron dadas de alta en el catalogo. */
+  categoriasNuevas: string[];
   filas: ResultadoFila[];
 }
 
@@ -39,7 +42,10 @@ interface FilaLeida {
 
 @Injectable()
 export class ImportacionService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly categorias: CategoriasService,
+  ) {}
 
   /**
    * Normaliza un encabezado para compararlo: sin acentos, sin mayusculas y
@@ -66,8 +72,16 @@ export class ImportacionService {
     const filas = await this.leerArchivo(buffer);
     const resultados: ResultadoFila[] = [];
 
+    // La columna Categoria alimenta el catalogo: cada nombre nuevo que trae el
+    // Excel queda dado de alta. El mapa evita resolver cien veces la misma
+    // categoria en un archivo de cien productos.
+    const conocidas = await this.categorias.listarNombres();
+    const yaExistian = new Set(conocidas.map((n) => n.toLowerCase()));
+    const resueltas = new Map<string, string>();
+    const nuevas: string[] = [];
+
     for (const fila of filas) {
-      resultados.push(await this.procesarFila(fila));
+      resultados.push(await this.procesarFila(fila, resueltas, yaExistian, nuevas));
     }
 
     return {
@@ -75,6 +89,7 @@ export class ImportacionService {
       creados: resultados.filter((r) => r.estado === 'creado').length,
       actualizados: resultados.filter((r) => r.estado === 'actualizado').length,
       errores: resultados.filter((r) => r.estado === 'error').length,
+      categoriasNuevas: nuevas,
       filas: resultados,
     };
   }
@@ -148,7 +163,12 @@ export class ImportacionService {
    * siguiente. Un catalogo de 300 productos no puede caerse entero porque a
    * uno le falte el precio.
    */
-  private async procesarFila(fila: FilaLeida): Promise<ResultadoFila> {
+  private async procesarFila(
+    fila: FilaLeida,
+    resueltas: Map<string, string>,
+    yaExistian: Set<string>,
+    nuevas: string[],
+  ): Promise<ResultadoFila> {
     const nombre = fila.producto.trim();
     const categoria = fila.categoria.trim();
 
@@ -168,6 +188,14 @@ export class ImportacionService {
       return { fila: fila.numero, estado: 'error', motivo: 'El precio de costo no puede ser negativo' };
     }
 
+    const clave = CategoriasService.limpiar(categoria).toLowerCase();
+    let categoriaId = resueltas.get(clave);
+    if (!categoriaId) {
+      categoriaId = await this.categorias.resolver(categoria);
+      resueltas.set(clave, categoriaId);
+      if (!yaExistian.has(clave)) nuevas.push(CategoriasService.limpiar(categoria));
+    }
+
     const datos = {
       unidad: fila.unidad.trim() || 'pza',
       precioCosto,
@@ -178,10 +206,7 @@ export class ImportacionService {
     // Mismo nombre y misma categoria = mismo producto: se actualiza en vez de
     // duplicarse, que es como se usa una carga masiva para refrescar precios.
     const existente = await this.prisma.producto.findFirst({
-      where: {
-        nombre: { equals: nombre, mode: 'insensitive' },
-        categoria: { equals: categoria, mode: 'insensitive' },
-      },
+      where: { nombre: { equals: nombre, mode: 'insensitive' }, categoriaId },
       select: { id: true },
     });
 
@@ -190,19 +215,33 @@ export class ImportacionService {
       return { fila: fila.numero, estado: 'actualizado', producto: nombre };
     }
 
-    await this.prisma.producto.create({ data: { nombre, categoria, ...datos } });
+    await this.prisma.producto.create({ data: { nombre, categoriaId, ...datos } });
     return { fila: fila.numero, estado: 'creado', producto: nombre };
   }
 
-  /** Plantilla de ejemplo con las columnas correctas (Word 6.6). */
-  static generarPlantillaCsv(): string {
-    const encabezado = [...COLUMNAS_REQUERIDAS, COLUMNA_OPCIONAL].join(',');
-    const ejemplos = [
-      'Frutas y Verduras,Tomate bola,kg,9,18,',
-      'Carnes,Pechuga de pollo,kg,62,89,',
-      'Abarrotes,Arroz 1kg,kg,19,28,https://cdn.rapidix.mx/productos/arroz.webp',
-    ];
-    // BOM para que Excel abra los acentos bien.
-    return `﻿${encabezado}\n${ejemplos.join('\n')}\n`;
+  /**
+   * Plantilla de ejemplo con las columnas correctas (Word 6.6).
+   *
+   * Se genera en .xlsx y no en .csv a proposito: la carga solo acepta .xlsx, y
+   * una plantilla que hay que convertir antes de poder subirla no es una
+   * plantilla, es un tramite.
+   */
+  static async generarPlantillaXlsx(): Promise<Buffer> {
+    const libro = new Workbook();
+    const hoja = libro.addWorksheet('Productos');
+
+    hoja.columns = [...COLUMNAS_REQUERIDAS, COLUMNA_OPCIONAL].map((encabezado) => ({
+      header: encabezado,
+      width: encabezado === COLUMNA_OPCIONAL ? 42 : 20,
+    }));
+    hoja.getRow(1).font = { bold: true };
+
+    hoja.addRows([
+      ['Frutas y Verduras', 'Tomate bola', 'kg', 9, 18, ''],
+      ['Carnes', 'Pechuga de pollo', 'kg', 62, 89, ''],
+      ['Abarrotes', 'Arroz 1kg', 'kg', 19, 28, 'https://cdn.rapidix.mx/productos/arroz.webp'],
+    ]);
+
+    return Buffer.from(await libro.xlsx.writeBuffer());
   }
 }

@@ -42,11 +42,6 @@ export class CrearProductoDto {
   imagenUrl?: string;
 
   @IsOptional()
-  @IsString()
-  @MaxLength(8)
-  emoji?: string;
-
-  @IsOptional()
   @IsBoolean()
   agotado?: boolean;
 }
@@ -84,11 +79,6 @@ export class ActualizarProductoDto {
   @IsOptional()
   @IsString()
   imagenUrl?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(8)
-  emoji?: string;
 }
 
 export class MarcarAgotadoDto {
