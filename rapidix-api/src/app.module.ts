@@ -8,6 +8,7 @@ import { AuthModule } from './auth/auth.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { AdminModule } from './admin/admin.module';
 import { CatalogoModule } from './catalogo/catalogo.module';
+import { InventarioModule } from './inventario/inventario.module';
 import { UploadsModule } from './uploads/uploads.module';
 import { RecetarioModule } from './recetario/recetario.module';
 import { ConfiguracionModule } from './configuracion/configuracion.module';
@@ -31,6 +32,7 @@ import { RolesGuard } from './auth/roles.guard';
     AuthModule,
     AdminModule,
     CatalogoModule,
+    InventarioModule,
     UploadsModule,
     RecetarioModule,
     ConfiguracionModule,

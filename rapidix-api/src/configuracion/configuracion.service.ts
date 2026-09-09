@@ -17,6 +17,7 @@ export interface ParametrosResponse {
   montoEnvioGratis: number;
   multiplicadorCashback: number;
   montoMinimoCashback: number;
+  controlInventario: boolean;
 }
 
 export interface BancariosResponse {
@@ -89,6 +90,7 @@ export class ConfiguracionService {
       montoEnvioGratis: c.montoEnvioGratis.toNumber(),
       multiplicadorCashback: c.multiplicadorCashback.toNumber(),
       montoMinimoCashback: c.montoMinimoCashback.toNumber(),
+      controlInventario: c.controlInventario,
     };
   }
 

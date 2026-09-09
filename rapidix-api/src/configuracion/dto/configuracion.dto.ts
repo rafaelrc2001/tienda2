@@ -74,6 +74,16 @@ export class ParametrosDto {
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   montoMinimoCashback: number;
+
+  /**
+   * Si un pedido descuenta existencias de la bodega.
+   *
+   * Opcional para que los clientes viejos de la API que no lo mandan no
+   * apaguen sin querer un control que ya estaba encendido.
+   */
+  @IsOptional()
+  @IsBoolean()
+  controlInventario?: boolean;
 }
 
 export class BancariosDto {

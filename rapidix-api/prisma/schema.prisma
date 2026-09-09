@@ -190,11 +190,20 @@ model Producto {
   imagenUrl   String?
   agotado     Boolean @default(false)
 
+  /// Lo que hay fisicamente en bodega.
+  inventario    Int @default(0)
+  /// Lo liberado para venta: es lo que el cliente puede comprar.
+  ///
+  /// No tiene por que coincidir con `inventario`. Mercancia en cuarentena ya
+  /// llego a la bodega —suma al fisico— pero todavia no se puede vender.
+  aptInventario Int @default(0)
+
   creadoEn      DateTime @default(now())
   actualizadoEn DateTime @updatedAt
 
   solicitudes SolicitudProducto[]
   lineas      PedidoItem[]
+  movimientos MovimientoInventario[]
 
   @@index([categoriaId])
   @@map("productos")
@@ -212,6 +221,76 @@ model SolicitudProducto {
   @@index([productoId])
   @@index([clienteId])
   @@map("solicitudes_producto")
+}
+
+/// Entrada o salida de bodega.
+enum TipoMovimiento {
+  ENTRADA
+  SALIDA
+}
+
+/// Cual de los dos saldos toca el movimiento.
+enum AfectaInventario {
+  /// Lo normal: la mercancia entra o sale de verdad.
+  AMBOS
+  /// Llego a bodega pero no se libera a venta (cuarentena).
+  FISICO
+  /// Se aparta o se libera lo que ya esta en piso; el fisico no se mueve.
+  APT
+}
+
+/// Por que se movio. Es un catalogo cerrado a proposito: con texto libre no se
+/// puede agrupar por causa, que es justo lo que se le pide a la bitacora.
+enum MotivoMovimiento {
+  COMPRA
+  VENTA
+  MERMA
+  TRASPASO
+  AJUSTE
+  DEVOLUCION
+}
+
+/// Bitacora de bodega. Nadie pisa el saldo de un producto: lo suma o lo resta
+/// y deja aqui su renglon.
+///
+/// Cada fila congela los cuatro saldos (antes/despues x fisico/apt) del
+/// instante en que se aplico. Se explica sola aunque alguien haya movido el
+/// mismo producto un segundo despues, y sin eso el historial habria que
+/// recalcularlo hacia atras cada vez que se consulta.
+model MovimientoInventario {
+  id         String   @id @default(uuid())
+  productoId String
+  producto   Producto @relation(fields: [productoId], references: [id], onDelete: Cascade)
+
+  tipo     TipoMovimiento
+  afecta   AfectaInventario
+  motivo   MotivoMovimiento
+  /// Siempre positiva. El signo lo pone `tipo`.
+  cantidad Int
+
+  /// Quien movio la mercancia. Texto libre y no siempre es quien esta
+  /// logueado: el de la sesion se guarda aparte en `usuarioId`.
+  empleado      String
+  observaciones String?
+
+  /// Usuario de la sesion que registro el movimiento. Null cuando lo genera
+  /// una venta, porque ahi quien descuenta es el pedido, no una persona.
+  usuarioId     String?
+  usuarioNombre String?
+  /// Pedido que lo genero, cuando es la salida por venta.
+  pedidoId      String?
+
+  fisicoAntes   Int
+  fisicoDespues Int
+  aptAntes      Int
+  aptDespues    Int
+
+  creadoEn DateTime @default(now())
+
+  @@index([productoId, creadoEn])
+  @@index([creadoEn])
+  @@index([pedidoId])
+  @@map("movimientos_inventario")
 }
 
 // ============================================================
@@ -574,6 +653,15 @@ model ConfiguracionNegocio {
   montoEnvioGratis      Decimal @db.Decimal(12, 2)
   multiplicadorCashback Decimal @db.Decimal(6, 2)
   montoMinimoCashback   Decimal @db.Decimal(12, 2)
+
+  /// Si un pedido descuenta existencias.
+  ///
+  /// Nace apagado a proposito: al estrenar el modulo todos los productos estan
+  /// en cero, y encenderlo antes de cargar la existencia real bloquearia todas
+  /// las ventas. Mientras esta apagado, Inventario y Movimientos funcionan
+  /// igual pero como bitacora: nadie deja de vender por un saldo que todavia
+  /// no se ha capturado.
+  controlInventario Boolean @default(false)
 
   // Datos bancarios
   banco        String?

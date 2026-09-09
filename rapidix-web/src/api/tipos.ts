@@ -125,6 +125,10 @@ export interface Producto {
   precioVenta: number
   imagenUrl: string | null
   agotado: boolean
+  /** Existencia física en bodega. Solo se mueve desde Movimientos. */
+  inventario: number
+  /** Lo liberado para venta: el saldo del que descuenta un pedido. */
+  aptInventario: number
 }
 
 export interface CategoriaConProductos {
@@ -378,6 +382,8 @@ export interface Parametros {
   /** Porcentaje de cashback sobre el subtotal. */
   multiplicadorCashback: number
   montoMinimoCashback: number
+  /** Si un pedido descuenta existencias de la bodega. */
+  controlInventario: boolean
 }
 
 export interface Bancarios {
@@ -585,4 +591,75 @@ export interface PaginaProspectos {
   total: number
   pagina: number
   porPagina: number
+}
+
+// ------------------------------------------------------------------
+// Inventario y movimientos de bodega
+// ------------------------------------------------------------------
+
+/** Entrada o salida de bodega. */
+export type TipoMovimiento = 'ENTRADA' | 'SALIDA'
+
+/**
+ * Cuál de los dos saldos toca el movimiento.
+ *
+ * `AMBOS` es lo normal. `FISICO` es mercancía que llegó pero no se libera a
+ * venta —cuarentena—, y `APT` aparta o libera lo que ya está en piso sin que
+ * entre ni salga nada de la bodega.
+ */
+export type AfectaInventario = 'AMBOS' | 'FISICO' | 'APT'
+
+/** Por qué se movió. Catálogo cerrado, para poder agrupar por causa. */
+export type MotivoMovimiento =
+  | 'COMPRA'
+  | 'VENTA'
+  | 'MERMA'
+  | 'TRASPASO'
+  | 'AJUSTE'
+  | 'DEVOLUCION'
+
+/** Una fila de la ventana de Inventario. */
+export interface SaldoProducto {
+  id: string
+  nombre: string
+  categoria: string
+  unidad: string
+  inventario: number
+  aptInventario: number
+  /** Físico menos apartado: lo que delata un descuadre. */
+  diferencia: number
+  agotado: boolean
+}
+
+/**
+ * Un renglón de la bitácora.
+ *
+ * Lleva los cuatro saldos congelados del instante en que se aplicó, así que se
+ * explica solo aunque después alguien haya vuelto a mover el mismo producto.
+ */
+export interface MovimientoInventario {
+  id: string
+  productoId: string
+  producto: string
+  tipo: TipoMovimiento
+  afecta: AfectaInventario
+  motivo: MotivoMovimiento
+  cantidad: number
+  empleado: string
+  observaciones: string | null
+  /** Quién estaba logueado. Null cuando el movimiento lo generó una venta. */
+  usuarioNombre: string | null
+  pedidoId: string | null
+  fisicoAntes: number
+  fisicoDespues: number
+  aptAntes: number
+  aptDespues: number
+  creadoEn: string
+}
+
+/** Lo que devuelve `POST /admin/inventario/movimientos`. */
+export interface ResumenLote {
+  productos: number
+  piezas: number
+  movimientos: MovimientoInventario[]
 }

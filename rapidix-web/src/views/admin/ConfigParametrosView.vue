@@ -135,6 +135,26 @@ async function guardar(): Promise<void> {
         </p>
       </div>
 
+      <div class="form-block">
+        <div class="toggle-row">
+          <div>
+            <div class="t-lbl">Descontar inventario al vender</div>
+            <div class="t-sub">
+              Cada pedido resta de la bodega y deja su movimiento. Si a un producto no le alcanza
+              el saldo, el pedido no se confirma.
+            </div>
+          </div>
+          <label class="switch">
+            <input v-model="parametros.controlInventario" type="checkbox" />
+            <span class="slider-switch" />
+          </label>
+        </div>
+        <p class="nota">
+          Enciéndelo <strong>después</strong> de capturar la existencia real en Productos →
+          Movimientos. Con todos los productos en cero, encenderlo bloquea todas las ventas.
+        </p>
+      </div>
+
       <button type="button" class="btn-primary ancho" :disabled="guardando" @click="guardar">
         {{ guardando ? 'Guardando…' : 'Guardar parámetros' }}
       </button>
@@ -166,6 +186,14 @@ async function guardar(): Promise<void> {
   color: var(--muted);
   line-height: 1.45;
   margin: -4px 0 0;
+}
+
+.toggle-row + .nota {
+  margin-top: -6px;
+}
+
+.nota strong {
+  color: var(--ink);
 }
 
 .ancho {

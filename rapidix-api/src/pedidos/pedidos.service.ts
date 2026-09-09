@@ -5,6 +5,7 @@ import { ConfiguracionService } from '../configuracion/configuracion.service';
 import { CuponesService } from '../cupones/cupones.service';
 import { CashbackService } from '../cashback/cashback.service';
 import { CarritoService } from './carrito.service';
+import { InventarioService } from '../inventario/inventario.service';
 import { CrearPedidoDto } from './dto/carrito.dto';
 
 const Decimal = Prisma.Decimal;
@@ -45,6 +46,7 @@ export class PedidosService {
     private readonly configuracion: ConfiguracionService,
     private readonly cupones: CuponesService,
     private readonly cashback: CashbackService,
+    private readonly inventario: InventarioService,
   ) {}
 
   /**
@@ -60,8 +62,10 @@ export class PedidosService {
    *  5. Crear el pedido y sus lineas.
    *  6. Marcar el cupon como USED.
    *  7. Cancelar el WELCOME sobrante.
-   *  8. Actualizar los contadores del cliente.
-   *  9. Emitir el cupon de segunda compra si corresponde.
+   *  8. Descontar lo vendido de la bodega, si el control de inventario esta
+   *     encendido.
+   *  9. Actualizar los contadores del cliente.
+   * 10. Emitir el cupon de segunda compra si corresponde.
    */
   async crear(duenioId: string, dto: CrearPedidoDto): Promise<PedidoDto> {
     // `duenioId` puede ser un cliente o un prospecto: este es el pedido que lo
@@ -183,6 +187,23 @@ export class PedidosService {
       });
       if (cancelados.count > 0) {
         this.logger.log(`WELCOME cancelado para ${clienteId} tras su primera compra`);
+      }
+
+      // Lo vendido sale de la bodega dentro de esta misma transaccion: si el
+      // pedido no se guarda, el saldo no se movio. Si a algun renglon no le
+      // alcanza, revienta aqui con su 409 y el pedido entero no ocurre —mejor
+      // que aceptarlo y descubrir en el almacen que no habia.
+      //
+      // Cuando el control esta apagado no se toca nada: al estrenar el modulo
+      // todos los productos estan en cero y bloquear las ventas por un saldo
+      // que nadie ha capturado seria cerrar la tienda.
+      if (config.controlInventario) {
+        await this.inventario.registrarVenta(
+          tx,
+          pedido.id,
+          folio,
+          carrito.lineas.map((l) => ({ productoId: l.productoId, cantidad: l.cantidad })),
+        );
       }
 
       const clienteActualizado = await tx.cliente.update({

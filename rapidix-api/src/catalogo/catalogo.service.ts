@@ -19,6 +19,10 @@ export interface ProductoDto {
   precioVenta: number;
   imagenUrl: string | null;
   agotado: boolean;
+  /** Existencia fisica en bodega. La mueve Inventario, no esta pantalla. */
+  inventario: number;
+  /** Lo liberado para venta: es el saldo del que descuenta un pedido. */
+  aptInventario: number;
 }
 
 export interface CategoriaConProductos {
@@ -55,6 +59,8 @@ export class CatalogoService {
       precioVenta: p.precioVenta.toNumber(),
       imagenUrl: p.imagenUrl,
       agotado: p.agotado,
+      inventario: p.inventario,
+      aptInventario: p.aptInventario,
     };
   }
 
