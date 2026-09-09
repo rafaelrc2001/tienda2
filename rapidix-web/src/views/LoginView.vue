@@ -12,22 +12,21 @@
  * El paso del nombre reenvía **el mismo código**: la API deja el OTP vivo
  * cuando responde `NOMBRE_REQUERIDO`, justo para esto.
  *
- * Los dos últimos pasos van *después* de que la API haya validado, con la
- * sesión ya abierta: son la parte visible de que te reconoció por tu WhatsApp
- * (`saludo`) o de que acabas de registrarte y ya tienes cupón (`bienvenida`).
- * Ninguno de los dos pide nada a nadie; solo retrasan la entrada a la app
- * hasta que tocas el botón.
+ * `saludo` va *después* de que la API haya validado, con la sesión ya
+ * abierta: es la parte visible de que te reconoció por tu WhatsApp. No pide
+ * nada a nadie; solo retrasa la entrada hasta que tocas el botón. Quien se
+ * registra por primera vez no pasa por ahí: entra directo, y del cupón que
+ * acaba de ganar avisa un aviso flotante.
  */
 import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useUiStore } from '@/stores/ui'
 import { apiAuth } from '@/api/auth'
-import { ErrorApi, http } from '@/api/http'
-import { dinero } from '@/utils/formato'
-import type { MiCupon, RolToken } from '@/api/tipos'
+import { ErrorApi } from '@/api/http'
+import type { RolToken } from '@/api/tipos'
 
-type Paso = 'modo' | 'telefono' | 'codigo' | 'nombre' | 'saludo' | 'bienvenida' | 'staff'
+type Paso = 'modo' | 'telefono' | 'codigo' | 'nombre' | 'saludo' | 'staff'
 
 /**
  * Las cinco tarjetas del prototipo, tal cual.
@@ -79,15 +78,6 @@ const nombre = ref('')
 
 /** Nombre con el que la API nos reconoció. Lo pinta el saludo. */
 const nombreReconocido = ref('')
-/**
- * Cupón de bienvenida recién ganado.
- *
- * `verificarCodigo` solo dice cuántos cupones nuevos hay, así que la tarjeta
- * se pide aparte con la sesión ya abierta. Si esa llamada falla, la pantalla
- * se enseña igual sin tarjeta: quedarse fuera de la app por no poder pintar
- * un cupón sería absurdo, y el cupón sigue estando en su pestaña.
- */
-const cuponBienvenida = ref<MiCupon | null>(null)
 const email = ref('')
 const password = ref('')
 
@@ -194,9 +184,17 @@ async function verificar(): Promise<void> {
     // soltar al usuario dentro de la app.
     nombreReconocido.value = auth.usuario?.nombre ?? nombre.value.trim()
 
+    // Quien acaba de registrarse entra directo; del cupón avisa el aviso
+    // flotante, sin pantalla de por medio.
     if (esNuevo) {
-      if (cuponesNuevos > 0) cuponBienvenida.value = await buscarCuponDeBienvenida()
-      paso.value = 'bienvenida'
+      if (cuponesNuevos > 0) {
+        ui.exito(
+          cuponesNuevos === 1
+            ? '¡Bienvenido! Tienes un cupón esperándote.'
+            : `¡Bienvenido! Tienes ${cuponesNuevos} cupones esperándote.`,
+        )
+      }
+      await entrar()
       return
     }
 
@@ -216,28 +214,6 @@ async function verificar(): Promise<void> {
 }
 
 /**
- * El cupón de bienvenida entre los activos del cliente.
- *
- * Se busca el WELCOME del ciclo de vida y, si no está (porque el negocio lo
- * desactivó y lo que llegó fue de una campaña), vale el primero que haya.
- */
-async function buscarCuponDeBienvenida(): Promise<MiCupon | null> {
-  try {
-    const cupones = await http.get<MiCupon[]>('/cupones')
-    return cupones.find((c) => c.sourceCode === 'WELCOME') ?? cupones[0] ?? null
-  } catch {
-    return null
-  }
-}
-
-/** Descuento del cupón en el formato de la pestaña Cupones. */
-function descuento(cupon: MiCupon): string {
-  return cupon.discountType === 'PERCENTAGE'
-    ? `${cupon.discountValue}%`
-    : dinero(cupon.discountValue)
-}
-
-/**
  * "No soy yo": vuelve a empezar por el teléfono.
  *
  * Cierra la sesión que se acaba de abrir, porque el token ya está guardado y
@@ -248,7 +224,6 @@ function noSoyYo(): void {
   codigo.value = ''
   nombre.value = ''
   nombreReconocido.value = ''
-  cuponBienvenida.value = null
   irA('telefono')
 }
 
@@ -450,24 +425,6 @@ async function entrarComoStaff(): Promise<void> {
       </button>
     </template>
 
-    <!-- Alta recién hecha: se le enseña el cupón que acaba de ganar. -->
-    <template v-else-if="paso === 'bienvenida'">
-      <div class="saludo-emoji">🎉</div>
-      <div class="saludo-titulo">¡Bienvenido a Rapidix, {{ nombreReconocido }}!</div>
-      <p class="saludo-sub">Tu cuenta quedó lista.</p>
-
-      <div v-if="cuponBienvenida" class="cupon-regalo">
-        <span class="valor">{{ descuento(cuponBienvenida) }}</span>
-        <span class="titulo">{{ cuponBienvenida.title }}</span>
-        <span class="codigo">{{ cuponBienvenida.code }}</span>
-        <span class="pie">Úsalo en tu primer pedido</span>
-      </div>
-
-      <button type="button" class="btn-primary ancho" @click="entrar">
-        {{ cuponBienvenida ? 'Empezar a pedir' : 'Entrar' }}
-      </button>
-    </template>
-
     <!-- Personal del negocio: email y contraseña -->
     <form v-else @submit.prevent="entrarComoStaff">
       <button type="button" class="login-back" @click="irA('modo')">← Elegir otro modo</button>
@@ -543,53 +500,6 @@ async function entrarComoStaff(): Promise<void> {
   text-align: center;
   line-height: 1.6;
   margin-bottom: 24px;
-}
-
-/* La tarjeta del cupón: el regalo es el importe, así que manda en tamaño. */
-.cupon-regalo {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  background: linear-gradient(135deg, #fff6ea, #fdecd2);
-  border: 1.5px dashed var(--terracotta);
-  border-radius: 16px;
-  padding: 20px 16px;
-  margin-bottom: 22px;
-}
-
-.cupon-regalo .valor {
-  font-family: var(--font-heading);
-  font-weight: 800;
-  font-size: 34px;
-  color: var(--terracotta);
-  line-height: 1.1;
-}
-
-.cupon-regalo .titulo {
-  font-family: var(--font-heading);
-  font-weight: 700;
-  font-size: 13.5px;
-  color: var(--ink);
-  text-align: center;
-}
-
-.cupon-regalo .codigo {
-  font-family: var(--font-heading);
-  font-weight: 700;
-  font-size: 13px;
-  letter-spacing: 0.16em;
-  color: var(--terracotta-dark);
-  background: var(--white);
-  border-radius: 8px;
-  padding: 5px 12px;
-  margin-top: 6px;
-}
-
-.cupon-regalo .pie {
-  font-size: 11px;
-  color: var(--muted);
-  margin-top: 4px;
 }
 
 .login {
