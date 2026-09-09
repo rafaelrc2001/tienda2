@@ -2,6 +2,9 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { apiAuth } from '@/api/auth'
 import { CLAVE_TOKEN } from '@/api/http'
+import { useCarritoStore } from './carrito'
+import { useDestacadosStore } from './destacados'
+import { useRecetarioStore } from './recetario'
 import type {
   ItemMenu,
   RespuestaSolicitarCodigo,
@@ -18,6 +21,25 @@ function leer(clave: string): string | null {
     return localStorage.getItem(clave)
   } catch {
     return null
+  }
+}
+
+/**
+ * Prefijo de todo lo que la aplicacion guarda en el navegador.
+ *
+ * Cerrar sesion borra el prefijo entero en vez de una lista de claves: asi
+ * una clave nueva que alguien anada manana se limpia sola, sin acordarse de
+ * venir aqui.
+ */
+const PREFIJO = 'rapidix.'
+
+/** Borra del navegador todo lo que guardo la aplicacion. */
+function borrarTodoLoGuardado(): void {
+  try {
+    const claves = Object.keys(localStorage).filter((c) => c.startsWith(PREFIJO))
+    claves.forEach((c) => localStorage.removeItem(c))
+  } catch {
+    // Almacenamiento bloqueado: no habia nada guardado que borrar.
   }
 }
 
@@ -108,11 +130,30 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  /**
+   * Cierra la sesion y **no deja nada de esta persona en el navegador**.
+   *
+   * No basta con tirar el token: el carrito sobrevive tres dias en
+   * `localStorage`, asi que sin esto el siguiente que entrara en el mismo
+   * dispositivo se encontraria la compra a medias del anterior. Se borra todo
+   * lo guardado y se vacia lo que los demas stores tengan en memoria; lo
+   * unico que sobrevive es lo que esta en la base de datos.
+   *
+   * La aplicacion no usa cookies: todo lo suyo vive en `localStorage` bajo el
+   * prefijo `rapidix.`.
+   */
   function cerrarSesion(): void {
     token.value = null
     usuario.value = null
     menu.value = []
-    escribir(CLAVE_TOKEN, null)
+
+    // Primero la memoria y despues el disco, en ese orden: vaciar el carrito
+    // lo vuelve a persistir, asi que si se borrara antes la clave reaparecia.
+    useCarritoStore().vaciar()
+    useDestacadosStore().olvidar()
+    useRecetarioStore().olvidar()
+
+    borrarTodoLoGuardado()
   }
 
   // ------------------------------------------------------------------

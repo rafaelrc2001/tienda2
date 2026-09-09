@@ -31,5 +31,22 @@ export const useRecetarioStore = defineStore('recetario', () => {
     pausada.value = null
   }
 
-  return { pestana, categoria, busqueda, pausada, cargarPausada, pausar, quitarPausa }
+  /** Al cerrar sesión: la receta en pausa y los filtros son de quien se va. */
+  function olvidar(): void {
+    pestana.value = 'recetario'
+    categoria.value = 'todas'
+    busqueda.value = ''
+    pausada.value = null
+  }
+
+  return {
+    pestana,
+    categoria,
+    busqueda,
+    pausada,
+    cargarPausada,
+    pausar,
+    quitarPausa,
+    olvidar,
+  }
 })

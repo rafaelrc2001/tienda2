@@ -32,5 +32,11 @@ export const useDestacadosStore = defineStore('destacados', () => {
     if (datos.value) datos.value.noLeidos = 0
   }
 
-  return { datos, cargando, noLeidos, noticias, avisos, cargar, marcarLeido }
+  /** Al cerrar sesión: la insignia y los avisos son de quien se acaba de ir. */
+  function olvidar(): void {
+    datos.value = null
+    cargando.value = false
+  }
+
+  return { datos, cargando, noLeidos, noticias, avisos, cargar, marcarLeido, olvidar }
 })
