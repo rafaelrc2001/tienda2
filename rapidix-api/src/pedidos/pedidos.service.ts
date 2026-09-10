@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ConfiguracionService } from '../configuracion/configuracion.service';
 import { CuponesService } from '../cupones/cupones.service';
 import { CashbackService } from '../cashback/cashback.service';
+import { precioUnitario } from '../catalogo/precios';
 import { CarritoService } from './carrito.service';
 import { InventarioService } from '../inventario/inventario.service';
 import { CrearPedidoDto } from './dto/carrito.dto';
@@ -121,6 +122,11 @@ export class PedidosService {
       );
     }
 
+    // El % se fija con el nivel que tenia al pedir, antes de que este pedido le
+    // sume gasto: es el mismo que vio en la previsualizacion. Un prospecto cae
+    // en el nivel de entrada.
+    const porcentajeCashback = await this.cashback.porcentajePara(duenioId);
+
     return this.prisma.$transaction(async (tx) => {
       const carrito = await this.carrito.resolver(dto.items);
       const subtotal = carrito.subtotal;
@@ -152,7 +158,13 @@ export class PedidosService {
       }
 
       // Mismo calculo que devuelve POST /carrito/previsualizar.
-      const desglose = CarritoService.calcularCarrito(subtotal, config, dentroDeHorario, descuento);
+      const desglose = CarritoService.calcularCarrito(
+        carrito,
+        config,
+        dentroDeHorario,
+        porcentajeCashback,
+        descuento,
+      );
       const { envio, recargoFuera, total } = desglose;
 
       const folio = await PedidosService.siguienteFolio(tx);
@@ -271,8 +283,9 @@ export class PedidosService {
       }
 
       // Cashback y nivel, dentro de la misma transaccion: si el pedido no se
-      // guarda, tampoco se acredita saldo.
-      const cashbackGenerado = desglose.cashback;
+      // guarda, tampoco se acredita saldo. Hoy todo va a la billetera (HU-19),
+      // asi que se acredita con el multiplicador ya aplicado.
+      const cashbackGenerado = desglose.cashbackBilletera;
       await this.cashback.acreditarPorPedido(
         tx,
         clienteId,
@@ -386,7 +399,17 @@ export class PedidosService {
 
     const productos = await this.prisma.producto.findMany({
       where: { id: { in: pedido.items.map((i) => i.productoId) } },
-      select: { id: true, nombre: true, unidad: true, precioVenta: true, agotado: true },
+      select: {
+        id: true,
+        nombre: true,
+        unidad: true,
+        precioVenta: true,
+        piso2: true,
+        precio2: true,
+        piso3: true,
+        precio3: true,
+        agotado: true,
+      },
     });
     const porId = new Map(productos.map((p) => [p.id, p]));
 
@@ -399,7 +422,9 @@ export class PedidosService {
       // producto ya no existe: el cliente tiene que poder leer que era lo que
       // no se le puede volver a servir.
       const disponible = producto !== undefined && !producto.agotado;
-      const precioHoy = producto?.precioVenta ?? item.precioUnitario;
+      // A precio escalonado de hoy y con la cantidad de entonces: es lo que
+      // cobraria el carrito si lo repite tal cual.
+      const precioHoy = producto ? precioUnitario(producto, item.cantidad) : item.precioUnitario;
 
       if (!producto) {
         avisos.push(`${item.nombre} ya no está en el catálogo.`);

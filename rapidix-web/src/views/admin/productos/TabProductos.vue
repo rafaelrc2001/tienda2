@@ -16,7 +16,7 @@ import { dinero } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
 import SubidorImagen from '@/components/SubidorImagen.vue'
 import { nombreRol, ROLES } from './etiquetas'
-import type { CategoriaConProductos, Producto, RolProducto } from '@/api/tipos'
+import type { CategoriaConProductos, Escalon, Producto, RolProducto } from '@/api/tipos'
 
 const props = defineProps<{ activa: boolean }>()
 
@@ -61,6 +61,26 @@ const erroresGenerales = ref<string[]>([])
 const importando = ref(false)
 const resumen = ref<ResumenImportacion | null>(null)
 
+/**
+ * Una fila de «Precio por volumen». Las dos filas están siempre en el
+ * formulario; la que se deja vacía no viaja.
+ */
+interface FilaEscalon {
+  piso: number | null
+  precio: number | null
+}
+
+/** Dos listas por encima del precio de venta: las de la tabla del negocio. */
+function filasEscalon(escalones: Escalon[] = []): FilaEscalon[] {
+  return [0, 1].map((i) => ({
+    piso: escalones[i]?.piso ?? null,
+    precio: escalones[i]?.precio ?? null,
+  }))
+}
+
+/** `v-model.number` deja `''` al vaciar un campo: eso es «sin valor». */
+const sinValor = (v: number | string | null): boolean => v === null || v === ''
+
 const formulario = ref({
   nombre: '',
   categoria: '',
@@ -69,6 +89,8 @@ const formulario = ref({
   precioVenta: null as number | null,
   imagenUrl: '',
   rol: 'RUTINA' as RolProducto,
+  escalones: filasEscalon(),
+  aplicaCashback: true,
 })
 
 const gruposVisibles = computed<CategoriaConProductos[]>(() => {
@@ -136,6 +158,8 @@ function abrirAlta(): void {
     precioVenta: null,
     imagenUrl: '',
     rol: 'RUTINA',
+    escalones: filasEscalon(),
+    aplicaCashback: true,
   }
   errores.value = {}
   erroresGenerales.value = []
@@ -152,6 +176,8 @@ function abrirEdicion(producto: Producto): void {
     precioVenta: producto.precioVenta,
     imagenUrl: producto.imagenUrl ?? '',
     rol: producto.rol,
+    escalones: filasEscalon(producto.escalones),
+    aplicaCashback: producto.aplicaCashback,
   }
   errores.value = {}
   erroresGenerales.value = []
@@ -165,6 +191,15 @@ function cuerpo(): Record<string, unknown> {
     categoria: formulario.value.categoria.trim(),
     precioVenta: formulario.value.precioVenta ?? 0,
     rol: formulario.value.rol,
+    aplicaCashback: formulario.value.aplicaCashback,
+    // Siempre viaja, aunque sea vacía: es como se le quitan las listas a un
+    // producto. Una fila a medias sí viaja, para que la API diga qué le falta.
+    escalones: formulario.value.escalones
+      .filter((f) => !sinValor(f.piso) || !sinValor(f.precio))
+      .map((f) => ({
+        piso: sinValor(f.piso) ? null : f.piso,
+        precio: sinValor(f.precio) ? null : f.precio,
+      })),
   }
   if (formulario.value.unidad.trim()) datos.unidad = formulario.value.unidad.trim()
   if (formulario.value.precioCosto !== null) datos.precioCosto = formulario.value.precioCosto
@@ -272,7 +307,9 @@ const filasConError = computed(() => resumen.value?.filas.filter((f) => f.estado
       <p class="columnas-plantilla">
         Columnas: <strong>Categoría</strong>, <strong>Producto</strong>,
         <strong>Unidad</strong>, <strong>Precio de costo</strong> y
-        <strong>Precio de venta</strong>. <em>Imagen</em> (URL) es opcional.
+        <strong>Precio de venta</strong>. Opcionales: <em>Imagen</em> (URL), <em>Piso 2</em>,
+        <em>Precio 2</em>, <em>Piso 3</em> y <em>Precio 3</em> (precio por volumen) y
+        <em>Aplica cashback</em> (Sí / No).
       </p>
       <label class="file-drop">
         <input type="file" accept=".xlsx" :disabled="importando" @change="importar" />
@@ -334,6 +371,12 @@ const filasConError = computed(() => resumen.value?.filas.filter((f) => f.estado
               {{ dinero(producto.precioVenta) }}
               <span v-if="producto.unidad"> · {{ producto.unidad }}</span>
               · {{ nombreRol(producto.rol) }}
+            </p>
+            <p v-if="producto.escalones.length > 0 || !producto.aplicaCashback" class="detalle">
+              <span v-for="escalon in producto.escalones" :key="escalon.piso" class="escalon">
+                {{ escalon.piso }}+ {{ dinero(escalon.precio) }}
+              </span>
+              <span v-if="!producto.aplicaCashback" class="escalon">Sin cashback</span>
             </p>
             <p class="saldo">
               {{ producto.aptInventario }} para venta
@@ -452,6 +495,48 @@ const filasConError = computed(() => resumen.value?.filas.filter((f) => f.estado
           </div>
         </div>
         <p v-if="errores.precioVenta" class="form-error">{{ errores.precioVenta }}</p>
+
+        <p class="form-label">Precio por volumen</p>
+        <p class="form-hint">
+          Opcional. A partir de cierta cantidad, cada pieza cuesta menos; el precio de venta es la
+          lista 1. Deja vacía la fila que no uses.
+        </p>
+        <div v-for="(fila, i) in formulario.escalones" :key="i" class="form-row-2">
+          <div>
+            <label class="form-label" :for="`pr-piso-${i}`">Lista {{ i + 2 }}: desde</label>
+            <input
+              :id="`pr-piso-${i}`"
+              v-model.number="fila.piso"
+              class="form-input"
+              type="number"
+              step="1"
+              min="2"
+              :placeholder="i === 0 ? '5' : '10'"
+            />
+          </div>
+          <div>
+            <label class="form-label" :for="`pr-precio-${i}`">Precio c/u</label>
+            <input
+              :id="`pr-precio-${i}`"
+              v-model.number="fila.precio"
+              class="form-input"
+              type="number"
+              step="0.01"
+              min="0"
+            />
+          </div>
+        </div>
+
+        <div class="toggle-row">
+          <div>
+            <div class="t-lbl">Participa en el cashback</div>
+            <div class="t-sub">Apagado, este producto no suma a la base del cashback.</div>
+          </div>
+          <label class="switch">
+            <input v-model="formulario.aplicaCashback" type="checkbox" />
+            <span class="slider-switch" />
+          </label>
+        </div>
 
         <label class="form-label">Imagen del producto</label>
         <SubidorImagen v-model="formulario.imagenUrl" carpeta="productos" />
@@ -663,6 +748,15 @@ const filasConError = computed(() => resumen.value?.filas.filter((f) => f.estado
   font-size: 11px;
   color: var(--muted);
   margin: 2px 0 0;
+}
+
+.detalle .escalon {
+  display: inline-block;
+  background: var(--cream-2);
+  border-radius: 5px;
+  padding: 1px 5px;
+  margin-right: 4px;
+  font-weight: 700;
 }
 
 .saldo {

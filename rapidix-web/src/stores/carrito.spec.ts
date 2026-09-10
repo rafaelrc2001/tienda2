@@ -236,7 +236,13 @@ describe('carrito · importe sin sesión (HU-11)', () => {
    * productos. Lo que no hace en ningún caso es multiplicar precios aquí.
    */
   it('pide el subtotal público mientras no hay dueño', async () => {
-    post.mockResolvedValue({ items: [], subtotal: 74.5, avisos: [] })
+    post.mockResolvedValue({
+      items: [],
+      subtotal: 74.5,
+      cashbackEstimado: 0,
+      metas: { faltaEnvioGratis: 525.49, faltaCashback: null, sinCashback: false },
+      avisos: [],
+    })
 
     const carrito = useCarritoStore()
     carrito.agregar('p1')
@@ -246,7 +252,39 @@ describe('carrito · importe sin sesión (HU-11)', () => {
       items: [{ productoId: 'p1', cantidad: 1 }],
     })
     expect(carrito.subtotal).toBe(74.5)
-    expect(carrito.cashbackEstimado).toBeNull()
+    expect(carrito.cashbackEstimado).toBe(0)
+    expect(carrito.metas?.faltaEnvioGratis).toBe(525.49)
+  })
+
+  it('solo da el precio escalonado de la cantidad que hay ahora', async () => {
+    post.mockResolvedValue({
+      items: [
+        {
+          productoId: 'p1',
+          precioUnitario: 18.5,
+          cantidad: 5,
+          importe: 92.5,
+          agotado: false,
+          precioLista: 19.95,
+          ahorro: 7.25,
+          upsell: null,
+        },
+      ],
+      subtotal: 92.5,
+      cashbackEstimado: 0,
+      metas: null,
+      avisos: [],
+    })
+
+    const carrito = useCarritoStore()
+    carrito.fijarCantidad('p1', 5)
+    await carrito.refrescarImporte()
+    expect(carrito.lineaCalculada('p1')?.precioUnitario).toBe(18.5)
+
+    // La respuesta ya no corresponde: la tarjeta vuelve al precio de venta
+    // hasta que llegue la nueva, en vez de enseñar la oferta de antes.
+    carrito.agregar('p1')
+    expect(carrito.lineaCalculada('p1')).toBeNull()
   })
 
   it('pide el desglose completo en cuanto hay sesión', async () => {

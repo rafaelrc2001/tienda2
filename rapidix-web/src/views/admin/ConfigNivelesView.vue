@@ -1,10 +1,10 @@
 <script setup lang="ts">
 /**
- * Configuración → Niveles de fidelidad.
+ * Configuración → Niveles de fidelidad (HU-17).
  *
  * Estos niveles no existen en el Word ni en el prototipo —allí Bronce y Plata
- * estaban escritos a mano—, así que se configuran aquí. La pantalla avisa de
- * que **los umbrales del seed son provisionales**.
+ * estaban escritos a mano—, así que se configuran aquí. Cada uno dice desde
+ * cuánto gasto se alcanza y qué % de cashback gana quien está en él.
  */
 import { onMounted, ref } from 'vue'
 import { ErrorApi, http } from '@/api/http'
@@ -14,7 +14,7 @@ import type { NivelFidelidad } from '@/api/tipos'
 
 const ui = useUiStore()
 
-const CAMPOS = ['nombre', 'umbralGasto', 'orden'] as const
+const CAMPOS = ['nombre', 'umbralGasto', 'orden', 'porcentaje'] as const
 
 const niveles = ref<NivelFidelidad[]>([])
 const cargando = ref(true)
@@ -24,7 +24,7 @@ const erroresGenerales = ref<string[]>([])
 
 const modalAbierto = ref(false)
 const editando = ref<NivelFidelidad | null>(null)
-const formulario = ref({ nombre: '', umbralGasto: 0, orden: 1 })
+const formulario = ref({ nombre: '', umbralGasto: 0, orden: 1, porcentaje: 1 })
 
 onMounted(cargar)
 
@@ -46,6 +46,7 @@ function abrirAlta(): void {
     umbralGasto: 0,
     // Se propone el siguiente escalón libre.
     orden: niveles.value.reduce((max, n) => Math.max(max, n.orden), 0) + 1,
+    porcentaje: 1,
   }
   errores.value = {}
   erroresGenerales.value = []
@@ -58,6 +59,7 @@ function abrirEdicion(nivel: NivelFidelidad): void {
     nombre: nivel.nombre,
     umbralGasto: Number(nivel.umbralGasto),
     orden: nivel.orden,
+    porcentaje: Number(nivel.porcentaje),
   }
   errores.value = {}
   erroresGenerales.value = []
@@ -73,6 +75,7 @@ async function guardar(): Promise<void> {
       nombre: formulario.value.nombre.trim(),
       umbralGasto: formulario.value.umbralGasto,
       orden: formulario.value.orden,
+      porcentaje: formulario.value.porcentaje,
     }
     if (editando.value) {
       await http.patch(`/admin/configuracion/niveles/${editando.value.id}`, cuerpo)
@@ -116,8 +119,9 @@ async function eliminar(nivel: NivelFidelidad): Promise<void> {
 
     <div class="aviso-provisional">
       <p>
-        <strong>Los umbrales que trae el sistema son provisionales.</strong> Los niveles no venían
-        definidos en la especificación funcional: revísalos antes de anunciarlos a tus clientes.
+        <strong>El nivel decide el % de cashback.</strong> Quien no alcanza ningún umbral —y quien
+        todavía no ha comprado— gana el % del nivel 1. A ese % se le suma el bono manual de cada
+        cliente, si lo tiene.
       </p>
     </div>
 
@@ -130,7 +134,10 @@ async function eliminar(nivel: NivelFidelidad): Promise<void> {
         <span class="orden">{{ nivel.orden }}</span>
         <div class="info">
           <p class="nombre">{{ nivel.nombre }}</p>
-          <p class="umbral">Desde {{ dinero(Number(nivel.umbralGasto)) }} de gasto acumulado</p>
+          <p class="umbral">
+            {{ Number(nivel.porcentaje) }} % de cashback · desde
+            {{ dinero(Number(nivel.umbralGasto)) }} de gasto acumulado
+          </p>
         </div>
         <button type="button" class="accion" aria-label="Editar" @click="abrirEdicion(nivel)">
           ✏️
@@ -193,6 +200,19 @@ async function eliminar(nivel: NivelFidelidad): Promise<void> {
         <p v-if="errores.umbralGasto" class="form-error">{{ errores.umbralGasto }}</p>
         <p v-if="errores.orden" class="form-error">{{ errores.orden }}</p>
         <p class="nota">El nivel 1 es el de entrada y debe tener umbral 0.</p>
+
+        <label class="form-label" for="niv-porcentaje">Cashback (%)</label>
+        <input
+          id="niv-porcentaje"
+          v-model.number="formulario.porcentaje"
+          class="form-input"
+          :class="{ 'is-invalid': errores.porcentaje }"
+          type="number"
+          step="0.01"
+          min="0"
+          max="100"
+        />
+        <p v-if="errores.porcentaje" class="form-error">{{ errores.porcentaje }}</p>
 
         <div class="modal-actions">
           <button type="button" class="btn-cancel" @click="modalAbierto = false">Cancelar</button>

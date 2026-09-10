@@ -64,7 +64,10 @@ export class ParametrosDto {
   @Min(0)
   montoEnvioGratis: number;
 
-  /** Porcentaje de cashback sobre el subtotal. Ver "Riesgos" del SPEC 01. */
+  /**
+   * Cuantas veces vale el cashback al ir a la billetera (x2). Ya no es un
+   * porcentaje: el % sale del nivel del cliente (HU-12 y HU-16).
+   */
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)

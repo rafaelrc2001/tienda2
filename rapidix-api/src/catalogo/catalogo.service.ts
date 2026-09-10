@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { Prisma, Producto, RolProducto } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CategoriasService } from './categorias.service';
+import { escalonesAColumnas, escalonesDe, validarEscalones } from './precios';
 import {
   ActualizarProductoDto,
   BuscarProductosDto,
@@ -25,6 +26,14 @@ export interface ProductoDto {
   inventario: number;
   /** Lo liberado para venta: es el saldo del que descuenta un pedido. */
   aptInventario: number;
+  /**
+   * Listas de precio por volumen, sin la del precio de venta (HU-08). Vacio =
+   * sin precio escalonado. La Tienda saca de aqui los botones "Lleva mas,
+   * paga menos"; el precio de cada linea lo calcula el carrito.
+   */
+  escalones: { piso: number; precio: number }[];
+  /** Si suma a la base del cashback (HU-12). */
+  aplicaCashback: boolean;
 }
 
 export interface CategoriaConProductos {
@@ -64,7 +73,18 @@ export class CatalogoService {
       rol: p.rol,
       inventario: p.inventario,
       aptInventario: p.aptInventario,
+      escalones: escalonesDe(p).map((e) => ({ piso: e.piso, precio: e.precio.toNumber() })),
+      aplicaCashback: p.aplicaCashback,
     };
+  }
+
+  /** La escalera de precios tiene que subir en piezas y bajar en precio. */
+  private static exigirEscalones(
+    precioVenta: number,
+    escalones: { piso: number; precio: number }[],
+  ): void {
+    const motivo = validarEscalones(precioVenta, escalones);
+    if (motivo) throw new BadRequestException(motivo);
   }
 
   /** Catalogo agrupado por categoria, como lo pinta la Tienda (Word 4.3). */
@@ -117,6 +137,9 @@ export class CatalogoService {
    * siguiente vez y para las campanias de cupones.
    */
   async crear(dto: CrearProductoDto): Promise<ProductoDto> {
+    const escalones = dto.escalones ?? [];
+    CatalogoService.exigirEscalones(dto.precioVenta, escalones);
+
     const categoriaId = await this.categorias.resolver(dto.categoria);
     const producto = await this.prisma.producto.create({
       data: {
@@ -125,9 +148,11 @@ export class CatalogoService {
         unidad: dto.unidad?.trim() || 'pza',
         precioCosto: dto.precioCosto ?? 0,
         precioVenta: dto.precioVenta,
+        ...escalonesAColumnas(escalones),
         imagenUrl: dto.imagenUrl ?? null,
         agotado: dto.agotado ?? false,
         ...(dto.rol !== undefined && { rol: dto.rol }),
+        ...(dto.aplicaCashback !== undefined && { aplicaCashback: dto.aplicaCashback }),
       },
       include: { categoria: { select: { nombre: true } } },
     });
@@ -135,7 +160,18 @@ export class CatalogoService {
   }
 
   async actualizar(id: string, dto: ActualizarProductoDto): Promise<ProductoDto> {
-    await this.obtener(id);
+    const actual = await this.obtener(id);
+
+    // La escalera se valida con el precio de venta que va a quedar, no solo
+    // con el que llega: bajar el precio de venta por debajo de la lista 2 la
+    // rompe igual aunque las listas no se toquen.
+    if (dto.precioVenta !== undefined || dto.escalones !== undefined) {
+      CatalogoService.exigirEscalones(
+        dto.precioVenta ?? actual.precioVenta,
+        dto.escalones ?? actual.escalones,
+      );
+    }
+
     const categoriaId =
       dto.categoria !== undefined ? await this.categorias.resolver(dto.categoria) : undefined;
     const producto = await this.prisma.producto.update({
@@ -146,8 +182,10 @@ export class CatalogoService {
         ...(dto.unidad !== undefined && { unidad: dto.unidad.trim() }),
         ...(dto.precioCosto !== undefined && { precioCosto: dto.precioCosto }),
         ...(dto.precioVenta !== undefined && { precioVenta: dto.precioVenta }),
+        ...(dto.escalones !== undefined && escalonesAColumnas(dto.escalones)),
         ...(dto.imagenUrl !== undefined && { imagenUrl: dto.imagenUrl }),
         ...(dto.rol !== undefined && { rol: dto.rol }),
+        ...(dto.aplicaCashback !== undefined && { aplicaCashback: dto.aplicaCashback }),
       },
       include: { categoria: { select: { nombre: true } } },
     });

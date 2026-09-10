@@ -69,6 +69,9 @@ model Cliente {
   saldoCashback Decimal         @default(0) @db.Decimal(12, 2)
   nivelId       String?
   nivel         NivelFidelidad? @relation(fields: [nivelId], references: [id])
+  /// Bono manual en puntos porcentuales que se suma al % de su nivel (HU-12).
+  /// Lo edita el dueno directo en la base; el codigo lo lee y nunca lo pisa.
+  pctExtra      Decimal         @default(0) @db.Decimal(5, 2)
 
   /// Carrito a medias, sincronizado desde la Tienda (HU-13).
   ///
@@ -239,6 +242,23 @@ model Producto {
   /// No tiene por que coincidir con `inventario`. Mercancia en cuarentena ya
   /// llego a la bodega —suma al fisico— pero todavia no se puede vender.
   aptInventario Int @default(0)
+
+  /// Precio escalonado (HU-08). `precioVenta` es la lista 1 y vale desde la
+  /// primera pieza; `piso2`/`precio2` y `piso3`/`precio3` son las listas 2 y 3:
+  /// a partir de `piso` piezas, la linea entera se cobra a `precio`.
+  ///
+  /// No hay tope superior a proposito: el techo de una lista es el piso de la
+  /// siguiente, y pasar el piso de la ultima conserva su precio. Asi no pueden
+  /// quedar huecos entre rangos. Pares completos, pisos que suben y precios
+  /// que bajan los garantizan los CHECK de la migracion.
+  piso2   Int?
+  precio2 Decimal? @db.Decimal(12, 2)
+  piso3   Int?
+  precio3 Decimal? @db.Decimal(12, 2)
+
+  /// Si el producto suma a la base del cashback (HU-12). Nace encendido: lo
+  /// normal es que todo participe y se excluye lo que no deja margen.
+  aplicaCashback Boolean @default(true)
 
   creadoEn      DateTime @default(now())
   actualizadoEn DateTime @updatedAt
@@ -754,6 +774,8 @@ model NivelFidelidad {
   nombre      String    @unique
   umbralGasto Decimal   @db.Decimal(12, 2)
   orden       Int       @unique
+  /// Cashback del nivel en puntos porcentuales: 1.5 = 1.5 % (HU-17).
+  porcentaje  Decimal   @default(0) @db.Decimal(5, 2)
   clientes    Cliente[]
 
   @@map("niveles_fidelidad")

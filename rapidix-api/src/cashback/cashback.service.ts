@@ -13,6 +13,8 @@ export interface EstadoCashback {
   progresoPct: number;
   montoFaltante: number;
   totalGastado: number;
+  /** % de cashback que gana hoy: el de su nivel mas su bono manual. */
+  porcentaje: number;
 }
 
 export interface MovimientoDto {
@@ -28,22 +30,52 @@ export class CashbackService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * Cashback que genera un pedido.
+   * Cashback base que genera una compra (HU-12).
    *
-   * SUPUESTO DEL SPEC 01: `multiplicadorCashback` se interpreta como
-   * porcentaje sobre el subtotal. El campo se llama "multiplicador (x veces)",
-   * pero con el valor por defecto 2 la lectura literal daria 200 % de
-   * cashback. Ni el Word ni el prototipo definen la formula. Toda la
-   * aritmetica esta aqui para poder cambiarla en un solo sitio, y cada
-   * acreditacion queda registrada en `MovimientoCashback` para recalcular.
+   * `base` es lo que suman, a precio escalonado, los productos con
+   * `aplicaCashback`: no el subtotal. Solo cuenta si la base SUPERA el minimo
+   * —con el minimo exacto no hay cashback— y se trunca a pesos enteros.
+   *
+   * Esto sustituye al supuesto del SPEC 01, que leia `multiplicadorCashback`
+   * como porcentaje sobre el subtotal. El porcentaje sale del nivel; el
+   * multiplicador es cuantas veces vale al ir a la billetera (`aBilletera`).
    */
-  static calcular(
-    subtotal: Decimal,
-    multiplicadorCashback: Decimal,
-    montoMinimoCashback: Decimal,
-  ): Decimal {
-    if (subtotal.lessThan(montoMinimoCashback)) return new Decimal(0);
-    return subtotal.mul(multiplicadorCashback).div(100).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+  static calcular(base: Decimal, porcentaje: Decimal, montoMinimoCashback: Decimal): Decimal {
+    if (!base.greaterThan(montoMinimoCashback)) return new Decimal(0);
+    return base.mul(porcentaje).div(100).floor();
+  }
+
+  /**
+   * Lo que vale el cashback base al ir a la billetera: `multiplicadorCashback`
+   * veces (x2). Hoy todo va a la billetera (HU-19), asi que es lo que se
+   * acredita; lo que ensenan la Tienda y el carrito es la base, sin el x2.
+   */
+  static aBilletera(montoBase: Decimal, multiplicadorCashback: Decimal): Decimal {
+    return montoBase.mul(multiplicadorCashback).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+  }
+
+  /**
+   * % de cashback de quien compra: el de su nivel mas su bono manual.
+   *
+   * El nivel se calcula en el momento con los umbrales vigentes, no se lee de
+   * `nivelId`: si el negocio cambia un umbral, el % cambia ya, sin esperar al
+   * siguiente pedido. Sin id —el visitante— o sin fila en `clientes` —el
+   * prospecto—, y tambien cuando no alcanza ningun umbral, vale el nivel de
+   * entrada: todo el que compra gana al menos el % mas bajo.
+   */
+  async porcentajePara(duenioId?: string): Promise<Decimal> {
+    const [niveles, cliente] = await Promise.all([
+      this.prisma.nivelFidelidad.findMany({ orderBy: { orden: 'asc' } }),
+      duenioId
+        ? this.prisma.cliente.findUnique({
+            where: { id: duenioId },
+            select: { totalGastado: true, pctExtra: true },
+          })
+        : Promise.resolve(null),
+    ]);
+    const nivel =
+      (cliente && CashbackService.nivelPara(niveles, cliente.totalGastado)) ?? niveles[0];
+    return new Decimal(nivel?.porcentaje ?? 0).add(cliente?.pctExtra ?? 0);
   }
 
   /**
@@ -93,6 +125,7 @@ export class CashbackService {
     progresoPct: 0,
     montoFaltante: 0,
     totalGastado: 0,
+    porcentaje: 0,
   };
 
   async estado(clienteId: string): Promise<EstadoCashback> {
@@ -102,9 +135,14 @@ export class CashbackService {
     ]);
     // Quien todavia no ha comprado no tiene fila en `clientes`. No es un
     // error: es un cashback de cero, que es justo lo que hay que ensenarle.
+    // El % si es el real: el del nivel de entrada, que es el que ganara en su
+    // primera compra.
     if (!cliente) {
       if (await this.prisma.prospecto.count({ where: { id: clienteId } })) {
-        return CashbackService.SIN_CASHBACK;
+        return {
+          ...CashbackService.SIN_CASHBACK,
+          porcentaje: niveles[0]?.porcentaje.toNumber() ?? 0,
+        };
       }
       throw new NotFoundException('Cliente no encontrado');
     }
@@ -132,6 +170,9 @@ export class CashbackService {
       progresoPct,
       montoFaltante: Math.round(montoFaltante * 100) / 100,
       totalGastado: gastado.toNumber(),
+      porcentaje: new Decimal((actual ?? niveles[0])?.porcentaje ?? 0)
+        .add(cliente.pctExtra)
+        .toNumber(),
     };
   }
 
@@ -163,7 +204,12 @@ export class CashbackService {
   async crearNivel(dto: GuardarNivelDto): Promise<NivelFidelidad> {
     await this.exigirNombreYOrdenLibres(dto);
     return this.prisma.nivelFidelidad.create({
-      data: { nombre: dto.nombre.trim(), umbralGasto: dto.umbralGasto, orden: dto.orden },
+      data: {
+        nombre: dto.nombre.trim(),
+        umbralGasto: dto.umbralGasto,
+        orden: dto.orden,
+        porcentaje: dto.porcentaje,
+      },
     });
   }
 
@@ -173,7 +219,12 @@ export class CashbackService {
     await this.exigirNombreYOrdenLibres(dto, id);
     return this.prisma.nivelFidelidad.update({
       where: { id },
-      data: { nombre: dto.nombre.trim(), umbralGasto: dto.umbralGasto, orden: dto.orden },
+      data: {
+        nombre: dto.nombre.trim(),
+        umbralGasto: dto.umbralGasto,
+        orden: dto.orden,
+        porcentaje: dto.porcentaje,
+      },
     });
   }
 

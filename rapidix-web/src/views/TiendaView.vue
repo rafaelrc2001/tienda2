@@ -8,8 +8,8 @@
  *  2. **Una fila por familia**, en el orden que devuelve la API. La pantalla
  *     no reordena nada: el criterio vive en el backend, que es el único que
  *     sabe qué ha comprado esta persona.
- *  3. **Botón flotante** con lo que suman los productos y el cashback que
- *     dejaría el pedido.
+ *  3. **Botón flotante** con lo que suman los productos, el cashback que
+ *     dejaría el pedido y lo que le falta para el envío gratis.
  *
  * Se puede mirar sin sesión (HU-02): el visitante ve el catálogo del negocio y
  * puede armar su carrito; el login se le pide al pulsar «Comprar ahora».
@@ -86,6 +86,13 @@ const mostrarFastTrack = computed(
 )
 
 const cashback = computed(() => carrito.cashbackEstimado ?? 0)
+
+/**
+ * Lo que le falta al carrito, para decirlo aquí y no solo en el carrito
+ * (HU-20). Llega calculado de la API; con el carrito vacío no hay nada que
+ * medir y la barra no dice nada.
+ */
+const metas = computed(() => (carrito.vacio ? null : carrito.metas))
 
 onMounted(async () => {
   await Promise.all([cargarCatalogo(), cargarUltimoPedido()])
@@ -248,6 +255,7 @@ async function comprarAhora(): Promise<void> {
       @usar="repetirPedido"
       @descartar="descartado = true"
       @expandir="plegado = false"
+      @contraer="plegado = true"
     />
 
     <SkeletonCard v-if="cargando" />
@@ -275,9 +283,17 @@ async function comprarAhora(): Promise<void> {
 
     <!-- Barra de compra: el importe lo da la API, no se suma aquí. -->
     <div class="barra-compra">
-      <span v-if="cashback > 0" class="chip-cashback">
-        Ganas {{ dinero(cashback) }} de cashback
-      </span>
+      <div v-if="cashback > 0 || metas?.faltaCashback || metas?.faltaEnvioGratis" class="chips">
+        <span v-if="cashback > 0" class="chip chip-cashback">
+          Ganas {{ dinero(cashback) }} de cashback
+        </span>
+        <span v-else-if="metas?.faltaCashback" class="chip chip-meta">
+          ¡Estás a solo {{ dinero(metas.faltaCashback) }} de activar tu cashback!
+        </span>
+        <span v-if="metas?.faltaEnvioGratis" class="chip chip-meta">
+          Te faltan {{ dinero(metas.faltaEnvioGratis) }} para envío gratis
+        </span>
+      </div>
 
       <button
         type="button"
@@ -343,9 +359,10 @@ async function comprarAhora(): Promise<void> {
 }
 
 /*
- * La barra se queda pegada abajo mientras se recorre el catálogo. El chip del
- * cashback va encima del botón y aparece y desaparece solo al cruzar el mínimo
- * que fija el negocio (HU-12).
+ * La barra se queda pegada abajo mientras se recorre el catálogo. Los chips van
+ * encima del botón: el del cashback aparece al cruzar el mínimo que fija el
+ * negocio (HU-12) y, antes, el aviso de cuánto falta; el del envío gratis se va
+ * en cuanto se alcanza.
  */
 .barra-compra {
   position: sticky;
@@ -358,16 +375,31 @@ async function comprarAhora(): Promise<void> {
   z-index: 5;
 }
 
-.chip-cashback {
-  align-self: center;
-  background: var(--gold);
-  color: var(--ink);
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 5px;
+}
+
+.chip {
   font-family: var(--font-heading);
   font-weight: 800;
   font-size: 10.5px;
   padding: 5px 11px;
   border-radius: 999px;
   box-shadow: var(--shadow);
+  color: var(--ink);
+}
+
+.chip-cashback {
+  background: var(--gold);
+}
+
+/* Lo que falta es un empujón, no un logro: sin dorado. */
+.chip-meta {
+  background: var(--white);
+  border: 1.5px solid var(--gold);
 }
 
 .comprar {

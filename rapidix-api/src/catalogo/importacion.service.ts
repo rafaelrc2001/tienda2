@@ -2,8 +2,9 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { Workbook } from 'exceljs';
 import { PrismaService } from '../prisma/prisma.service';
 import { CategoriasService } from './categorias.service';
+import { escalonesAColumnas, validarEscalones } from './precios';
 
-/** Columnas del Word 6.6. `Imagen` es la unica opcional. */
+/** Columnas del Word 6.6. */
 export const COLUMNAS_REQUERIDAS = [
   'Categoria',
   'Producto',
@@ -12,6 +13,13 @@ export const COLUMNAS_REQUERIDAS = [
   'Precio de venta',
 ] as const;
 export const COLUMNA_OPCIONAL = 'Imagen';
+
+/** Listas de precio por volumen (HU-08). La lista 1 es el precio de venta. */
+export const COLUMNAS_LISTAS = ['Piso 2', 'Precio 2', 'Piso 3', 'Precio 3'] as const;
+/** Si el producto suma a la base del cashback (HU-12). Si / No. */
+export const COLUMNA_CASHBACK = 'Aplica cashback';
+
+export const COLUMNAS_OPCIONALES = [COLUMNA_OPCIONAL, ...COLUMNAS_LISTAS, COLUMNA_CASHBACK];
 
 type BufferDeExcelJs = Parameters<Workbook['xlsx']['load']>[0];
 
@@ -38,6 +46,19 @@ interface FilaLeida {
   precioCosto: string;
   precioVenta: string;
   imagen: string;
+  piso2: string;
+  precio2: string;
+  piso3: string;
+  precio3: string;
+  aplicaCashback: string;
+  /**
+   * El archivo trae las columnas de listas. Sin ellas no se tocan las listas
+   * que ya tuviera el producto: un Excel viejo, de antes del precio
+   * escalonado, no debe borrarlas por no mencionarlas.
+   */
+  conListas: boolean;
+  /** Lo mismo con la columna de cashback. */
+  conCashback: boolean;
 }
 
 @Injectable()
@@ -66,6 +87,44 @@ export class ImportacionService {
     if (limpio === '') return null;
     const n = Number(limpio);
     return Number.isFinite(n) ? n : null;
+  }
+
+  /**
+   * "Si" / "No" de la columna de cashback. `undefined` si la celda esta vacia
+   * —no se toca lo que hubiera— y `null` si no se entiende.
+   */
+  private static aBooleano(valor: string): boolean | null | undefined {
+    const limpio = ImportacionService.normalizar(valor);
+    if (limpio === '') return undefined;
+    if (['si', 's', 'x', '1', 'true', 'verdadero'].includes(limpio)) return true;
+    if (['no', 'n', '0', 'false', 'falso'].includes(limpio)) return false;
+    return null;
+  }
+
+  /**
+   * Listas de volumen de una fila. Una lista con piezas pero sin precio, o al
+   * reves, es un error: adivinar la mitad que falta seria inventar un precio.
+   */
+  private static leerListas(fila: FilaLeida): { piso: number; precio: number }[] | string {
+    const escalones: { piso: number; precio: number }[] = [];
+    const listas = [
+      [2, fila.piso2, fila.precio2],
+      [3, fila.piso3, fila.precio3],
+    ] as const;
+
+    for (const [lista, pisoTexto, precioTexto] of listas) {
+      if (!pisoTexto && !precioTexto) continue;
+      const piso = ImportacionService.aNumero(pisoTexto);
+      const precio = ImportacionService.aNumero(precioTexto);
+      if (piso === null || precio === null) {
+        return `La lista ${lista} necesita piezas y precio, los dos como número`;
+      }
+      if (lista === 3 && escalones.length === 0) {
+        return 'La lista 3 necesita que antes esté la lista 2';
+      }
+      escalones.push({ piso, precio });
+    }
+    return escalones;
   }
 
   async importar(buffer: Buffer): Promise<ResumenImportacion> {
@@ -122,9 +181,12 @@ export class ImportacionService {
     if (faltantes.length > 0) {
       throw new BadRequestException(
         `Faltan columnas obligatorias: ${faltantes.join(', ')}. ` +
-          `El archivo debe tener: ${COLUMNAS_REQUERIDAS.join(', ')} (${COLUMNA_OPCIONAL} es opcional).`,
+          `El archivo debe tener: ${COLUMNAS_REQUERIDAS.join(', ')} (${COLUMNAS_OPCIONALES.join(', ')} son opcionales).`,
       );
     }
+
+    const conListas = COLUMNAS_LISTAS.some((c) => indices.has(ImportacionService.normalizar(c)));
+    const conCashback = indices.has(ImportacionService.normalizar(COLUMNA_CASHBACK));
 
     const leerCelda = (numeroFila: number, encabezado: string): string => {
       const columna = indices.get(ImportacionService.normalizar(encabezado));
@@ -146,6 +208,13 @@ export class ImportacionService {
         precioCosto: leerCelda(n, 'Precio de costo'),
         precioVenta: leerCelda(n, 'Precio de venta'),
         imagen: leerCelda(n, COLUMNA_OPCIONAL),
+        piso2: leerCelda(n, 'Piso 2'),
+        precio2: leerCelda(n, 'Precio 2'),
+        piso3: leerCelda(n, 'Piso 3'),
+        precio3: leerCelda(n, 'Precio 3'),
+        aplicaCashback: leerCelda(n, COLUMNA_CASHBACK),
+        conListas,
+        conCashback,
       };
       // Fila completamente vacia: se ignora sin contarla como error.
       const vacia = !fila.categoria && !fila.producto && !fila.precioVenta;
@@ -188,6 +257,23 @@ export class ImportacionService {
       return { fila: fila.numero, estado: 'error', motivo: 'El precio de costo no puede ser negativo' };
     }
 
+    // Misma escalera que el alta manual: pisos que suben, precios que bajan.
+    const listas = fila.conListas ? ImportacionService.leerListas(fila) : null;
+    if (typeof listas === 'string') return { fila: fila.numero, estado: 'error', motivo: listas };
+    const motivoListas = listas ? validarEscalones(precioVenta, listas) : null;
+    if (motivoListas) return { fila: fila.numero, estado: 'error', motivo: motivoListas };
+
+    const aplicaCashback = fila.conCashback
+      ? ImportacionService.aBooleano(fila.aplicaCashback)
+      : undefined;
+    if (aplicaCashback === null) {
+      return {
+        fila: fila.numero,
+        estado: 'error',
+        motivo: `La columna ${COLUMNA_CASHBACK} solo acepta Sí o No`,
+      };
+    }
+
     const clave = CategoriasService.limpiar(categoria).toLowerCase();
     let categoriaId = resueltas.get(clave);
     if (!categoriaId) {
@@ -201,6 +287,8 @@ export class ImportacionService {
       precioCosto,
       precioVenta,
       ...(fila.imagen.trim() && { imagenUrl: fila.imagen.trim() }),
+      ...(listas && escalonesAColumnas(listas)),
+      ...(aplicaCashback !== undefined && { aplicaCashback }),
     };
 
     // Mismo nombre y misma categoria = mismo producto: se actualiza en vez de
@@ -230,16 +318,30 @@ export class ImportacionService {
     const libro = new Workbook();
     const hoja = libro.addWorksheet('Productos');
 
-    hoja.columns = [...COLUMNAS_REQUERIDAS, COLUMNA_OPCIONAL].map((encabezado) => ({
+    hoja.columns = [...COLUMNAS_REQUERIDAS, ...COLUMNAS_OPCIONALES].map((encabezado) => ({
       header: encabezado,
-      width: encabezado === COLUMNA_OPCIONAL ? 42 : 20,
+      width: encabezado === COLUMNA_OPCIONAL ? 42 : encabezado.length > 10 ? 20 : 12,
     }));
     hoja.getRow(1).font = { bold: true };
 
+    // El arroz lleva listas de volumen: desde 5 kg a $26.50 y desde 10 a $25.
     hoja.addRows([
-      ['Frutas y Verduras', 'Tomate bola', 'kg', 9, 18, ''],
-      ['Carnes', 'Pechuga de pollo', 'kg', 62, 89, ''],
-      ['Abarrotes', 'Arroz 1kg', 'kg', 19, 28, 'https://cdn.rapidix.mx/productos/arroz.webp'],
+      ['Frutas y Verduras', 'Tomate bola', 'kg', 9, 18, '', '', '', '', '', 'Sí'],
+      ['Carnes', 'Pechuga de pollo', 'kg', 62, 89, '', '', '', '', '', 'Sí'],
+      [
+        'Abarrotes',
+        'Arroz 1kg',
+        'kg',
+        19,
+        28,
+        'https://cdn.rapidix.mx/productos/arroz.webp',
+        5,
+        26.5,
+        10,
+        25,
+        'Sí',
+      ],
+      ['Bebidas', 'Agua mineral', 'pza', 8, 14, '', 6, 13, 12, 12, 'No'],
     ]);
 
     return Buffer.from(await libro.xlsx.writeBuffer());

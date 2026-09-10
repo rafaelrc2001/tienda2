@@ -37,13 +37,14 @@ export class CarritoController {
   }
 
   /**
-   * Lo que suman los productos del carrito, para el boton flotante de la
-   * Tienda (HU-11).
+   * Lo que suman los productos del carrito, para la barra de compra de la
+   * Tienda (HU-11 y HU-12).
    *
    * Es publico porque el visitante sin sesion tambien arma su carrito antes de
-   * decidir si entra (HU-14), y no expone nada que no este ya en el catalogo:
-   * responde con precios de productos, sin tocar cupones ni cashback ni saber
-   * quien pregunta.
+   * decidir si entra (HU-14), y no expone nada que no este ya en el catalogo o
+   * en la configuracion publica: precios escalonados, el cashback con el % del
+   * nivel de entrada y lo que falta para el envio gratis. No toca cupones ni
+   * sabe quien pregunta.
    */
   @Post('subtotal')
   @Public()

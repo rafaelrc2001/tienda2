@@ -32,12 +32,12 @@ const PRODUCTOS = [
   { nombre: 'Limón', categoria: 'Frutas y Verduras', unidad: 'kg', precioCosto: 6, precioVenta: 12, agotado: false, rol: RolProducto.CONVENIENCIA },
   { nombre: 'Pechuga de pollo', categoria: 'Carnes', unidad: 'kg', precioCosto: 62, precioVenta: 89, agotado: false, rol: RolProducto.DESTINO },
   { nombre: 'Carne molida de res', categoria: 'Carnes', unidad: 'kg', precioCosto: 78, precioVenta: 110, agotado: false, rol: RolProducto.DESTINO },
-  { nombre: 'Leche entera 1L', categoria: 'Lácteos', unidad: 'L', precioCosto: 16, precioVenta: 24, agotado: false, rol: RolProducto.RUTINA },
+  { nombre: 'Leche entera 1L', categoria: 'Lácteos', unidad: 'L', precioCosto: 16, precioVenta: 24, piso2: 6, precio2: 22.5, agotado: false, rol: RolProducto.RUTINA },
   { nombre: 'Queso panela', categoria: 'Lácteos', unidad: 'pza', precioCosto: 40, precioVenta: 58, agotado: true, rol: RolProducto.RUTINA },
-  { nombre: 'Arroz 1kg', categoria: 'Abarrotes', unidad: 'kg', precioCosto: 19, precioVenta: 28, agotado: false, rol: RolProducto.RUTINA },
+  { nombre: 'Arroz 1kg', categoria: 'Abarrotes', unidad: 'kg', precioCosto: 19, precioVenta: 28, piso2: 5, precio2: 26.5, piso3: 10, precio3: 25, agotado: false, rol: RolProducto.RUTINA },
   { nombre: 'Frijol negro 1kg', categoria: 'Abarrotes', unidad: 'kg', precioCosto: 22, precioVenta: 32, agotado: false, rol: RolProducto.RUTINA },
   { nombre: 'Aceite vegetal 1L', categoria: 'Abarrotes', unidad: 'L', precioCosto: 32, precioVenta: 45, agotado: false, rol: RolProducto.CONVENIENCIA },
-  { nombre: 'Agua mineral', categoria: 'Bebidas', unidad: 'pza', precioCosto: 8, precioVenta: 14, agotado: false, rol: RolProducto.CONVENIENCIA },
+  { nombre: 'Agua mineral', categoria: 'Bebidas', unidad: 'pza', precioCosto: 8, precioVenta: 14, piso2: 6, precio2: 13, piso3: 12, precio3: 12, aplicaCashback: false, agotado: false, rol: RolProducto.CONVENIENCIA },
   { nombre: 'Jugo natural de naranja', categoria: 'Bebidas', unidad: 'L', precioCosto: 13, precioVenta: 20, agotado: false, rol: RolProducto.ESTACIONAL },
 ];
 
@@ -363,13 +363,14 @@ const AVISOS = [
 ];
 
 /**
- * Umbrales PROVISIONALES: ni el Word ni el mockup los definen.
- * Ver "Riesgos" del SPEC 01. Editables desde Administracion.
+ * Tabla de niveles del negocio (HU-17): umbral de gasto y % de cashback.
+ * Ni el Word ni el mockup la definen. Editables desde Administracion.
  */
 const NIVELES = [
-  { nombre: 'Bronce', umbralGasto: 0, orden: 1 },
-  { nombre: 'Plata', umbralGasto: 30000, orden: 2 },
-  { nombre: 'Oro', umbralGasto: 60000, orden: 3 },
+  { nombre: 'Bronce', umbralGasto: 0, orden: 1, porcentaje: 1 },
+  { nombre: 'Plata', umbralGasto: 30000, orden: 2, porcentaje: 1.5 },
+  { nombre: 'Oro', umbralGasto: 60000, orden: 3, porcentaje: 2 },
+  { nombre: 'Platino', umbralGasto: 90000, orden: 4, porcentaje: 2.5 },
 ];
 
 // ------------------------------------------------------------------
@@ -424,10 +425,12 @@ async function seedConfiguracion(): Promise<void> {
       atenderFuera: true,
       incrementoFuera: 20,
       whatsappAyuda: null,
-      costoEnvio: 20,
-      montoEnvioGratis: 300,
+      // Parametros vigentes del negocio (HU-16). El multiplicador es el x2 de
+      // la billetera, no un porcentaje.
+      costoEnvio: 30,
+      montoEnvioGratis: 599.99,
       multiplicadorCashback: 2,
-      montoMinimoCashback: 200,
+      montoMinimoCashback: 600,
       banco: null,
       beneficiario: null,
       numeroCuenta: null,
@@ -440,11 +443,11 @@ async function seedNiveles(): Promise<void> {
   for (const nivel of NIVELES) {
     await prisma.nivelFidelidad.upsert({
       where: { nombre: nivel.nombre },
-      update: { umbralGasto: nivel.umbralGasto, orden: nivel.orden },
+      update: { umbralGasto: nivel.umbralGasto, orden: nivel.orden, porcentaje: nivel.porcentaje },
       create: nivel,
     });
   }
-  console.log(`  niveles_fidelidad: ${NIVELES.length} niveles (umbrales provisionales)`);
+  console.log(`  niveles_fidelidad: ${NIVELES.length} niveles`);
 }
 
 async function seedTiposCicloVida(): Promise<void> {

@@ -179,18 +179,21 @@ invariantes que la base garantiza, no comprobaciones que se puedan olvidar.
 
 Ninguna de las dos fuentes los define. Están aislados para poder cambiarlos.
 
-1. **Fórmula del cashback** — `subtotal × multiplicadorCashback / 100`, solo si
-   el subtotal alcanza `montoMinimoCashback`. El campo se llama "multiplicador
-   (x veces)", pero la lectura literal con el valor por defecto `2` daría 200 %
-   de cashback. Está en `CashbackService.calcular`; cada acreditación queda en
-   `MovimientoCashback`, así que se puede recalcular.
+1. **Fórmula del cashback** — *resuelto (HU-12)*: `floor(base × % / 100)`,
+   donde la base es lo que suman a precio escalonado los productos con
+   `aplicaCashback` y tiene que **superar** `montoMinimoCashback`. El % sale del
+   nivel del cliente más su `pctExtra`; `multiplicadorCashback` es el ×2 al ir a
+   la billetera, que es lo que se acredita. Está en `CashbackService`; cada
+   acreditación queda en `MovimientoCashback`, así que se puede recalcular.
 2. **Recargo fuera de horario** — se aplica sobre el subtotal cuando el pedido
    entra fuera de servicio y `atenderFuera` está activo; si está desactivado, el
    pedido se rechaza con 409. El Word define el parámetro pero no cómo se aplica.
    Se guarda en su propia columna `Pedido.recargoFuera` para poder auditarlo.
-3. **Umbrales de nivel de fidelidad** — Bronce $0, Plata $30.000, Oro $60.000.
-   Valores provisionales; el mockup los tiene escritos a mano y el Word no los
-   menciona. Editables desde `/admin/configuracion/niveles`.
+3. **Niveles de fidelidad** — Bronce $0 (1 %), Plata $30,000 (1.5 %), Oro
+   $60,000 (2 %), Platino $90,000 (2.5 %), según la tabla del negocio (HU-17).
+   Pendiente: hoy el nivel se mide sobre el gasto histórico total (`totalGastado`,
+   que incluye envío), no sobre 90 días de solo productos pagados. Editables
+   desde `/admin/configuracion/niveles`.
 
 ---
 
