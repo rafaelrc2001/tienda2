@@ -200,4 +200,15 @@ const emit = defineEmits<{ (e: 'menu'): void }>()
   margin: 0 8px 8px;
   box-shadow: 0 -6px 18px rgba(0, 0, 0, 0.18);
 }
+
+/*
+ * Si la pantalla trae una barra que se pega al menú (la de compra de la
+ * Tienda), el menú pierde las esquinas y la sombra de arriba para que los dos
+ * formen un solo bloque sin costura.
+ */
+.app-column:has(.pegada-al-nav) .app-bottom-nav {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  box-shadow: none;
+}
 </style>

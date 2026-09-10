@@ -283,7 +283,7 @@ async function comprarAhora(): Promise<void> {
     <p v-else class="empty-block">No hay productos disponibles.</p>
 
     <!-- Barra de compra: el importe lo da la API, no se suma aquí. -->
-    <div class="barra-compra">
+    <div class="barra-compra pegada-al-nav">
       <div v-if="cashback > 0 || metas?.faltaCashback || metas?.faltaEnvioGratis" class="chips">
         <span v-if="cashback > 0" class="chip chip-cashback">
           Ganas {{ dinero(cashback) }} de cashback
@@ -365,11 +365,16 @@ async function comprarAhora(): Promise<void> {
  * encima del botón: el del cashback aparece al cruzar el mínimo que fija el
  * negocio (HU-12) y, antes, el aviso de cuánto falta; el del envío gratis se va
  * en cuanto se alcanza.
+ *
+ * Va pegada a la barra inferior, sin hueco: `bottom: 0`, el mismo margen
+ * lateral que el menú (8px) y un margen inferior negativo que anula el colchón
+ * de `.app-screen` para que tampoco se despegue al llegar al final del
+ * catálogo. `pegada-al-nav` le dice al layout que aplane el menú por arriba.
  */
 .barra-compra {
   position: sticky;
-  bottom: 8px;
-  margin: 14px 18px 4px;
+  bottom: 0;
+  margin: 14px 8px -18px;
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -406,22 +411,21 @@ async function comprarAhora(): Promise<void> {
 
 /*
  * Barra plana de una sola línea, «Comprar ahora: $X», como la del ecommerce
- * anterior: esquinas cortas y texto centrado. De aquella se toma la forma; los
- * colores son el navy y el dorado de Rapidix.
+ * anterior: texto centrado, navy y dorado de Rapidix. Redondeada solo arriba:
+ * por abajo continúa en el menú y los dos se leen como un solo bloque.
  */
 .comprar {
   width: 100%;
   background: var(--navy);
   color: var(--white);
   border: none;
-  border-radius: 6px;
-  padding: 10px 16px;
+  border-radius: 16px 16px 0 0;
+  padding: 11px 16px;
   font-family: var(--font-heading);
   font-weight: 700;
   font-size: 14px;
   letter-spacing: 0.2px;
   text-align: center;
-  box-shadow: 0 2px 8px color-mix(in srgb, var(--navy) 25%, transparent);
   cursor: pointer;
 }
 
