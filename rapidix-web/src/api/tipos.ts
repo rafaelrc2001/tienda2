@@ -154,7 +154,7 @@ export interface CategoriaAdmin {
 
 /** Producto del catálogo ordenado, con lo que este cliente ha hecho con él. */
 export interface ProductoRecomendado extends Producto {
-  /** Venía en su último pedido: es el badge «✔ Último comprado». */
+  /** Venía en su último pedido: su fila del carrusel arranca centrada en él. */
   ultimoComprado: boolean
   /** En cuántos de sus pedidos ha aparecido. 0 para un visitante. */
   vecesComprado: number

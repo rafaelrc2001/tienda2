@@ -161,7 +161,7 @@ onBeforeUnmount(() => observador?.disconnect())
 
 <style scoped>
 .familia {
-  margin-bottom: 4px;
+  margin-bottom: 0;
 }
 
 .cabecera {
@@ -177,7 +177,7 @@ onBeforeUnmount(() => observador?.disconnect())
   font-weight: 800;
   font-size: 13.5px;
   color: var(--ink);
-  margin: 14px 0 8px 18px;
+  margin: 8px 0 2px 18px;
   display: flex;
   align-items: center;
   gap: 7px;
@@ -217,7 +217,7 @@ onBeforeUnmount(() => observador?.disconnect())
    * El colchón lateral es la mitad de la columna: sin él, la primera y la
    * última tarjeta no pueden llegar nunca al centro.
    */
-  padding: 6px calc(50% - 79px) 10px;
+  padding: 2px calc(50% - 79px) 6px;
   scrollbar-width: none;
 }
 
@@ -236,7 +236,7 @@ onBeforeUnmount(() => observador?.disconnect())
   display: flex;
   justify-content: center;
   gap: 5px;
-  padding-bottom: 4px;
+  padding-bottom: 0;
 }
 
 .punto {
