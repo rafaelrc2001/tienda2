@@ -2,9 +2,8 @@
 /**
  * Tarjeta de producto del catálogo (HU-03, HU-07 y HU-09).
  *
- * Lleva el badge de «último comprado», el precio con los centavos en volado, el
- * control de cantidad —con escritura manual y tope de existencias— y los
- * atajos de cantidad.
+ * Lleva el precio con los centavos en volado, el control de cantidad —con
+ * escritura manual y tope de existencias— y los atajos de cantidad.
  *
  * La cantidad se toca directamente contra el store del carrito: es estado
  * global de verdad, y pasarlo por props obligaría a cada carrusel a reenviar
@@ -97,9 +96,11 @@ function alSalirDelCampo(): void {
 </script>
 
 <template>
+  <!--
+    Sin insignias arriba. Agotado ya lo dicen la imagen en gris y el botón
+    «Avísame»; lo último comprado, que la fila arranque centrada en ello.
+  -->
   <article class="tarjeta" :class="{ activa, agotada: sinExistencias }">
-    <span v-if="producto.ultimoComprado" class="badge-ultimo">✔ Último comprado</span>
-    <span v-else-if="sinExistencias" class="badge-agotado">Agotado</span>
 
     <div class="media">
       <img v-if="producto.imagenUrl" :src="producto.imagenUrl" :alt="producto.nombre" />
@@ -179,7 +180,7 @@ function alSalirDelCampo(): void {
   flex-shrink: 0;
   background: var(--white);
   border-radius: var(--radius-md);
-  padding: 26px 10px 12px;
+  padding: 8px 10px 9px;
   box-shadow: var(--shadow);
   text-align: center;
   /* La tarjeta del centro se agranda sin empujar a las de al lado. */
@@ -200,36 +201,6 @@ function alSalirDelCampo(): void {
   opacity: 0.7;
 }
 
-/*
- * El badge se sale por arriba de la tarjeta, como en el diseño. El padding
- * superior de la tarjeta le deja el sitio para que no pise a la imagen.
- */
-.badge-ultimo,
-.badge-agotado {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-  font-family: var(--font-heading);
-  font-weight: 700;
-  font-size: 8.5px;
-  letter-spacing: 0.02em;
-  padding: 3px 7px;
-  border-radius: 999px;
-  white-space: nowrap;
-}
-
-.badge-ultimo {
-  background: color-mix(in srgb, var(--sage) 16%, var(--white));
-  color: var(--sage);
-  border: 1px solid color-mix(in srgb, var(--sage) 40%, var(--white));
-}
-
-.badge-agotado {
-  background: color-mix(in srgb, var(--terracotta) 12%, var(--white));
-  color: var(--terracotta-dark);
-  border: 1px solid color-mix(in srgb, var(--terracotta) 35%, var(--white));
-}
-
 .media {
   height: 62px;
   display: flex;
@@ -237,7 +208,7 @@ function alSalirDelCampo(): void {
   justify-content: center;
   background: var(--cream-2);
   border-radius: 10px;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
   overflow: hidden;
   color: var(--muted);
 }
@@ -296,7 +267,7 @@ function alSalirDelCampo(): void {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  margin-top: 8px;
+  margin-top: 5px;
 }
 
 .stepper button {
@@ -340,7 +311,7 @@ function alSalirDelCampo(): void {
   align-items: center;
   justify-content: center;
   gap: 4px;
-  margin-top: 9px;
+  margin-top: 6px;
 }
 
 .volumen .etiqueta {
@@ -395,7 +366,7 @@ function alSalirDelCampo(): void {
 
 .programar {
   width: 100%;
-  margin-top: 9px;
+  margin-top: 6px;
   border: 1.5px solid var(--line);
   background: var(--cream);
   color: var(--ink);

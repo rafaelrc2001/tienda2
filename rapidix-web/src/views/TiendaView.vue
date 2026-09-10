@@ -300,7 +300,7 @@ async function comprarAhora(): Promise<void> {
 }
 
 .search-bar {
-  margin: 6px 18px 12px;
+  margin: 2px 18px 4px;
   display: flex;
   align-items: center;
   gap: 8px;
