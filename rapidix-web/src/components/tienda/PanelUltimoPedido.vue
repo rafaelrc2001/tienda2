@@ -1,21 +1,23 @@
 <script setup lang="ts">
 /**
- * «Repetir mi última compra» (HU-04 y HU-05).
+ * «Repite tu última compra, en un solo click» (HU-04 y HU-05).
  *
  * Sale arriba del catálogo con lo que pidió la última vez, **a precio de hoy**:
  * las cantidades son las de aquel pedido, los importes los de ahora. Un
  * producto que ya no se puede servir se enseña tachado y no suma.
  *
- * Se pliega solo al bajar por el catálogo y se vuelve a abrir al subir; el
- * botón de descartar lo quita hasta la próxima visita.
+ * Reproduce tal cual el panel del ecommerce anterior: renglones bajos y
+ * apretados, letra de cuerpo, total al pie y dos botones chicos. Por eso no
+ * lleva folio, fecha ni dirección. Además de la flecha, se pliega solo al
+ * bajar por el catálogo; «No, crear uno nuevo» lo quita hasta la próxima visita.
  */
 import { computed } from 'vue'
-import { dinero, fecha } from '@/utils/formato'
+import { dinero } from '@/utils/formato'
 import type { UltimoPedido } from '@/api/tipos'
 
 const props = defineProps<{
   pedido: UltimoPedido
-  /** Plegado a una sola línea, pero todavía a la vista. */
+  /** Plegado a la cabecera, pero todavía a la vista. */
   colapsado: boolean
   /** Mientras se llena el carrito y se navega al checkout. */
   ocupado: boolean
@@ -25,59 +27,62 @@ const emit = defineEmits<{
   (e: 'usar'): void
   (e: 'descartar'): void
   (e: 'expandir'): void
+  (e: 'contraer'): void
 }>()
 
 const disponibles = computed(() => props.pedido.items.filter((i) => i.disponible))
 
-/** Dirección de aquel pedido, en una línea. Es a donde volvería a ir. */
-const direccion = computed(() => {
-  const datos = props.pedido.direccion
-  if (!datos) return ''
-  const partes = ['calle', 'colonia', 'cp', 'ciudad']
-    .map((clave) => datos[clave])
-    .filter((valor): valor is string => typeof valor === 'string' && valor.trim() !== '')
-  return partes.join(', ')
-})
+function alternar(): void {
+  if (props.colapsado) emit('expandir')
+  else emit('contraer')
+}
 </script>
 
 <template>
   <section class="fast-track" :class="{ colapsado }">
-    <button v-if="colapsado" type="button" class="resumen" @click="emit('expandir')">
-      <span class="etiqueta">Repetir tu última compra</span>
-      <span class="importe">{{ dinero(pedido.subtotal) }}</span>
+    <button type="button" class="cabecera" :aria-expanded="!colapsado" @click="alternar">
+      <svg class="rayo" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M13 2 4.5 13.5H11L10 22l8.5-11.5H12L13 2Z" />
+      </svg>
+      <span class="titulo">Repite tu última compra, en un solo click</span>
+      <svg
+        class="flecha"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2.6"
+        aria-hidden="true"
+      >
+        <path d="m6 9 6 6 6-6" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
     </button>
 
-    <template v-else>
-      <header class="cabecera">
-        <div>
-          <p class="titulo">¿Repetimos tu última compra?</p>
-          <p class="folio">{{ pedido.folio }} · {{ fecha(pedido.creadoEn) }}</p>
-        </div>
-        <span class="total">{{ dinero(pedido.subtotal) }}</span>
-      </header>
-
+    <template v-if="!colapsado">
       <ul class="lineas">
         <li v-for="item in pedido.items" :key="item.productoId" :class="{ ida: !item.disponible }">
-          <span class="cantidad">{{ item.cantidad }}</span>
-          <span class="nombre">{{ item.nombre }}</span>
+          <span class="nombre">{{ item.cantidad }}× {{ item.nombre }}</span>
           <span class="precio">{{ dinero(item.importe) }}</span>
         </li>
       </ul>
 
+      <!-- Solo aparecen cuando algo del pedido ya no se puede servir. -->
       <p v-for="(aviso, i) in pedido.avisos" :key="i" class="aviso">{{ aviso }}</p>
 
-      <p v-if="direccion" class="direccion">Se entregaría en {{ direccion }}</p>
+      <div class="total">
+        <span>Total productos</span>
+        <span class="importe">{{ dinero(pedido.subtotal) }}</span>
+      </div>
 
       <div class="acciones">
         <button
           type="button"
-          class="btn-primary"
+          class="usar"
           :disabled="ocupado || disponibles.length === 0"
           @click="emit('usar')"
         >
           {{ ocupado ? 'Preparando…' : 'Sí, usar este pedido' }}
         </button>
-        <button type="button" class="btn-cancel" @click="emit('descartar')">
+        <button type="button" class="nuevo" @click="emit('descartar')">
           No, crear uno nuevo
         </button>
       </div>
@@ -87,102 +92,77 @@ const direccion = computed(() => {
 
 <style scoped>
 .fast-track {
+  --separador: color-mix(in srgb, var(--ink) 10%, transparent);
+
   margin: 4px 18px 12px;
   background: var(--white);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow);
-  border-left: 4px solid var(--gold);
-  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--forest) 30%, transparent);
+  border-radius: 6px;
+  font-family: var(--font-body);
+  color: var(--ink);
   overflow: hidden;
 }
 
-.fast-track.colapsado {
-  padding: 0;
-}
-
-.resumen {
+.cabecera {
   width: 100%;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  gap: 6px;
   background: transparent;
   border: none;
-  padding: 11px 14px;
+  padding: 6px 10px;
   cursor: pointer;
   text-align: left;
-}
-
-.resumen .etiqueta {
-  font-family: var(--font-heading);
-  font-weight: 700;
-  font-size: 12px;
+  font-family: inherit;
   color: var(--ink);
 }
 
-.resumen .importe {
-  font-family: var(--font-heading);
-  font-weight: 800;
-  font-size: 13px;
-  color: var(--terracotta-dark);
-}
-
-.cabecera {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
+.rayo {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  fill: var(--naranja);
 }
 
 .titulo {
-  font-family: var(--font-heading);
-  font-weight: 800;
-  font-size: 13px;
-  color: var(--ink);
-  margin: 0;
-}
-
-.folio {
-  font-size: 10.5px;
-  color: var(--muted);
-  margin: 2px 0 0;
+  flex: 1;
+  min-width: 0;
   font-weight: 600;
+  font-size: 13px;
 }
 
-.total {
-  font-family: var(--font-heading);
-  font-weight: 800;
-  font-size: 15px;
-  color: var(--terracotta-dark);
+/* Abierto apunta hacia abajo, como en el diseño; plegado gira para invitar a abrir. */
+.flecha {
+  width: 15px;
+  height: 15px;
   flex-shrink: 0;
+  transition: transform 0.18s ease;
+}
+
+.colapsado .flecha {
+  transform: rotate(-90deg);
 }
 
 .lineas {
   list-style: none;
-  margin: 10px 0 0;
+  margin: 0;
   padding: 0;
 }
 
 .lineas li {
   display: flex;
   align-items: baseline;
+  justify-content: space-between;
   gap: 8px;
-  font-size: 11.5px;
-  color: var(--ink);
-  padding: 3px 0;
+  border-top: 1px solid var(--separador);
+  padding: 3px 10px;
+  font-size: 11px;
+  line-height: 1.3;
 }
 
 .lineas li.ida {
   color: var(--muted);
   text-decoration: line-through;
-}
-
-.lineas .cantidad {
-  font-family: var(--font-heading);
-  font-weight: 800;
-  font-size: 11px;
-  min-width: 18px;
-  color: var(--sage);
 }
 
 .lineas .nombre {
@@ -194,33 +174,67 @@ const direccion = computed(() => {
 }
 
 .lineas .precio {
-  font-weight: 700;
+  color: var(--muted);
   flex-shrink: 0;
 }
 
 .aviso {
+  border-top: 1px solid var(--separador);
+  padding: 3px 10px;
+  margin: 0;
   font-size: 10.5px;
+  line-height: 1.35;
   color: var(--terracotta-dark);
-  margin: 6px 0 0;
-  line-height: 1.4;
 }
 
-.direccion {
+.total {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  border-top: 1px solid var(--separador);
+  padding: 5px 10px 4px;
+  font-weight: 700;
   font-size: 10.5px;
-  color: var(--muted);
-  margin: 8px 0 0;
-  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.total .importe {
+  font-size: 12.5px;
+  color: var(--forest);
 }
 
 .acciones {
-  display: flex;
-  gap: 8px;
-  margin-top: 12px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 2px 6px 6px;
 }
 
 .acciones button {
-  flex: 1;
-  font-size: 11.5px;
-  padding: 10px 6px;
+  font-family: inherit;
+  font-weight: 500;
+  font-size: 11px;
+  line-height: 1.2;
+  border-radius: 4px;
+  padding: 5px 6px;
+  cursor: pointer;
+}
+
+.usar {
+  background: var(--forest);
+  color: var(--white);
+  border: 1px solid var(--forest);
+}
+
+.usar:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.nuevo {
+  background: var(--white);
+  color: var(--ink);
+  border: 1px solid var(--separador);
 }
 </style>

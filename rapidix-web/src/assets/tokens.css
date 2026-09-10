@@ -21,6 +21,12 @@
   --muted: #8a7b6c;
   --white: #ffffff;
   --line: #e9dcc7;
+  /*
+   * No vienen del mockup sino del panel «Repite tu última compra» del
+   * ecommerce anterior, que la tienda reproduce tal cual.
+   */
+  --forest: #1f5c3a;
+  --naranja: #f28a1e;
 
   /* Elevación y radios */
   --shadow: 0 10px 30px rgba(42, 33, 26, 0.12);

@@ -102,7 +102,7 @@ async function guardar(): Promise<void> {
       </div>
 
       <div class="form-block">
-        <label class="form-label" for="multiplicador">Cashback (% del subtotal)</label>
+        <label class="form-label" for="multiplicador">Valor del cashback en billetera (× veces)</label>
         <input
           id="multiplicador"
           v-model.number="parametros.multiplicadorCashback"
@@ -116,8 +116,8 @@ async function guardar(): Promise<void> {
           {{ errores.multiplicadorCashback }}
         </p>
         <p class="nota">
-          El campo se llamaba «multiplicador» en el prototipo, pero se interpreta como porcentaje
-          sobre el subtotal. Con 2 se acredita el 2 %.
+          El % de cashback lo pone el nivel de cada cliente (Configuración → Niveles). Este número
+          es cuántas veces vale al ir a la billetera: con 2, $18 de cashback se acreditan como $36.
         </p>
 
         <label class="form-label" for="minimo">Compra mínima para generar cashback</label>
@@ -132,6 +132,10 @@ async function guardar(): Promise<void> {
         />
         <p v-if="errores.montoMinimoCashback" class="form-error">
           {{ errores.montoMinimoCashback }}
+        </p>
+        <p class="nota">
+          Se mide solo sobre los productos que participan en el cashback, y hay que
+          <strong>superarlo</strong>: con el monto exacto todavía no se genera.
         </p>
       </div>
 

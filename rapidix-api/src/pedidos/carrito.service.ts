@@ -10,30 +10,62 @@ import {
   EstadoCupon,
   OrigenCupon,
   Prisma,
+  Producto,
   TipoDescuento,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CashbackService } from '../cashback/cashback.service';
 import { ConfiguracionService } from '../configuracion/configuracion.service';
+import { ahorro, precioListaAnterior, precioUnitario, upsell, Upsell } from '../catalogo/precios';
 import { LineaCarritoDto, PrevisualizarCarritoDto } from './dto/carrito.dto';
 
 const Decimal = Prisma.Decimal;
 type Decimal = Prisma.Decimal;
+
+type ProductoConCategoria = Producto & { categoria: { nombre: string } };
 
 export interface LineaResuelta {
   productoId: string;
   nombre: string;
   categoria: string;
   unidad: string;
+  /** Precio escalonado segun la cantidad de la linea (HU-08). */
   precioUnitario: Decimal;
   cantidad: number;
   importe: Decimal;
+  /** El producto suma a la base del cashback (HU-12). */
+  aplicaCashback: boolean;
+  /** Precio de la lista anterior, para tacharlo. Null en la primera lista. */
+  precioLista: Decimal | null;
+  /** Lo que se ahorra frente al precio de venta. */
+  ahorro: Decimal;
+  /** Oferta de subir a la siguiente lista (HU-10). */
+  upsell: Upsell | null;
 }
 
 export interface CarritoResuelto {
   lineas: LineaResuelta[];
   subtotal: Decimal;
+  /** Lo que suman las lineas que participan en el cashback. No es el subtotal. */
+  baseCashback: Decimal;
   categorias: string[];
+}
+
+/**
+ * Lo que le falta al carrito para ganar algo mas. La Tienda lo pinta en la
+ * barra de compra para que el cliente no tenga que llegar al carrito para
+ * enterarse (HU-20 y huecos del catalogo).
+ */
+export interface MetasCarrito {
+  /** Lo que falta para el envio gratis. Null si ya lo tiene o no hay nada. */
+  faltaEnvioGratis: number | null;
+  /**
+   * Lo que falta para activar el cashback. Solo cuando ya se lleva el 80 %
+   * del minimo: a quien lleva $100 de $600 no le dice nada.
+   */
+  faltaCashback: number | null;
+  /** Hay productos, pero ninguno participa en el cashback. */
+  sinCashback: boolean;
 }
 
 /**
@@ -47,7 +79,10 @@ export interface DesgloseCarrito {
   recargoFuera: Decimal;
   descuento: Decimal;
   total: Decimal;
+  /** Cashback base, sin el x2 de la billetera. Es el que ve el cliente. */
   cashback: Decimal;
+  /** Lo que se acredita: la base por `multiplicadorCashback`. */
+  cashbackBilletera: Decimal;
 }
 
 /**
@@ -63,13 +98,27 @@ export interface CarritoTolerante {
   /** Lineas que siguen en el carrito pero ya no se pueden pedir. */
   agotadas: LineaResuelta[];
   subtotal: Decimal;
+  baseCashback: Decimal;
   categorias: string[];
   avisos: string[];
 }
 
+/**
+ * Precio escalonado de una linea, tal como lo pinta la tarjeta de la Tienda
+ * (HU-08 y HU-10). Viaja ya calculado: la interfaz no conoce las listas.
+ */
+export interface PrecioLineaDto {
+  /** Precio de la lista anterior, tachado. Null en la primera lista. */
+  precioLista: number | null;
+  /** "Ahorras", frente al precio de venta. */
+  ahorro: number;
+  /** "Te faltan N". Null cuando no toca ofrecerlo. */
+  upsell: { faltan: number; precioSiguiente: number; ahorro: number } | null;
+}
+
 /** Respuesta de POST /carrito/previsualizar. */
 export interface PrevisualizacionCarritoDto {
-  items: {
+  items: (PrecioLineaDto & {
     productoId: string;
     nombre: string;
     unidad: string;
@@ -78,38 +127,44 @@ export interface PrevisualizacionCarritoDto {
     importe: number;
     /** El producto se agoto despues de meterlo al carrito. */
     agotado: boolean;
-  }[];
+  })[];
   subtotal: number;
   envio: number;
   recargoFuera: number;
   descuento: number;
   total: number;
+  /** Cashback base, sin el x2 de la billetera (HU-12). */
   cashbackEstimado: number;
   cupon: { codigo: string; descripcion: string } | null;
   dentroDeHorario: boolean;
   /** false si no se puede confirmar el pedido tal y como esta el carrito. */
   puedePedir: boolean;
+  metas: MetasCarrito;
   avisos: string[];
 }
 
 /**
  * Respuesta de POST /carrito/subtotal.
  *
- * Es lo poco que necesita el boton flotante de la Tienda: lo que suman los
- * productos, sin envio, sin recargo y sin cupon. Va aparte de `previsualizar`
- * porque no necesita saber quien pregunta —el visitante sin sesion tambien ve
- * su total mientras arma el carrito—, y porque no tiene sentido calcular
- * envio ni cashback en cada pulsacion de un "+".
+ * Es lo que necesita la barra de compra de la Tienda: lo que suman los
+ * productos, el cashback estimado y lo que falta para el envio gratis, sin
+ * envio, sin recargo y sin cupon. Va aparte de `previsualizar` porque no
+ * necesita saber quien pregunta: el visitante sin sesion tambien ve su total
+ * mientras arma el carrito.
  */
 export interface SubtotalCarritoDto {
-  items: {
+  items: (PrecioLineaDto & {
     productoId: string;
     precioUnitario: number;
     cantidad: number;
     importe: number;
     agotado: boolean;
-  }[];
+  })[];
   subtotal: number;
+  /** Cashback base con el % del nivel de entrada: el visitante no tiene nivel. */
+  cashbackEstimado: number;
+  /** Null con el carrito vacio: no hay nada que medir. */
+  metas: MetasCarrito | null;
   avisos: string[];
 }
 
@@ -140,6 +195,7 @@ export class CarritoService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly configuracion: ConfiguracionService,
+    private readonly cashback: CashbackService,
   ) {}
 
   /**
@@ -174,21 +230,14 @@ export class CarritoService {
       cantidades.set(item.productoId, (cantidades.get(item.productoId) ?? 0) + item.cantidad);
     }
 
-    const lineas: LineaResuelta[] = productos.map((p) => {
-      const cantidad = cantidades.get(p.id) as number;
-      return {
-        productoId: p.id,
-        nombre: p.nombre,
-        categoria: p.categoria.nombre,
-        unidad: p.unidad,
-        precioUnitario: p.precioVenta,
-        cantidad,
-        importe: p.precioVenta.mul(cantidad),
-      };
-    });
+    const lineas = productos.map((p) => CarritoService.lineaDe(p, cantidades.get(p.id) as number));
 
-    const subtotal = lineas.reduce((s, l) => s.add(l.importe), new Decimal(0));
-    return { lineas, subtotal, categorias: [...new Set(lineas.map((l) => l.categoria))] };
+    return {
+      lineas,
+      subtotal: CarritoService.sumar(lineas),
+      baseCashback: CarritoService.baseCashbackDe(lineas),
+      categorias: [...new Set(lineas.map((l) => l.categoria))],
+    };
   }
 
   /**
@@ -226,16 +275,7 @@ export class CarritoService {
     const disponibles: LineaResuelta[] = [];
     const agotadas: LineaResuelta[] = [];
     for (const p of productos) {
-      const cantidad = cantidades.get(p.id) as number;
-      const linea: LineaResuelta = {
-        productoId: p.id,
-        nombre: p.nombre,
-        categoria: p.categoria.nombre,
-        unidad: p.unidad,
-        precioUnitario: p.precioVenta,
-        cantidad,
-        importe: p.precioVenta.mul(cantidad),
-      };
+      const linea = CarritoService.lineaDe(p, cantidades.get(p.id) as number);
       if (p.agotado) {
         agotadas.push(linea);
         avisos.push(`${p.nombre} ya no está disponible`);
@@ -244,37 +284,48 @@ export class CarritoService {
       }
     }
 
-    const subtotal = disponibles.reduce((s, l) => s.add(l.importe), new Decimal(0));
     return {
       disponibles,
       agotadas,
-      subtotal,
+      subtotal: CarritoService.sumar(disponibles),
+      baseCashback: CarritoService.baseCashbackDe(disponibles),
       categorias: [...new Set(disponibles.map((l) => l.categoria))],
       avisos,
     };
   }
 
   /**
-   * Lo que suman los productos del carrito. Nada mas (HU-11).
+   * Lo que suman los productos del carrito, con su precio escalonado, el
+   * cashback que dejarian y lo que falta para el envio gratis (HU-11 y HU-12).
    *
-   * Es el numero del boton flotante de la Tienda, y se calcula aqui por la
-   * misma razon que todo lo demas: los precios no viajan desde el navegador.
-   * Aunque el cliente pudiera sumar lo que tiene en pantalla, ese numero
-   * quedaria obsoleto en cuanto cambiara un precio, y el de la Tienda tiene que
-   * ser el mismo que luego cobra el carrito.
+   * Es la barra de compra de la Tienda, y se calcula aqui por la misma razon
+   * que todo lo demas: los precios no viajan desde el navegador. Aunque el
+   * cliente pudiera sumar lo que tiene en pantalla, ese numero quedaria
+   * obsoleto en cuanto cambiara un precio, y el de la Tienda tiene que ser el
+   * mismo que luego cobra el carrito.
+   *
+   * No sabe quien pregunta, asi que el cashback se estima con el % del nivel
+   * de entrada: es justo el que ganaria el visitante si comprara hoy.
    *
    * Un carrito vacio no es un error: vale cero.
    */
   async subtotalDe(items: LineaCarritoDto[]): Promise<SubtotalCarritoDto> {
-    if (items.length === 0) return { items: [], subtotal: 0, avisos: [] };
+    if (items.length === 0) {
+      return { items: [], subtotal: 0, cashbackEstimado: 0, metas: null, avisos: [] };
+    }
 
-    const carrito = await this.resolverTolerante(items);
+    const [carrito, config, porcentaje] = await Promise.all([
+      this.resolverTolerante(items),
+      this.configuracion.obtener(),
+      this.cashback.porcentajePara(),
+    ]);
     const aItem = (l: LineaResuelta, agotado: boolean): SubtotalCarritoDto['items'][0] => ({
       productoId: l.productoId,
       precioUnitario: l.precioUnitario.toNumber(),
       cantidad: l.cantidad,
       importe: l.importe.toNumber(),
       agotado,
+      ...CarritoService.aPrecioLinea(l),
     });
 
     return {
@@ -283,6 +334,12 @@ export class CarritoService {
         ...carrito.agotadas.map((l) => aItem(l, true)),
       ],
       subtotal: carrito.subtotal.toNumber(),
+      cashbackEstimado: CashbackService.calcular(
+        carrito.baseCashback,
+        porcentaje,
+        config.montoMinimoCashback,
+      ).toNumber(),
+      metas: CarritoService.metas(carrito.subtotal, carrito.baseCashback, config),
       avisos: carrito.avisos,
     };
   }
@@ -427,7 +484,10 @@ export class CarritoService {
     clienteId: string,
     dto: PrevisualizarCarritoDto,
   ): Promise<PrevisualizacionCarritoDto> {
-    const config = await this.configuracion.obtener();
+    const [config, porcentaje] = await Promise.all([
+      this.configuracion.obtener(),
+      this.cashback.porcentajePara(clienteId),
+    ]);
     const dentroDeHorario = ConfiguracionService.estaDentroDeHorario(config);
 
     const carrito = await this.resolverTolerante(dto.items);
@@ -449,6 +509,7 @@ export class CarritoService {
       const resultado = await this.validarCupon(clienteId, dto.codigoCupon, {
         lineas: carrito.disponibles,
         subtotal: carrito.subtotal,
+        baseCashback: carrito.baseCashback,
         categorias: carrito.categorias,
       });
       if (resultado.valido) {
@@ -462,9 +523,10 @@ export class CarritoService {
     }
 
     const desglose = CarritoService.calcularCarrito(
-      carrito.subtotal,
+      carrito,
       config,
       dentroDeHorario,
+      porcentaje,
       descuento,
     );
 
@@ -476,6 +538,7 @@ export class CarritoService {
       cantidad: l.cantidad,
       importe: l.importe.toNumber(),
       agotado,
+      ...CarritoService.aPrecioLinea(l),
     });
 
     // DECISION DEL SPEC 02: una linea agotada tambien bloquea el pedido. El
@@ -500,6 +563,7 @@ export class CarritoService {
       cupon,
       dentroDeHorario,
       puedePedir,
+      metas: CarritoService.metas(carrito.subtotal, carrito.baseCashback, config),
       avisos,
     };
   }
@@ -511,13 +575,19 @@ export class CarritoService {
    * dentro de su transaccion y `POST /carrito/previsualizar` la llama sin
    * tocar nada: el numero que ve el cliente antes de confirmar es el mismo
    * que se cobra, salvo que la base cambie entre una llamada y otra.
+   *
+   * `porcentajeCashback` es el del nivel de quien compra mas su bono
+   * (`CashbackService.porcentajePara`): no es de la configuracion.
    */
   static calcularCarrito(
-    subtotal: Decimal,
+    carrito: Pick<CarritoResuelto, 'subtotal' | 'baseCashback'>,
     config: ConfiguracionNegocio,
     dentroDeHorario: boolean,
+    porcentajeCashback: Decimal,
     descuento: Decimal = new Decimal(0),
   ): DesgloseCarrito {
+    const { subtotal } = carrito;
+
     // Envio gratis segun el subtotal ANTES del descuento, igual que el
     // prototipo: el cupon no debe hacer perder el envio gratis.
     const envio = subtotal.greaterThanOrEqualTo(config.montoEnvioGratis)
@@ -535,8 +605,8 @@ export class CarritoService {
       .toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
 
     const cashback = CashbackService.calcular(
-      subtotal,
-      config.multiplicadorCashback,
+      carrito.baseCashback,
+      porcentajeCashback,
       config.montoMinimoCashback,
     );
 
@@ -547,6 +617,80 @@ export class CarritoService {
       descuento,
       total: total.lessThan(0) ? new Decimal(0) : total,
       cashback,
+      cashbackBilletera: CashbackService.aBilletera(cashback, config.multiplicadorCashback),
+    };
+  }
+
+  /**
+   * Lo que le falta al carrito para el envio gratis y para el cashback.
+   *
+   * Vive junto a `calcularCarrito` porque mide contra las mismas fronteras:
+   * envio gratis con `>=` sobre el subtotal, cashback con `>` estricto sobre la
+   * base participante. Si una cambia alli, tiene que cambiar aqui.
+   */
+  static metas(
+    subtotal: Decimal,
+    baseCashback: Decimal,
+    config: ConfiguracionNegocio,
+  ): MetasCarrito {
+    const hayAlgo = subtotal.greaterThan(0);
+    const faltaEnvio = new Decimal(config.montoEnvioGratis).sub(subtotal);
+
+    // Mismo 80 % que el upsell: el aviso sale cuando lo que falta, por cinco,
+    // no pasa del minimo. Con la base justo en el minimo todavia no hay
+    // cashback (`>` estricto): falta un centavo, y decir "te faltan $0.00"
+    // seria mentir.
+    const minimo = new Decimal(config.montoMinimoCashback);
+    const faltaMinimo = minimo.sub(baseCashback);
+    const cerca =
+      baseCashback.greaterThan(0) &&
+      !baseCashback.greaterThan(minimo) &&
+      faltaMinimo.mul(5).lessThanOrEqualTo(minimo);
+
+    return {
+      faltaEnvioGratis: hayAlgo && faltaEnvio.greaterThan(0) ? faltaEnvio.toNumber() : null,
+      faltaCashback: cerca ? Decimal.max(faltaMinimo, 0.01).toNumber() : null,
+      sinCashback: hayAlgo && baseCashback.isZero(),
+    };
+  }
+
+  /** Una linea del carrito, valorada a precio escalonado. */
+  private static lineaDe(p: ProductoConCategoria, cantidad: number): LineaResuelta {
+    const precio = precioUnitario(p, cantidad);
+    return {
+      productoId: p.id,
+      nombre: p.nombre,
+      categoria: p.categoria.nombre,
+      unidad: p.unidad,
+      precioUnitario: precio,
+      cantidad,
+      importe: precio.mul(cantidad),
+      aplicaCashback: p.aplicaCashback,
+      precioLista: precioListaAnterior(p, cantidad),
+      ahorro: ahorro(p, cantidad),
+      upsell: upsell(p, cantidad),
+    };
+  }
+
+  private static sumar(lineas: LineaResuelta[]): Decimal {
+    return lineas.reduce((s, l) => s.add(l.importe), new Decimal(0));
+  }
+
+  private static baseCashbackDe(lineas: LineaResuelta[]): Decimal {
+    return CarritoService.sumar(lineas.filter((l) => l.aplicaCashback));
+  }
+
+  private static aPrecioLinea(l: LineaResuelta): PrecioLineaDto {
+    return {
+      precioLista: l.precioLista?.toNumber() ?? null,
+      ahorro: l.ahorro.toNumber(),
+      upsell: l.upsell
+        ? {
+            faltan: l.upsell.faltan,
+            precioSiguiente: l.upsell.precioSiguiente.toNumber(),
+            ahorro: l.upsell.ahorro.toNumber(),
+          }
+        : null,
     };
   }
 

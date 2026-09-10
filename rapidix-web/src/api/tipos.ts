@@ -136,6 +136,19 @@ export interface Producto {
   inventario: number
   /** Lo liberado para venta: el saldo del que descuenta un pedido. */
   aptInventario: number
+  /**
+   * Listas de precio por volumen, sin la del precio de venta (HU-08). Vacío =
+   * sin precio escalonado. De aquí salen los botones «Lleva más, paga menos».
+   */
+  escalones: Escalon[]
+  /** Si suma a la base del cashback (HU-12). */
+  aplicaCashback: boolean
+}
+
+/** Una lista de precio por volumen: desde `piso` piezas, cada una a `precio`. */
+export interface Escalon {
+  piso: number
+  precio: number
 }
 
 export interface CategoriaConProductos {
@@ -191,15 +204,39 @@ export interface LineaCarrito {
   cantidad: number
 }
 
-export interface ItemPrevisualizado {
+/**
+ * Una línea del carrito tal como la valoró la API, con su precio escalonado
+ * (HU-08 y HU-10). La interfaz no conoce las listas de precio: solo pinta.
+ */
+export interface LineaCalculada {
   productoId: string
-  nombre: string
-  unidad: string
+  /** Precio por pieza con la cantidad de la línea. */
   precioUnitario: number
   cantidad: number
   importe: number
   /** El producto se agotó después de meterlo al carrito. */
   agotado: boolean
+  /** Precio de la lista anterior, tachado. `null` en la primera lista. */
+  precioLista: number | null
+  /** «Ahorras», frente al precio de venta. */
+  ahorro: number
+  /** «Te faltan N». `null` cuando no toca ofrecerlo. */
+  upsell: { faltan: number; precioSiguiente: number; ahorro: number } | null
+}
+
+export interface ItemPrevisualizado extends LineaCalculada {
+  nombre: string
+  unidad: string
+}
+
+/** Lo que le falta al carrito para ganar algo más. */
+export interface MetasCarrito {
+  /** Lo que falta para el envío gratis. `null` si ya lo tiene. */
+  faltaEnvioGratis: number | null
+  /** Lo que falta para activar el cashback; solo desde el 80 % del mínimo. */
+  faltaCashback: number | null
+  /** Hay productos, pero ninguno participa en el cashback. */
+  sinCashback: boolean
 }
 
 /** Respuesta de `POST /carrito/previsualizar`. */
@@ -210,30 +247,31 @@ export interface PrevisualizacionCarrito {
   recargoFuera: number
   descuento: number
   total: number
+  /** Cashback base, sin el ×2 de la billetera (HU-12). */
   cashbackEstimado: number
   cupon: { codigo: string; descripcion: string } | null
   dentroDeHorario: boolean
   /** false si el carrito no se puede confirmar tal y como está. */
   puedePedir: boolean
+  metas: MetasCarrito
   avisos: string[]
 }
 
 /**
  * Respuesta de `POST /carrito/subtotal`.
  *
- * Lo que suman los productos, sin envío ni recargo ni cupón. Es lo que pinta el
- * botón flotante de la Tienda, y lo calcula la API también para el visitante
- * sin sesión: aquí no se suman precios a mano.
+ * Lo que suman los productos, sin envío ni recargo ni cupón, con lo que le
+ * falta al carrito y el cashback que dejaría. Es lo que pinta la barra de
+ * compra de la Tienda, y lo calcula la API también para el visitante sin
+ * sesión: aquí no se suman precios a mano.
  */
 export interface SubtotalCarrito {
-  items: {
-    productoId: string
-    precioUnitario: number
-    cantidad: number
-    importe: number
-    agotado: boolean
-  }[]
+  items: LineaCalculada[]
   subtotal: number
+  /** Con el % del nivel de entrada: el visitante todavía no tiene nivel. */
+  cashbackEstimado: number
+  /** `null` con el carrito vacío. */
+  metas: MetasCarrito | null
   avisos: string[]
 }
 
@@ -442,6 +480,8 @@ export interface EstadoCashback {
   progresoPct: number
   montoFaltante: number
   totalGastado: number
+  /** % de cashback que gana hoy: el de su nivel más su bono. */
+  porcentaje: number
 }
 
 export interface MovimientoCashback {
@@ -470,7 +510,7 @@ export interface Horario {
 export interface Parametros {
   costoEnvio: number
   montoEnvioGratis: number
-  /** Porcentaje de cashback sobre el subtotal. */
+  /** Cuántas veces vale el cashback al ir a la billetera (×2). El % es del nivel. */
   multiplicadorCashback: number
   montoMinimoCashback: number
   /** Si un pedido descuenta existencias de la bodega. */
@@ -484,14 +524,16 @@ export interface Bancarios {
 }
 
 /**
- * Nivel de fidelidad. No existen en el Word ni en el prototipo: se configuran
- * aquí, y los umbrales del seed son provisionales.
+ * Nivel de fidelidad (HU-17). No existen en el Word ni en el prototipo: se
+ * configuran aquí. Los Decimal llegan como texto, de ahí el `| string`.
  */
 export interface NivelFidelidad {
   id: string
   nombre: string
   umbralGasto: number | string
   orden: number
+  /** Cashback del nivel en puntos porcentuales: 1.5 = 1.5 %. */
+  porcentaje: number | string
 }
 
 // ------------------------------------------------------------------

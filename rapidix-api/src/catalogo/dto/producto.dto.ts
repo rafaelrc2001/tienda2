@@ -1,6 +1,8 @@
 import { Type } from 'class-transformer';
 import { RolProducto } from '@prisma/client';
 import {
+  ArrayMaxSize,
+  IsArray,
   IsBoolean,
   IsEnum,
   IsInt,
@@ -11,7 +13,22 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateNested,
 } from 'class-validator';
+import { MAX_ESCALONES } from '../precios';
+
+/** Una lista de precio por volumen: desde `piso` piezas, cada una a `precio`. */
+export class EscalonDto {
+  @Type(() => Number)
+  @IsInt({ message: 'Las piezas de una lista deben ser un número entero' })
+  @Min(2, { message: 'Una lista de volumen empieza en 2 piezas o más' })
+  piso: number;
+
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 }, { message: 'El precio de una lista debe ser un número' })
+  @Min(0)
+  precio: number;
+}
 
 export class CrearProductoDto {
   @IsString()
@@ -53,6 +70,25 @@ export class CrearProductoDto {
   @IsOptional()
   @IsEnum(RolProducto)
   rol?: RolProducto;
+
+  /**
+   * Listas de precio por volumen (HU-08), de menor a mayor piso. Vacio = sin
+   * precio escalonado. Que los pisos suban y los precios bajen lo comprueba el
+   * servicio, que es quien conoce el precio de venta.
+   */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(MAX_ESCALONES, {
+    message: `Un producto admite como máximo ${MAX_ESCALONES} precios por volumen`,
+  })
+  @ValidateNested({ each: true })
+  @Type(() => EscalonDto)
+  escalones?: EscalonDto[];
+
+  /** Si suma a la base del cashback (HU-12). Sin decir nada, si. */
+  @IsOptional()
+  @IsBoolean()
+  aplicaCashback?: boolean;
 }
 
 export class ActualizarProductoDto {
@@ -92,6 +128,20 @@ export class ActualizarProductoDto {
   @IsOptional()
   @IsEnum(RolProducto)
   rol?: RolProducto;
+
+  /** Mandar `[]` quita el precio escalonado; no mandarlo lo deja como esta. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(MAX_ESCALONES, {
+    message: `Un producto admite como máximo ${MAX_ESCALONES} precios por volumen`,
+  })
+  @ValidateNested({ each: true })
+  @Type(() => EscalonDto)
+  escalones?: EscalonDto[];
+
+  @IsOptional()
+  @IsBoolean()
+  aplicaCashback?: boolean;
 }
 
 export class MarcarAgotadoDto {

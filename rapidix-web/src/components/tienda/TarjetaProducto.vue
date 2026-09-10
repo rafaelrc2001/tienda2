@@ -1,17 +1,22 @@
 <script setup lang="ts">
 /**
- * Tarjeta de producto del catálogo (HU-03, HU-07 y HU-09).
+ * Tarjeta de producto del catálogo (HU-03, HU-07, HU-08, HU-09 y HU-10).
  *
  * Lleva el precio con los centavos en volado, el control de cantidad —con
- * escritura manual y tope de existencias— y los atajos de cantidad.
+ * escritura manual y tope de existencias—, los atajos de cantidad y, cuando
+ * el producto tiene listas de volumen, el precio escalonado: tachado, cuánto
+ * ahorra y la oferta de «te faltan N».
  *
  * La cantidad se toca directamente contra el store del carrito: es estado
  * global de verdad, y pasarlo por props obligaría a cada carrusel a reenviar
  * cada pulsación de un «+» hasta la vista.
+ *
+ * Ningún precio se calcula aquí. El de cada línea lo da la API; sin línea
+ * calculada se enseña el precio de venta, que es el de la primera pieza.
  */
 import { computed, ref, watch } from 'vue'
 import { useCarritoStore } from '@/stores/carrito'
-import { partesDinero } from '@/utils/formato'
+import { dinero, partesDinero } from '@/utils/formato'
 import type { ProductoRecomendado } from '@/api/tipos'
 
 const props = defineProps<{
@@ -31,27 +36,27 @@ const emit = defineEmits<{ (e: 'programar'): void }>()
 const carrito = useCarritoStore()
 
 /**
- * Pisos de los atajos de cantidad.
+ * Pisos de respaldo de los atajos de cantidad (HU-09).
  *
- * HU-09 los quiere sacados de las listas de precio (`list_p2_inferior` y
- * `list_p3_inferior`) y cae a 5 y 10 cuando el producto no las tiene. Hoy el
- * catálogo no tiene listas escalonadas, así que siempre se usa el respaldo.
+ * Con listas de volumen los atajos son sus pisos y se anuncian como «Lleva
+ * más, paga menos». Sin listas se cae a 5 y 10, pero **no se anuncian como
+ * descuento**: el precio no baja, y prometer «paga menos» y cobrar lo mismo es
+ * peor que no ofrecerlo.
  */
-const PISOS = [5, 10]
+const PISOS_RESPALDO = [5, 10]
 
-/**
- * Si el precio baja al llevar más.
- *
- * Está en falso porque el catálogo todavía no tiene listas de precio
- * escalonadas: HU-08, HU-09 y HU-10 quedaron fuera de esta entrega. Mientras
- * tanto los atajos fijan cantidad pero **no se anuncian como descuento**:
- * prometer «paga menos» y cobrar lo mismo es peor que no ofrecerlo. En cuanto
- * el producto traiga sus listas, esto se lee de él y la etiqueta vuelve a ser
- * «Lleva más, paga menos».
- */
-const HAY_PRECIO_ESCALONADO = false
+const hayPrecioEscalonado = computed(() => props.producto.escalones.length > 0)
+
+const atajos = computed<{ piso: number; precio: number | null }[]>(() =>
+  hayPrecioEscalonado.value
+    ? props.producto.escalones
+    : PISOS_RESPALDO.map((piso) => ({ piso, precio: null })),
+)
 
 const cantidad = computed(() => carrito.cantidadDe(props.producto.id))
+
+/** La línea tal como la valoró la API, si ya respondió a esta cantidad. */
+const linea = computed(() => carrito.lineaCalculada(props.producto.id))
 
 /** Tope de piezas. `null` = sin tope, que es el caso normal hoy. */
 const maximo = computed<number | null>(() =>
@@ -62,7 +67,12 @@ const sinExistencias = computed(
   () => props.producto.agotado || (maximo.value !== null && maximo.value <= 0),
 )
 
-const precio = computed(() => partesDinero(props.producto.precioVenta))
+const precio = computed(() =>
+  partesDinero(linea.value?.precioUnitario ?? props.producto.precioVenta),
+)
+const precioTachado = computed(() => linea.value?.precioLista ?? null)
+const ahorro = computed(() => linea.value?.ahorro ?? 0)
+const upsell = computed(() => linea.value?.upsell ?? null)
 
 /** Lo que se ve en el campo mientras se escribe, que puede estar a medias. */
 const escrito = ref(String(cantidad.value))
@@ -72,6 +82,15 @@ watch(cantidad, (valor) => {
 
 function fijar(nueva: number): void {
   carrito.fijarCantidad(props.producto.id, nueva, maximo.value ?? undefined)
+}
+
+/**
+ * «Lo quiero»: **suma** lo que falta para la siguiente lista, a diferencia de
+ * los atajos, que fijan la cantidad. El tope de existencias se sigue
+ * respetando: si no alcanza, se queda en lo que hay.
+ */
+function aceptarUpsell(): void {
+  if (upsell.value) fijar(cantidad.value + upsell.value.faltan)
 }
 
 /**
@@ -112,11 +131,14 @@ function alSalirDelCampo(): void {
 
     <p class="nombre">{{ producto.nombre }}</p>
 
+    <!-- La unidad va en la misma línea que el precio: se lee «$15 pza» de un vistazo. -->
     <p class="precio">
+      <s v-if="precioTachado !== null" class="tachado">{{ dinero(precioTachado) }}</s>
       <span class="entero">{{ precio.entero }}</span
       ><span class="centavos">{{ precio.centavos }}</span>
+      <span class="unidad">{{ producto.unidad }}</span>
     </p>
-    <p class="unidad">{{ producto.unidad }}</p>
+    <p v-if="ahorro > 0" class="ahorro">Ahorras {{ dinero(ahorro) }}</p>
 
     <!-- Agotado: en vez del control de cantidad se ofrece avisar. -->
     <button v-if="sinExistencias" type="button" class="programar" @click="emit('programar')">
@@ -152,20 +174,41 @@ function alSalirDelCampo(): void {
         </button>
       </div>
 
+      <!-- HU-10: solo aparece cuando ya se lleva el 80 % del siguiente piso. -->
+      <div v-if="upsell" class="upsell">
+        <p>
+          Te faltan <strong>{{ upsell.faltan }} {{ producto.unidad }}</strong> para pagar
+          {{ dinero(upsell.precioSiguiente) }} c/u y ahorrar {{ dinero(upsell.ahorro) }}
+        </p>
+        <button
+          type="button"
+          :disabled="maximo !== null && cantidad >= maximo"
+          @click="aceptarUpsell"
+        >
+          Lo quiero
+        </button>
+      </div>
+
       <div class="volumen">
-        <span class="etiqueta" :class="{ promesa: HAY_PRECIO_ESCALONADO }">
-          {{ HAY_PRECIO_ESCALONADO ? 'Lleva más, paga menos' : 'Compra por' }}
+        <span class="etiqueta" :class="{ promesa: hayPrecioEscalonado }">
+          {{ hayPrecioEscalonado ? 'Lleva más, paga menos' : 'Compra por' }}
         </span>
         <button
-          v-for="piso in PISOS"
-          :key="piso"
+          v-for="atajo in atajos"
+          :key="atajo.piso"
           type="button"
           class="piso"
-          :class="{ puesto: cantidad === piso }"
-          :disabled="maximo !== null && piso > maximo"
-          @click="fijar(piso)"
+          :class="{ puesto: cantidad === atajo.piso }"
+          :disabled="maximo !== null && atajo.piso > maximo"
+          :title="atajo.precio !== null ? `Desde ${atajo.piso}: ${dinero(atajo.precio)} c/u` : undefined"
+          :aria-label="
+            atajo.precio !== null
+              ? `Llevar ${atajo.piso} a ${dinero(atajo.precio)} cada uno`
+              : `Llevar ${atajo.piso}`
+          "
+          @click="fijar(atajo.piso)"
         >
-          {{ piso }}
+          {{ atajo.piso }}
         </button>
         <span class="medida">{{ producto.unidad }}</span>
       </div>
@@ -202,7 +245,7 @@ function alSalirDelCampo(): void {
 }
 
 .media {
-  height: 62px;
+  height: 96px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -213,10 +256,11 @@ function alSalirDelCampo(): void {
   color: var(--muted);
 }
 
+/* `contain` y no `cover`: la foto se ve entera aunque no sea cuadrada, sin recortar el producto. */
 .media img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
 }
 
 .media svg {
@@ -255,11 +299,29 @@ function alSalirDelCampo(): void {
   margin-left: 1px;
 }
 
-.unidad {
-  font-size: 9.5px;
+.precio .unidad {
+  font-family: var(--font-body);
+  font-size: 10px;
   font-weight: 600;
   color: var(--muted);
-  margin: 1px 0 0;
+  margin-left: 3px;
+}
+
+/* El precio de la lista anterior, pequeño y a la izquierda del que se cobra. */
+.precio .tachado {
+  font-family: var(--font-body);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-right: 4px;
+}
+
+.ahorro {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 10px;
+  color: var(--sage);
+  margin: 3px 0 0;
 }
 
 .stepper {
@@ -304,6 +366,39 @@ function alSalirDelCampo(): void {
 
 .cantidad:focus {
   border-bottom-color: var(--gold-dark);
+}
+
+.upsell {
+  margin-top: 6px;
+  background: var(--cream-2);
+  border: 1.5px solid var(--gold);
+  border-radius: 9px;
+  padding: 5px 6px 6px;
+}
+
+.upsell p {
+  font-size: 9.5px;
+  line-height: 1.3;
+  color: var(--ink);
+  margin: 0 0 4px;
+}
+
+.upsell button {
+  width: 100%;
+  border: none;
+  background: var(--gold);
+  color: var(--ink);
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 10.5px;
+  border-radius: 7px;
+  padding: 4px 6px;
+  cursor: pointer;
+}
+
+.upsell button:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .volumen {

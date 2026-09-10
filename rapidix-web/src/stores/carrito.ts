@@ -3,7 +3,9 @@ import { computed, ref } from 'vue'
 import { http } from '@/api/http'
 import type {
   CarritoGuardado,
+  LineaCalculada,
   LineaCarrito,
+  MetasCarrito,
   Pedido,
   PrevisualizacionCarrito,
   ResultadoCupon,
@@ -73,13 +75,13 @@ export const useCarritoStore = defineStore('carrito', () => {
   /** Nunca se persiste: se recalcula en cada cambio. */
   const previsualizacion = ref<PrevisualizacionCarrito | null>(null)
   /**
-   * Subtotal para quien todavía no tiene sesión.
+   * Importe para quien todavía no tiene sesión.
    *
    * `POST /carrito/previsualizar` exige ser cliente —calcula envío, cupón y
-   * cashback—, así que el visitante pide solo lo que suman los productos. Sigue
-   * siendo la API la que pone el precio: aquí no se multiplica nada.
+   * cashback de su nivel—, así que el visitante pide `POST /carrito/subtotal`.
+   * Sigue siendo la API la que pone el precio: aquí no se multiplica nada.
    */
-  const subtotalPublico = ref<number | null>(null)
+  const importePublico = ref<SubtotalCarrito | null>(null)
   const calculando = ref(false)
   /** Motivo por el que la API rechazó el cupón, para el campo del cupón. */
   const errorCupon = ref('')
@@ -93,19 +95,40 @@ export const useCarritoStore = defineStore('carrito', () => {
 
   /** Lo que suman los productos, venga del desglose completo o del público. */
   const subtotal = computed<number | null>(
-    () => previsualizacion.value?.subtotal ?? subtotalPublico.value,
+    () => previsualizacion.value?.subtotal ?? importePublico.value?.subtotal ?? null,
   )
 
   /**
-   * Cashback que dejaría este carrito. `null` mientras no se sepa: sin sesión
-   * no hay a quién acreditárselo, y el chip no se pinta (HU-12).
+   * Cashback base que dejaría este carrito, sin el ×2 de la billetera (HU-12).
+   * Al visitante se le estima con el nivel de entrada, que es el que ganaría
+   * si comprara hoy. `null` mientras no se sepa.
    */
   const cashbackEstimado = computed<number | null>(
-    () => previsualizacion.value?.cashbackEstimado ?? null,
+    () =>
+      previsualizacion.value?.cashbackEstimado ?? importePublico.value?.cashbackEstimado ?? null,
+  )
+
+  /** Lo que le falta al carrito para el envío gratis y el cashback. */
+  const metas = computed<MetasCarrito | null>(
+    () => previsualizacion.value?.metas ?? importePublico.value?.metas ?? null,
   )
 
   function cantidadDe(productoId: string): number {
     return lineas.value.find((l) => l.productoId === productoId)?.cantidad ?? 0
+  }
+
+  /**
+   * Precio escalonado de una línea tal como lo calculó la API (HU-08).
+   *
+   * Solo se devuelve si corresponde a la cantidad que hay ahora: entre un «+»
+   * y la respuesta, la línea calculada es la de antes, y pintar «te faltan 1»
+   * cuando esa pieza ya se añadió sería mentir durante medio segundo.
+   */
+  function lineaCalculada(productoId: string): LineaCalculada | null {
+    const items: LineaCalculada[] =
+      previsualizacion.value?.items ?? importePublico.value?.items ?? []
+    const linea = items.find((i) => i.productoId === productoId)
+    return linea && linea.cantidad === cantidadDe(productoId) ? linea : null
   }
 
   function persistir(): void {
@@ -167,7 +190,7 @@ export const useCarritoStore = defineStore('carrito', () => {
       lineas.value = []
       codigoCupon.value = null
       previsualizacion.value = null
-      subtotalPublico.value = null
+      importePublico.value = null
       errorCupon.value = ''
     }
 
@@ -206,7 +229,7 @@ export const useCarritoStore = defineStore('carrito', () => {
     codigoCupon.value = null
     duenio.value = null
     previsualizacion.value = null
-    subtotalPublico.value = null
+    importePublico.value = null
     errorCupon.value = ''
     persistir()
   }
@@ -248,7 +271,7 @@ export const useCarritoStore = defineStore('carrito', () => {
     lineas.value = []
     codigoCupon.value = null
     previsualizacion.value = null
-    subtotalPublico.value = null
+    importePublico.value = null
     errorCupon.value = ''
     persistir()
     programarSincronizacion()
@@ -270,7 +293,7 @@ export const useCarritoStore = defineStore('carrito', () => {
     if (duenio.value) return recalcular()
 
     if (vacio.value) {
-      subtotalPublico.value = null
+      importePublico.value = null
       return
     }
 
@@ -281,7 +304,7 @@ export const useCarritoStore = defineStore('carrito', () => {
         items: lineas.value,
       })
       if (miPeticion !== ultimaPeticion) return
-      subtotalPublico.value = respuesta.subtotal
+      importePublico.value = respuesta
     } finally {
       if (miPeticion === ultimaPeticion) calculando.value = false
     }
@@ -371,7 +394,7 @@ export const useCarritoStore = defineStore('carrito', () => {
     lineas.value = []
     codigoCupon.value = null
     previsualizacion.value = null
-    subtotalPublico.value = null
+    importePublico.value = null
     errorCupon.value = ''
     persistir()
     return pedido
@@ -384,11 +407,13 @@ export const useCarritoStore = defineStore('carrito', () => {
     previsualizacion,
     subtotal,
     cashbackEstimado,
+    metas,
     calculando,
     errorCupon,
     vacio,
     totalPiezas,
     cantidadDe,
+    lineaCalculada,
     agregar,
     quitar,
     fijarCantidad,
