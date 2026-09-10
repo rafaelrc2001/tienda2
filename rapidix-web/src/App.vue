@@ -21,8 +21,13 @@ const ui = useUiStore()
 const destacados = useDestacadosStore()
 const route = useRoute()
 
-/** El login ocupa la pantalla: sin barra superior ni barra inferior. */
-const sinMarco = computed(() => route.meta.publica === true)
+/**
+ * El login ocupa la pantalla: sin barra superior ni barra inferior.
+ *
+ * No se deduce de `publica`: la Tienda también se abre sin sesión y tiene que
+ * seguir llevando el menú de abajo como el resto de la app.
+ */
+const sinMarco = computed(() => route.meta.pantallaCompleta === true)
 const titulo = computed(() => (route.meta.titulo as string | undefined) ?? 'Rapidix')
 const enAdmin = computed(() => route.path.startsWith('/admin'))
 const variante = computed<'cliente' | 'admin'>(() => (enAdmin.value ? 'admin' : 'cliente'))
@@ -66,6 +71,7 @@ watch(
     v-else
     :titulo="titulo"
     :variante="variante"
+    :con-drawer="auth.autenticado"
     @menu="ui.abrirDrawer()"
   >
     <RouterView />
