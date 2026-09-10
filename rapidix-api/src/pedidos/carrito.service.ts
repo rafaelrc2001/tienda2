@@ -155,6 +155,9 @@ export interface PrevisualizacionCarritoDto {
 export interface SubtotalCarritoDto {
   items: (PrecioLineaDto & {
     productoId: string;
+    /** El widget "Mi carrito" del header pinta "N x Producto" tambien al visitante. */
+    nombre: string;
+    unidad: string;
     precioUnitario: number;
     cantidad: number;
     importe: number;
@@ -321,6 +324,8 @@ export class CarritoService {
     ]);
     const aItem = (l: LineaResuelta, agotado: boolean): SubtotalCarritoDto['items'][0] => ({
       productoId: l.productoId,
+      nombre: l.nombre,
+      unidad: l.unidad,
       precioUnitario: l.precioUnitario.toNumber(),
       cantidad: l.cantidad,
       importe: l.importe.toNumber(),

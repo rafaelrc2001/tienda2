@@ -95,7 +95,7 @@ function alternar(): void {
 .fast-track {
   --separador: color-mix(in srgb, var(--ink) 10%, transparent);
 
-  margin: 4px 18px 12px;
+  margin: 2px 18px 8px;
   background: var(--white);
   border: 1px solid var(--line);
   border-radius: 6px;

@@ -10,6 +10,8 @@
  * El ancho de esa columna lo decide `variante`: la app de cliente conserva la
  * medida del mockup y las vistas de administración con tablas se ensanchan.
  */
+import CarritoWidget from '@/components/CarritoWidget.vue'
+
 withDefaults(
   defineProps<{
     /** Título que se pinta en la barra superior. */
@@ -23,8 +25,10 @@ withDefaults(
      * abrir: el drawer sale de `GET /admin/menu` y sin sesión estaría vacío.
      */
     conDrawer?: boolean
+    /** Pinta el widget «Mi carrito». El personal del negocio no compra. */
+    conCarrito?: boolean
   }>(),
-  { titulo: '', variante: 'cliente', sinNav: false, conDrawer: true },
+  { titulo: '', variante: 'cliente', sinNav: false, conDrawer: true, conCarrito: false },
 )
 
 const emit = defineEmits<{ (e: 'menu'): void }>()
@@ -50,17 +54,11 @@ const emit = defineEmits<{ (e: 'menu'): void }>()
         <h1 class="topbar-title">{{ titulo }}</h1>
 
         <!--
-          Mi Perfil vive arriba a la derecha, no en la barra inferior: se
-          llega igual desde cualquier pantalla y deja la cinta de abajo para
-          las secciones que se recorren a diario.
+          Arriba a la derecha va el carrito, que se abre desde cualquier
+          pantalla. Mi Perfil vive dentro del menú de la hamburguesa.
         -->
-        <RouterLink to="/perfil" class="perfil-btn" aria-label="Mi perfil">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-            stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="8" r="3.6" />
-            <path d="M4.5 20c0-3.6 3.4-6 7.5-6s7.5 2.4 7.5 6" />
-          </svg>
-        </RouterLink>
+        <CarritoWidget v-if="conCarrito" />
+        <span v-else class="hueco-hamburguesa" aria-hidden="true" />
       </header>
 
       <main class="app-screen">
@@ -128,7 +126,11 @@ const emit = defineEmits<{ (e: 'menu'): void }>()
   padding: 12px 16px 8px;
   flex-shrink: 0;
   background: var(--cream);
-  z-index: 30;
+  /*
+   * Por encima de la barra inferior (40): el overlay del carrito sale de aquí
+   * dentro y tiene que tapar también la cinta de abajo.
+   */
+  z-index: 50;
 }
 
 .hamburger-btn {
@@ -169,30 +171,6 @@ const emit = defineEmits<{ (e: 'menu'): void }>()
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-/* Mismo tamaño que la hamburguesa: el título queda centrado entre las dos. */
-.perfil-btn {
-  width: 34px;
-  height: 34px;
-  border-radius: 11px;
-  background: var(--white);
-  box-shadow: var(--shadow);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--ink);
-  flex-shrink: 0;
-  text-decoration: none;
-}
-
-.perfil-btn svg {
-  width: 19px;
-  height: 19px;
-}
-
-.perfil-btn.router-link-active {
-  color: var(--terracotta);
 }
 
 .app-screen {

@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { http } from '@/api/http'
 import type {
   CarritoGuardado,
+  ItemPrevisualizado,
   LineaCalculada,
   LineaCarrito,
   MetasCarrito,
@@ -111,6 +112,14 @@ export const useCarritoStore = defineStore('carrito', () => {
   /** Lo que le falta al carrito para el envío gratis y el cashback. */
   const metas = computed<MetasCarrito | null>(
     () => previsualizacion.value?.metas ?? importePublico.value?.metas ?? null,
+  )
+
+  /**
+   * Las líneas tal como las valoró la API, con nombre y precio escalonado.
+   * Vacío mientras no haya respuesta: quien pinta decide si eso es «Cargando».
+   */
+  const lineasValoradas = computed<ItemPrevisualizado[]>(
+    () => previsualizacion.value?.items ?? importePublico.value?.items ?? [],
   )
 
   function cantidadDe(productoId: string): number {
@@ -277,6 +286,21 @@ export const useCarritoStore = defineStore('carrito', () => {
     programarSincronizacion()
   }
 
+  /**
+   * «Vaciar carrito» del widget del header: las tres capas, sin esperar.
+   *
+   * `vaciar()` deja la copia del servidor al debounce porque casi siempre va
+   * seguido de volver a llenar (repetir pedido). Aquí el cliente quiere
+   * empezar de cero ya, así que el `PUT` sale en el acto. Si la red falla, lo
+   * local ya está vacío y no se avisa: la copia remota es solo respaldo.
+   */
+  async function vaciarAhora(): Promise<void> {
+    vaciar()
+    cancelarSincronizacion()
+    if (!duenio.value) return
+    await http.put('/perfil/carrito', { items: [] }).catch(() => {})
+  }
+
   // ------------------------------------------------------------------
   // Importes
   // ------------------------------------------------------------------
@@ -412,12 +436,14 @@ export const useCarritoStore = defineStore('carrito', () => {
     errorCupon,
     vacio,
     totalPiezas,
+    lineasValoradas,
     cantidadDe,
     lineaCalculada,
     agregar,
     quitar,
     fijarCantidad,
     vaciar,
+    vaciarAhora,
     olvidar,
     adoptar,
     refrescarImporte,
