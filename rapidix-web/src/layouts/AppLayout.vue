@@ -18,8 +18,13 @@ withDefaults(
     variante?: 'cliente' | 'admin'
     /** Oculta la barra inferior (login, detalle a pantalla completa…). */
     sinNav?: boolean
+    /**
+     * Pinta la hamburguesa. El visitante de la Tienda no tiene menú que
+     * abrir: el drawer sale de `GET /admin/menu` y sin sesión estaría vacío.
+     */
+    conDrawer?: boolean
   }>(),
-  { titulo: '', variante: 'cliente', sinNav: false },
+  { titulo: '', variante: 'cliente', sinNav: false, conDrawer: true },
 )
 
 const emit = defineEmits<{ (e: 'menu'): void }>()
@@ -30,6 +35,7 @@ const emit = defineEmits<{ (e: 'menu'): void }>()
     <div class="app-column">
       <header v-if="titulo" class="app-topbar">
         <button
+          v-if="conDrawer"
           type="button"
           class="hamburger-btn"
           aria-label="Abrir menú de administración"
@@ -39,6 +45,8 @@ const emit = defineEmits<{ (e: 'menu'): void }>()
             <path d="M3 6h18M3 12h18M3 18h18" stroke-linecap="round" />
           </svg>
         </button>
+        <!-- Ocupa el sitio de la hamburguesa para que el título siga centrado. -->
+        <span v-else class="hueco-hamburguesa" aria-hidden="true" />
         <h1 class="topbar-title">{{ titulo }}</h1>
 
         <!--
@@ -135,6 +143,11 @@ const emit = defineEmits<{ (e: 'menu'): void }>()
   justify-content: center;
   cursor: pointer;
   color: var(--ink);
+  flex-shrink: 0;
+}
+
+.hueco-hamburguesa {
+  width: 34px;
   flex-shrink: 0;
 }
 

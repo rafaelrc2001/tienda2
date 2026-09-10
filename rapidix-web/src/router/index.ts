@@ -6,8 +6,14 @@ import type { Seccion } from '@/api/tipos'
 
 declare module 'vue-router' {
   interface RouteMeta {
-    /** Ruta abierta sin sesión. Solo el login y el enlace de fuentes. */
+    /** Ruta abierta sin sesión: el login, el enlace de fuentes y la Tienda. */
     publica?: boolean
+    /**
+     * Se pinta sin marco: ni barra superior ni barra inferior. Va aparte de
+     * `publica` porque abrir una ruta sin sesión no implica quitarle el menú:
+     * la Tienda es pública y conserva su barra inferior.
+     */
+    pantallaCompleta?: boolean
     /** Sección de `PERMISOS_POR_ROL` que exige la ruta. */
     seccion?: Seccion
     /** Rutas de la app de cliente: no las ve el personal del negocio. */
@@ -29,7 +35,7 @@ const routes: RouteRecordRaw[] = [
     path: '/login',
     name: 'login',
     component: () => import('@/views/LoginView.vue'),
-    meta: { publica: true },
+    meta: { publica: true, pantallaCompleta: true },
   },
   {
     /**
