@@ -121,7 +121,7 @@ function alSalirDelCampo(): void {
   -->
   <article class="tarjeta" :class="{ activa, agotada: sinExistencias }">
 
-    <div class="media">
+    <div class="media" :class="{ 'sin-foto': !producto.imagenUrl }">
       <img v-if="producto.imagenUrl" :src="producto.imagenUrl" :alt="producto.nombre" />
       <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
         <path d="M4 8h16v11a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V8Z" stroke-linejoin="round" />
@@ -244,23 +244,36 @@ function alSalirDelCampo(): void {
   opacity: 0.7;
 }
 
+/*
+ * La foto va a sangre: anula el padding de la tarjeta arriba y a los lados para
+ * ocupar todo el ancho, con las esquinas de arriba de la propia tarjeta.
+ */
 .media {
-  height: 96px;
+  height: 124px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--cream-2);
-  border-radius: 10px;
-  margin-bottom: 6px;
+  /* Blanco como la tarjeta: las fotos traen fondo blanco y así no se nota el borde. */
+  background: var(--white);
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  margin: -8px -10px 6px;
   overflow: hidden;
   color: var(--muted);
 }
 
-/* `contain` y no `cover`: la foto se ve entera aunque no sea cuadrada, sin recortar el producto. */
+/*
+ * `cover`: la foto llena el recuadro de lado a lado. Las fotos de producto traen
+ * aire alrededor, así que lo que se recorta de los bordes es fondo, no producto.
+ */
 .media img {
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  object-fit: cover;
+}
+
+/* Sin foto el recuadro sí va en crema, para que el hueco se lea como imagen pendiente. */
+.media.sin-foto {
+  background: var(--cream-2);
 }
 
 .media svg {

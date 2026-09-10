@@ -8,7 +8,8 @@
  *
  * Reproduce tal cual el panel del ecommerce anterior: renglones bajos y
  * apretados, letra de cuerpo, total al pie y dos botones chicos. Por eso no
- * lleva folio, fecha ni dirección. Además de la flecha, se pliega solo al
+ * lleva folio, fecha ni dirección. De aquel panel se toma la forma, no los
+ * colores: todo sale de la paleta de Rapidix (`tokens.css`). Además de la flecha, se pliega solo al
  * bajar por el catálogo; «No, crear uno nuevo» lo quita hasta la próxima visita.
  */
 import { computed } from 'vue'
@@ -96,7 +97,7 @@ function alternar(): void {
 
   margin: 4px 18px 12px;
   background: var(--white);
-  border: 1px solid color-mix(in srgb, var(--forest) 30%, transparent);
+  border: 1px solid var(--line);
   border-radius: 6px;
   font-family: var(--font-body);
   color: var(--ink);
@@ -121,7 +122,7 @@ function alternar(): void {
   width: 14px;
   height: 14px;
   flex-shrink: 0;
-  fill: var(--naranja);
+  fill: var(--terracotta);
 }
 
 .titulo {
@@ -201,7 +202,7 @@ function alternar(): void {
 
 .total .importe {
   font-size: 12.5px;
-  color: var(--forest);
+  color: var(--terracotta);
 }
 
 .acciones {
@@ -221,10 +222,12 @@ function alternar(): void {
   cursor: pointer;
 }
 
+/* El dorado y el texto café son los de `.btn-primary`, en tamaño chico. */
 .usar {
-  background: var(--forest);
-  color: var(--white);
-  border: 1px solid var(--forest);
+  background: linear-gradient(180deg, var(--gold) 0%, var(--gold-dark) 100%);
+  color: #3b2a00;
+  font-weight: 700;
+  border: 1px solid var(--gold-dark);
 }
 
 .usar:disabled {
@@ -235,6 +238,6 @@ function alternar(): void {
 .nuevo {
   background: var(--white);
   color: var(--ink);
-  border: 1px solid var(--separador);
+  border: 1px solid var(--line);
 }
 </style>
