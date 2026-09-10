@@ -1,9 +1,13 @@
 import { Type } from 'class-transformer';
+import { RolProducto } from '@prisma/client';
 import {
   IsBoolean,
+  IsEnum,
+  IsInt,
   IsNumber,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
   Min,
   MinLength,
@@ -44,6 +48,11 @@ export class CrearProductoDto {
   @IsOptional()
   @IsBoolean()
   agotado?: boolean;
+
+  /** Papel en su familia (HU-01). Sin decir nada, RUTINA. */
+  @IsOptional()
+  @IsEnum(RolProducto)
+  rol?: RolProducto;
 }
 
 export class ActualizarProductoDto {
@@ -79,11 +88,29 @@ export class ActualizarProductoDto {
   @IsOptional()
   @IsString()
   imagenUrl?: string;
+
+  @IsOptional()
+  @IsEnum(RolProducto)
+  rol?: RolProducto;
 }
 
 export class MarcarAgotadoDto {
   @IsBoolean()
   agotado: boolean;
+}
+
+/**
+ * Orden de una familia en la Tienda. 1 va primero; 99 es "sin priorizar" y cae
+ * al final. El tope de 99 no es decorativo: es el valor con el que nacen las
+ * categorias, y dejar poner mas seria colocarlas por debajo de las que nadie
+ * ha tocado.
+ */
+export class PrioridadCategoriaDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(99)
+  prioridad: number;
 }
 
 export class BuscarProductosDto {

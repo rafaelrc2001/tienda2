@@ -15,13 +15,15 @@ import { http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
 import type { SaldoProducto } from '@/api/tipos'
 import TabProductos from './productos/TabProductos.vue'
+import TabFamilias from './productos/TabFamilias.vue'
 import TabInventario from './productos/TabInventario.vue'
 import TabMovimientos from './productos/TabMovimientos.vue'
 
-type Ventana = 'productos' | 'inventario' | 'movimientos'
+type Ventana = 'productos' | 'familias' | 'inventario' | 'movimientos'
 
 const VENTANAS: { clave: Ventana; etiqueta: string }[] = [
   { clave: 'productos', etiqueta: 'Productos' },
+  { clave: 'familias', etiqueta: 'Familias' },
   { clave: 'inventario', etiqueta: 'Inventario' },
   { clave: 'movimientos', etiqueta: 'Movimientos' },
 ]
@@ -62,7 +64,9 @@ async function cargarSaldos(): Promise<void> {
  */
 watch(ventana, (actual) => {
   abiertas.value.add(actual)
-  if (actual !== 'productos') void cargarSaldos()
+  // Solo las dos ventanas que enseñan saldo lo releen. Familias ordena el
+  // catálogo y no tiene nada que ver con la bodega.
+  if (actual === 'inventario' || actual === 'movimientos') void cargarSaldos()
 })
 
 /**
@@ -92,6 +96,11 @@ function alRegistrar(): void {
     </div>
 
     <TabProductos v-show="ventana === 'productos'" :activa="ventana === 'productos'" />
+    <TabFamilias
+      v-if="abiertas.has('familias')"
+      v-show="ventana === 'familias'"
+      :activa="ventana === 'familias'"
+    />
     <TabInventario
       v-if="abiertas.has('inventario')"
       v-show="ventana === 'inventario'"

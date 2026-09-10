@@ -92,6 +92,27 @@ export interface PrevisualizacionCarritoDto {
   avisos: string[];
 }
 
+/**
+ * Respuesta de POST /carrito/subtotal.
+ *
+ * Es lo poco que necesita el boton flotante de la Tienda: lo que suman los
+ * productos, sin envio, sin recargo y sin cupon. Va aparte de `previsualizar`
+ * porque no necesita saber quien pregunta —el visitante sin sesion tambien ve
+ * su total mientras arma el carrito—, y porque no tiene sentido calcular
+ * envio ni cashback en cada pulsacion de un "+".
+ */
+export interface SubtotalCarritoDto {
+  items: {
+    productoId: string;
+    precioUnitario: number;
+    cantidad: number;
+    importe: number;
+    agotado: boolean;
+  }[];
+  subtotal: number;
+  avisos: string[];
+}
+
 /** Por que se rechazo un cupon. Le sirve al frontend para el toast. */
 export type MotivoRechazo =
   | 'NO_ENCONTRADO'
@@ -230,6 +251,39 @@ export class CarritoService {
       subtotal,
       categorias: [...new Set(disponibles.map((l) => l.categoria))],
       avisos,
+    };
+  }
+
+  /**
+   * Lo que suman los productos del carrito. Nada mas (HU-11).
+   *
+   * Es el numero del boton flotante de la Tienda, y se calcula aqui por la
+   * misma razon que todo lo demas: los precios no viajan desde el navegador.
+   * Aunque el cliente pudiera sumar lo que tiene en pantalla, ese numero
+   * quedaria obsoleto en cuanto cambiara un precio, y el de la Tienda tiene que
+   * ser el mismo que luego cobra el carrito.
+   *
+   * Un carrito vacio no es un error: vale cero.
+   */
+  async subtotalDe(items: LineaCarritoDto[]): Promise<SubtotalCarritoDto> {
+    if (items.length === 0) return { items: [], subtotal: 0, avisos: [] };
+
+    const carrito = await this.resolverTolerante(items);
+    const aItem = (l: LineaResuelta, agotado: boolean): SubtotalCarritoDto['items'][0] => ({
+      productoId: l.productoId,
+      precioUnitario: l.precioUnitario.toNumber(),
+      cantidad: l.cantidad,
+      importe: l.importe.toNumber(),
+      agotado,
+    });
+
+    return {
+      items: [
+        ...carrito.disponibles.map((l) => aItem(l, false)),
+        ...carrito.agotadas.map((l) => aItem(l, true)),
+      ],
+      subtotal: carrito.subtotal.toNumber(),
+      avisos: carrito.avisos,
     };
   }
 

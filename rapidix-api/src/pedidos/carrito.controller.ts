@@ -1,7 +1,13 @@
 import { Body, Controller, ForbiddenException, HttpCode, HttpStatus, Post } from '@nestjs/common';
-import { CarritoService, PrevisualizacionCarritoDto, ResultadoCupon } from './carrito.service';
-import { PrevisualizarCarritoDto, ValidarCuponDto } from './dto/carrito.dto';
+import {
+  CarritoService,
+  PrevisualizacionCarritoDto,
+  ResultadoCupon,
+  SubtotalCarritoDto,
+} from './carrito.service';
+import { LineasCarritoDto, PrevisualizarCarritoDto, ValidarCuponDto } from './dto/carrito.dto';
 import { UsuarioActual } from '../auth/usuario-actual.decorator';
+import { Public } from '../auth/public.decorator';
 import { ROL_CLIENTE, UsuarioAutenticado } from '../auth/jwt-payload';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 
@@ -28,6 +34,22 @@ export class CarritoController {
       throw new ForbiddenException('Solo un cliente puede armar un carrito.');
     }
     return this.carrito.previsualizar(usuario.sub, dto);
+  }
+
+  /**
+   * Lo que suman los productos del carrito, para el boton flotante de la
+   * Tienda (HU-11).
+   *
+   * Es publico porque el visitante sin sesion tambien arma su carrito antes de
+   * decidir si entra (HU-14), y no expone nada que no este ya en el catalogo:
+   * responde con precios de productos, sin tocar cupones ni cashback ni saber
+   * quien pregunta.
+   */
+  @Post('subtotal')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  subtotal(@Body() dto: LineasCarritoDto): Promise<SubtotalCarritoDto> {
+    return this.carrito.subtotalDe(dto.items);
   }
 
   /**

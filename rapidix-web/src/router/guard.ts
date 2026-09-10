@@ -38,6 +38,18 @@ export const inicioDe = (esCliente: boolean): string => (esCliente ? '/' : '/adm
  * viene del menú que devolvió la API.
  */
 export function decidir(destino: DestinoGuard, sesion: SesionGuard): DecisionGuard {
+  /**
+   * Las pantallas de la app de cliente no las ve el personal del negocio.
+   *
+   * Se comprueba antes que `publica` a propósito: la Tienda se puede mirar sin
+   * sesión, pero quien entra como Operaciones no debería acabar armando un
+   * carrito que su token no puede confirmar. Sin sesión no aplica —el visitante
+   * todavía no es de nadie—, y por eso se exige `autenticado`.
+   */
+  if (destino.soloCliente && sesion.autenticado && !sesion.esCliente) {
+    return { tipo: 'redirigir', a: '/admin' }
+  }
+
   if (destino.publica) {
     // Con sesión abierta el login no tiene sentido: se va a su inicio.
     if (destino.nombre === 'login' && sesion.autenticado) {
@@ -48,11 +60,6 @@ export function decidir(destino: DestinoGuard, sesion: SesionGuard): DecisionGua
 
   if (!sesion.autenticado) {
     return { tipo: 'redirigir', a: '/login', query: { destino: destino.fullPath } }
-  }
-
-  // Las pantallas de la app de cliente no las ve el personal del negocio.
-  if (destino.soloCliente && !sesion.esCliente) {
-    return { tipo: 'redirigir', a: '/admin' }
   }
 
   if (destino.seccion && !sesion.secciones.includes(destino.seccion)) {

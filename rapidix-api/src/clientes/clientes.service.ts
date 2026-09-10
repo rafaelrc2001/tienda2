@@ -9,6 +9,14 @@ import {
   PaginaProspectosDto,
   PerfilDto,
 } from './dto/perfil.dto';
+import { LineaCarritoDto } from '../pedidos/dto/carrito.dto';
+
+/** Respuesta de `GET /perfil/carrito` y de `PUT /perfil/carrito`. */
+export interface CarritoGuardadoDto {
+  items: LineaCarritoDto[];
+  /** Cuando se guardo por ultima vez. `null` si no hay carrito. */
+  actualizadoEn: string | null;
+}
 
 /** Lo que hace falta para armar un PerfilDto. */
 const SELECT_PERFIL = {
@@ -124,6 +132,87 @@ export class ClientesService {
       select: SELECT_PERFIL_PROSPECTO,
     });
     return ClientesService.aPerfilProspecto(prospecto);
+  }
+
+  // ----------------------------------------------------------------
+  // Carrito sincronizado (HU-13)
+  // ----------------------------------------------------------------
+
+  /**
+   * El carrito a medias que dejo guardado, si lo hay.
+   *
+   * Vale para clientes y para prospectos: el que todavia no ha comprado es
+   * justamente el que esta armando su primer carrito.
+   */
+  async carritoGuardado(duenioId: string): Promise<CarritoGuardadoDto> {
+    const cliente = await this.prisma.cliente.findUnique({
+      where: { id: duenioId },
+      select: { carrito: true, carritoEn: true },
+    });
+    const fila =
+      cliente ??
+      (await this.prisma.prospecto.findUnique({
+        where: { id: duenioId },
+        select: { carrito: true, carritoEn: true },
+      }));
+    if (!fila) throw new NotFoundException('No encontramos tu perfil');
+
+    return {
+      items: ClientesService.leerCarrito(fila.carrito),
+      actualizadoEn: fila.carritoEn?.toISOString() ?? null,
+    };
+  }
+
+  /**
+   * Guarda el carrito del cliente. Un carrito vacio borra el que hubiera.
+   *
+   * Se guarda **solo `productoId` y `cantidad`**, igual que en el navegador:
+   * un carrito que puede quedarse ahi semanas no puede llevar precios
+   * congelados dentro. Al recuperarlo se vuelve a valorar contra el catalogo.
+   */
+  async guardarCarrito(duenioId: string, items: LineaCarritoDto[]): Promise<CarritoGuardadoDto> {
+    // Se normaliza antes de guardar: el mismo producto repetido en el cuerpo se
+    // acumula en una linea, como hace el carrito al resolverse.
+    const cantidades = new Map<string, number>();
+    for (const item of items) {
+      cantidades.set(item.productoId, (cantidades.get(item.productoId) ?? 0) + item.cantidad);
+    }
+    const limpias = [...cantidades.entries()].map(([productoId, cantidad]) => ({
+      productoId,
+      cantidad,
+    }));
+
+    const ahora = limpias.length > 0 ? new Date() : null;
+    const datos = { carrito: limpias, carritoEn: ahora };
+
+    const tocadas = await this.prisma.cliente.updateMany({ where: { id: duenioId }, data: datos });
+    if (tocadas.count === 0) {
+      const enProspectos = await this.prisma.prospecto.updateMany({
+        where: { id: duenioId },
+        data: datos,
+      });
+      if (enProspectos.count === 0) throw new NotFoundException('No encontramos tu perfil');
+    }
+
+    return { items: limpias, actualizadoEn: ahora?.toISOString() ?? null };
+  }
+
+  /**
+   * Lee el carrito guardado descartando lo que no cuadre.
+   *
+   * Es una columna JSON: lo que hay dentro puede venir de una version anterior
+   * de la aplicacion, asi que se filtra linea por linea en vez de confiar en la
+   * forma. Una linea rota tira esa linea, no el carrito entero.
+   */
+  private static leerCarrito(valor: Prisma.JsonValue | null): LineaCarritoDto[] {
+    if (!Array.isArray(valor)) return [];
+    return valor.flatMap((linea) => {
+      if (typeof linea !== 'object' || linea === null || Array.isArray(linea)) return [];
+      const { productoId, cantidad } = linea as Record<string, unknown>;
+      if (typeof productoId !== 'string' || !productoId) return [];
+      if (typeof cantidad !== 'number' || !Number.isInteger(cantidad) || cantidad < 1) return [];
+      return [{ productoId, cantidad }];
+    });
   }
 
   /**

@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
   ArrayMinSize,
   IsArray,
   IsInt,
@@ -18,6 +19,21 @@ export class LineaCarritoDto {
   @IsInt()
   @Min(1, { message: 'La cantidad debe ser al menos 1' })
   cantidad: number;
+}
+
+/**
+ * Cuerpo de `POST /carrito/subtotal` y de `PUT /perfil/carrito`: solo lineas.
+ *
+ * Se admite vacio, al reves que los demas: guardar un carrito que se acaba de
+ * vaciar es justamente como se borra el que estaba en el servidor, y pedir el
+ * subtotal de un carrito vacio tiene una respuesta buena, que es cero.
+ */
+export class LineasCarritoDto {
+  @IsArray()
+  @ArrayMaxSize(200, { message: 'Tu carrito tiene demasiados productos' })
+  @ValidateNested({ each: true })
+  @Type(() => LineaCarritoDto)
+  items: LineaCarritoDto[];
 }
 
 export class ValidarCuponDto {

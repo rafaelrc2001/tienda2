@@ -103,6 +103,21 @@ export const useAuthStore = defineStore('auth', () => {
     guardarToken(accessToken)
     usuario.value = await apiAuth.yo()
     await cargarMenu()
+    await recuperarCarrito()
+  }
+
+  /**
+   * Ata el carrito del navegador a esta sesión (HU-13).
+   *
+   * Solo para clientes: el personal del negocio no compra. Si falla no se
+   * interrumpe el arranque —el carrito es lo de menos comparado con no poder
+   * entrar—, y lo que haya en el navegador sigue funcionando igual.
+   */
+  async function recuperarCarrito(): Promise<void> {
+    if (usuario.value?.rol !== 'CLIENTE') return
+    await useCarritoStore()
+      .adoptar(usuario.value.sub)
+      .catch(() => {})
   }
 
   /**
@@ -122,6 +137,7 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       usuario.value = await apiAuth.yo()
       await cargarMenu()
+      await recuperarCarrito()
     } catch {
       cerrarSesion()
     } finally {
@@ -149,7 +165,11 @@ export const useAuthStore = defineStore('auth', () => {
 
     // Primero la memoria y despues el disco, en ese orden: vaciar el carrito
     // lo vuelve a persistir, asi que si se borrara antes la clave reaparecia.
-    useCarritoStore().vaciar()
+    //
+    // `olvidar` y no `vaciar`: lo que esta persona dejo guardado en el servidor
+    // tiene que seguir ahi cuando vuelva a entrar. Se borra su rastro del
+    // navegador, no su compra a medias.
+    useCarritoStore().olvidar()
     useDestacadosStore().olvidar()
     useRecetarioStore().olvidar()
 
