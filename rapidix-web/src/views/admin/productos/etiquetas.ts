@@ -5,7 +5,32 @@
  * el historial para leer: si divergieran, el mismo movimiento se llamaría de
  * dos maneras en la misma pantalla.
  */
-import type { AfectaInventario, MotivoMovimiento, TipoMovimiento } from '@/api/tipos'
+import type { AfectaInventario, MotivoMovimiento, RolProducto, TipoMovimiento } from '@/api/tipos'
+
+/**
+ * El papel del producto dentro de su familia, en el orden en que desempata la
+ * Tienda: Destino primero, Conveniencia al final.
+ *
+ * La ayuda no es decorativa: quien da de alta un producto tiene que poder
+ * elegir sin haber leído la historia de usuario.
+ */
+export const ROLES: { valor: RolProducto; etiqueta: string; ayuda: string }[] = [
+  { valor: 'DESTINO', etiqueta: 'Destino', ayuda: 'Por lo que el cliente viene a la tienda' },
+  { valor: 'RUTINA', etiqueta: 'Rutina', ayuda: 'Lo que repone cada semana' },
+  { valor: 'ESTACIONAL', etiqueta: 'Estacional', ayuda: 'Solo tiene sentido parte del año' },
+  { valor: 'CONVENIENCIA', etiqueta: 'Conveniencia', ayuda: 'Lo que añade sobre la marcha' },
+]
+
+const NOMBRE_ROL: Record<RolProducto, string> = {
+  DESTINO: 'Destino',
+  RUTINA: 'Rutina',
+  ESTACIONAL: 'Estacional',
+  CONVENIENCIA: 'Conveniencia',
+}
+
+export function nombreRol(rol: RolProducto): string {
+  return NOMBRE_ROL[rol]
+}
 
 export const TIPOS: { valor: TipoMovimiento; etiqueta: string }[] = [
   { valor: 'ENTRADA', etiqueta: 'Entrada' },

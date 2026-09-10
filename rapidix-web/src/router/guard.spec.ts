@@ -80,6 +80,18 @@ describe('decidir', () => {
         a: '/admin',
       })
     })
+
+    /**
+     * HU-02: la Tienda se mira sin sesión. Que sea pública no la abre al
+     * personal del negocio, que tiene su propio panel.
+     */
+    it('deja mirar la Tienda sin sesión pero no al personal', () => {
+      const tienda = { fullPath: '/tienda', publica: true, soloCliente: true }
+
+      expect(decidir(tienda, sinSesion)).toEqual({ tipo: 'permitir' })
+      expect(decidir(tienda, comoCliente)).toEqual({ tipo: 'permitir' })
+      expect(decidir(tienda, comoAdmin)).toEqual({ tipo: 'redirigir', a: '/admin' })
+    })
   })
 
   describe('secciones del panel', () => {

@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -6,6 +6,8 @@ export interface CategoriaDto {
   id: string;
   nombre: string;
   totalProductos: number;
+  /** Orden de la familia en la Tienda: 1 va primero, 99 es "sin priorizar". */
+  prioridad: number;
 }
 
 /**
@@ -66,13 +68,58 @@ export class CategoriasService {
     return fila?.id ?? null;
   }
 
-  /** El catalogo completo, con cuantos productos cuelgan de cada categoria. */
+  /**
+   * El catalogo completo, con cuantos productos cuelgan de cada categoria.
+   *
+   * Sale en el mismo orden en que se veran las filas de la Tienda, no por
+   * nombre: la pantalla que edita la prioridad tiene que ensenar el resultado
+   * de lo que se acaba de cambiar.
+   */
   async listar(): Promise<CategoriaDto[]> {
     const filas = await this.prisma.categoria.findMany({
-      orderBy: { nombre: 'asc' },
-      select: { id: true, nombre: true, _count: { select: { productos: true } } },
+      orderBy: [{ prioridad: 'asc' }, { nombre: 'asc' }],
+      select: {
+        id: true,
+        nombre: true,
+        prioridad: true,
+        _count: { select: { productos: true } },
+      },
     });
-    return filas.map((f) => ({ id: f.id, nombre: f.nombre, totalProductos: f._count.productos }));
+    return filas.map((f) => ({
+      id: f.id,
+      nombre: f.nombre,
+      totalProductos: f._count.productos,
+      prioridad: f.prioridad,
+    }));
+  }
+
+  /**
+   * Cambia el orden de una familia en la Tienda (HU-01).
+   *
+   * La prioridad no es unica a proposito: dos familias empatadas se ordenan
+   * entre ellas por nombre. Exigir un numero libre obligaria a renumerar media
+   * lista para colar una familia nueva en medio.
+   */
+  async fijarPrioridad(id: string, prioridad: number): Promise<CategoriaDto> {
+    const existe = await this.prisma.categoria.findUnique({ where: { id }, select: { id: true } });
+    if (!existe) throw new NotFoundException('Categoría no encontrada');
+
+    const fila = await this.prisma.categoria.update({
+      where: { id },
+      data: { prioridad },
+      select: {
+        id: true,
+        nombre: true,
+        prioridad: true,
+        _count: { select: { productos: true } },
+      },
+    });
+    return {
+      id: fila.id,
+      nombre: fila.nombre,
+      totalProductos: fila._count.productos,
+      prioridad: fila.prioridad,
+    };
   }
 
   /** Solo los nombres: es lo que piden los chips de categoria de las campanias. */

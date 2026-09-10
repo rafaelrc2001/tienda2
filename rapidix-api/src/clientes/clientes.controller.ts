@@ -1,7 +1,8 @@
-import { Body, Controller, ForbiddenException, Get, Patch } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, Patch, Put } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { ClientesService } from './clientes.service';
+import { CarritoGuardadoDto, ClientesService } from './clientes.service';
 import { ActualizarPerfilDto, PerfilDto } from './dto/perfil.dto';
+import { LineasCarritoDto } from '../pedidos/dto/carrito.dto';
 import { UsuarioActual } from '../auth/usuario-actual.decorator';
 import { ROL_CLIENTE, UsuarioAutenticado } from '../auth/jwt-payload';
 
@@ -29,6 +30,26 @@ export class ClientesController {
     @Body() cambios: ActualizarPerfilDto,
   ): Promise<PerfilDto> {
     return this.clientes.actualizar(ClientesController.exigirCliente(usuario), cambios);
+  }
+
+  /**
+   * Carrito a medias guardado en el servidor (HU-13).
+   *
+   * El navegador sigue siendo el que manda mientras la pestana esta abierta;
+   * esto es la copia que hace que la compra siga ahi al entrar desde otro
+   * telefono, o despues de que el navegador limpie su almacenamiento.
+   */
+  @Get('carrito')
+  carrito(@UsuarioActual() usuario: UsuarioAutenticado): Promise<CarritoGuardadoDto> {
+    return this.clientes.carritoGuardado(ClientesController.exigirCliente(usuario));
+  }
+
+  @Put('carrito')
+  guardarCarrito(
+    @UsuarioActual() usuario: UsuarioAutenticado,
+    @Body() dto: LineasCarritoDto,
+  ): Promise<CarritoGuardadoDto> {
+    return this.clientes.guardarCarrito(ClientesController.exigirCliente(usuario), dto.items);
   }
 
   private static exigirCliente(usuario: UsuarioAutenticado): string {

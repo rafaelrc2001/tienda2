@@ -70,6 +70,15 @@ model Cliente {
   nivelId       String?
   nivel         NivelFidelidad? @relation(fields: [nivelId], references: [id])
 
+  /// Carrito a medias, sincronizado desde la Tienda (HU-13).
+  ///
+  /// `[{ productoId, cantidad }]`, nunca precios: es el mismo contenido que
+  /// viaja a `POST /carrito/previsualizar`, para que un carrito guardado hoy y
+  /// recuperado la semana que viene se valore con los precios de entonces.
+  /// Sirve para que la compra a medias siga ahi al cambiar de telefono.
+  carrito      Json?
+  carritoEn    DateTime?
+
   // Contadores derivados de Pedido, mantenidos dentro de la transaccion de pedido
   pedidos      Int       @default(0)
   totalGastado Decimal   @default(0) @db.Decimal(12, 2)
@@ -131,6 +140,13 @@ model Prospecto {
 
   notificaciones Boolean @default(true)
 
+  /// Mismo carrito sincronizado que en `clientes`, por la misma razon por la
+  /// que se repite la direccion: quien todavia no ha comprado es justo el que
+  /// esta armando su primer carrito, y no puede perderlo por no ser cliente.
+  /// Al convertirse se copia tal cual.
+  carrito   Json?
+  carritoEn DateTime?
+
   /// Codigo de la fuente de adquisicion, capturado del enlace rapidix.mx/r/CODIGO.
   /// Viaja al cliente al convertirse: la atribucion es del registro, no de la compra.
   fuenteCodigo String?
@@ -170,12 +186,33 @@ model Categoria {
   id     String @id @default(uuid())
   nombre String @unique
 
+  /// Orden de la familia en la Tienda: 1 es la primera fila.
+  ///
+  /// Es lo que decide el negocio, no la alfabetica: Carnes antes que Abarrotes
+  /// aunque la A vaya antes que la C. Las categorias que nadie ha priorizado
+  /// nacen en 99 y caen al final, ordenadas entre ellas por nombre.
+  prioridad Int @default(99)
+
   creadoEn      DateTime @default(now())
   actualizadoEn DateTime @updatedAt
 
   productos Producto[]
 
+  @@index([prioridad])
   @@map("categorias")
+}
+
+/// Que papel juega el producto en la compra. Desempata dentro de su familia
+/// cuando el cliente no tiene historial que diga otra cosa.
+enum RolProducto {
+  /// Por lo que se viene a la tienda. Va primero.
+  DESTINO
+  /// Lo que se repone cada semana.
+  RUTINA
+  /// Solo tiene sentido parte del ano.
+  ESTACIONAL
+  /// Lo que se anade sobre la marcha. Va al final.
+  CONVENIENCIA
 }
 
 model Producto {
@@ -189,6 +226,11 @@ model Producto {
   precioVenta Decimal @db.Decimal(12, 2)
   imagenUrl   String?
   agotado     Boolean @default(false)
+
+  /// Papel del producto dentro de su familia (HU-01). Nace en RUTINA: es el
+  /// caso normal, y asi un producto recien dado de alta no adelanta a los que
+  /// el negocio si clasifico como destino.
+  rol RolProducto @default(RUTINA)
 
   /// Lo que hay fisicamente en bodega.
   inventario    Int @default(0)

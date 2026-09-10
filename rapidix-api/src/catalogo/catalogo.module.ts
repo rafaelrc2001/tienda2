@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { CatalogoService } from './catalogo.service';
 import { CategoriasService } from './categorias.service';
+import { RecomendacionesService } from './recomendaciones.service';
 import { ImportacionService } from './importacion.service';
 import { CatalogoController } from './catalogo.controller';
 import { AdminProductosController } from './admin-productos.controller';
@@ -16,7 +17,7 @@ import { AdminCategoriasController } from './admin-categorias.controller';
     AdminImportacionController,
     AdminProductosController,
   ],
-  providers: [CatalogoService, CategoriasService, ImportacionService],
+  providers: [CatalogoService, CategoriasService, ImportacionService, RecomendacionesService],
   exports: [CatalogoService, CategoriasService],
 })
 export class CatalogoModule {}

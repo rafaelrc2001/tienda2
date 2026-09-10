@@ -116,6 +116,12 @@ export interface RecetaPausada {
 // Tienda y catálogo
 // ------------------------------------------------------------------
 
+/**
+ * Papel del producto dentro de su familia. Desempata el orden de la Tienda
+ * cuando el cliente no tiene historial: Destino primero, Conveniencia al final.
+ */
+export type RolProducto = 'DESTINO' | 'RUTINA' | 'ESTACIONAL' | 'CONVENIENCIA'
+
 export interface Producto {
   id: string
   nombre: string
@@ -125,6 +131,7 @@ export interface Producto {
   precioVenta: number
   imagenUrl: string | null
   agotado: boolean
+  rol: RolProducto
   /** Existencia física en bodega. Solo se mueve desde Movimientos. */
   inventario: number
   /** Lo liberado para venta: el saldo del que descuenta un pedido. */
@@ -134,6 +141,44 @@ export interface Producto {
 export interface CategoriaConProductos {
   categoria: string
   productos: Producto[]
+}
+
+/** Una familia del catálogo, tal como la administra el negocio. */
+export interface CategoriaAdmin {
+  id: string
+  nombre: string
+  totalProductos: number
+  /** Orden en la Tienda: 1 va primero, 99 es «sin priorizar». */
+  prioridad: number
+}
+
+/** Producto del catálogo ordenado, con lo que este cliente ha hecho con él. */
+export interface ProductoRecomendado extends Producto {
+  /** Venía en su último pedido: es el badge «✔ Último comprado». */
+  ultimoComprado: boolean
+  /** En cuántos de sus pedidos ha aparecido. 0 para un visitante. */
+  vecesComprado: number
+}
+
+/** Una fila de la Tienda. */
+export interface FamiliaRecomendada {
+  categoria: string
+  prioridad: number
+  /** La familia estaba en su último pedido: sube al bloque de arriba. */
+  enUltimoPedido: boolean
+  productos: ProductoRecomendado[]
+}
+
+/** Respuesta de `GET /productos/recomendados`. El token es opcional. */
+export interface CatalogoRecomendado {
+  familias: FamiliaRecomendada[]
+  /** El orden salió del historial de quien pregunta, no del catálogo plano. */
+  personalizado: boolean
+  /**
+   * Si un pedido descuenta existencias. La Tienda solo topa la cantidad al
+   * saldo cuando está encendido: apagado, todos los productos están en cero.
+   */
+  controlInventario: boolean
 }
 
 // ------------------------------------------------------------------
@@ -170,6 +215,52 @@ export interface PrevisualizacionCarrito {
   dentroDeHorario: boolean
   /** false si el carrito no se puede confirmar tal y como está. */
   puedePedir: boolean
+  avisos: string[]
+}
+
+/**
+ * Respuesta de `POST /carrito/subtotal`.
+ *
+ * Lo que suman los productos, sin envío ni recargo ni cupón. Es lo que pinta el
+ * botón flotante de la Tienda, y lo calcula la API también para el visitante
+ * sin sesión: aquí no se suman precios a mano.
+ */
+export interface SubtotalCarrito {
+  items: {
+    productoId: string
+    precioUnitario: number
+    cantidad: number
+    importe: number
+    agotado: boolean
+  }[]
+  subtotal: number
+  avisos: string[]
+}
+
+/** Respuesta de `GET /perfil/carrito` y `PUT /perfil/carrito`. */
+export interface CarritoGuardado {
+  items: LineaCarrito[]
+  actualizadoEn: string | null
+}
+
+/** Respuesta de `GET /pedidos/ultimo`. `null` si todavía no ha comprado. */
+export interface UltimoPedido {
+  folio: string
+  creadoEn: string
+  /** Snapshot de la dirección a la que se entregó aquel pedido. */
+  direccion: Record<string, unknown> | null
+  items: {
+    productoId: string
+    nombre: string
+    unidad: string
+    cantidad: number
+    /** Lo que cuesta hoy, no lo que costó entonces. */
+    precioUnitario: number
+    importe: number
+    precioAnterior: number
+    disponible: boolean
+  }[]
+  subtotal: number
   avisos: string[]
 }
 

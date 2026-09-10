@@ -15,7 +15,8 @@ import { useUiStore } from '@/stores/ui'
 import { dinero } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
 import SubidorImagen from '@/components/SubidorImagen.vue'
-import type { CategoriaConProductos, Producto } from '@/api/tipos'
+import { nombreRol, ROLES } from './etiquetas'
+import type { CategoriaConProductos, Producto, RolProducto } from '@/api/tipos'
 
 const props = defineProps<{ activa: boolean }>()
 
@@ -67,6 +68,7 @@ const formulario = ref({
   precioCosto: null as number | null,
   precioVenta: null as number | null,
   imagenUrl: '',
+  rol: 'RUTINA' as RolProducto,
 })
 
 const gruposVisibles = computed<CategoriaConProductos[]>(() => {
@@ -133,6 +135,7 @@ function abrirAlta(): void {
     precioCosto: null,
     precioVenta: null,
     imagenUrl: '',
+    rol: 'RUTINA',
   }
   errores.value = {}
   erroresGenerales.value = []
@@ -148,6 +151,7 @@ function abrirEdicion(producto: Producto): void {
     precioCosto: producto.precioCosto,
     precioVenta: producto.precioVenta,
     imagenUrl: producto.imagenUrl ?? '',
+    rol: producto.rol,
   }
   errores.value = {}
   erroresGenerales.value = []
@@ -160,6 +164,7 @@ function cuerpo(): Record<string, unknown> {
     nombre: formulario.value.nombre.trim(),
     categoria: formulario.value.categoria.trim(),
     precioVenta: formulario.value.precioVenta ?? 0,
+    rol: formulario.value.rol,
   }
   if (formulario.value.unidad.trim()) datos.unidad = formulario.value.unidad.trim()
   if (formulario.value.precioCosto !== null) datos.precioCosto = formulario.value.precioCosto
@@ -328,6 +333,7 @@ const filasConError = computed(() => resumen.value?.filas.filter((f) => f.estado
             <p class="detalle">
               {{ dinero(producto.precioVenta) }}
               <span v-if="producto.unidad"> · {{ producto.unidad }}</span>
+              · {{ nombreRol(producto.rol) }}
             </p>
             <p class="saldo">
               {{ producto.aptInventario }} para venta
@@ -408,6 +414,17 @@ const filasConError = computed(() => resumen.value?.filas.filter((f) => f.estado
 
         <label class="form-label" for="pr-unidad">Unidad</label>
         <input id="pr-unidad" v-model="formulario.unidad" class="form-input" placeholder="kg" />
+
+        <label class="form-label" for="pr-rol">Papel en la Tienda</label>
+        <select id="pr-rol" v-model="formulario.rol" class="form-input">
+          <option v-for="rol in ROLES" :key="rol.valor" :value="rol.valor">
+            {{ rol.etiqueta }} — {{ rol.ayuda }}
+          </option>
+        </select>
+        <p class="form-hint">
+          Decide el orden dentro de su familia cuando el cliente no ha comprado nunca ese
+          producto. El orden de las familias se ajusta en la ventana «Familias».
+        </p>
 
         <div class="form-row-2">
           <div>

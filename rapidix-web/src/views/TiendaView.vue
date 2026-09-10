@@ -1,81 +1,237 @@
 <script setup lang="ts">
 /**
- * Tienda (Word 4.3).
+ * Tienda: el catálogo ordenado a la medida del cliente (HU-01 a HU-15).
  *
- * Buscador, productos agrupados por categoría, control de cantidad en cada
- * tarjeta y barra flotante del carrito. Un producto agotado sale marcado y
- * ofrece "Programar" en vez del control de cantidad.
+ * Tres bloques, de arriba abajo:
+ *
+ *  1. **Repetir la última compra**, si la hay. Se pliega al bajar.
+ *  2. **Una fila por familia**, en el orden que devuelve la API. La pantalla
+ *     no reordena nada: el criterio vive en el backend, que es el único que
+ *     sabe qué ha comprado esta persona.
+ *  3. **Botón flotante** con lo que suman los productos y el cashback que
+ *     dejaría el pedido.
+ *
+ * Se puede mirar sin sesión (HU-02): el visitante ve el catálogo del negocio y
+ * puede armar su carrito; el login se le pide al pulsar «Comprar ahora».
  */
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { http } from '@/api/http'
+import { useAuthStore } from '@/stores/auth'
 import { useCarritoStore } from '@/stores/carrito'
 import { useUiStore } from '@/stores/ui'
 import { dinero } from '@/utils/formato'
 import SkeletonCard from '@/components/SkeletonCard.vue'
-import type { CategoriaConProductos } from '@/api/tipos'
+import CarruselFamilia from '@/components/tienda/CarruselFamilia.vue'
+import PanelUltimoPedido from '@/components/tienda/PanelUltimoPedido.vue'
+import type { CatalogoRecomendado, FamiliaRecomendada, UltimoPedido } from '@/api/tipos'
 
+/** Lo que hay que bajar para que el bloque de repetir compra se pliegue. */
+const SCROLL_PARA_PLEGAR = 60
+
+const router = useRouter()
+const auth = useAuthStore()
 const carrito = useCarritoStore()
 const ui = useUiStore()
 
-const grupos = ref<CategoriaConProductos[]>([])
+const raiz = ref<HTMLElement | null>(null)
+
+const catalogo = ref<CatalogoRecomendado | null>(null)
 const cargando = ref(true)
+/** La API falló: es distinto de «no hay productos» (HU-15). */
+const fallo = ref(false)
 const busqueda = ref('')
 const programando = ref<string | null>(null)
+
+const ultimoPedido = ref<UltimoPedido | null>(null)
+/** El cliente dijo «no, crear uno nuevo»: no vuelve en esta visita. */
+const descartado = ref(false)
+const plegado = ref(false)
+const repitiendo = ref(false)
 
 /**
  * El filtrado se hace en el navegador sobre lo ya cargado.
  *
- * `GET /productos` acepta `?q=`, pero teclear no debe disparar una petición
- * por pulsación; el catálogo de una tienda cabe de sobra en memoria.
+ * Teclear no debe disparar una petición por pulsación, y el catálogo de una
+ * tienda cabe de sobra en memoria. Buscar deja fuera las familias sin
+ * coincidencias, pero **no reordena**: el orden sigue siendo el que dio la API.
  */
-const gruposVisibles = computed<CategoriaConProductos[]>(() => {
+const familiasVisibles = computed<FamiliaRecomendada[]>(() => {
+  const familias = catalogo.value?.familias ?? []
   const termino = busqueda.value.trim().toLowerCase()
-  if (!termino) return grupos.value
-  return grupos.value
-    .map((g) => ({
-      categoria: g.categoria,
-      productos: g.productos.filter((p) => p.nombre.toLowerCase().includes(termino)),
+  if (!termino) return familias
+
+  return familias
+    .map((familia) => ({
+      ...familia,
+      productos: familia.productos.filter((p) => p.nombre.toLowerCase().includes(termino)),
     }))
-    .filter((g) => g.productos.length > 0)
+    .filter((familia) => familia.productos.length > 0)
 })
 
-const hayResultados = computed(() => gruposVisibles.value.length > 0)
+const hayResultados = computed(() => familiasVisibles.value.length > 0)
+const controlInventario = computed(() => catalogo.value?.controlInventario ?? false)
+
+/** Todos los productos cargados, por id: hace falta para topar cantidades. */
+const productosPorId = computed(() => {
+  const mapa = new Map<string, { aptInventario: number }>()
+  for (const familia of catalogo.value?.familias ?? []) {
+    for (const producto of familia.productos) mapa.set(producto.id, producto)
+  }
+  return mapa
+})
+
+const mostrarFastTrack = computed(
+  () => ultimoPedido.value !== null && !descartado.value && busqueda.value.trim() === '',
+)
+
+const cashback = computed(() => carrito.cashbackEstimado ?? 0)
 
 onMounted(async () => {
+  await Promise.all([cargarCatalogo(), cargarUltimoPedido()])
+
+  // El carrito puede venir de otra sesión o de otro día: el importe se
+  // recalcula al entrar, nunca se da por bueno el que estaba en pantalla.
+  if (!carrito.vacio) await carrito.refrescarImporte().catch(() => {})
+
+  escucharDesplazamiento()
+})
+
+onBeforeUnmount(() => {
+  contenedor?.removeEventListener('scroll', alDesplazar)
+})
+
+async function cargarCatalogo(): Promise<void> {
+  cargando.value = true
+  fallo.value = false
   try {
-    grupos.value = await http.get<CategoriaConProductos[]>('/productos')
-  } catch (fallo) {
-    ui.errorDeApi(fallo)
+    catalogo.value = await http.get<CatalogoRecomendado>('/productos/recomendados')
+  } catch {
+    // El motivo no se enseña como toast: la pantalla entera se queda sin
+    // catálogo, así que el mensaje va en el sitio donde debería estar.
+    fallo.value = true
   } finally {
     cargando.value = false
   }
-  // El carrito puede venir de otra sesión: el total se recalcula al entrar.
-  if (!carrito.vacio) await carrito.recalcular().catch(() => {})
-})
+}
 
-// Cada cambio de cantidad vuelve a pedir el desglose a la API.
+/** Solo un cliente tiene pedidos que repetir; el visitante no pide nada. */
+async function cargarUltimoPedido(): Promise<void> {
+  if (!auth.autenticado || !auth.esCliente) return
+  try {
+    ultimoPedido.value = await http.get<UltimoPedido | null>('/pedidos/ultimo')
+  } catch {
+    ultimoPedido.value = null
+  }
+}
+
+// Cada cambio de cantidad vuelve a pedir el importe a la API.
 watch(
   () => carrito.lineas.map((l) => `${l.productoId}:${l.cantidad}`).join(','),
   () => {
-    carrito.recalcular().catch(() => {})
+    carrito.refrescarImporte().catch(() => {})
   },
 )
 
+// ------------------------------------------------------------------
+// Plegado del bloque de repetir compra (HU-05)
+// ------------------------------------------------------------------
+
+/**
+ * Quien desplaza es `.app-screen`, no la ventana: el marco de la aplicación
+ * tiene altura fija y el contenido se mueve dentro. Escuchar en `window` aquí
+ * no recibiría ni un evento.
+ */
+let contenedor: HTMLElement | null = null
+
+function alDesplazar(): void {
+  if (!contenedor) return
+  plegado.value = contenedor.scrollTop > SCROLL_PARA_PLEGAR
+}
+
+function escucharDesplazamiento(): void {
+  contenedor = raiz.value?.closest('.app-screen') as HTMLElement | null
+  contenedor?.addEventListener('scroll', alDesplazar, { passive: true })
+}
+
+/** Tocar un carrusel también lo pliega: se está mirando el catálogo. */
+function alTocarCarrusel(): void {
+  plegado.value = true
+}
+
+/**
+ * «Sí, usar este pedido»: el carrito pasa a ser exactamente aquel pedido.
+ *
+ * Se reemplaza lo que hubiera en el carrito en vez de sumarlo. «Usar este
+ * pedido» significa ese pedido, y sumar cantidades a lo que ya había daría un
+ * carrito que no es ni lo uno ni lo otro.
+ */
+async function repetirPedido(): Promise<void> {
+  const pedido = ultimoPedido.value
+  if (!pedido) return
+
+  repitiendo.value = true
+  try {
+    carrito.vaciar()
+    for (const item of pedido.items) {
+      if (!item.disponible) continue
+      const tope = controlInventario.value
+        ? productosPorId.value.get(item.productoId)?.aptInventario
+        : undefined
+      carrito.fijarCantidad(item.productoId, item.cantidad, tope)
+    }
+
+    if (carrito.vacio) {
+      ui.error('Ningún producto de ese pedido está disponible ahora mismo.');
+      return
+    }
+
+    await carrito.refrescarImporte().catch(() => {})
+    await router.push('/carrito')
+  } finally {
+    repitiendo.value = false
+  }
+}
+
+// ------------------------------------------------------------------
+// Acciones del catálogo
+// ------------------------------------------------------------------
+
 async function programar(productoId: string, nombre: string): Promise<void> {
+  if (!auth.autenticado) {
+    await router.push({ path: '/login', query: { destino: '/tienda' } })
+    return
+  }
+
   programando.value = productoId
   try {
     await http.post(`/productos/${productoId}/programar`)
     ui.exito(`Te avisaremos cuando ${nombre} vuelva a estar disponible.`)
-  } catch (fallo) {
-    ui.errorDeApi(fallo)
+  } catch (error) {
+    ui.errorDeApi(error)
   } finally {
     programando.value = null
   }
 }
+
+/**
+ * «Comprar ahora».
+ *
+ * Sin sesión no se pierde nada: el carrito ya está guardado en el navegador y
+ * se recupera al volver del login (HU-14).
+ */
+async function comprarAhora(): Promise<void> {
+  if (carrito.vacio) return
+  if (!auth.autenticado) {
+    await router.push({ path: '/login', query: { destino: '/tienda' } })
+    return
+  }
+  await router.push('/carrito')
+}
 </script>
 
 <template>
-  <div class="tienda">
+  <div ref="raiz" class="tienda">
     <div class="search-bar">
       <svg viewBox="0 0 24 24" fill="none">
         <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2" />
@@ -84,79 +240,57 @@ async function programar(productoId: string, nombre: string): Promise<void> {
       <input v-model="busqueda" type="search" placeholder="Buscar productos en la tienda..." />
     </div>
 
+    <PanelUltimoPedido
+      v-if="mostrarFastTrack && ultimoPedido"
+      :pedido="ultimoPedido"
+      :colapsado="plegado"
+      :ocupado="repitiendo"
+      @usar="repetirPedido"
+      @descartar="descartado = true"
+      @expandir="plegado = false"
+    />
+
     <SkeletonCard v-if="cargando" />
 
+    <p v-else-if="fallo" class="empty-block">
+      Error al cargar productos.
+      <button type="button" class="reintentar" @click="cargarCatalogo">Reintentar</button>
+    </p>
+
     <template v-else-if="hayResultados">
-      <section v-for="grupo in gruposVisibles" :key="grupo.categoria" class="store-cat-block">
-        <h2 class="section-title"><span class="accent-bar" />{{ grupo.categoria }}</h2>
-
-        <div class="product-grid">
-          <article
-            v-for="producto in grupo.productos"
-            :key="producto.id"
-            class="product-card"
-            :class="{ 'is-agotado': producto.agotado }"
-          >
-            <span v-if="producto.agotado" class="agotado-ribbon">Agotado</span>
-
-            <div class="product-media">
-              <img v-if="producto.imagenUrl" :src="producto.imagenUrl" :alt="producto.nombre" />
-              <template v-else>🛒</template>
-            </div>
-
-            <p class="product-name">{{ producto.nombre }}</p>
-            <p class="product-unit">{{ producto.unidad }}</p>
-            <p class="product-price">{{ dinero(producto.precioVenta) }}</p>
-
-            <button
-              v-if="producto.agotado"
-              type="button"
-              class="btn-secondary programar"
-              :disabled="programando === producto.id"
-              @click="programar(producto.id, producto.nombre)"
-            >
-              {{ programando === producto.id ? 'Enviando…' : 'Programar' }}
-            </button>
-
-            <div v-else-if="carrito.cantidadDe(producto.id) > 0" class="qty-control">
-              <button type="button" aria-label="Quitar uno" @click="carrito.quitar(producto.id)">
-                −
-              </button>
-              <span class="qn">{{ carrito.cantidadDe(producto.id) }}</span>
-              <button type="button" aria-label="Añadir uno" @click="carrito.agregar(producto.id)">
-                +
-              </button>
-            </div>
-
-            <button
-              v-else
-              type="button"
-              class="add-cart-btn"
-              aria-label="Añadir al carrito"
-              @click="carrito.agregar(producto.id)"
-            >
-              +
-            </button>
-          </article>
-        </div>
-      </section>
+      <CarruselFamilia
+        v-for="familia in familiasVisibles"
+        :key="familia.categoria"
+        :familia="familia"
+        :control-inventario="controlInventario"
+        @programar="programar"
+        @interaccion="alTocarCarrusel"
+      />
     </template>
 
     <p v-else-if="busqueda" class="empty-block">
       No encontramos productos que coincidan con «{{ busqueda }}».
     </p>
-    <p v-else class="empty-block">Todavía no hay productos en la tienda.</p>
+    <p v-else class="empty-block">No hay productos disponibles.</p>
 
-    <!-- Barra del carrito: el importe lo da la API, no se suma aquí. -->
-    <RouterLink v-if="!carrito.vacio" to="/carrito" class="cart-bar">
-      <span class="txt">
-        Ver carrito · {{ carrito.totalPiezas }}
-        {{ carrito.totalPiezas === 1 ? 'producto' : 'productos' }}
+    <!-- Barra de compra: el importe lo da la API, no se suma aquí. -->
+    <div class="barra-compra">
+      <span v-if="cashback > 0" class="chip-cashback">
+        Ganas {{ dinero(cashback) }} de cashback
       </span>
-      <span class="amt">
-        {{ carrito.previsualizacion ? dinero(carrito.previsualizacion.total) : '…' }}
-      </span>
-    </RouterLink>
+
+      <button
+        type="button"
+        class="comprar"
+        :disabled="carrito.vacio"
+        @click="comprarAhora"
+      >
+        <span class="txt">Comprar ahora</span>
+        <span v-if="!carrito.vacio" class="amt">
+          {{ carrito.subtotal !== null ? dinero(carrito.subtotal) : '…' }}
+        </span>
+      </button>
+    </div>
   </div>
 </template>
 
@@ -194,158 +328,53 @@ async function programar(productoId: string, nombre: string): Promise<void> {
   flex-shrink: 0;
 }
 
-.store-cat-block {
-  margin-bottom: 6px;
-}
-
-.product-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
-  padding: 0 18px 8px;
-}
-
-.product-card {
+.reintentar {
+  display: block;
+  margin: 10px auto 0;
+  border: 1.5px solid var(--line);
   background: var(--white);
-  border-radius: 16px;
-  padding: 12px;
-  box-shadow: var(--shadow);
-  position: relative;
-  overflow: hidden;
-}
-
-.product-card.is-agotado {
-  opacity: 0.85;
-}
-
-.product-card.is-agotado .product-media {
-  filter: grayscale(45%);
-  opacity: 0.75;
-}
-
-.agotado-ribbon {
-  position: absolute;
-  top: 12px;
-  right: -30px;
-  width: 120px;
-  transform: rotate(40deg);
-  text-align: center;
-  background: var(--terracotta);
-  color: var(--white);
-  font-family: var(--font-heading);
-  font-weight: 800;
-  font-size: 9px;
-  letter-spacing: 0.06em;
-  padding: 3px 0;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
-  z-index: 2;
-  text-transform: uppercase;
-  pointer-events: none;
-}
-
-.product-media {
-  height: 70px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 38px;
-  background: var(--cream-2);
-  border-radius: 12px;
-  margin-bottom: 8px;
-  overflow: hidden;
-}
-
-.product-media img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.product-name {
+  color: var(--ink);
   font-family: var(--font-heading);
   font-weight: 700;
-  font-size: 12.5px;
-  color: var(--ink);
-  line-height: 1.25;
-  min-height: 30px;
-  margin: 0;
-}
-
-.product-unit {
-  font-size: 10px;
-  color: var(--muted);
-  margin: 1px 0 0;
-  font-weight: 600;
-}
-
-.product-price {
-  font-family: var(--font-heading);
-  font-weight: 800;
-  font-size: 14px;
-  color: var(--terracotta-dark);
-  margin: 4px 0 0;
-}
-
-.add-cart-btn {
-  position: absolute;
-  right: 10px;
-  bottom: 10px;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: var(--gold);
-  border: 1.5px solid var(--ink);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  font-weight: 800;
-  font-size: 15px;
-  color: var(--ink);
-  line-height: 1;
-}
-
-.qty-control {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 7px;
-  margin-top: 8px;
-}
-
-.qty-control button {
-  width: 26px;
-  height: 26px;
-  border-radius: 8px;
-  border: 1.5px solid var(--line);
-  background: var(--cream);
-  font-weight: 800;
-  font-size: 14px;
-  cursor: pointer;
-  color: var(--ink);
-}
-
-.qty-control .qn {
-  font-family: var(--font-heading);
-  font-weight: 800;
-  font-size: 13px;
-  min-width: 16px;
-  text-align: center;
-}
-
-.programar {
-  width: 100%;
-  margin-top: 8px;
   font-size: 11.5px;
-  padding: 8px 6px;
+  border-radius: 9px;
+  padding: 7px 14px;
+  cursor: pointer;
 }
 
-.cart-bar {
+/*
+ * La barra se queda pegada abajo mientras se recorre el catálogo. El chip del
+ * cashback va encima del botón y aparece y desaparece solo al cruzar el mínimo
+ * que fija el negocio (HU-12).
+ */
+.barra-compra {
   position: sticky;
   bottom: 8px;
   margin: 14px 18px 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  z-index: 5;
+}
+
+.chip-cashback {
+  align-self: center;
+  background: var(--gold);
+  color: var(--ink);
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 10.5px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+}
+
+.comprar {
+  width: 100%;
   background: var(--navy);
   color: var(--white);
+  border: none;
   border-radius: 16px;
   padding: 14px 16px;
   display: flex;
@@ -354,17 +383,20 @@ async function programar(productoId: string, nombre: string): Promise<void> {
   gap: 10px;
   box-shadow: var(--shadow);
   cursor: pointer;
-  z-index: 5;
-  text-decoration: none;
 }
 
-.cart-bar .txt {
+.comprar:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.comprar .txt {
   font-family: var(--font-heading);
   font-weight: 700;
   font-size: 12.5px;
 }
 
-.cart-bar .amt {
+.comprar .amt {
   font-family: var(--font-heading);
   font-weight: 800;
   font-size: 15px;

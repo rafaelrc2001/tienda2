@@ -6,12 +6,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
  * prueba aquí es la lógica del carrito, no la red.
  */
 const post = vi.fn()
+const get = vi.fn()
+const put = vi.fn()
 vi.mock('@/api/http', () => ({
   http: {
-    get: vi.fn(),
+    get: (...args: unknown[]) => get(...args),
     post: (...args: unknown[]) => post(...args),
     patch: vi.fn(),
-    put: vi.fn(),
+    put: (...args: unknown[]) => put(...args),
     delete: vi.fn(),
   },
 }))
@@ -41,6 +43,9 @@ function previsualizacion(sobre: Record<string, unknown> = {}) {
 beforeEach(() => {
   localStorage.clear()
   post.mockReset()
+  get.mockReset()
+  put.mockReset()
+  put.mockResolvedValue(undefined)
   setActivePinia(createPinia())
 })
 
@@ -76,6 +81,24 @@ describe('carrito · cantidades', () => {
     const carrito = useCarritoStore()
     carrito.fijarCantidad('p1', -3)
     expect(carrito.lineas).toHaveLength(0)
+  })
+
+  /**
+   * HU-07. El tope solo lo manda la Tienda cuando el negocio descuenta
+   * existencias; sin él la cantidad no se limita, que es el caso de una tienda
+   * con el control de inventario apagado.
+   */
+  it('topa la cantidad al saldo cuando la Tienda lo manda', () => {
+    const carrito = useCarritoStore()
+
+    carrito.fijarCantidad('p1', 20, 8)
+    expect(carrito.cantidadDe('p1')).toBe(8)
+
+    carrito.agregar('p1', 8)
+    expect(carrito.cantidadDe('p1')).toBe(8)
+
+    carrito.fijarCantidad('p2', 20)
+    expect(carrito.cantidadDe('p2')).toBe(20)
   })
 })
 
@@ -130,6 +153,117 @@ describe('carrito · persistencia', () => {
     setActivePinia(createPinia())
 
     expect(useCarritoStore().lineas).toEqual([{ productoId: 'p1', cantidad: 2 }])
+  })
+})
+
+describe('carrito · sincronización con el servidor (HU-13)', () => {
+  /** Dos personas en el mismo teléfono: nadie hereda la compra de la otra. */
+  it('descarta el carrito de otro usuario al abrir sesión', async () => {
+    localStorage.setItem(
+      CLAVE,
+      JSON.stringify({
+        lineas: [{ productoId: 'p1', cantidad: 3 }],
+        codigoCupon: 'BIENV',
+        duenio: 'cliente-antiguo',
+      }),
+    )
+    setActivePinia(createPinia())
+    get.mockResolvedValue({ items: [], actualizadoEn: null })
+
+    const carrito = useCarritoStore()
+    await carrito.adoptar('cliente-nuevo')
+
+    expect(carrito.vacio).toBe(true)
+    expect(carrito.codigoCupon).toBeNull()
+    expect(carrito.duenio).toBe('cliente-nuevo')
+  })
+
+  /** HU-14: lo que armó antes de entrar es suyo y se conserva. */
+  it('conserva el carrito armado sin sesión y lo sube', async () => {
+    const carrito = useCarritoStore()
+    carrito.agregar('p1')
+    carrito.agregar('p1')
+
+    await carrito.adoptar('cliente-1')
+
+    expect(carrito.cantidadDe('p1')).toBe(2)
+    expect(get).not.toHaveBeenCalled()
+
+    vi.useFakeTimers()
+    carrito.agregar('p1')
+    vi.advanceTimersByTime(2000)
+    vi.useRealTimers()
+
+    expect(put).toHaveBeenCalledWith('/perfil/carrito', {
+      items: [{ productoId: 'p1', cantidad: 3 }],
+    })
+  })
+
+  it('recupera el carrito del servidor cuando el navegador no tiene ninguno', async () => {
+    get.mockResolvedValue({
+      items: [{ productoId: 'p7', cantidad: 5 }],
+      actualizadoEn: '2026-09-01T10:00:00.000Z',
+    })
+    post.mockResolvedValue({ items: [], subtotal: 120, avisos: [] })
+
+    const carrito = useCarritoStore()
+    await carrito.adoptar('cliente-1')
+
+    expect(get).toHaveBeenCalledWith('/perfil/carrito')
+    expect(carrito.cantidadDe('p7')).toBe(5)
+  })
+
+  /** Cerrar sesión borra el rastro del navegador, no la copia del servidor. */
+  it('olvida el carrito sin tocar el del servidor', async () => {
+    const carrito = useCarritoStore()
+    await carrito.adoptar('cliente-1')
+    carrito.agregar('p1')
+
+    vi.useFakeTimers()
+    carrito.olvidar()
+    vi.advanceTimersByTime(2000)
+    vi.useRealTimers()
+
+    expect(carrito.vacio).toBe(true)
+    expect(carrito.duenio).toBeNull()
+    expect(put).not.toHaveBeenCalled()
+  })
+})
+
+describe('carrito · importe sin sesión (HU-11)', () => {
+  /**
+   * `previsualizar` exige ser cliente: el visitante pide solo lo que suman los
+   * productos. Lo que no hace en ningún caso es multiplicar precios aquí.
+   */
+  it('pide el subtotal público mientras no hay dueño', async () => {
+    post.mockResolvedValue({ items: [], subtotal: 74.5, avisos: [] })
+
+    const carrito = useCarritoStore()
+    carrito.agregar('p1')
+    await carrito.refrescarImporte()
+
+    expect(post).toHaveBeenCalledWith('/carrito/subtotal', {
+      items: [{ productoId: 'p1', cantidad: 1 }],
+    })
+    expect(carrito.subtotal).toBe(74.5)
+    expect(carrito.cashbackEstimado).toBeNull()
+  })
+
+  it('pide el desglose completo en cuanto hay sesión', async () => {
+    get.mockResolvedValue({ items: [], actualizadoEn: null })
+    post.mockResolvedValue(previsualizacion({ subtotal: 300, cashbackEstimado: 6 }))
+
+    const carrito = useCarritoStore()
+    carrito.agregar('p1')
+    await carrito.adoptar('cliente-1')
+    await carrito.refrescarImporte()
+
+    expect(post).toHaveBeenCalledWith('/carrito/previsualizar', {
+      items: [{ productoId: 'p1', cantidad: 1 }],
+      codigoCupon: undefined,
+    })
+    expect(carrito.subtotal).toBe(300)
+    expect(carrito.cashbackEstimado).toBe(6)
   })
 })
 

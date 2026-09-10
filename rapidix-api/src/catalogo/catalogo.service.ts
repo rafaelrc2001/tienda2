@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, Producto } from '@prisma/client';
+import { Prisma, Producto, RolProducto } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CategoriasService } from './categorias.service';
 import {
@@ -19,6 +19,8 @@ export interface ProductoDto {
   precioVenta: number;
   imagenUrl: string | null;
   agotado: boolean;
+  /** Papel dentro de su familia. Desempata el orden de la Tienda (HU-01). */
+  rol: RolProducto;
   /** Existencia fisica en bodega. La mueve Inventario, no esta pantalla. */
   inventario: number;
   /** Lo liberado para venta: es el saldo del que descuenta un pedido. */
@@ -49,7 +51,7 @@ export class CatalogoService {
    * arrastren error de coma flotante. Hacia fuera viajan como numero: el
    * calculo del total lo hace siempre el backend (paso 19), nunca el cliente.
    */
-  private static aDto(p: ProductoConCategoria): ProductoDto {
+  static aDto(p: ProductoConCategoria): ProductoDto {
     return {
       id: p.id,
       nombre: p.nombre,
@@ -59,6 +61,7 @@ export class CatalogoService {
       precioVenta: p.precioVenta.toNumber(),
       imagenUrl: p.imagenUrl,
       agotado: p.agotado,
+      rol: p.rol,
       inventario: p.inventario,
       aptInventario: p.aptInventario,
     };
@@ -124,6 +127,7 @@ export class CatalogoService {
         precioVenta: dto.precioVenta,
         imagenUrl: dto.imagenUrl ?? null,
         agotado: dto.agotado ?? false,
+        ...(dto.rol !== undefined && { rol: dto.rol }),
       },
       include: { categoria: { select: { nombre: true } } },
     });
@@ -143,6 +147,7 @@ export class CatalogoService {
         ...(dto.precioCosto !== undefined && { precioCosto: dto.precioCosto }),
         ...(dto.precioVenta !== undefined && { precioVenta: dto.precioVenta }),
         ...(dto.imagenUrl !== undefined && { imagenUrl: dto.imagenUrl }),
+        ...(dto.rol !== undefined && { rol: dto.rol }),
       },
       include: { categoria: { select: { nombre: true } } },
     });

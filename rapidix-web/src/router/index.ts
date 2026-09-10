@@ -51,10 +51,16 @@ const routes: RouteRecordRaw[] = [
     meta: { soloCliente: true, titulo: 'Rapidix' },
   },
   {
+    /**
+     * La Tienda se puede mirar sin sesión (HU-02): el visitante ve el catálogo
+     * con el orden del negocio y arma su carrito; el login se le pide al pulsar
+     * «Comprar ahora». `soloCliente` sigue puesto para que el personal del
+     * negocio no acabe aquí con su token de staff.
+     */
     path: '/tienda',
     name: 'tienda',
     component: () => import('@/views/TiendaView.vue'),
-    meta: { soloCliente: true, titulo: 'Tienda' },
+    meta: { publica: true, soloCliente: true, titulo: 'Tienda' },
   },
   {
     path: '/carrito',

@@ -1,5 +1,5 @@
 import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { Cliente, EstadoCupon, Pedido, Prisma, Prospecto } from '@prisma/client';
+import { Cliente, EstadoCupon, EstadoPedido, Pedido, Prisma, Prospecto } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConfiguracionService } from '../configuracion/configuracion.service';
 import { CuponesService } from '../cupones/cupones.service';
@@ -34,6 +34,37 @@ export interface PedidoDto {
     importe: number;
   }[];
   creadoEn: string;
+}
+
+/**
+ * El ultimo pedido, listo para repetirlo (HU-04).
+ *
+ * Lleva las cantidades de aquel pedido pero **los precios de hoy**: es una
+ * propuesta de compra, no un recibo. Repetir un pedido de hace tres meses a los
+ * precios de hace tres meses seria ensenar un total que la caja no va a
+ * respetar. Para eso esta `Mis Pedidos`, que si es el historico.
+ */
+export interface UltimoPedidoDto {
+  folio: string;
+  creadoEn: string;
+  /** Snapshot de la direccion a la que se entrego aquel pedido. */
+  direccion: Record<string, unknown> | null;
+  items: {
+    productoId: string;
+    nombre: string;
+    unidad: string;
+    cantidad: number;
+    /** Lo que cuesta hoy. */
+    precioUnitario: number;
+    importe: number;
+    /** Lo que costo entonces. Sirve para avisar de que el precio cambio. */
+    precioAnterior: number;
+    /** Sigue existiendo y no esta agotado. */
+    disponible: boolean;
+  }[];
+  /** Suma de lo disponible, a precio de hoy. */
+  subtotal: number;
+  avisos: string[];
 }
 
 @Injectable()
@@ -213,6 +244,12 @@ export class PedidosService {
           totalGastado: { increment: total },
           ultimoPedido: ahora,
           ...(comprador.primerPedido === null && { primerPedido: ahora }),
+          // El carrito guardado ya se convirtio en este pedido. Borrarlo aqui
+          // —y no fiarse de que el navegador mande el vacio— evita que quien
+          // entre manana desde otro telefono se encuentre repetido lo que ya
+          // compro.
+          carrito: Prisma.DbNull,
+          carritoEn: null,
         },
       });
 
@@ -290,6 +327,12 @@ export class PedidosService {
         lng: prospecto.lng,
         notificaciones: prospecto.notificaciones,
         fuenteCodigo: prospecto.fuenteCodigo,
+        // El carrito guardado viaja con lo demas. En este pedido concreto se
+        // vaciara enseguida, pero la copia se hace igual: si manana la
+        // conversion deja de coincidir con "acaba de comprar", el carrito no se
+        // pierde por haberlo dado por supuesto aqui.
+        carrito: prospecto.carrito ?? Prisma.DbNull,
+        carritoEn: prospecto.carritoEn,
       },
     });
 
@@ -321,6 +364,75 @@ export class PedidosService {
       include: { items: true, cupon: true },
     });
     return pedidos.map((p) => this.aDto(p));
+  }
+
+  /**
+   * El ultimo pedido del cliente, valorado a precio de hoy (HU-04).
+   *
+   * `null` cuando todavia no ha comprado —o cuando quien pregunta es un
+   * prospecto, que por definicion no tiene pedidos—: la Tienda simplemente no
+   * pinta el bloque de repetir compra.
+   *
+   * Los cancelados no cuentan: proponer repetir un pedido que se cancelo es
+   * proponer justo lo que no llego a pasar.
+   */
+  async ultimoPedido(clienteId: string): Promise<UltimoPedidoDto | null> {
+    const pedido = await this.prisma.pedido.findFirst({
+      where: { clienteId, estado: { not: EstadoPedido.CANCELADO } },
+      orderBy: { creadoEn: 'desc' },
+      include: { items: true },
+    });
+    if (!pedido) return null;
+
+    const productos = await this.prisma.producto.findMany({
+      where: { id: { in: pedido.items.map((i) => i.productoId) } },
+      select: { id: true, nombre: true, unidad: true, precioVenta: true, agotado: true },
+    });
+    const porId = new Map(productos.map((p) => [p.id, p]));
+
+    const avisos: string[] = [];
+    let subtotal = new Decimal(0);
+
+    const items = pedido.items.map((item) => {
+      const producto = porId.get(item.productoId);
+      // El nombre y la unidad se toman del snapshot del pedido cuando el
+      // producto ya no existe: el cliente tiene que poder leer que era lo que
+      // no se le puede volver a servir.
+      const disponible = producto !== undefined && !producto.agotado;
+      const precioHoy = producto?.precioVenta ?? item.precioUnitario;
+
+      if (!producto) {
+        avisos.push(`${item.nombre} ya no está en el catálogo.`);
+      } else if (producto.agotado) {
+        avisos.push(`${producto.nombre} está agotado ahora mismo.`);
+      }
+
+      const importe = precioHoy.mul(item.cantidad);
+      if (disponible) subtotal = subtotal.add(importe);
+
+      return {
+        productoId: item.productoId,
+        nombre: producto?.nombre ?? item.nombre,
+        unidad: producto?.unidad ?? item.unidad,
+        cantidad: item.cantidad,
+        precioUnitario: precioHoy.toNumber(),
+        importe: importe.toNumber(),
+        precioAnterior: item.precioUnitario.toNumber(),
+        disponible,
+      };
+    });
+
+    return {
+      folio: pedido.folio,
+      creadoEn: pedido.creadoEn.toISOString(),
+      direccion:
+        pedido.direccion && typeof pedido.direccion === 'object'
+          ? (pedido.direccion as Record<string, unknown>)
+          : null,
+      items,
+      subtotal: subtotal.toNumber(),
+      avisos,
+    };
   }
 
   /** Historial completo para Administracion. */

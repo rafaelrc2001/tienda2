@@ -31,6 +31,21 @@ export function dinero(monto: number): string {
   return MONEDA.format(Number.isFinite(monto) ? monto : 0)
 }
 
+/**
+ * `1234.5` → `{ entero: '$1,234', centavos: '50' }`.
+ *
+ * La tarjeta de la Tienda pinta los centavos en volado sobre el precio, así que
+ * necesita las dos mitades por separado. Se parten del texto que ya formateó
+ * `dinero` y no del número: así el separador de miles y el símbolo salen de la
+ * misma regla que en el resto de la aplicación.
+ */
+export function partesDinero(monto: number): { entero: string; centavos: string } {
+  const texto = dinero(monto)
+  const corte = texto.lastIndexOf('.')
+  if (corte === -1) return { entero: texto, centavos: '00' }
+  return { entero: texto.slice(0, corte), centavos: texto.slice(corte + 1) }
+}
+
 /** ISO → `07 sep 2026`. Cadena vacía si la fecha no vale. */
 export function fecha(iso: string | null | undefined): string {
   if (!iso) return ''

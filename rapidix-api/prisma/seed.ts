@@ -12,6 +12,7 @@
 import {
   PrismaClient,
   OrigenReceta,
+  RolProducto,
   RolUsuario,
   TipoDescuento,
   TipoFuente,
@@ -25,20 +26,33 @@ const prisma = new PrismaClient();
 // ------------------------------------------------------------------
 
 const PRODUCTOS = [
-  { nombre: 'Tomate bola', categoria: 'Frutas y Verduras', unidad: 'kg', precioCosto: 9, precioVenta: 18, agotado: false },
-  { nombre: 'Lechuga romana', categoria: 'Frutas y Verduras', unidad: 'pza', precioCosto: 8, precioVenta: 15, agotado: false },
-  { nombre: 'Aguacate hass', categoria: 'Frutas y Verduras', unidad: 'kg', precioCosto: 14, precioVenta: 22, agotado: true },
-  { nombre: 'Limón', categoria: 'Frutas y Verduras', unidad: 'kg', precioCosto: 6, precioVenta: 12, agotado: false },
-  { nombre: 'Pechuga de pollo', categoria: 'Carnes', unidad: 'kg', precioCosto: 62, precioVenta: 89, agotado: false },
-  { nombre: 'Carne molida de res', categoria: 'Carnes', unidad: 'kg', precioCosto: 78, precioVenta: 110, agotado: false },
-  { nombre: 'Leche entera 1L', categoria: 'Lácteos', unidad: 'L', precioCosto: 16, precioVenta: 24, agotado: false },
-  { nombre: 'Queso panela', categoria: 'Lácteos', unidad: 'pza', precioCosto: 40, precioVenta: 58, agotado: true },
-  { nombre: 'Arroz 1kg', categoria: 'Abarrotes', unidad: 'kg', precioCosto: 19, precioVenta: 28, agotado: false },
-  { nombre: 'Frijol negro 1kg', categoria: 'Abarrotes', unidad: 'kg', precioCosto: 22, precioVenta: 32, agotado: false },
-  { nombre: 'Aceite vegetal 1L', categoria: 'Abarrotes', unidad: 'L', precioCosto: 32, precioVenta: 45, agotado: false },
-  { nombre: 'Agua mineral', categoria: 'Bebidas', unidad: 'pza', precioCosto: 8, precioVenta: 14, agotado: false },
-  { nombre: 'Jugo natural de naranja', categoria: 'Bebidas', unidad: 'L', precioCosto: 13, precioVenta: 20, agotado: false },
+  { nombre: 'Tomate bola', categoria: 'Frutas y Verduras', unidad: 'kg', precioCosto: 9, precioVenta: 18, agotado: false, rol: RolProducto.RUTINA },
+  { nombre: 'Lechuga romana', categoria: 'Frutas y Verduras', unidad: 'pza', precioCosto: 8, precioVenta: 15, agotado: false, rol: RolProducto.RUTINA },
+  { nombre: 'Aguacate hass', categoria: 'Frutas y Verduras', unidad: 'kg', precioCosto: 14, precioVenta: 22, agotado: true, rol: RolProducto.DESTINO },
+  { nombre: 'Limón', categoria: 'Frutas y Verduras', unidad: 'kg', precioCosto: 6, precioVenta: 12, agotado: false, rol: RolProducto.CONVENIENCIA },
+  { nombre: 'Pechuga de pollo', categoria: 'Carnes', unidad: 'kg', precioCosto: 62, precioVenta: 89, agotado: false, rol: RolProducto.DESTINO },
+  { nombre: 'Carne molida de res', categoria: 'Carnes', unidad: 'kg', precioCosto: 78, precioVenta: 110, agotado: false, rol: RolProducto.DESTINO },
+  { nombre: 'Leche entera 1L', categoria: 'Lácteos', unidad: 'L', precioCosto: 16, precioVenta: 24, agotado: false, rol: RolProducto.RUTINA },
+  { nombre: 'Queso panela', categoria: 'Lácteos', unidad: 'pza', precioCosto: 40, precioVenta: 58, agotado: true, rol: RolProducto.RUTINA },
+  { nombre: 'Arroz 1kg', categoria: 'Abarrotes', unidad: 'kg', precioCosto: 19, precioVenta: 28, agotado: false, rol: RolProducto.RUTINA },
+  { nombre: 'Frijol negro 1kg', categoria: 'Abarrotes', unidad: 'kg', precioCosto: 22, precioVenta: 32, agotado: false, rol: RolProducto.RUTINA },
+  { nombre: 'Aceite vegetal 1L', categoria: 'Abarrotes', unidad: 'L', precioCosto: 32, precioVenta: 45, agotado: false, rol: RolProducto.CONVENIENCIA },
+  { nombre: 'Agua mineral', categoria: 'Bebidas', unidad: 'pza', precioCosto: 8, precioVenta: 14, agotado: false, rol: RolProducto.CONVENIENCIA },
+  { nombre: 'Jugo natural de naranja', categoria: 'Bebidas', unidad: 'L', precioCosto: 13, precioVenta: 20, agotado: false, rol: RolProducto.ESTACIONAL },
 ];
+
+/**
+ * Orden en que se ven las familias en la Tienda. Es el orden en que se recorre
+ * una tienda de barrio: primero por lo que se viene, al final lo que se anade
+ * al pasar por la caja. El negocio lo cambia desde Productos -> Familias.
+ */
+const PRIORIDAD_FAMILIA: Record<string, number> = {
+  Carnes: 1,
+  'Frutas y Verduras': 2,
+  Lácteos: 3,
+  Abarrotes: 4,
+  Bebidas: 7,
+};
 
 // ------------------------------------------------------------------
 // Recetario (mockup: let recipes) — 6 oficiales + 2 de comunidad
@@ -467,10 +481,11 @@ async function seedProductos(): Promise<void> {
   const nombres = [...new Set(PRODUCTOS.map((p) => p.categoria))];
   const categorias = new Map<string, string>();
   for (const nombre of nombres) {
+    const prioridad = PRIORIDAD_FAMILIA[nombre] ?? 99;
     const categoria = await prisma.categoria.upsert({
       where: { nombre },
-      update: {},
-      create: { nombre },
+      update: { prioridad },
+      create: { nombre, prioridad },
       select: { id: true },
     });
     categorias.set(nombre, categoria.id);
