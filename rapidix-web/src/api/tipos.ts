@@ -266,7 +266,8 @@ export interface PrevisualizacionCarrito {
  * sesión: aquí no se suman precios a mano.
  */
 export interface SubtotalCarrito {
-  items: LineaCalculada[]
+  /** Con nombre y unidad: el widget «Mi carrito» los pinta también al visitante. */
+  items: ItemPrevisualizado[]
   subtotal: number
   /** Con el % del nivel de entrada: el visitante todavía no tiene nivel. */
   cashbackEstimado: number

@@ -228,6 +228,40 @@ describe('carrito · sincronización con el servidor (HU-13)', () => {
     expect(carrito.duenio).toBeNull()
     expect(put).not.toHaveBeenCalled()
   })
+
+  /** Widget «Mi carrito», HU-06: las tres capas, sin esperar al debounce. */
+  it('vacía el carrito y el del servidor en el acto', async () => {
+    const carrito = useCarritoStore()
+    await carrito.adoptar('cliente-1')
+    carrito.agregar('p1')
+
+    await carrito.vaciarAhora()
+
+    expect(carrito.vacio).toBe(true)
+    expect(JSON.parse(localStorage.getItem(CLAVE)!).lineas).toEqual([])
+    expect(put).toHaveBeenCalledTimes(1)
+    expect(put).toHaveBeenCalledWith('/perfil/carrito', { items: [] })
+  })
+
+  it('vacía lo local aunque falle la red', async () => {
+    put.mockRejectedValue(new Error('sin red'))
+    const carrito = useCarritoStore()
+    await carrito.adoptar('cliente-1')
+    carrito.agregar('p1')
+
+    await expect(carrito.vaciarAhora()).resolves.toBeUndefined()
+    expect(carrito.vacio).toBe(true)
+  })
+
+  it('sin sesión no llama al servidor al vaciar', async () => {
+    const carrito = useCarritoStore()
+    carrito.agregar('p1')
+
+    await carrito.vaciarAhora()
+
+    expect(carrito.vacio).toBe(true)
+    expect(put).not.toHaveBeenCalled()
+  })
 })
 
 describe('carrito · importe sin sesión (HU-11)', () => {

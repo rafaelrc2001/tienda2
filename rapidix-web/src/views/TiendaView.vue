@@ -4,12 +4,13 @@
  *
  * Tres bloques, de arriba abajo:
  *
- *  1. **Repetir la última compra**, si la hay. Se pliega al bajar.
+ *  1. **Repetir la última compra**, si la hay, y debajo el buscador. Se pliega
+ *     al bajar.
  *  2. **Una fila por familia**, en el orden que devuelve la API. La pantalla
  *     no reordena nada: el criterio vive en el backend, que es el único que
  *     sabe qué ha comprado esta persona.
- *  3. **Botón flotante** con lo que suman los productos, el cashback que
- *     dejaría el pedido y lo que le falta para el envío gratis.
+ *  3. **Barra de compra** pegada abajo con lo que suman los productos, el
+ *     cashback que dejaría el pedido y lo que le falta para el envío gratis.
  *
  * Se puede mirar sin sesión (HU-02): el visitante ve el catálogo del negocio y
  * puede armar su carrito; el login se le pide al pulsar «Comprar ahora».
@@ -239,14 +240,6 @@ async function comprarAhora(): Promise<void> {
 
 <template>
   <div ref="raiz" class="tienda">
-    <div class="search-bar">
-      <svg viewBox="0 0 24 24" fill="none">
-        <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2" />
-        <path d="M21 21l-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-      </svg>
-      <input v-model="busqueda" type="search" placeholder="Buscar productos en la tienda..." />
-    </div>
-
     <PanelUltimoPedido
       v-if="mostrarFastTrack && ultimoPedido"
       :pedido="ultimoPedido"
@@ -257,6 +250,14 @@ async function comprarAhora(): Promise<void> {
       @expandir="plegado = false"
       @contraer="plegado = true"
     />
+
+    <div class="search-bar">
+      <svg viewBox="0 0 24 24" fill="none">
+        <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2" />
+        <path d="M21 21l-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+      </svg>
+      <input v-model="busqueda" type="search" placeholder="Buscar productos en la tienda..." />
+    </div>
 
     <SkeletonCard v-if="cargando" />
 
@@ -301,10 +302,11 @@ async function comprarAhora(): Promise<void> {
         :disabled="carrito.vacio"
         @click="comprarAhora"
       >
-        <span class="txt">Comprar ahora</span>
-        <span v-if="!carrito.vacio" class="amt">
-          {{ carrito.subtotal !== null ? dinero(carrito.subtotal) : '…' }}
-        </span>
+        Comprar ahora<template v-if="!carrito.vacio">:
+          <span class="amt">
+            {{ carrito.subtotal !== null ? dinero(carrito.subtotal) : '…' }}
+          </span>
+        </template>
       </button>
     </div>
   </div>
@@ -316,7 +318,7 @@ async function comprarAhora(): Promise<void> {
 }
 
 .search-bar {
-  margin: 2px 18px 4px;
+  margin: 2px 18px 10px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -402,18 +404,24 @@ async function comprarAhora(): Promise<void> {
   border: 1.5px solid var(--gold);
 }
 
+/*
+ * Barra plana de una sola línea, «Comprar ahora: $X», como la del ecommerce
+ * anterior: esquinas cortas y texto centrado. De aquella se toma la forma; los
+ * colores son el navy y el dorado de Rapidix.
+ */
 .comprar {
   width: 100%;
   background: var(--navy);
   color: var(--white);
   border: none;
-  border-radius: 16px;
-  padding: 14px 16px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  box-shadow: var(--shadow);
+  border-radius: 6px;
+  padding: 10px 16px;
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.2px;
+  text-align: center;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--navy) 25%, transparent);
   cursor: pointer;
 }
 
@@ -422,16 +430,8 @@ async function comprarAhora(): Promise<void> {
   cursor: default;
 }
 
-.comprar .txt {
-  font-family: var(--font-heading);
-  font-weight: 700;
-  font-size: 12.5px;
-}
-
 .comprar .amt {
-  font-family: var(--font-heading);
   font-weight: 800;
-  font-size: 15px;
   color: var(--gold);
 }
 </style>

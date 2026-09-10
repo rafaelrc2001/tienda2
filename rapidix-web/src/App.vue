@@ -72,6 +72,7 @@ watch(
     :titulo="titulo"
     :variante="variante"
     :con-drawer="auth.autenticado"
+    :con-carrito="!auth.autenticado || auth.esCliente"
     @menu="ui.abrirDrawer()"
   >
     <RouterView />
