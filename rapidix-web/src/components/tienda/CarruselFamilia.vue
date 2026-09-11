@@ -239,10 +239,11 @@ onBeforeUnmount(() => observador?.disconnect())
   overflow-x: auto;
   scroll-snap-type: x mandatory;
   /*
-   * El colchón lateral es la mitad de la columna: sin él, la primera y la
-   * última tarjeta no pueden llegar nunca al centro.
+   * El colchón lateral es la mitad de la columna menos media tarjeta: sin él,
+   * la primera y la última no pueden llegar nunca al centro. Los 107px son la
+   * mitad del ancho de `.tarjeta`; si cambia allí, cambia aquí.
    */
-  padding: 2px calc(50% - 94px) 6px;
+  padding: 2px calc(50% - 107px) 6px;
   scrollbar-width: none;
 }
 

@@ -449,8 +449,9 @@ async function comprarAhora(): Promise<void> {
   min-width: 52px;
   padding: 4px 8px;
   border-radius: 10px;
-  background: var(--gold);
-  color: var(--white);
+  /* Amarillo del ahorro con texto oscuro: sobre amarillo el blanco no se lee. */
+  background: var(--amarillo);
+  color: var(--ink);
   box-shadow: var(--shadow);
 }
 

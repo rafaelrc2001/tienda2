@@ -16,6 +16,7 @@ import { dinero } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
 import SubidorImagen from '@/components/SubidorImagen.vue'
 import { nombreRol, ROLES } from './etiquetas'
+import { limiteSuperior, moverPiso, moverTecho, sinValor, type FilaEscalon } from './rangos'
 import type { CategoriaConProductos, Escalon, Producto, RolProducto } from '@/api/tipos'
 
 const props = defineProps<{ activa: boolean }>()
@@ -61,15 +62,6 @@ const erroresGenerales = ref<string[]>([])
 const importando = ref(false)
 const resumen = ref<ResumenImportacion | null>(null)
 
-/**
- * Una fila de la lista de precios (listas 2 y 3; la 1 es el precio de venta).
- * Las dos filas están siempre en el formulario; la que se deja vacía no viaja.
- */
-interface FilaEscalon {
-  piso: number | null
-  precio: number | null
-}
-
 /** Dos listas por encima del precio de venta: las de la tabla del negocio. */
 function filasEscalon(escalones: Escalon[] = []): FilaEscalon[] {
   return [0, 1].map((i) => ({
@@ -78,19 +70,39 @@ function filasEscalon(escalones: Escalon[] = []): FilaEscalon[] {
   }))
 }
 
-/** `v-model.number` deja `''` al vaciar un campo: eso es «sin valor». */
-const sinValor = (v: number | string | null): boolean => v === null || v === ''
+/** Techo de la lista `indice` tal y como se pinta: `null` es «En adelante». */
+const techoDe = (indice: number): number | null =>
+  limiteSuperior(formulario.value.escalones, indice)
 
 /**
- * Límite superior de la lista `indice` en el formulario (0 = precio de venta).
- *
- * No se captura: la API solo guarda el piso de cada lista, y el techo de una
- * es el piso de la siguiente menos uno. Pedirlo aparte permitiría escribir
- * rangos que se enciman o dejan huecos.
+ * Lo escrito en un campo de número. `null` si está vacío o no es un entero,
+ * que para un límite es lo mismo: no hay dónde mover el rango.
  */
-function limiteSuperior(indice: number): string {
-  const siguiente = formulario.value.escalones.slice(indice).find((f) => !sinValor(f.piso))
-  return siguiente ? String(Number(siguiente.piso) - 1) : 'En adelante'
+function enteroDe(campo: HTMLInputElement): number | null {
+  if (campo.value.trim() === '') return null
+  const escrito = Number.parseInt(campo.value, 10)
+  return Number.isNaN(escrito) ? null : escrito
+}
+
+/**
+ * Los dos extremos del rango se editan y los dos escriben en el mismo sitio:
+ * el piso de una lista. El recorte vive en `rangos.ts`; aquí solo se recoge lo
+ * tecleado y se devuelve al campo lo que quedó guardado.
+ *
+ * Esa devolución hace falta cuando el recorte no cambió el modelo —un 0 donde
+ * ya había un 1—: Vue no ve nada que repintar y el número inválido se quedaría
+ * a la vista.
+ */
+function moverLimiteSuperior(indice: number, evento: Event): void {
+  const campo = evento.target as HTMLInputElement
+  const techo = moverTecho(formulario.value.escalones, indice, enteroDe(campo))
+  campo.value = techo === null ? '' : String(techo)
+}
+
+function moverLimiteInferior(i: number, evento: Event): void {
+  const campo = evento.target as HTMLInputElement
+  const piso = moverPiso(formulario.value.escalones, i, enteroDe(campo))
+  campo.value = piso === null ? '' : String(piso)
 }
 
 /** Las listas de un producto como «inferior–superior · precio», para el listado. */
@@ -512,12 +524,17 @@ const filasConError = computed(() => resumen.value?.filas.filter((f) => f.estado
           <span class="lp-encabezado">Precio c/u</span>
 
           <span class="lp-lista">Lista 1</span>
+          <!-- El 1 no se mueve: quien lleva una pieza tiene que tener precio. -->
           <input class="form-input" value="1" disabled aria-label="Lista 1: límite inferior" />
           <input
             class="form-input"
-            :value="limiteSuperior(0)"
-            disabled
+            type="number"
+            step="1"
+            min="1"
+            :value="techoDe(0) ?? ''"
+            placeholder="En adelante"
             aria-label="Lista 1: límite superior"
+            @change="moverLimiteSuperior(0, $event)"
           />
           <input
             id="pr-venta"
@@ -533,19 +550,29 @@ const filasConError = computed(() => resumen.value?.filas.filter((f) => f.estado
           <template v-for="(fila, i) in formulario.escalones" :key="i">
             <span class="lp-lista">Lista {{ i + 2 }}</span>
             <input
-              v-model.number="fila.piso"
               class="form-input"
               type="number"
               step="1"
               min="2"
+              :value="fila.piso ?? ''"
               :placeholder="i === 0 ? '5' : '10'"
               :aria-label="`Lista ${i + 2}: límite inferior`"
+              @change="moverLimiteInferior(i, $event)"
             />
+            <!--
+              La última lista no tiene techo que mover: llega hasta donde llegue
+              el pedido. Y una lista sin piso no es una lista: no hay rango.
+            -->
             <input
               class="form-input"
-              :value="sinValor(fila.piso) ? '' : limiteSuperior(i + 1)"
-              disabled
+              type="number"
+              step="1"
+              min="1"
+              :value="sinValor(fila.piso) ? '' : (techoDe(i + 1) ?? '')"
+              :placeholder="sinValor(fila.piso) ? '' : 'En adelante'"
+              :disabled="sinValor(fila.piso) || i === formulario.escalones.length - 1"
               :aria-label="`Lista ${i + 2}: límite superior`"
+              @change="moverLimiteSuperior(i + 1, $event)"
             />
             <input
               v-model.number="fila.precio"

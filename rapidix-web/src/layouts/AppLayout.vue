@@ -178,6 +178,24 @@ onBeforeUnmount(() => {
   overflow: hidden;
 }
 
+/*
+ * Franja de la barra de estado: el hueco del reloj, el wifi y la batería.
+ *
+ * Con `viewport-fit=cover` la app llega hasta el borde de arriba del teléfono,
+ * así que ese alto hay que pintarlo o se ve el fondo del `body` asomando sobre
+ * el cabezal. Va en naranja de marca, no del color del cabezal: es el remate
+ * del teléfono, no parte de la barra.
+ *
+ * Es el primer elemento de la columna, que es flex: se lleva su alto y empuja
+ * el cabezal hacia abajo. En escritorio el inset vale 0 y no ocupa nada.
+ */
+.app-column::before {
+  content: '';
+  flex-shrink: 0;
+  height: env(safe-area-inset-top, 0px);
+  background: var(--orange);
+}
+
 .is-admin .app-column {
   max-width: var(--ancho-admin);
 }
