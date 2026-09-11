@@ -220,12 +220,16 @@ export class CatalogoService {
 
   /**
    * Boton "Programar" de un producto agotado (Word 6.3): registra la intencion
-   * de compra. Solo tiene sentido si el producto esta efectivamente agotado.
+   * de compra. Solo tiene sentido si el producto esta efectivamente agotado:
+   * deshabilitado a mano o, con el control de inventario encendido, sin saldo
+   * liberado. Es la misma regla con la que la Tienda pinta la etiqueta.
    */
   async programar(productoId: string, clienteId: string): Promise<{ registrado: true }> {
     const producto = await this.prisma.producto.findUnique({ where: { id: productoId } });
     if (!producto) throw new NotFoundException('Producto no encontrado');
-    if (!producto.agotado) {
+    const config = await this.prisma.configuracionNegocio.findUnique({ where: { id: 1 } });
+    const sinSaldo = config?.controlInventario === true && producto.aptInventario <= 0;
+    if (!producto.agotado && !sinSaldo) {
       throw new BadRequestException('Este producto está disponible: agrégalo al carrito.');
     }
     await this.prisma.solicitudProducto.create({ data: { productoId, clienteId } });
