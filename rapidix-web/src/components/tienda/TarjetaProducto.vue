@@ -219,7 +219,8 @@ function alSalirDelCampo(): void {
 <style scoped>
 .tarjeta {
   position: relative;
-  width: 158px;
+  /* Ancha y con la foto baja: la tarjeta queda casi cuadrada, no una columna alta. */
+  width: 188px;
   flex-shrink: 0;
   background: var(--white);
   border-radius: var(--radius-md);
@@ -249,7 +250,7 @@ function alSalirDelCampo(): void {
  * ocupar todo el ancho, con las esquinas de arriba de la propia tarjeta.
  */
 .media {
-  height: 124px;
+  height: 100px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -381,12 +382,9 @@ function alSalirDelCampo(): void {
   border-bottom-color: var(--gold-dark);
 }
 
+/* Sin recuadro: es un aviso dentro de la tarjeta, no una segunda tarjeta. */
 .upsell {
   margin-top: 6px;
-  background: var(--cream-2);
-  border: 1.5px solid var(--gold);
-  border-radius: 9px;
-  padding: 5px 6px 6px;
 }
 
 .upsell p {
@@ -396,11 +394,12 @@ function alSalirDelCampo(): void {
   margin: 0 0 4px;
 }
 
+/* Verde: la acción de ahorrar, distinta del dorado de los atajos de cantidad. */
 .upsell button {
   width: 100%;
   border: none;
-  background: var(--gold);
-  color: var(--ink);
+  background: var(--sage);
+  color: var(--white);
   font-family: var(--font-heading);
   font-weight: 800;
   font-size: 10.5px;

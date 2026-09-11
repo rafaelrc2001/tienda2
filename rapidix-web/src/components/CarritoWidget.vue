@@ -102,9 +102,9 @@ async function vaciar(): Promise<void> {
         stroke-linejoin="round"
         aria-hidden="true"
       >
-        <path d="M2.5 3.5h2.6l2.2 11.2a1.6 1.6 0 0 0 1.6 1.3h8.6a1.6 1.6 0 0 0 1.6-1.2l1.6-6.8H6" />
-        <circle cx="9.5" cy="20" r="1.3" />
-        <circle cx="17.5" cy="20" r="1.3" />
+        <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
+        <circle cx="9" cy="21" r="1" />
+        <circle cx="20" cy="21" r="1" />
       </svg>
       <span v-if="carrito.totalPiezas > 0" class="badge">{{ carrito.totalPiezas }}</span>
     </button>
@@ -125,7 +125,6 @@ async function vaciar(): Promise<void> {
           <ul class="lineas">
             <li v-for="linea in lineas" :key="linea.productoId" :class="{ agotado: linea.agotado }">
               <span class="nombre">{{ linea.cantidad }}× {{ linea.nombre }}</span>
-              <span class="puntos" aria-hidden="true" />
               <span class="importe">{{ dinero(linea.importe) }}</span>
             </li>
           </ul>
@@ -165,47 +164,51 @@ async function vaciar(): Promise<void> {
   flex-shrink: 0;
 }
 
-/* Mismo tamaño que la hamburguesa: el título queda centrado entre los dos. */
+/*
+ * Mismo ancho que la hamburguesa (el título queda centrado entre los dos),
+ * pero sin caja: el carrito suelto de línea como en el diseño anterior.
+ */
 .carrito-btn {
   position: relative;
   width: 34px;
   height: 34px;
-  border-radius: 11px;
   border: none;
-  background: var(--white);
-  box-shadow: var(--shadow);
+  background: transparent;
+  padding: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--ink);
+  /* Hereda el blanco del cabezal naranja. */
+  color: inherit;
   cursor: pointer;
 }
 
 .carrito-btn.activo {
-  color: var(--terracotta);
+  color: var(--gold);
 }
 
 .carrito-btn svg {
-  width: 19px;
-  height: 19px;
+  width: 26px;
+  height: 26px;
 }
 
 .badge {
   position: absolute;
-  top: -5px;
-  right: -5px;
+  top: -3px;
+  right: -6px;
   min-width: 17px;
   height: 17px;
   padding: 0 4px;
   border-radius: 999px;
-  background: var(--terracotta);
+  /* Sobre el naranja un terracota no se distingue: verde, como en el diseño. */
+  background: var(--sage);
   color: var(--white);
   font-family: var(--font-heading);
   font-weight: 800;
   font-size: 10px;
   line-height: 17px;
   text-align: center;
-  box-shadow: 0 0 0 2px var(--cream);
+  box-shadow: 0 0 0 2px var(--orange);
 }
 
 .overlay {
@@ -215,7 +218,7 @@ async function vaciar(): Promise<void> {
   z-index: 1;
 }
 
-/* La forma es la del panel de repetir compra: esquinas cortas y renglones bajos. */
+/* Distribución del diseño anterior: lista, subtotal, acción principal y vaciar como enlace. */
 .panel {
   position: absolute;
   top: 54px;
@@ -226,7 +229,7 @@ async function vaciar(): Promise<void> {
   flex-direction: column;
   background: var(--white);
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: 10px;
   box-shadow: 0 12px 30px rgba(20, 15, 8, 0.25);
   font-family: var(--font-body);
   color: var(--ink);
@@ -237,14 +240,14 @@ async function vaciar(): Promise<void> {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 10px;
+  padding: 10px 14px;
   border-bottom: 1px solid var(--line);
 }
 
 .panel-titulo {
   font-family: var(--font-heading);
   font-weight: 700;
-  font-size: 13.5px;
+  font-size: 14px;
 }
 
 .cerrar {
@@ -275,9 +278,8 @@ async function vaciar(): Promise<void> {
   display: flex;
   align-items: baseline;
   gap: 6px;
-  padding: 5px 10px;
-  font-size: 12px;
-  border-bottom: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
+  padding: 7px 14px;
+  font-size: 12.5px;
 }
 
 .lineas li.agotado {
@@ -286,18 +288,11 @@ async function vaciar(): Promise<void> {
 }
 
 .lineas .nombre {
+  flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-/* El «···» entre producto e importe. */
-.lineas .puntos {
-  flex: 1;
-  min-width: 12px;
-  border-bottom: 1px dotted var(--line);
-  transform: translateY(-3px);
 }
 
 .lineas .importe {
@@ -308,10 +303,10 @@ async function vaciar(): Promise<void> {
   display: flex;
   justify-content: space-between;
   gap: 8px;
-  padding: 8px 10px 6px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--line);
   font-weight: 700;
-  font-size: 12px;
-  text-transform: uppercase;
+  font-size: 13px;
 }
 
 .subtotal .importe {
@@ -319,19 +314,19 @@ async function vaciar(): Promise<void> {
   color: var(--terracotta);
 }
 
+/* Como el diseño anterior: la acción principal a todo el ancho y vaciar como enlace debajo. */
 .acciones {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
-  padding: 6px 8px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 4px 14px 10px;
 }
 
 .acciones button {
   font-family: var(--font-heading);
   font-weight: 700;
-  font-size: 12px;
-  border-radius: 4px;
-  padding: 8px 6px;
+  font-size: 13px;
   cursor: pointer;
 }
 
@@ -344,11 +339,15 @@ async function vaciar(): Promise<void> {
   background: var(--navy);
   color: var(--white);
   border: 1px solid var(--navy);
+  border-radius: 6px;
+  padding: 10px 8px;
 }
 
 .vaciar {
-  background: var(--white);
-  color: var(--ink);
-  border: 1px solid var(--line);
+  align-self: center;
+  background: transparent;
+  color: var(--terracotta);
+  border: none;
+  padding: 6px 8px;
 }
 </style>

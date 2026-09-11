@@ -90,7 +90,7 @@ function activo(ruta: string): boolean {
   gap: 4px;
   background: none;
   border: none;
-  color: #9daac0;
+  color: var(--ink);
   cursor: pointer;
   font-family: var(--font-heading);
   font-size: 9.5px;
@@ -107,8 +107,9 @@ function activo(ruta: string): boolean {
   transition: transform 0.15s ease;
 }
 
+/* Iconos negros sobre la cinta blanca; la opción en la que se está, en naranja. */
 .nav-item.active {
-  color: var(--gold);
+  color: var(--orange);
 }
 
 .nav-item.active svg {
@@ -119,7 +120,7 @@ function activo(ruta: string): boolean {
   width: 4px;
   height: 4px;
   border-radius: 50%;
-  background: var(--gold);
+  background: var(--orange);
   opacity: 0;
   margin-top: -2px;
 }
@@ -136,7 +137,7 @@ function activo(ruta: string): boolean {
   height: 16px;
   padding: 0 4px;
   border-radius: 8px;
-  background: var(--terracotta);
+  background: var(--orange);
   color: var(--white);
   font-size: 9px;
   font-weight: 800;

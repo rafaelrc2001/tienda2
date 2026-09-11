@@ -193,6 +193,25 @@ async function confirmar(): Promise<void> {
       <p v-if="previsualizacion.cashbackEstimado > 0" class="cashback-estimado">
         Ganarás {{ dinero(previsualizacion.cashbackEstimado) }} de cashback
       </p>
+
+      <!-- Lo que le falta al pedido (HU-20): se dice aquí, no en la Tienda. -->
+      <div
+        v-if="
+          (previsualizacion.cashbackEstimado === 0 && previsualizacion.metas?.faltaCashback) ||
+          previsualizacion.metas?.faltaEnvioGratis
+        "
+        class="metas"
+      >
+        <p
+          v-if="previsualizacion.cashbackEstimado === 0 && previsualizacion.metas?.faltaCashback"
+          class="meta"
+        >
+          ¡Estás a solo {{ dinero(previsualizacion.metas.faltaCashback) }} de activar tu cashback!
+        </p>
+        <p v-if="previsualizacion.metas?.faltaEnvioGratis" class="meta">
+          Te faltan {{ dinero(previsualizacion.metas.faltaEnvioGratis) }} para envío gratis
+        </p>
+      </div>
     </div>
 
     <!--
@@ -438,6 +457,27 @@ async function confirmar(): Promise<void> {
   color: var(--sage);
   text-align: right;
   margin: 8px 0 0;
+}
+
+.metas {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+/* Lo que falta es un empujón, no un logro: borde dorado, sin fondo dorado. */
+.meta {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 11.5px;
+  color: var(--ink);
+  text-align: center;
+  background: var(--white);
+  border: 1.5px solid var(--gold);
+  border-radius: 999px;
+  padding: 6px 12px;
+  margin: 0;
 }
 
 .confirmar-wrap {

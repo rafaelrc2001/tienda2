@@ -9,8 +9,9 @@
  *  2. **Una fila por familia**, en el orden que devuelve la API. La pantalla
  *     no reordena nada: el criterio vive en el backend, que es el único que
  *     sabe qué ha comprado esta persona.
- *  3. **Barra de compra** pegada abajo con lo que suman los productos, el
- *     cashback que dejaría el pedido y lo que le falta para el envío gratis.
+ *  3. **Barra de compra** pegada abajo con lo que suman los productos y el
+ *     cashback que dejaría el pedido. Lo que falta para activar el cashback o
+ *     para el envío gratis se dice en el checkout, no aquí.
  *
  * Se puede mirar sin sesión (HU-02): el visitante ve el catálogo del negocio y
  * puede armar su carrito; el login se le pide al pulsar «Comprar ahora».
@@ -87,13 +88,6 @@ const mostrarFastTrack = computed(
 )
 
 const cashback = computed(() => carrito.cashbackEstimado ?? 0)
-
-/**
- * Lo que le falta al carrito, para decirlo aquí y no solo en el carrito
- * (HU-20). Llega calculado de la API; con el carrito vacío no hay nada que
- * medir y la barra no dice nada.
- */
-const metas = computed(() => (carrito.vacio ? null : carrito.metas))
 
 onMounted(async () => {
   await Promise.all([cargarCatalogo(), cargarUltimoPedido()])
@@ -257,6 +251,21 @@ async function comprarAhora(): Promise<void> {
         <path d="M21 21l-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
       </svg>
       <input v-model="busqueda" type="search" placeholder="Buscar productos en la tienda..." />
+      <!--
+        X propia en vez de la del navegador: Safari de iPhone no pinta la de
+        `type="search"` (o solo con el campo enfocado), y en Chrome sí.
+      -->
+      <button
+        v-if="busqueda"
+        type="button"
+        class="limpiar"
+        aria-label="Borrar búsqueda"
+        @click="busqueda = ''"
+      >
+        <svg viewBox="0 0 24 24" fill="none">
+          <path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" />
+        </svg>
+      </button>
     </div>
 
     <SkeletonCard v-if="cargando" />
@@ -284,30 +293,44 @@ async function comprarAhora(): Promise<void> {
 
     <!-- Barra de compra: el importe lo da la API, no se suma aquí. -->
     <div class="barra-compra pegada-al-nav">
-      <div v-if="cashback > 0 || metas?.faltaCashback || metas?.faltaEnvioGratis" class="chips">
-        <span v-if="cashback > 0" class="chip chip-cashback">
-          Ganas {{ dinero(cashback) }} de cashback
+      <!-- Lo que falta para el cashback o el envío gratis se dice en el checkout. -->
+      <div class="fila-compra">
+        <!-- Solo cuando el pedido ya genera cashback: el billete con lo que gana. -->
+        <span
+          v-if="cashback > 0"
+          class="cashback-tile"
+          :aria-label="`Ganas ${dinero(cashback)} de cashback`"
+          :title="`Ganas ${dinero(cashback)} de cashback`"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <rect x="2" y="6" width="20" height="12" rx="2" />
+            <circle cx="12" cy="12" r="2.6" />
+            <path d="M6 9.5v5M18 9.5v5" />
+          </svg>
+          <span class="cashback-monto">{{ dinero(cashback) }}</span>
         </span>
-        <span v-else-if="metas?.faltaCashback" class="chip chip-meta">
-          ¡Estás a solo {{ dinero(metas.faltaCashback) }} de activar tu cashback!
-        </span>
-        <span v-if="metas?.faltaEnvioGratis" class="chip chip-meta">
-          Te faltan {{ dinero(metas.faltaEnvioGratis) }} para envío gratis
-        </span>
-      </div>
 
-      <button
-        type="button"
-        class="comprar"
-        :disabled="carrito.vacio"
-        @click="comprarAhora"
-      >
-        Comprar ahora<template v-if="!carrito.vacio">:
-          <span class="amt">
-            {{ carrito.subtotal !== null ? dinero(carrito.subtotal) : '…' }}
-          </span>
-        </template>
-      </button>
+        <button
+          type="button"
+          class="comprar"
+          :disabled="carrito.vacio"
+          @click="comprarAhora"
+        >
+          Comprar ahora<template v-if="!carrito.vacio">:
+            <span class="amt">
+              {{ carrito.subtotal !== null ? dinero(carrito.subtotal) : '…' }}
+            </span>
+          </template>
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -339,11 +362,38 @@ async function comprarAhora(): Promise<void> {
   color: var(--ink);
 }
 
+/* Se oculta la X nativa: en Chrome saldría duplicada junto a la propia. */
+.search-bar input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
 .search-bar svg {
   width: 16px;
   height: 16px;
   color: var(--muted);
   flex-shrink: 0;
+}
+
+/* Área de toque de 26px aunque el ícono sea pequeño: se pulsa con el pulgar. */
+.limpiar {
+  width: 26px;
+  height: 26px;
+  margin: -5px -6px -5px 0;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: var(--cream-2);
+  padding: 0;
+  cursor: pointer;
+}
+
+.limpiar svg {
+  width: 12px;
+  height: 12px;
 }
 
 .reintentar {
@@ -361,20 +411,21 @@ async function comprarAhora(): Promise<void> {
 }
 
 /*
- * La barra se queda pegada abajo mientras se recorre el catálogo. Los chips van
- * encima del botón: el del cashback aparece al cruzar el mínimo que fija el
- * negocio (HU-12) y, antes, el aviso de cuánto falta; el del envío gratis se va
- * en cuanto se alcanza.
+ * La barra se queda pegada abajo, justo encima de la cinta de iconos, mientras
+ * se recorre el catálogo. Cuando el pedido ya genera cashback (HU-12) aparece
+ * el billete dorado al lado del botón; lo que falta para activarlo o para el
+ * envío gratis se avisa en el checkout, no aquí.
  *
- * Va pegada a la barra inferior, sin hueco: `bottom: 0` y el mismo margen
- * lateral que el menú (8px). `pegada-al-nav` le dice al layout que quite el
- * colchón inferior de `.app-screen` (el sticky respeta ese padding y dejaba
- * 18px de hueco) y que aplane el menú por arriba.
+ * `pegada-al-nav` le dice al layout que quite el colchón inferior de
+ * `.app-screen`: el sticky respeta ese padding y dejaría 18px de hueco. El
+ * fondo crema tapa las tarjetas que pasan por debajo.
  */
 .barra-compra {
   position: sticky;
   bottom: 0;
-  margin: 14px 8px 0;
+  margin-top: 14px;
+  padding: 8px 10px;
+  background: var(--cream);
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -382,44 +433,50 @@ async function comprarAhora(): Promise<void> {
   z-index: 5;
 }
 
-.chips {
+.fila-compra {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 5px;
+  align-items: stretch;
+  gap: 8px;
 }
 
-.chip {
+.cashback-tile {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  min-width: 52px;
+  padding: 4px 8px;
+  border-radius: 10px;
+  background: var(--gold);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+}
+
+.cashback-tile svg {
+  width: 20px;
+  height: 20px;
+}
+
+.cashback-monto {
   font-family: var(--font-heading);
   font-weight: 800;
   font-size: 10.5px;
-  padding: 5px 11px;
-  border-radius: 999px;
-  box-shadow: var(--shadow);
-  color: var(--ink);
-}
-
-.chip-cashback {
-  background: var(--gold);
-}
-
-/* Lo que falta es un empujón, no un logro: sin dorado. */
-.chip-meta {
-  background: var(--white);
-  border: 1.5px solid var(--gold);
+  line-height: 1;
 }
 
 /*
  * Barra plana de una sola línea, «Comprar ahora: $X», como la del ecommerce
- * anterior: texto centrado, navy y dorado de Rapidix. Redondeada solo arriba:
- * por abajo continúa en el menú y los dos se leen como un solo bloque.
+ * anterior: texto centrado, navy y dorado de Rapidix.
  */
 .comprar {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   background: var(--navy);
   color: var(--white);
   border: none;
-  border-radius: 16px 16px 0 0;
+  border-radius: 10px;
   padding: 11px 16px;
   font-family: var(--font-heading);
   font-weight: 700;
