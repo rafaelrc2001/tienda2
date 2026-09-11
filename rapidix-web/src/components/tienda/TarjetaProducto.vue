@@ -224,12 +224,17 @@ function alSalirDelCampo(): void {
 <style scoped>
 .tarjeta {
   position: relative;
-  /* Ancha y con la foto baja: la tarjeta queda casi cuadrada, no una columna alta. */
-  width: 188px;
+  /*
+   * Ancha y con la foto baja: la tarjeta queda casi cuadrada, no una columna alta.
+   * El ancho lo marca la fila de volumen —etiqueta + los pisos + la unidad—, que
+   * es lo que primero se apelotona; si se toca aquí hay que tocar el colchón
+   * lateral de `.pista` en CarruselFamilia, que es la mitad de este ancho.
+   */
+  width: 214px;
   flex-shrink: 0;
   background: var(--white);
   border-radius: var(--radius-md);
-  padding: 8px 10px 9px;
+  padding: 8px 14px 11px;
   box-shadow: var(--shadow);
   text-align: center;
   /* La tarjeta del centro se agranda sin empujar a las de al lado. */
@@ -320,14 +325,14 @@ function alSalirDelCampo(): void {
  * ocupar todo el ancho, con las esquinas de arriba de la propia tarjeta.
  */
 .media {
-  height: 100px;
+  height: 108px;
   display: flex;
   align-items: center;
   justify-content: center;
   /* Blanco como la tarjeta: las fotos traen fondo blanco y así no se nota el borde. */
   background: var(--white);
   border-radius: var(--radius-md) var(--radius-md) 0 0;
-  margin: -8px -10px 6px;
+  margin: -8px -14px 8px;
   overflow: hidden;
   color: var(--muted);
 }
@@ -355,12 +360,12 @@ function alSalirDelCampo(): void {
 .nombre {
   font-family: var(--font-heading);
   font-weight: 700;
-  font-size: 11px;
+  font-size: 11.5px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--ink);
-  line-height: 1.25;
-  min-height: 27px;
+  line-height: 1.3;
+  min-height: 30px;
   margin: 0;
 }
 
@@ -368,27 +373,27 @@ function alSalirDelCampo(): void {
   font-family: var(--font-heading);
   font-weight: 800;
   color: var(--ink);
-  margin: 4px 0 0;
+  margin: 7px 0 0;
   line-height: 1;
 }
 
 .precio .entero {
-  font-size: 21px;
+  font-size: 23px;
 }
 
 /* Los centavos en volado, como en el diseño. */
 .precio .centavos {
-  font-size: 11px;
+  font-size: 12px;
   vertical-align: super;
   margin-left: 1px;
 }
 
 .precio .unidad {
   font-family: var(--font-body);
-  font-size: 10px;
+  font-size: 10.5px;
   font-weight: 600;
   color: var(--muted);
-  margin-left: 3px;
+  margin-left: 4px;
 }
 
 /* El precio de la lista anterior, pequeño y a la izquierda del que se cobra. */
@@ -403,27 +408,27 @@ function alSalirDelCampo(): void {
 .ahorro {
   font-family: var(--font-heading);
   font-weight: 700;
-  font-size: 10px;
+  font-size: 10.5px;
   color: var(--sage);
-  margin: 3px 0 0;
+  margin: 4px 0 0;
 }
 
 .stepper {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  margin-top: 5px;
+  gap: 12px;
+  margin-top: 9px;
 }
 
 .stepper button {
-  width: 26px;
-  height: 26px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
   border: 1.5px solid var(--line);
   background: var(--white);
   font-weight: 800;
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1;
   color: var(--ink);
   cursor: pointer;
@@ -435,7 +440,7 @@ function alSalirDelCampo(): void {
 }
 
 .cantidad {
-  width: 34px;
+  width: 42px;
   border: none;
   border-bottom: 1.5px solid var(--line);
   background: transparent;
@@ -487,8 +492,8 @@ function alSalirDelCampo(): void {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  margin-top: 6px;
+  gap: 7px;
+  margin-top: 10px;
 }
 
 .volumen .etiqueta {
@@ -496,30 +501,40 @@ function alSalirDelCampo(): void {
   color: var(--muted);
   font-family: var(--font-heading);
   font-weight: 800;
-  font-size: 7px;
-  line-height: 1.15;
+  font-size: 7.5px;
+  line-height: 1.2;
   text-transform: uppercase;
   letter-spacing: 0.02em;
-  padding: 4px 5px;
+  padding: 5px 7px;
   border-radius: 5px;
-  max-width: 46px;
+  /*
+   * Dos renglones exactos para la promesa, partida por la coma. El ancho de
+   * contenido —los 7px de padding cuentan, que el box-sizing es border-box—
+   * da para «PAGA MENOS» pero no para «LLEVA MÁS, PAGA»: con menos salian
+   * tres lineas y con mas cabia todo en una.
+   */
+  max-width: 64px;
 }
 
-/* Solo cuando el descuento por volumen es real se pinta en naranja. */
+/*
+ * Solo cuando el descuento por volumen es real se pinta en amarillo: el mismo
+ * del billete de cashback, porque las dos cosas son ahorro. Texto oscuro, que
+ * el blanco sobre amarillo no se lee.
+ */
 .volumen .etiqueta.promesa {
-  background: var(--gold);
-  color: var(--white);
+  background: var(--amarillo);
+  color: var(--ink);
 }
 
 .volumen .piso {
-  width: 24px;
-  height: 22px;
+  width: 28px;
+  height: 26px;
   border-radius: 7px;
   border: 1.5px solid var(--line);
   background: var(--white);
   font-family: var(--font-heading);
   font-weight: 800;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--ink);
   cursor: pointer;
   padding: 0;
@@ -537,14 +552,14 @@ function alSalirDelCampo(): void {
 }
 
 .volumen .medida {
-  font-size: 8.5px;
+  font-size: 9px;
   color: var(--muted);
   font-weight: 700;
 }
 
 .programar {
   width: 100%;
-  margin-top: 6px;
+  margin-top: 9px;
   border: 1.5px solid var(--line);
   background: var(--cream);
   color: var(--ink);

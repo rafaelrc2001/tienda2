@@ -18,6 +18,14 @@
   --orange: #f57c00;
   --orange-dark: #e65100;
 
+  /*
+   * Amarillo del ahorro: el billete de cashback y la promesa «Lleva más, paga
+   * menos». Va siempre con texto oscuro (`--ink`): el blanco sobre amarillo no
+   * alcanza contraste legible.
+   */
+  --amarillo: #f5c518;
+  --amarillo-dark: #d9a800;
+
   /* Neutros */
   --white: #ffffff;
   --neutro: #ebebeb;
