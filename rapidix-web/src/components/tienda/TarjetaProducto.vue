@@ -117,8 +117,9 @@ function alSalirDelCampo(): void {
 <template>
   <!--
     Agotado —deshabilitado en Productos o sin saldo de inventario— lleva el
-    listón naranja en la esquina y el resto de la tarjeta en gris. Lo último
-    comprado no lleva insignia: la fila ya arranca centrada en ello.
+    listón naranja en la esquina superior izquierda y el resto de la tarjeta
+    apagado en gris. Lo último comprado no lleva insignia: la fila ya arranca
+    centrada en ello.
   -->
   <article class="tarjeta" :class="{ activa, agotada: sinExistencias }">
     <div v-if="sinExistencias" class="cinta">
@@ -241,54 +242,77 @@ function alSalirDelCampo(): void {
 
 .tarjeta.activa {
   transform: scale(1);
-  box-shadow: 0 12px 26px rgba(42, 33, 26, 0.18);
+  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.18);
 }
 
 /*
- * Agotada: todo en gris salvo el listón, que es hermano de estos bloques y no
- * hereda el filtro. «Avísame» se sigue pudiendo pulsar: no compra, solo avisa.
+ * Agotada: la tarjeta entera se ve apagada —fondo gris, sin relieve y el
+ * contenido desaturado— para que se distinga de un vistazo en el carrusel. El
+ * listón es hermano de estos bloques y no hereda el filtro, así que se queda
+ * naranja. «Avísame» se sigue pudiendo pulsar: no compra, solo avisa.
  */
+.tarjeta.agotada {
+  background: var(--cream-2);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.06);
+}
+
+.tarjeta.agotada.activa {
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.08);
+}
+
 .tarjeta.agotada .media,
 .tarjeta.agotada .nombre,
 .tarjeta.agotada .precio,
 .tarjeta.agotada .ahorro {
   filter: grayscale(100%);
-  opacity: 0.55;
+  opacity: 0.5;
+}
+
+/* La foto va a sangre: su fondo blanco delataría el recorte sobre el gris. */
+.tarjeta.agotada .media,
+.tarjeta.agotada .media.sin-foto {
+  background: transparent;
+}
+
+/* El botón también se apaga: lo que se ofrece es esperar, no comprar. */
+.tarjeta.agotada .programar {
+  background: transparent;
+  color: var(--muted);
 }
 
 /*
- * Listón diagonal en la esquina superior derecha. La caja recorta la banda
- * girada con el mismo radio que la tarjeta, que no puede llevar `overflow`
- * porque cortaría su propia sombra.
+ * Listón macizo en la esquina superior izquierda: la caja es un triángulo
+ * pintado con un degradado de corte seco —mitad naranja, mitad transparente—
+ * y el texto va girado sobre él. Recorta con el mismo radio que la tarjeta,
+ * que no puede llevar `overflow` porque cortaría su propia sombra.
  */
 .cinta {
   position: absolute;
   top: 0;
-  right: 0;
-  width: 78px;
-  height: 78px;
+  left: 0;
+  width: 74px;
+  height: 74px;
   overflow: hidden;
-  border-top-right-radius: var(--radius-md);
+  border-top-left-radius: var(--radius-md);
+  background: linear-gradient(to bottom right, var(--orange) 0 50%, transparent 50% 100%);
   pointer-events: none;
   z-index: 1;
 }
 
 .cinta span {
   position: absolute;
-  top: 16px;
-  right: -26px;
-  width: 110px;
-  transform: rotate(45deg);
-  background: var(--orange);
+  top: 14px;
+  left: -26px;
+  width: 104px;
+  transform: rotate(-45deg);
   color: var(--white);
   font-family: var(--font-heading);
   font-weight: 800;
   font-size: 9px;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   text-align: center;
-  padding: 3px 0;
-  box-shadow: 0 2px 4px rgba(42, 33, 26, 0.2);
+  line-height: 1;
 }
 
 /*
@@ -481,10 +505,10 @@ function alSalirDelCampo(): void {
   max-width: 46px;
 }
 
-/* Solo cuando el descuento por volumen es real se pinta en dorado. */
+/* Solo cuando el descuento por volumen es real se pinta en naranja. */
 .volumen .etiqueta.promesa {
   background: var(--gold);
-  color: var(--ink);
+  color: var(--white);
 }
 
 .volumen .piso {
@@ -504,6 +528,7 @@ function alSalirDelCampo(): void {
 .volumen .piso.puesto {
   border-color: var(--gold-dark);
   background: var(--gold);
+  color: var(--white);
 }
 
 .volumen .piso:disabled {

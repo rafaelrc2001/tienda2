@@ -178,13 +178,12 @@ async function vaciar(): Promise<void> {
   display: flex;
   align-items: center;
   justify-content: center;
-  /* Hereda el blanco del cabezal naranja. */
+  /*
+   * Hereda el blanco del cabezal verde, también con productos: lo que se
+   * lleva ya lo dice el globo naranja.
+   */
   color: inherit;
   cursor: pointer;
-}
-
-.carrito-btn.activo {
-  color: var(--gold);
 }
 
 .carrito-btn svg {
@@ -200,21 +199,21 @@ async function vaciar(): Promise<void> {
   height: 17px;
   padding: 0 4px;
   border-radius: 999px;
-  /* Sobre el naranja un terracota no se distingue: verde, como en el diseño. */
-  background: var(--sage);
+  /* Naranja de notificación; el aro del color del cabezal lo despega del ícono. */
+  background: var(--orange);
   color: var(--white);
   font-family: var(--font-heading);
   font-weight: 800;
   font-size: 10px;
   line-height: 17px;
   text-align: center;
-  box-shadow: 0 0 0 2px var(--orange);
+  box-shadow: 0 0 0 2px var(--verde);
 }
 
 .overlay {
   position: absolute;
   inset: 0;
-  background: rgba(20, 15, 8, 0.35);
+  background: rgba(0, 0, 0, 0.35);
   z-index: 1;
 }
 
@@ -230,7 +229,7 @@ async function vaciar(): Promise<void> {
   background: var(--white);
   border: 1px solid var(--line);
   border-radius: 10px;
-  box-shadow: 0 12px 30px rgba(20, 15, 8, 0.25);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);
   font-family: var(--font-body);
   color: var(--ink);
   z-index: 2;

@@ -98,7 +98,7 @@ async function cambiarDeModo(): Promise<void> {
 .drawer-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(20, 15, 8, 0.55);
+  background: rgba(0, 0, 0, 0.55);
   z-index: 120;
   display: flex;
   justify-content: flex-start;
@@ -110,7 +110,7 @@ async function cambiarDeModo(): Promise<void> {
   height: 100%;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 0 40px rgba(20, 15, 8, 0.4);
+  box-shadow: 0 0 40px rgba(0, 0, 0, 0.4);
 }
 
 .drawer-cabecera {

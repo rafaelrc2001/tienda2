@@ -161,12 +161,12 @@ const conteo = computed(() => ({
 }
 
 .aviso.cero {
-  background: rgba(193, 68, 14, 0.12);
+  background: rgba(245, 124, 0, 0.12);
   color: var(--terracotta-dark);
 }
 
 .aviso.bajo {
-  background: rgba(244, 180, 0, 0.18);
+  background: rgba(245, 124, 0, 0.18);
   color: var(--gold-dark);
 }
 
@@ -176,7 +176,7 @@ const conteo = computed(() => ({
 }
 
 .aviso.ok {
-  background: rgba(110, 143, 93, 0.15);
+  background: rgba(76, 175, 80, 0.15);
   color: var(--sage);
 }
 

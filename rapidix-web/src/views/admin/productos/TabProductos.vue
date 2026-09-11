@@ -62,8 +62,8 @@ const importando = ref(false)
 const resumen = ref<ResumenImportacion | null>(null)
 
 /**
- * Una fila de «Precio por volumen». Las dos filas están siempre en el
- * formulario; la que se deja vacía no viaja.
+ * Una fila de la lista de precios (listas 2 y 3; la 1 es el precio de venta).
+ * Las dos filas están siempre en el formulario; la que se deja vacía no viaja.
  */
 interface FilaEscalon {
   piso: number | null
@@ -489,44 +489,22 @@ const filasConError = computed(() => resumen.value?.filas.filter((f) => f.estado
             {{ rol.etiqueta }} — {{ rol.ayuda }}
           </option>
         </select>
-        <p class="form-hint">
-          Decide el orden dentro de su familia cuando el cliente no ha comprado nunca ese
-          producto. El orden de las familias se ajusta en la ventana «Familias».
-        </p>
 
-        <div class="form-row-2">
-          <div>
-            <label class="form-label" for="pr-costo">Precio de costo</label>
-            <input
-              id="pr-costo"
-              v-model.number="formulario.precioCosto"
-              class="form-input"
-              type="number"
-              step="0.01"
-              min="0"
-            />
-          </div>
-          <div>
-            <label class="form-label" for="pr-venta">Precio de venta</label>
-            <input
-              id="pr-venta"
-              v-model.number="formulario.precioVenta"
-              class="form-input"
-              :class="{ 'is-invalid': errores.precioVenta }"
-              type="number"
-              step="0.01"
-              min="0"
-            />
-          </div>
-        </div>
-        <p v-if="errores.precioVenta" class="form-error">{{ errores.precioVenta }}</p>
+        <label class="form-label" for="pr-costo">Precio de costo</label>
+        <input
+          id="pr-costo"
+          v-model.number="formulario.precioCosto"
+          class="form-input"
+          type="number"
+          step="0.01"
+          min="0"
+        />
 
+        <!--
+          La lista 1 es el precio de venta: se captura aquí y no en un campo aparte,
+          para que el precio base y los de volumen se lean en una sola tabla.
+        -->
         <p class="form-label">Lista de precios</p>
-        <p class="form-hint">
-          Opcional. A partir de cierta cantidad, cada pieza cuesta menos; la lista 1 es el precio
-          de venta. El límite superior se calcula solo: es uno menos que el inferior de la lista
-          siguiente. Deja vacía la fila que no uses.
-        </p>
         <div class="lista-precios">
           <span class="lp-encabezado" />
           <span class="lp-encabezado">Límite inferior</span>
@@ -542,10 +520,14 @@ const filasConError = computed(() => resumen.value?.filas.filter((f) => f.estado
             aria-label="Lista 1: límite superior"
           />
           <input
+            id="pr-venta"
+            v-model.number="formulario.precioVenta"
             class="form-input"
-            :value="formulario.precioVenta ?? ''"
-            disabled
-            aria-label="Lista 1: precio (el de venta)"
+            :class="{ 'is-invalid': errores.precioVenta }"
+            type="number"
+            step="0.01"
+            min="0"
+            aria-label="Lista 1: precio de venta"
           />
 
           <template v-for="(fila, i) in formulario.escalones" :key="i">
@@ -575,6 +557,7 @@ const filasConError = computed(() => resumen.value?.filas.filter((f) => f.estado
             />
           </template>
         </div>
+        <p v-if="errores.precioVenta" class="form-error">{{ errores.precioVenta }}</p>
 
         <div class="toggle-row">
           <div>

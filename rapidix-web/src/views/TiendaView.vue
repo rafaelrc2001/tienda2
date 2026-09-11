@@ -450,7 +450,7 @@ async function comprarAhora(): Promise<void> {
   padding: 4px 8px;
   border-radius: 10px;
   background: var(--gold);
-  color: var(--ink);
+  color: var(--white);
   box-shadow: var(--shadow);
 }
 
@@ -468,7 +468,7 @@ async function comprarAhora(): Promise<void> {
 
 /*
  * Barra plana de una sola línea, «Comprar ahora: $X», como la del ecommerce
- * anterior: texto centrado, navy y dorado de Rapidix.
+ * anterior: texto centrado, en blanco sobre el verde de los botones primarios.
  */
 .comprar {
   flex: 1;
@@ -491,8 +491,8 @@ async function comprarAhora(): Promise<void> {
   cursor: default;
 }
 
+/* El importe solo en negrita: el naranja sobre el verde no se lee. */
 .comprar .amt {
   font-weight: 800;
-  color: var(--gold);
 }
 </style>

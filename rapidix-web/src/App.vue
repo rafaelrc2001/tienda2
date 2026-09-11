@@ -52,7 +52,7 @@ watch(
       <svg viewBox="0 0 24 24" fill="none">
         <path
           d="M4 12h16M14 8l4 4-4 4"
-          stroke="#FBF3E7"
+          stroke="#FFFFFF"
           stroke-width="2.4"
           stroke-linecap="round"
           stroke-linejoin="round"

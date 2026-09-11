@@ -115,7 +115,7 @@ function irAlRecetario(categoria: string): void {
           <svg viewBox="0 0 24 24" fill="none">
             <path
               d="M4 12h16M14 8l4 4-4 4"
-              stroke="#FBF3E7"
+              stroke="#FFFFFF"
               stroke-width="2.4"
               stroke-linecap="round"
               stroke-linejoin="round"
@@ -253,7 +253,7 @@ function irAlRecetario(categoria: string): void {
 .hero-photo {
   height: 180px;
   width: 100%;
-  background: linear-gradient(160deg, #f7efe0, #e9dcc2 60%, #d8c6a0);
+  background: linear-gradient(160deg, #f5f5f5, #ebebeb 60%, #d6d6d6);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -291,7 +291,7 @@ function irAlRecetario(categoria: string): void {
 
 .paused-banner {
   margin: 14px 18px 4px;
-  background: linear-gradient(135deg, #fff3dc, #fde6bc);
+  background: linear-gradient(135deg, #fff3e0, #ffe0b2);
   border: 1.5px solid var(--gold-dark);
   border-radius: 18px;
   padding: 14px;
@@ -377,7 +377,7 @@ function irAlRecetario(categoria: string): void {
 .order-btn {
   display: block;
   width: 100%;
-  background: linear-gradient(180deg, #f5966b, #e9713d);
+  background: linear-gradient(180deg, #ff9800, #f57c00);
   color: var(--white);
   border: none;
   border-radius: 16px;
@@ -385,7 +385,7 @@ function irAlRecetario(categoria: string): void {
   font-family: var(--font-heading);
   font-weight: 700;
   font-size: 14px;
-  box-shadow: 0 6px 14px rgba(233, 113, 61, 0.3);
+  box-shadow: 0 6px 14px rgba(245, 124, 0, 0.3);
   cursor: pointer;
   text-align: center;
   text-decoration: none;

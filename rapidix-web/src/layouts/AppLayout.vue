@@ -5,7 +5,7 @@
  * Porta la estructura del mockup —barra superior, área de pantallas, barra
  * inferior— pero NO su marco de teléfono: aquí no hay `.phone-shell`, ni
  * notch, ni barra de estado simulada. En móvil la app ocupa la pantalla; en
- * escritorio se centra como una columna sobre el fondo crema.
+ * escritorio se centra como una columna sobre el fondo gris.
  *
  * El ancho de esa columna lo decide `variante`: la app de cliente conserva la
  * medida del mockup y las vistas de administración con tablas se ensanchan.
@@ -114,7 +114,7 @@ const emit = defineEmits<{ (e: 'menu'): void }>()
   .app-column {
     height: calc(100dvh - 48px);
     border-radius: var(--radius-lg);
-    box-shadow: 0 30px 70px rgba(20, 15, 8, 0.28);
+    box-shadow: 0 30px 70px rgba(0, 0, 0, 0.28);
     overflow: hidden;
   }
 }
@@ -125,8 +125,8 @@ const emit = defineEmits<{ (e: 'menu'): void }>()
   justify-content: space-between;
   padding: 12px 16px 10px;
   flex-shrink: 0;
-  /* Cabezal naranja de marca; lo que va encima (título, iconos) en blanco. */
-  background: var(--orange);
+  /* Cabezal verde de marca; lo que va encima (título, iconos) en blanco. */
+  background: var(--verde);
   color: var(--white);
   /*
    * Por encima de la barra inferior (40): el overlay del carrito sale de aquí
@@ -135,7 +135,7 @@ const emit = defineEmits<{ (e: 'menu'): void }>()
   z-index: 50;
 }
 
-/* Tres rayas sueltas sobre el naranja, sin caja, igual que el carrito de enfrente. */
+/* Tres rayas sueltas sobre el verde, sin caja, igual que el carrito de enfrente. */
 .hamburger-btn {
   width: 34px;
   height: 34px;
@@ -203,7 +203,7 @@ const emit = defineEmits<{ (e: 'menu'): void }>()
   background: var(--white);
   padding: 8px 6px calc(8px + env(safe-area-inset-bottom));
   border-top: 1px solid var(--line);
-  box-shadow: 0 -4px 14px rgba(42, 33, 26, 0.06);
+  box-shadow: 0 -4px 14px rgba(0, 0, 0, 0.06);
 }
 
 /*

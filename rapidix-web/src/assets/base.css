@@ -25,10 +25,10 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* En escritorio el fondo crema del mockup rodea a la columna centrada. */
+/* En escritorio un degradado de los neutros de la paleta rodea a la columna centrada. */
 @media (min-width: 700px) {
   body {
-    background: radial-gradient(circle at 20% 10%, #efe3ce 0%, #d9c7a8 55%, #cbb693 100%);
+    background: radial-gradient(circle at 20% 10%, #f5f5f5 0%, #e0e0e0 55%, #d0d0d0 100%);
   }
 }
 
@@ -77,29 +77,29 @@ body {
  * Botones
  * ------------------------------------------------------------------ */
 
+/* Botón primario en el verde de marca, con el canto en el verde oscuro. */
 .btn-primary {
-  background: linear-gradient(180deg, var(--gold) 0%, var(--gold-dark) 100%);
-  color: #3b2a00;
+  background: linear-gradient(180deg, var(--verde) 0%, var(--verde-dark) 100%);
+  color: var(--white);
   font-family: var(--font-heading);
   font-weight: 700;
   font-size: 13px;
-  border: 1.5px solid var(--ink);
+  border: 1.5px solid var(--verde-dark);
   border-radius: 13px;
   padding: 11px 16px;
   cursor: pointer;
   text-align: center;
-  box-shadow: 0 3px 0 var(--ink);
+  box-shadow: 0 3px 0 var(--verde-dark);
 }
 
 .btn-primary:active:not(:disabled) {
   transform: translateY(2px);
-  box-shadow: 0 1px 0 var(--ink);
+  box-shadow: 0 1px 0 var(--verde-dark);
 }
 
 .btn-primary:disabled {
   opacity: 0.55;
   cursor: not-allowed;
-  box-shadow: 0 3px 0 rgba(42, 33, 26, 0.4);
 }
 
 .btn-secondary {
@@ -232,7 +232,7 @@ body {
   position: absolute;
   cursor: pointer;
   inset: 0;
-  background: #dcd0bb;
+  background: #cccccc;
   border-radius: 20px;
   transition: 0.2s;
 }
@@ -294,7 +294,7 @@ input:checked + .switch-danger-slider {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(20, 15, 8, 0.55);
+  background: rgba(0, 0, 0, 0.55);
   z-index: 100;
   display: flex;
   align-items: flex-end;
@@ -412,7 +412,7 @@ input:checked + .switch-danger-slider {
 .subtab.active {
   background: var(--terracotta);
   color: var(--white);
-  box-shadow: 0 3px 8px rgba(193, 68, 14, 0.3);
+  box-shadow: 0 3px 8px rgba(245, 124, 0, 0.3);
 }
 
 .mini-tag {
