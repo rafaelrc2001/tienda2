@@ -10,9 +10,10 @@
  * El ancho de esa columna lo decide `variante`: la app de cliente conserva la
  * medida del mockup y las vistas de administración con tablas se ensanchan.
  */
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import CarritoWidget from '@/components/CarritoWidget.vue'
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     /** Título que se pinta en la barra superior. */
     titulo?: string
@@ -32,11 +33,83 @@ withDefaults(
 )
 
 const emit = defineEmits<{ (e: 'menu'): void }>()
+
+/**
+ * La cinta de iconos se esconde al bajar y vuelve al subir.
+ *
+ * Quien desplaza es `.app-screen`, no `window`, así que el oyente va sobre esa
+ * caja. Esconderla no es solo moverla: también se le come su propio hueco con
+ * un margen negativo, porque si no quedaría una franja crema al fondo y no se
+ * ganaría nada de pantalla.
+ */
+const pantalla = ref<HTMLElement | null>(null)
+const cinta = ref<HTMLElement | null>(null)
+const navOculto = ref(false)
+/** Alto real de la cinta; alimenta el margen negativo que colapsa su hueco. */
+const altoNav = ref(0)
+
+/** Píxeles seguidos en una dirección antes de cambiar de estado. */
+const UMBRAL = 12
+
+let ultimoY = 0
+/** Recorrido acumulado desde el último cambio de sentido. */
+let acumulado = 0
+let observador: ResizeObserver | null = null
+
+function alDesplazar() {
+  const caja = pantalla.value
+  if (!caja) return
+
+  const y = caja.scrollTop
+  const delta = y - ultimoY
+  ultimoY = y
+
+  // Arriba del todo la cinta siempre está a la vista.
+  if (y <= altoNav.value) {
+    acumulado = 0
+    navOculto.value = false
+    return
+  }
+
+  /*
+   * Cerca del final no se toca el estado: esconder la cinta agranda
+   * `.app-screen`, el navegador recorta el scroll sobrante y ese recorte
+   * dispara este mismo manejador en sentido contrario, que la volvería a
+   * mostrar, y así en bucle.
+   */
+  if (caja.scrollHeight - (y + caja.clientHeight) <= altoNav.value + 8) return
+
+  // Un cambio de sentido empieza a contar de cero.
+  if (delta > 0 !== acumulado > 0) acumulado = 0
+  acumulado += delta
+
+  if (acumulado > UMBRAL) navOculto.value = true
+  else if (acumulado < -UMBRAL) navOculto.value = false
+}
+
+onMounted(() => {
+  if (props.sinNav) return
+  pantalla.value?.addEventListener('scroll', alDesplazar, { passive: true })
+
+  // El alto cambia con el área segura del móvil y al ocultarse «Cupones».
+  if (cinta.value && typeof ResizeObserver !== 'undefined') {
+    observador = new ResizeObserver(() => {
+      // Encogida no mide lo que ocupa: el valor bueno es el de cuando está puesta.
+      if (!navOculto.value && cinta.value) altoNav.value = cinta.value.offsetHeight
+    })
+    observador.observe(cinta.value)
+  }
+})
+
+onBeforeUnmount(() => {
+  pantalla.value?.removeEventListener('scroll', alDesplazar)
+  observador?.disconnect()
+})
 </script>
 
 <template>
   <div class="app-frame" :class="`is-${variante}`">
-    <div class="app-column">
+    <div class="app-column" :style="{ '--alto-nav': `${altoNav}px` }">
       <header v-if="titulo" class="app-topbar">
         <button
           v-if="conDrawer"
@@ -61,11 +134,11 @@ const emit = defineEmits<{ (e: 'menu'): void }>()
         <span v-else class="hueco-hamburguesa" aria-hidden="true" />
       </header>
 
-      <main class="app-screen">
+      <main ref="pantalla" class="app-screen">
         <slot />
       </main>
 
-      <nav v-if="!sinNav" class="app-bottom-nav">
+      <nav v-if="!sinNav" ref="cinta" class="app-bottom-nav" :class="{ oculta: navOculto }">
         <slot name="nav" />
       </nav>
     </div>
@@ -97,8 +170,12 @@ const emit = defineEmits<{ (e: 'menu'): void }>()
   display: flex;
   flex-direction: column;
   position: relative;
-  /* Nada puede desbordar en horizontal, ni en un móvil de 390px. */
-  overflow-x: hidden;
+  /*
+   * Nada puede desbordar, ni en horizontal en un móvil de 390px ni en vertical
+   * cuando la cinta de iconos se desliza fuera: recortarla aquí es lo que hace
+   * que desaparezca en lugar de sacarle barra de scroll a la columna.
+   */
+  overflow: hidden;
 }
 
 .is-admin .app-column {
@@ -115,7 +192,6 @@ const emit = defineEmits<{ (e: 'menu'): void }>()
     height: calc(100dvh - 48px);
     border-radius: var(--radius-lg);
     box-shadow: 0 30px 70px rgba(0, 0, 0, 0.28);
-    overflow: hidden;
   }
 }
 
@@ -191,8 +267,9 @@ const emit = defineEmits<{ (e: 'menu'): void }>()
 }
 
 /*
- * Cinta de iconos blanca a todo el ancho, pegada al borde de abajo. Siempre a
- * la vista: la columna tiene altura fija y lo que desplaza es `.app-screen`.
+ * Cinta de iconos blanca a todo el ancho, pegada al borde de abajo. La columna
+ * tiene altura fija y lo que desplaza es `.app-screen`, así que la cinta no se
+ * va sola: solo sale de la pantalla cuando `.oculta` lo pide.
  */
 .app-bottom-nav {
   z-index: 40;
@@ -204,6 +281,25 @@ const emit = defineEmits<{ (e: 'menu'): void }>()
   padding: 8px 6px calc(8px + env(safe-area-inset-bottom));
   border-top: 1px solid var(--line);
   box-shadow: 0 -4px 14px rgba(0, 0, 0, 0.06);
+  transition:
+    transform 0.24s ease,
+    margin-bottom 0.24s ease;
+}
+
+/*
+ * Bajando por el catálogo la cinta estorba. Se desliza fuera y además cede su
+ * hueco con el margen negativo —justo su propio alto—, que es lo que deja a
+ * `.app-screen` crecer; con solo el `translateY` quedaría una franja crema.
+ */
+.app-bottom-nav.oculta {
+  transform: translateY(100%);
+  margin-bottom: calc(-1 * var(--alto-nav, 0px));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-bottom-nav {
+    transition: none;
+  }
 }
 
 /*
