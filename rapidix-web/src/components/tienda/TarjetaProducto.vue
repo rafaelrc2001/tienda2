@@ -116,10 +116,14 @@ function alSalirDelCampo(): void {
 
 <template>
   <!--
-    Sin insignias arriba. Agotado ya lo dicen la imagen en gris y el botón
-    «Avísame»; lo último comprado, que la fila arranque centrada en ello.
+    Agotado —deshabilitado en Productos o sin saldo de inventario— lleva el
+    listón naranja en la esquina y el resto de la tarjeta en gris. Lo último
+    comprado no lleva insignia: la fila ya arranca centrada en ello.
   -->
   <article class="tarjeta" :class="{ activa, agotada: sinExistencias }">
+    <div v-if="sinExistencias" class="cinta">
+      <span>Agotado</span>
+    </div>
 
     <div class="media" :class="{ 'sin-foto': !producto.imagenUrl }">
       <img v-if="producto.imagenUrl" :src="producto.imagenUrl" :alt="producto.nombre" />
@@ -219,7 +223,8 @@ function alSalirDelCampo(): void {
 <style scoped>
 .tarjeta {
   position: relative;
-  width: 158px;
+  /* Ancha y con la foto baja: la tarjeta queda casi cuadrada, no una columna alta. */
+  width: 188px;
   flex-shrink: 0;
   background: var(--white);
   border-radius: var(--radius-md);
@@ -239,9 +244,51 @@ function alSalirDelCampo(): void {
   box-shadow: 0 12px 26px rgba(42, 33, 26, 0.18);
 }
 
-.tarjeta.agotada .media {
-  filter: grayscale(55%);
-  opacity: 0.7;
+/*
+ * Agotada: todo en gris salvo el listón, que es hermano de estos bloques y no
+ * hereda el filtro. «Avísame» se sigue pudiendo pulsar: no compra, solo avisa.
+ */
+.tarjeta.agotada .media,
+.tarjeta.agotada .nombre,
+.tarjeta.agotada .precio,
+.tarjeta.agotada .ahorro {
+  filter: grayscale(100%);
+  opacity: 0.55;
+}
+
+/*
+ * Listón diagonal en la esquina superior derecha. La caja recorta la banda
+ * girada con el mismo radio que la tarjeta, que no puede llevar `overflow`
+ * porque cortaría su propia sombra.
+ */
+.cinta {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 78px;
+  height: 78px;
+  overflow: hidden;
+  border-top-right-radius: var(--radius-md);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.cinta span {
+  position: absolute;
+  top: 16px;
+  right: -26px;
+  width: 110px;
+  transform: rotate(45deg);
+  background: var(--orange);
+  color: var(--white);
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-align: center;
+  padding: 3px 0;
+  box-shadow: 0 2px 4px rgba(42, 33, 26, 0.2);
 }
 
 /*
@@ -249,7 +296,7 @@ function alSalirDelCampo(): void {
  * ocupar todo el ancho, con las esquinas de arriba de la propia tarjeta.
  */
 .media {
-  height: 124px;
+  height: 100px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -381,12 +428,9 @@ function alSalirDelCampo(): void {
   border-bottom-color: var(--gold-dark);
 }
 
+/* Sin recuadro: es un aviso dentro de la tarjeta, no una segunda tarjeta. */
 .upsell {
   margin-top: 6px;
-  background: var(--cream-2);
-  border: 1.5px solid var(--gold);
-  border-radius: 9px;
-  padding: 5px 6px 6px;
 }
 
 .upsell p {
@@ -396,11 +440,12 @@ function alSalirDelCampo(): void {
   margin: 0 0 4px;
 }
 
+/* Verde: la acción de ahorrar, distinta del dorado de los atajos de cantidad. */
 .upsell button {
   width: 100%;
   border: none;
-  background: var(--gold);
-  color: var(--ink);
+  background: var(--sage);
+  color: var(--white);
   font-family: var(--font-heading);
   font-weight: 800;
   font-size: 10.5px;

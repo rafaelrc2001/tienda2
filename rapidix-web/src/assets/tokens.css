@@ -12,6 +12,12 @@
   --cream-2: #f5e9d6;
   --terracotta: #c1440e;
   --terracotta-dark: #9a340a;
+  /*
+   * Naranja de marca del rediseño (cabezal y opción activa del menú). No está
+   * en el mockup: el terracota es más rojizo y no se lee como «naranja».
+   */
+  --orange: #f07a00;
+  --orange-dark: #cf6400;
   --gold: #f4b400;
   --gold-dark: #d99a00;
   --navy: #20304a;

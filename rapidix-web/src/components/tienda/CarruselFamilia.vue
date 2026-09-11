@@ -106,10 +106,31 @@ onBeforeUnmount(() => observador?.disconnect())
   <section class="familia">
     <header class="cabecera">
       <h2 class="titulo"><span class="accent-bar" />{{ familia.categoria }}</h2>
+    </header>
 
-      <div v-if="total > 1" class="flechas">
+    <div class="carrusel">
+      <div
+        ref="pista"
+        class="pista"
+        :class="{ centrada: cabeEntero }"
+        @scroll.passive="alDesplazar"
+        @pointerdown="emit('interaccion')"
+      >
+        <TarjetaProducto
+          v-for="(producto, indice) in familia.productos"
+          :key="producto.id"
+          :producto="producto"
+          :activa="indice === activo"
+          :control-inventario="controlInventario"
+          @programar="emit('programar', producto.id, producto.nombre)"
+        />
+      </div>
+
+      <!-- Las flechas van a los lados de las tarjetas, no en la cabecera. -->
+      <template v-if="total > 1">
         <button
           type="button"
+          class="flecha izquierda"
           aria-label="Anterior"
           :disabled="activo === 0"
           @click="mover(-1)"
@@ -118,30 +139,14 @@ onBeforeUnmount(() => observador?.disconnect())
         </button>
         <button
           type="button"
+          class="flecha derecha"
           aria-label="Siguiente"
           :disabled="activo >= total - 1"
           @click="mover(1)"
         >
           ›
         </button>
-      </div>
-    </header>
-
-    <div
-      ref="pista"
-      class="pista"
-      :class="{ centrada: cabeEntero }"
-      @scroll.passive="alDesplazar"
-      @pointerdown="emit('interaccion')"
-    >
-      <TarjetaProducto
-        v-for="(producto, indice) in familia.productos"
-        :key="producto.id"
-        :producto="producto"
-        :activa="indice === activo"
-        :control-inventario="controlInventario"
-        @programar="emit('programar', producto.id, producto.nombre)"
-      />
+      </template>
     </div>
 
     <div v-if="mostrarPuntos" class="puntos">
@@ -183,28 +188,48 @@ onBeforeUnmount(() => observador?.disconnect())
   gap: 7px;
 }
 
-.flechas {
-  display: flex;
-  gap: 5px;
-  flex-shrink: 0;
+.carrusel {
+  position: relative;
 }
 
-.flechas button {
-  width: 25px;
-  height: 25px;
+/* Flotan sobre las tarjetas vecinas, centradas en vertical respecto a la pista. */
+.flecha {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
   border: 1.5px solid var(--line);
   background: var(--white);
-  color: var(--ink);
-  font-size: 15px;
+  color: var(--sage);
+  box-shadow: var(--shadow);
+  font-size: 20px;
+  font-weight: 700;
   line-height: 1;
   cursor: pointer;
-  padding: 0;
+  padding: 0 0 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.flechas button:disabled {
-  opacity: 0.35;
-  cursor: default;
+.flecha.izquierda {
+  left: 8px;
+}
+
+.flecha.derecha {
+  right: 8px;
+}
+
+/*
+ * En los extremos se esconde en lugar de atenuarse: al estar encima de las
+ * tarjetas, un botón apagado solo estorbaría.
+ */
+.flecha:disabled {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .pista {
@@ -217,7 +242,7 @@ onBeforeUnmount(() => observador?.disconnect())
    * El colchón lateral es la mitad de la columna: sin él, la primera y la
    * última tarjeta no pueden llegar nunca al centro.
    */
-  padding: 2px calc(50% - 79px) 6px;
+  padding: 2px calc(50% - 94px) 6px;
   scrollbar-width: none;
 }
 

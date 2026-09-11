@@ -123,9 +123,11 @@ const emit = defineEmits<{ (e: 'menu'): void }>()
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px 8px;
+  padding: 12px 16px 10px;
   flex-shrink: 0;
-  background: var(--cream);
+  /* Cabezal naranja de marca; lo que va encima (título, iconos) en blanco. */
+  background: var(--orange);
+  color: var(--white);
   /*
    * Por encima de la barra inferior (40): el overlay del carrito sale de aquí
    * dentro y tiene que tapar también la cinta de abajo.
@@ -133,18 +135,18 @@ const emit = defineEmits<{ (e: 'menu'): void }>()
   z-index: 50;
 }
 
+/* Tres rayas sueltas sobre el naranja, sin caja, igual que el carrito de enfrente. */
 .hamburger-btn {
   width: 34px;
   height: 34px;
-  border-radius: 11px;
   border: none;
-  background: var(--white);
-  box-shadow: var(--shadow);
+  background: transparent;
+  padding: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  color: var(--ink);
+  color: inherit;
   flex-shrink: 0;
 }
 
@@ -154,15 +156,15 @@ const emit = defineEmits<{ (e: 'menu'): void }>()
 }
 
 .hamburger-btn svg {
-  width: 17px;
-  height: 17px;
+  width: 24px;
+  height: 24px;
 }
 
 .topbar-title {
   font-family: var(--font-heading);
   font-weight: 700;
-  font-size: 15px;
-  color: var(--terracotta-dark);
+  font-size: 16px;
+  color: var(--white);
   letter-spacing: 0.02em;
   margin: 0;
   text-align: center;
@@ -188,32 +190,28 @@ const emit = defineEmits<{ (e: 'menu'): void }>()
   display: none;
 }
 
+/*
+ * Cinta de iconos blanca a todo el ancho, pegada al borde de abajo. Siempre a
+ * la vista: la columna tiene altura fija y lo que desplaza es `.app-screen`.
+ */
 .app-bottom-nav {
   z-index: 40;
   flex-shrink: 0;
   display: flex;
   justify-content: space-around;
   align-items: center;
-  background: var(--navy);
-  padding: 12px 6px 10px;
-  border-radius: 24px 24px 30px 30px;
-  margin: 0 8px 8px;
-  box-shadow: 0 -6px 18px rgba(0, 0, 0, 0.18);
+  background: var(--white);
+  padding: 8px 6px calc(8px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+  box-shadow: 0 -4px 14px rgba(42, 33, 26, 0.06);
 }
 
 /*
  * Si la pantalla trae una barra que se pega al menú (la de compra de la
  * Tienda), sobra el colchón inferior: un sticky no baja más allá del padding
- * del contenedor que desplaza, así que dejaría ese hueco. El menú pierde además
- * las esquinas y la sombra de arriba para que los dos formen un solo bloque.
+ * del contenedor que desplaza, así que dejaría ese hueco.
  */
 .app-column:has(.pegada-al-nav) .app-screen {
   padding-bottom: 0;
-}
-
-.app-column:has(.pegada-al-nav) .app-bottom-nav {
-  border-top-left-radius: 0;
-  border-top-right-radius: 0;
-  box-shadow: none;
 }
 </style>

@@ -81,6 +81,29 @@ function filasEscalon(escalones: Escalon[] = []): FilaEscalon[] {
 /** `v-model.number` deja `''` al vaciar un campo: eso es «sin valor». */
 const sinValor = (v: number | string | null): boolean => v === null || v === ''
 
+/**
+ * Límite superior de la lista `indice` en el formulario (0 = precio de venta).
+ *
+ * No se captura: la API solo guarda el piso de cada lista, y el techo de una
+ * es el piso de la siguiente menos uno. Pedirlo aparte permitiría escribir
+ * rangos que se enciman o dejan huecos.
+ */
+function limiteSuperior(indice: number): string {
+  const siguiente = formulario.value.escalones.slice(indice).find((f) => !sinValor(f.piso))
+  return siguiente ? String(Number(siguiente.piso) - 1) : 'En adelante'
+}
+
+/** Las listas de un producto como «inferior–superior · precio», para el listado. */
+function listaDePrecios(producto: Producto): { rango: string; precio: number }[] {
+  const listas = [{ piso: 1, precio: producto.precioVenta }, ...producto.escalones]
+  return listas.map((lista, i) => {
+    const techo = listas[i + 1] ? listas[i + 1].piso - 1 : null
+    let rango = `${lista.piso}+`
+    if (techo !== null) rango = techo === lista.piso ? `${lista.piso}` : `${lista.piso}–${techo}`
+    return { rango, precio: lista.precio }
+  })
+}
+
 const formulario = ref({
   nombre: '',
   categoria: '',
@@ -373,9 +396,11 @@ const filasConError = computed(() => resumen.value?.filas.filter((f) => f.estado
               · {{ nombreRol(producto.rol) }}
             </p>
             <p v-if="producto.escalones.length > 0 || !producto.aplicaCashback" class="detalle">
-              <span v-for="escalon in producto.escalones" :key="escalon.piso" class="escalon">
-                {{ escalon.piso }}+ {{ dinero(escalon.precio) }}
-              </span>
+              <template v-if="producto.escalones.length > 0">
+                <span v-for="lista in listaDePrecios(producto)" :key="lista.rango" class="escalon">
+                  {{ lista.rango }} {{ producto.unidad }} · {{ dinero(lista.precio) }}
+                </span>
+              </template>
               <span v-if="!producto.aplicaCashback" class="escalon">Sin cashback</span>
             </p>
             <p class="saldo">
@@ -496,35 +521,59 @@ const filasConError = computed(() => resumen.value?.filas.filter((f) => f.estado
         </div>
         <p v-if="errores.precioVenta" class="form-error">{{ errores.precioVenta }}</p>
 
-        <p class="form-label">Precio por volumen</p>
+        <p class="form-label">Lista de precios</p>
         <p class="form-hint">
-          Opcional. A partir de cierta cantidad, cada pieza cuesta menos; el precio de venta es la
-          lista 1. Deja vacía la fila que no uses.
+          Opcional. A partir de cierta cantidad, cada pieza cuesta menos; la lista 1 es el precio
+          de venta. El límite superior se calcula solo: es uno menos que el inferior de la lista
+          siguiente. Deja vacía la fila que no uses.
         </p>
-        <div v-for="(fila, i) in formulario.escalones" :key="i" class="form-row-2">
-          <div>
-            <label class="form-label" :for="`pr-piso-${i}`">Lista {{ i + 2 }}: desde</label>
+        <div class="lista-precios">
+          <span class="lp-encabezado" />
+          <span class="lp-encabezado">Límite inferior</span>
+          <span class="lp-encabezado">Límite superior</span>
+          <span class="lp-encabezado">Precio c/u</span>
+
+          <span class="lp-lista">Lista 1</span>
+          <input class="form-input" value="1" disabled aria-label="Lista 1: límite inferior" />
+          <input
+            class="form-input"
+            :value="limiteSuperior(0)"
+            disabled
+            aria-label="Lista 1: límite superior"
+          />
+          <input
+            class="form-input"
+            :value="formulario.precioVenta ?? ''"
+            disabled
+            aria-label="Lista 1: precio (el de venta)"
+          />
+
+          <template v-for="(fila, i) in formulario.escalones" :key="i">
+            <span class="lp-lista">Lista {{ i + 2 }}</span>
             <input
-              :id="`pr-piso-${i}`"
               v-model.number="fila.piso"
               class="form-input"
               type="number"
               step="1"
               min="2"
               :placeholder="i === 0 ? '5' : '10'"
+              :aria-label="`Lista ${i + 2}: límite inferior`"
             />
-          </div>
-          <div>
-            <label class="form-label" :for="`pr-precio-${i}`">Precio c/u</label>
             <input
-              :id="`pr-precio-${i}`"
+              class="form-input"
+              :value="sinValor(fila.piso) ? '' : limiteSuperior(i + 1)"
+              disabled
+              :aria-label="`Lista ${i + 2}: límite superior`"
+            />
+            <input
               v-model.number="fila.precio"
               class="form-input"
               type="number"
               step="0.01"
               min="0"
+              :aria-label="`Lista ${i + 2}: precio`"
             />
-          </div>
+          </template>
         </div>
 
         <div class="toggle-row">
@@ -583,6 +632,42 @@ const filasConError = computed(() => resumen.value?.filas.filter((f) => f.estado
   font-size: 11.5px;
   color: var(--muted);
   margin: 4px 0 0;
+}
+
+/* Tabla de la lista de precios: la etiqueta de la lista y sus tres columnas. */
+.lista-precios {
+  display: grid;
+  grid-template-columns: auto repeat(3, minmax(0, 1fr));
+  gap: 6px 8px;
+  align-items: center;
+  margin: 8px 0 12px;
+}
+
+.lista-precios .form-input {
+  margin-bottom: 0;
+  min-width: 0;
+}
+
+.lista-precios .form-input:disabled {
+  background: var(--cream-2);
+  color: var(--muted);
+}
+
+.lp-encabezado {
+  font-family: var(--font-heading);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.lp-lista {
+  font-family: var(--font-heading);
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--ink);
+  white-space: nowrap;
 }
 
 .categorias-nuevas {
