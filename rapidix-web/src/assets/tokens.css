@@ -1,35 +1,49 @@
 /*
  * Tokens de diseño de Rapidix.
  *
- * Portados literalmente del bloque `:root` de `rapidix_mockup (2).html`, que
- * es la fuente de verdad de la interfaz. Lo que NO se porta es el marco de
- * teléfono: aquí la app ocupa la pantalla en móvil y se centra en escritorio.
+ * Los nombres vienen del bloque `:root` de `rapidix_mockup (2).html`; los
+ * valores son los de la paleta equilibrada de la app: verde de marca, naranja
+ * de acción y cuatro neutros. Se conservan los nombres del mockup para no
+ * tocar cada regla: cada uno apunta ahora al color de la paleta que cumple su
+ * papel. Lo que NO se porta es el marco de teléfono: aquí la app ocupa la
+ * pantalla en móvil y se centra en escritorio.
  */
 
 :root {
-  /* Color */
-  --cream: #fbf3e7;
-  --cream-2: #f5e9d6;
-  --terracotta: #c1440e;
-  --terracotta-dark: #9a340a;
-  /*
-   * Naranja de marca del rediseño (cabezal y opción activa del menú). No está
-   * en el mockup: el terracota es más rojizo y no se lee como «naranja».
-   */
-  --orange: #f07a00;
-  --orange-dark: #cf6400;
-  --gold: #f4b400;
-  --gold-dark: #d99a00;
-  --navy: #20304a;
-  --navy-2: #2b3e5c;
-  --sage: #6e8f5d;
-  --ink: #2a211a;
-  --muted: #8a7b6c;
+  /* Verde equilibrado: cabecera, botones primarios y estados de éxito. */
+  --verde: #4caf50;
+  --verde-dark: #388e3c;
+
+  /* Naranja equilibrado: llamadas a la acción, acentos y notificaciones. */
+  --orange: #f57c00;
+  --orange-dark: #e65100;
+
+  /* Neutros */
   --white: #ffffff;
-  --line: #e9dcc7;
+  --neutro: #ebebeb;
+  --gris: #808080;
+  --gris-oscuro: #4d4d4d;
+
+  /*
+   * Nombres del mockup, repartidos entre la paleta. El terracota y el dorado
+   * eran los acentos: pasan al naranja. El navy y el salvia eran botones
+   * primarios y éxito: pasan al verde.
+   */
+  --cream: var(--neutro);
+  --cream-2: #f5f5f5;
+  --terracotta: var(--orange);
+  --terracotta-dark: var(--orange-dark);
+  --gold: var(--orange);
+  --gold-dark: var(--orange-dark);
+  --navy: var(--verde);
+  --navy-2: var(--verde-dark);
+  --sage: var(--verde);
+  --ink: var(--gris-oscuro);
+  --muted: var(--gris);
+  --line: #dddddd;
 
   /* Elevación y radios */
-  --shadow: 0 10px 30px rgba(42, 33, 26, 0.12);
+  --shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
   --radius-lg: 22px;
   --radius-md: 14px;
   --radius-sm: 9px;

@@ -275,7 +275,7 @@ async function confirmar(): Promise<void> {
 }
 
 .avisos {
-  background: linear-gradient(135deg, #fff3dc, #fde6bc);
+  background: linear-gradient(135deg, #fff3e0, #ffe0b2);
   border: 1.5px solid var(--gold-dark);
   border-radius: 14px;
   padding: 12px 14px;

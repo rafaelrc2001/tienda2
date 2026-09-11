@@ -222,12 +222,12 @@ function alternar(): void {
   cursor: pointer;
 }
 
-/* El dorado y el texto café son los de `.btn-primary`, en tamaño chico. */
+/* El verde y el texto blanco son los de `.btn-primary`, en tamaño chico. */
 .usar {
-  background: linear-gradient(180deg, var(--gold) 0%, var(--gold-dark) 100%);
-  color: #3b2a00;
+  background: linear-gradient(180deg, var(--verde) 0%, var(--verde-dark) 100%);
+  color: var(--white);
   font-weight: 700;
-  border: 1px solid var(--gold-dark);
+  border: 1px solid var(--verde-dark);
 }
 
 .usar:disabled {

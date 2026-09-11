@@ -403,7 +403,7 @@ async function salir(): Promise<void> {
 
 .cashback-card {
   margin: 0 18px 16px;
-  background: linear-gradient(135deg, #3b6b45, #2c5233);
+  background: linear-gradient(135deg, #4caf50, #388e3c);
   border-radius: 18px;
   padding: 18px;
   color: var(--white);

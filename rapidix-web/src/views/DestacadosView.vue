@@ -126,7 +126,7 @@ onMounted(async () => {
 }
 
 .noticia .desc {
-  color: #d7dfeb;
+  color: rgba(255, 255, 255, 0.85);
 }
 
 .aviso .desc {

@@ -220,7 +220,7 @@ async function entrarComoStaff(): Promise<void> {
         <svg viewBox="0 0 24 24" fill="none">
           <path
             d="M4 12h16M14 8l4 4-4 4"
-            stroke="#FBF3E7"
+            stroke="#FFFFFF"
             stroke-width="2.4"
             stroke-linecap="round"
             stroke-linejoin="round"
@@ -543,7 +543,7 @@ async function entrarComoStaff(): Promise<void> {
 
 .role-card.client-card-highlight {
   border-color: var(--terracotta);
-  background: linear-gradient(135deg, #fff6ea, #fdecd2);
+  background: linear-gradient(135deg, #fff3e0, #ffe0b2);
 }
 
 .role-card:disabled {
