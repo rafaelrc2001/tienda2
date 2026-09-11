@@ -366,15 +366,15 @@ async function comprarAhora(): Promise<void> {
  * negocio (HU-12) y, antes, el aviso de cuánto falta; el del envío gratis se va
  * en cuanto se alcanza.
  *
- * Va pegada a la barra inferior, sin hueco: `bottom: 0`, el mismo margen
- * lateral que el menú (8px) y un margen inferior negativo que anula el colchón
- * de `.app-screen` para que tampoco se despegue al llegar al final del
- * catálogo. `pegada-al-nav` le dice al layout que aplane el menú por arriba.
+ * Va pegada a la barra inferior, sin hueco: `bottom: 0` y el mismo margen
+ * lateral que el menú (8px). `pegada-al-nav` le dice al layout que quite el
+ * colchón inferior de `.app-screen` (el sticky respeta ese padding y dejaba
+ * 18px de hueco) y que aplane el menú por arriba.
  */
 .barra-compra {
   position: sticky;
   bottom: 0;
-  margin: 14px 8px -18px;
+  margin: 14px 8px 0;
   display: flex;
   flex-direction: column;
   align-items: stretch;
