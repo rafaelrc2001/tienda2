@@ -199,15 +199,15 @@ async function vaciar(): Promise<void> {
   height: 17px;
   padding: 0 4px;
   border-radius: 999px;
-  /* Naranja de notificación; el aro del color del cabezal lo despega del ícono. */
-  background: var(--orange);
+  /* Verde de notificación sobre el cabezal naranja; el aro del color del cabezal lo despega del ícono. */
+  background: var(--verde);
   color: var(--white);
   font-family: var(--font-heading);
   font-weight: 800;
   font-size: 10px;
   line-height: 17px;
   text-align: center;
-  box-shadow: 0 0 0 2px var(--verde);
+  box-shadow: 0 0 0 2px var(--orange);
 }
 
 .overlay {
