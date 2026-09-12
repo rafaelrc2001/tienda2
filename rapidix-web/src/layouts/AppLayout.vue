@@ -219,8 +219,13 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   padding: 12px 16px 10px;
   flex-shrink: 0;
-  /* Cabezal verde de marca; lo que va encima (título, iconos) en blanco. */
-  background: var(--verde);
+  /*
+   * Cabezal naranja; lo que va encima (título, iconos) en blanco. Es la
+   * excepción a la paleta general: aquí los papeles van al revés —el naranja
+   * hace de fondo y el verde de acento (el globo del carrito)— para que la
+   * franja de arriba destaque sobre el resto de la pantalla.
+   */
+  background: var(--orange);
   color: var(--white);
   /*
    * Por encima de la barra inferior (40): el overlay del carrito sale de aquí
@@ -229,7 +234,7 @@ onBeforeUnmount(() => {
   z-index: 50;
 }
 
-/* Tres rayas sueltas sobre el verde, sin caja, igual que el carrito de enfrente. */
+/* Tres rayas sueltas sobre el naranja, sin caja, igual que el carrito de enfrente. */
 .hamburger-btn {
   width: 34px;
   height: 34px;

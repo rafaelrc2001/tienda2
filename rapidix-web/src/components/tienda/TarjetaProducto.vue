@@ -203,7 +203,7 @@ function alSalirDelCampo(): void {
           :key="atajo.piso"
           type="button"
           class="piso"
-          :class="{ puesto: cantidad === atajo.piso }"
+          :class="{ puesto: cantidad === atajo.piso, promesa: hayPrecioEscalonado }"
           :disabled="maximo !== null && atajo.piso > maximo"
           :title="atajo.precio !== null ? `Desde ${atajo.piso}: ${dinero(atajo.precio)} c/u` : undefined"
           :aria-label="
@@ -544,6 +544,22 @@ function alSalirDelCampo(): void {
   border-color: var(--gold-dark);
   background: var(--gold);
   color: var(--white);
+}
+
+/*
+ * Los pisos son la otra mitad de «lleva más, paga menos», así que llevan su
+ * mismo amarillo: el borde dice a qué cantidades se refiere la promesa y el
+ * piso elegido se rellena. Sigue la regla de la etiqueta —solo cuando el
+ * descuento es real; con los pisos de respaldo (5 y 10) no baja el precio y no
+ * se promete nada— y el texto va oscuro, que el blanco sobre amarillo no se lee.
+ */
+.volumen .piso.promesa {
+  border-color: var(--amarillo-dark);
+}
+
+.volumen .piso.promesa.puesto {
+  background: var(--amarillo);
+  color: var(--ink);
 }
 
 .volumen .piso:disabled {
