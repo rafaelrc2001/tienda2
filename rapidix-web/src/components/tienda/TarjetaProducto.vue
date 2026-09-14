@@ -117,7 +117,7 @@ function alSalirDelCampo(): void {
 <template>
   <!--
     Agotado —deshabilitado en Productos o sin saldo de inventario— lleva el
-    listón naranja en la esquina superior izquierda y el resto de la tarjeta
+    listón rojo en la esquina superior izquierda y el resto de la tarjeta
     apagado en gris. Lo último comprado no lleva insignia: la fila ya arranca
     centrada en ello.
   -->
@@ -261,7 +261,7 @@ function alSalirDelCampo(): void {
  * Agotada: la tarjeta entera se ve apagada —fondo gris, sin relieve y el
  * contenido desaturado— para que se distinga de un vistazo en el carrusel. El
  * listón es hermano de estos bloques y no hereda el filtro, así que se queda
- * naranja. «Avísame» se sigue pudiendo pulsar: no compra, solo avisa.
+ * rojo. «Avísame» se sigue pudiendo pulsar: no compra, solo avisa.
  */
 .tarjeta.agotada {
   background: var(--cream-2);
@@ -294,7 +294,7 @@ function alSalirDelCampo(): void {
 
 /*
  * Listón macizo en la esquina superior izquierda: la caja es un triángulo
- * pintado con un degradado de corte seco —mitad naranja, mitad transparente—
+ * pintado con un degradado de corte seco —mitad roja, mitad transparente—
  * y el texto va girado sobre él. Recorta con el mismo radio que la tarjeta,
  * que no puede llevar `overflow` porque cortaría su propia sombra.
  */
@@ -306,7 +306,7 @@ function alSalirDelCampo(): void {
   height: 80px;
   overflow: hidden;
   border-top-left-radius: var(--radius-md);
-  background: linear-gradient(to bottom right, var(--orange) 0 50%, transparent 50% 100%);
+  background: linear-gradient(to bottom right, var(--rojo) 0 50%, transparent 50% 100%);
   pointer-events: none;
   z-index: 1;
 }
