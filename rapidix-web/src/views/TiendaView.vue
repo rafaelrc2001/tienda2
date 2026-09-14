@@ -468,12 +468,12 @@ async function comprarAhora(): Promise<void> {
 
 /*
  * Barra plana de una sola línea, «Comprar ahora: $X», como la del ecommerce
- * anterior: texto centrado, en blanco sobre el verde de los botones primarios.
+ * anterior: texto centrado, en blanco sobre un verde profundo propio.
  */
 .comprar {
   flex: 1;
   min-width: 0;
-  background: var(--navy);
+  background: var(--verde-compra);
   color: var(--white);
   border: none;
   border-radius: 10px;

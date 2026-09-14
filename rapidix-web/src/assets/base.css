@@ -171,7 +171,8 @@ body {
   font-size: 13px;
   color: var(--ink);
   outline: none;
-  background: var(--cream);
+  /* Blanco para que se distinga a simple vista dónde se puede escribir. */
+  background: var(--white);
   margin-bottom: 10px;
 }
 
