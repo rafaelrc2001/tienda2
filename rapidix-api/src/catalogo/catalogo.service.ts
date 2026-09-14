@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, Producto, RolProducto } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CategoriasService } from './categorias.service';
@@ -89,7 +89,7 @@ export class CatalogoService {
 
   /** Catalogo agrupado por categoria, como lo pinta la Tienda (Word 4.3). */
   async listarAgrupado(filtros: BuscarProductosDto): Promise<CategoriaConProductos[]> {
-    const where: Prisma.ProductoWhereInput = {};
+    const where: Prisma.ProductoWhereInput = { eliminadoEn: null };
     if (filtros.q?.trim()) {
       where.nombre = { contains: filtros.q.trim(), mode: 'insensitive' };
     }
@@ -122,9 +122,10 @@ export class CatalogoService {
     return this.categorias.listarNombres();
   }
 
+  /** Un producto eliminado responde como si no existiera: no se edita ni se vuelve a borrar. */
   async obtener(id: string): Promise<ProductoDto> {
-    const producto = await this.prisma.producto.findUnique({
-      where: { id },
+    const producto = await this.prisma.producto.findFirst({
+      where: { id, eliminadoEn: null },
       include: { categoria: { select: { nombre: true } } },
     });
     if (!producto) throw new NotFoundException('Producto no encontrado');
@@ -204,16 +205,17 @@ export class CatalogoService {
   }
 
   /**
-   * Un producto que ya aparece en pedidos no se borra: eso reescribiria el
-   * historial. Para retirarlo de la Tienda esta el interruptor de agotado.
+   * Un producto que ya aparece en pedidos no sale de la tabla: las lineas lo
+   * referencian y borrarlo reescribiria el historial. Se marca `eliminadoEn` y
+   * desaparece de todas las lecturas vivas. Uno que nunca se vendio no deja
+   * rastro que conservar y se borra de verdad.
    */
   async eliminar(id: string): Promise<void> {
     await this.obtener(id);
     const enPedidos = await this.prisma.pedidoItem.count({ where: { productoId: id } });
     if (enPedidos > 0) {
-      throw new ConflictException(
-        `Este producto aparece en ${enPedidos} pedido(s) y no puede eliminarse. Márcalo como agotado para retirarlo de la Tienda.`,
-      );
+      await this.prisma.producto.update({ where: { id }, data: { eliminadoEn: new Date() } });
+      return;
     }
     await this.prisma.producto.delete({ where: { id } });
   }
@@ -225,7 +227,9 @@ export class CatalogoService {
    * liberado. Es la misma regla con la que la Tienda pinta la etiqueta.
    */
   async programar(productoId: string, clienteId: string): Promise<{ registrado: true }> {
-    const producto = await this.prisma.producto.findUnique({ where: { id: productoId } });
+    const producto = await this.prisma.producto.findFirst({
+      where: { id: productoId, eliminadoEn: null },
+    });
     if (!producto) throw new NotFoundException('Producto no encontrado');
     const config = await this.prisma.configuracionNegocio.findUnique({ where: { id: 1 } });
     const sinSaldo = config?.controlInventario === true && producto.aptInventario <= 0;

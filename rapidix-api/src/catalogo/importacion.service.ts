@@ -293,8 +293,9 @@ export class ImportacionService {
 
     // Mismo nombre y misma categoria = mismo producto: se actualiza en vez de
     // duplicarse, que es como se usa una carga masiva para refrescar precios.
+    // Uno eliminado no cuenta: volver a subirlo da de alta un producto nuevo.
     const existente = await this.prisma.producto.findFirst({
-      where: { nombre: { equals: nombre, mode: 'insensitive' }, categoriaId },
+      where: { nombre: { equals: nombre, mode: 'insensitive' }, categoriaId, eliminadoEn: null },
       select: { id: true },
     });
 

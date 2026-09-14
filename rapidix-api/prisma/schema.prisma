@@ -260,6 +260,12 @@ model Producto {
   /// normal es que todo participe y se excluye lo que no deja margen.
   aplicaCashback Boolean @default(true)
 
+  /// Borrado logico. Un producto que ya aparece en pedidos no puede salir de
+  /// la tabla —las lineas lo referencian—, asi que "eliminarlo" es poner esta
+  /// fecha: desaparece de la Tienda, del panel, del inventario y del carrito,
+  /// pero el historial sigue apuntando a una fila que existe. Nulo = vivo.
+  eliminadoEn DateTime?
+
   creadoEn      DateTime @default(now())
   actualizadoEn DateTime @updatedAt
 

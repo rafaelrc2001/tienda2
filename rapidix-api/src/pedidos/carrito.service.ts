@@ -210,8 +210,10 @@ export class CarritoService {
    */
   async resolver(items: LineaCarritoDto[]): Promise<CarritoResuelto> {
     const ids = [...new Set(items.map((i) => i.productoId))];
+    // Un producto eliminado cuenta como faltante: sigue en la tabla por el
+    // historial, pero ya no se vende.
     const productos = await this.prisma.producto.findMany({
-      where: { id: { in: ids } },
+      where: { id: { in: ids }, eliminadoEn: null },
       include: { categoria: { select: { nombre: true } } },
     });
 
@@ -255,8 +257,10 @@ export class CarritoService {
    */
   async resolverTolerante(items: LineaCarritoDto[]): Promise<CarritoTolerante> {
     const ids = [...new Set(items.map((i) => i.productoId))];
+    // Un producto eliminado cuenta como faltante: sigue en la tabla por el
+    // historial, pero ya no se vende.
     const productos = await this.prisma.producto.findMany({
-      where: { id: { in: ids } },
+      where: { id: { in: ids }, eliminadoEn: null },
       include: { categoria: { select: { nombre: true } } },
     });
 

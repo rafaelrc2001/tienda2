@@ -234,7 +234,7 @@ function alSalirDelCampo(): void {
   flex-shrink: 0;
   background: var(--white);
   border-radius: var(--radius-md);
-  padding: 8px 14px 11px;
+  padding: 8px 14px 6px;
   box-shadow: var(--shadow);
   text-align: center;
   /* La tarjeta del centro se agranda sin empujar a las de al lado. */
@@ -243,6 +243,13 @@ function alSalirDelCampo(): void {
     transform 0.18s ease,
     box-shadow 0.18s ease;
   scroll-snap-align: center;
+  /*
+   * Columna: la pista del carrusel estira todas las tarjetas a la altura de la
+   * más alta (la de nombre largo, la que trae «Ahorras»). Ese sobrante se lo
+   * queda la foto en lugar de quedar como hueco blanco al pie.
+   */
+  display: flex;
+  flex-direction: column;
 }
 
 .tarjeta.activa {
@@ -330,14 +337,20 @@ function alSalirDelCampo(): void {
  * ocupar todo el ancho, con las esquinas de arriba de la propia tarjeta.
  */
 .media {
-  height: 108px;
+  /*
+   * 162px de base y crece con lo que sobre de la tarjeta (ver `.tarjeta`). Los
+   * textos de abajo van juntos a propósito: el aire que se les quitó se lo queda
+   * la foto, así que si se vuelve a separar el pie hay que bajar esta base.
+   */
+  flex: 1 0 162px;
+  min-height: 162px;
   display: flex;
   align-items: center;
   justify-content: center;
   /* Blanco como la tarjeta: las fotos traen fondo blanco y así no se nota el borde. */
   background: var(--white);
   border-radius: var(--radius-md) var(--radius-md) 0 0;
-  margin: -8px -14px 8px;
+  margin: -8px -14px 5px;
   overflow: hidden;
   color: var(--muted);
 }
@@ -370,7 +383,7 @@ function alSalirDelCampo(): void {
   text-transform: uppercase;
   color: var(--ink);
   line-height: 1.3;
-  min-height: 30px;
+  /* Sin alto reservado para un segundo renglón: si el nombre cabe en uno, la foto crece. */
   margin: 0;
 }
 
@@ -378,7 +391,7 @@ function alSalirDelCampo(): void {
   font-family: var(--font-heading);
   font-weight: 800;
   color: var(--ink);
-  margin: 7px 0 0;
+  margin: 3px 0 0;
   line-height: 1;
 }
 
@@ -423,7 +436,7 @@ function alSalirDelCampo(): void {
   align-items: center;
   justify-content: center;
   gap: 12px;
-  margin-top: 9px;
+  margin-top: 5px;
 }
 
 .stepper button {
@@ -498,7 +511,7 @@ function alSalirDelCampo(): void {
   align-items: center;
   justify-content: center;
   gap: 7px;
-  margin-top: 10px;
+  margin-top: 5px;
 }
 
 .volumen .etiqueta {
@@ -580,7 +593,7 @@ function alSalirDelCampo(): void {
 
 .programar {
   width: 100%;
-  margin-top: 9px;
+  margin-top: 5px;
   border: 1.5px solid var(--line);
   background: var(--cream);
   color: var(--ink);

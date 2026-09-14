@@ -117,6 +117,7 @@ export class RecomendacionesService {
   async catalogoPara(clienteId?: string): Promise<CatalogoRecomendadoDto> {
     const [productos, config, historial] = await Promise.all([
       this.prisma.producto.findMany({
+        where: { eliminadoEn: null },
         include: { categoria: { select: { nombre: true, prioridad: true } } },
       }),
       this.configuracion.obtener(),
