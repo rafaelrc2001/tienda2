@@ -295,8 +295,8 @@ function alSalirDelCampo(): void {
   position: absolute;
   top: 0;
   left: 0;
-  width: 74px;
-  height: 74px;
+  width: 80px;
+  height: 80px;
   overflow: hidden;
   border-top-left-radius: var(--radius-md);
   background: linear-gradient(to bottom right, var(--orange) 0 50%, transparent 50% 100%);
@@ -304,11 +304,16 @@ function alSalirDelCampo(): void {
   z-index: 1;
 }
 
+/*
+ * El centro del texto va en (27, 27): más cerca de la hipotenusa que de la
+ * esquina, donde la franja del triángulo es lo bastante larga para la palabra
+ * entera. Más arriba, el borde superior de las letras se salía del recorte.
+ */
 .cinta span {
   position: absolute;
-  top: 14px;
-  left: -26px;
-  width: 104px;
+  top: 22px;
+  left: -23px;
+  width: 100px;
   transform: rotate(-45deg);
   color: var(--white);
   font-family: var(--font-heading);
