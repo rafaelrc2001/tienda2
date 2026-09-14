@@ -22,6 +22,19 @@ import { useCarritoStore } from './carrito'
 
 const CLAVE = 'rapidix.carrito'
 
+const DIRECCION = {
+  quienRecibe: 'Ana',
+  telefono: '9931234567',
+  calle: 'Reforma 12',
+  colonia: 'Centro',
+  cp: '86000',
+  ciudad: 'Villahermosa',
+  estado: 'Tabasco',
+  referencias: '',
+  lat: 17.98,
+  lng: -92.93,
+}
+
 /** Previsualización mínima con la forma que devuelve la API. */
 function previsualizacion(sobre: Record<string, unknown> = {}) {
   return {
@@ -121,7 +134,10 @@ describe('carrito · persistencia', () => {
   it('recupera el carrito de una sesión anterior', () => {
     localStorage.setItem(
       CLAVE,
-      JSON.stringify({ lineas: [{ productoId: 'p9', cantidad: 4 }], codigoCupon: 'BIENV' }),
+      JSON.stringify({
+        lineas: [{ productoId: 'p9', cantidad: 4 }],
+        codigoCupon: 'BIENV',
+      }),
     )
     setActivePinia(createPinia())
 
@@ -196,6 +212,7 @@ describe('carrito · sincronización con el servidor (HU-13)', () => {
 
     expect(put).toHaveBeenCalledWith('/perfil/carrito', {
       items: [{ productoId: 'p1', cantidad: 3 }],
+      entrega: { metodoEntrega: 'DOMICILIO', direccion: null },
     })
   })
 
@@ -274,7 +291,11 @@ describe('carrito · importe sin sesión (HU-11)', () => {
       items: [],
       subtotal: 74.5,
       cashbackEstimado: 0,
-      metas: { faltaEnvioGratis: 525.49, faltaCashback: null, sinCashback: false },
+      metas: {
+        faltaEnvioGratis: 525.49,
+        faltaCashback: null,
+        sinCashback: false,
+      },
       avisos: [],
     })
 
@@ -401,7 +422,10 @@ describe('carrito · previsualización', () => {
 
   it('quita el cupón con aviso si la API lo devuelve sin cupón', async () => {
     post.mockResolvedValue(
-      previsualizacion({ cupon: null, avisos: ['Te faltan $50.00 para llegar al mínimo'] }),
+      previsualizacion({
+        cupon: null,
+        avisos: ['Te faltan $50.00 para llegar al mínimo'],
+      }),
     )
 
     const carrito = useCarritoStore()
@@ -447,7 +471,10 @@ describe('carrito · previsualización', () => {
     post
       .mockResolvedValueOnce(
         previsualizacion({
-          pago: { ...pago, errorPago: { codigo: 'PAGO_INSUFICIENTE', mensaje: 'x' } },
+          pago: {
+            ...pago,
+            errorPago: { codigo: 'PAGO_INSUFICIENTE', mensaje: 'x' },
+          },
         }),
       )
       .mockResolvedValueOnce(previsualizacion({ pago: { ...pago, errorPago: null } }))
@@ -465,8 +492,19 @@ describe('carrito · previsualización', () => {
 describe('carrito · cupón', () => {
   it('normaliza el código a mayúsculas y sin espacios', async () => {
     post
-      .mockResolvedValueOnce({ valido: true, cuponId: 'c1', codigo: 'BIENV', titulo: 'Bienvenida', subtotal: 100, descuento: 10 })
-      .mockResolvedValueOnce(previsualizacion({ cupon: { codigo: 'BIENV', descripcion: 'Bienvenida' } }))
+      .mockResolvedValueOnce({
+        valido: true,
+        cuponId: 'c1',
+        codigo: 'BIENV',
+        titulo: 'Bienvenida',
+        subtotal: 100,
+        descuento: 10,
+      })
+      .mockResolvedValueOnce(
+        previsualizacion({
+          cupon: { codigo: 'BIENV', descripcion: 'Bienvenida' },
+        }),
+      )
 
     const carrito = useCarritoStore()
     carrito.agregar('p1')
@@ -513,13 +551,14 @@ describe('carrito · confirmar pedido', () => {
     carrito.agregar('p1')
     carrito.metodoPago = 'TRANSFERENCIA'
     carrito.pagoCon = 500
-    const pedido = await carrito.confirmar(true)
+    const pedido = await carrito.confirmar(true, DIRECCION)
 
     // En transferencia no viaja el monto de efectivo que quedó escrito.
     expect(post).toHaveBeenCalledWith('/pedidos', {
       items: [{ productoId: 'p1', cantidad: 1 }],
       metodoPago: 'TRANSFERENCIA',
       metodoEntrega: 'DOMICILIO',
+      direccion: DIRECCION,
       aceptaTerminos: true,
     })
     expect(pedido.folio).toBe('ORD-000001')
@@ -538,9 +577,95 @@ describe('carrito · confirmar pedido', () => {
     carrito.agregar('p1')
     carrito.agregar('p2')
 
-    await expect(carrito.confirmar(true)).rejects.toThrow()
+    await expect(carrito.confirmar(true, DIRECCION)).rejects.toThrow()
 
     expect(carrito.vacio).toBe(false)
     expect(carrito.totalPiezas).toBe(2)
+  })
+})
+
+describe('carrito · entrega', () => {
+  it('recuerda el método de entrega y el borrador de dirección al recargar', () => {
+    const carrito = useCarritoStore()
+    carrito.fijarEntrega('TIENDA')
+    carrito.fijarDireccion(DIRECCION)
+
+    setActivePinia(createPinia())
+    const recargado = useCarritoStore()
+    expect(recargado.metodoEntrega).toBe('TIENDA')
+    expect(recargado.direccion).toEqual(DIRECCION)
+  })
+
+  it('descarta lo que no cuadre de un borrador guardado', () => {
+    localStorage.setItem(
+      CLAVE,
+      JSON.stringify({
+        lineas: [],
+        metodoEntrega: 'DRON',
+        direccion: { cp: 86000, calle: 'X' },
+      }),
+    )
+    const carrito = useCarritoStore()
+    expect(carrito.metodoEntrega).toBe('DOMICILIO')
+    expect(carrito.direccion?.calle).toBe('X')
+    expect(carrito.direccion?.cp).toBe('')
+  })
+
+  it('respalda el borrador en el servidor junto con las líneas', async () => {
+    vi.useFakeTimers()
+    try {
+      const carrito = useCarritoStore()
+      carrito.duenio = 'c1'
+      carrito.agregar('p1')
+      carrito.fijarDireccion(DIRECCION)
+      await vi.runAllTimersAsync()
+
+      expect(put).toHaveBeenCalledTimes(1)
+      expect(put).toHaveBeenCalledWith('/perfil/carrito', {
+        items: [{ productoId: 'p1', cantidad: 1 }],
+        entrega: { metodoEntrega: 'DOMICILIO', direccion: DIRECCION },
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('recoger en tienda no manda dirección', async () => {
+    post.mockResolvedValue({ id: 'o1', folio: 'ORD-000002', total: 90 })
+    const carrito = useCarritoStore()
+    carrito.agregar('p1')
+    carrito.metodoPago = 'EFECTIVO'
+    carrito.fijarEntrega('TIENDA')
+
+    await carrito.confirmar(true, DIRECCION)
+
+    expect(post.mock.calls[0][1].direccion).toBeUndefined()
+  })
+
+  it('tras confirmar olvida la dirección pero conserva el método de entrega', async () => {
+    post.mockResolvedValue({ id: 'o1', folio: 'ORD-000003', total: 90 })
+    const carrito = useCarritoStore()
+    carrito.agregar('p1')
+    carrito.metodoPago = 'EFECTIVO'
+    carrito.fijarEntrega('TIENDA')
+    carrito.fijarDireccion(DIRECCION)
+
+    await carrito.confirmar(true, DIRECCION)
+
+    expect(carrito.direccion).toBeNull()
+    expect(carrito.metodoEntrega).toBe('TIENDA')
+  })
+
+  it('el borrador de otro dueño se descarta al abrir sesión', async () => {
+    get.mockResolvedValue({ items: [], actualizadoEn: null, entrega: null })
+    const carrito = useCarritoStore()
+    carrito.duenio = 'otra'
+    carrito.fijarEntrega('TIENDA')
+    carrito.fijarDireccion(DIRECCION)
+
+    await carrito.adoptar('c1')
+
+    expect(carrito.direccion).toBeNull()
+    expect(carrito.metodoEntrega).toBe('DOMICILIO')
   })
 })

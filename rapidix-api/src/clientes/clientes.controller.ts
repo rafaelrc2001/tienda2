@@ -2,7 +2,7 @@ import { Body, Controller, ForbiddenException, Get, Patch, Put } from '@nestjs/c
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CarritoGuardadoDto, ClientesService } from './clientes.service';
 import { ActualizarPerfilDto, PerfilDto } from './dto/perfil.dto';
-import { LineasCarritoDto } from '../pedidos/dto/carrito.dto';
+import { GuardarCarritoDto } from '../pedidos/dto/carrito.dto';
 import { UsuarioActual } from '../auth/usuario-actual.decorator';
 import { ROL_CLIENTE, UsuarioAutenticado } from '../auth/jwt-payload';
 
@@ -47,9 +47,13 @@ export class ClientesController {
   @Put('carrito')
   guardarCarrito(
     @UsuarioActual() usuario: UsuarioAutenticado,
-    @Body() dto: LineasCarritoDto,
+    @Body() dto: GuardarCarritoDto,
   ): Promise<CarritoGuardadoDto> {
-    return this.clientes.guardarCarrito(ClientesController.exigirCliente(usuario), dto.items);
+    return this.clientes.guardarCarrito(
+      ClientesController.exigirCliente(usuario),
+      dto.items,
+      dto.entrega,
+    );
   }
 
   private static exigirCliente(usuario: UsuarioAutenticado): string {

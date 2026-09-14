@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { http } from '@/api/http'
 import type {
   CarritoGuardado,
+  DireccionEntrega,
   ItemPrevisualizado,
   LineaCalculada,
   LineaCarrito,
@@ -35,10 +36,44 @@ interface CarritoLocal {
    * la sesión y, si no coincide, el carrito guardado se descarta (HU-13).
    */
   duenio: string | null
+  /** Se recuerda al recargar o al volver al carrito (HU-01). */
+  metodoEntrega: MetodoEntrega
+  /**
+   * Lo que el cliente capturó como dirección de ESTE pedido (HU-04).
+   * `null` mientras no la toque: entonces el checkout parte del perfil.
+   */
+  direccion: DireccionEntrega | null
+}
+
+/** Descarta un borrador guardado con otra forma en vez de romper el checkout. */
+function leerDireccion(valor: unknown): DireccionEntrega | null {
+  if (typeof valor !== 'object' || valor === null) return null
+  const d = valor as Record<string, unknown>
+  const texto = (v: unknown): string => (typeof v === 'string' ? v : '')
+  const numero = (v: unknown): number | null =>
+    typeof v === 'number' && Number.isFinite(v) ? v : null
+  return {
+    quienRecibe: texto(d.quienRecibe),
+    telefono: texto(d.telefono),
+    calle: texto(d.calle),
+    colonia: texto(d.colonia),
+    cp: texto(d.cp),
+    ciudad: texto(d.ciudad),
+    estado: texto(d.estado),
+    referencias: texto(d.referencias),
+    lat: numero(d.lat),
+    lng: numero(d.lng),
+  }
 }
 
 function leerGuardado(): CarritoLocal {
-  const vacio: CarritoLocal = { lineas: [], codigoCupon: null, duenio: null }
+  const vacio: CarritoLocal = {
+    lineas: [],
+    codigoCupon: null,
+    duenio: null,
+    metodoEntrega: 'DOMICILIO',
+    direccion: null,
+  }
   try {
     const crudo = localStorage.getItem(CLAVE_CARRITO)
     if (!crudo) return vacio
@@ -52,6 +87,8 @@ function leerGuardado(): CarritoLocal {
         : [],
       codigoCupon: typeof datos.codigoCupon === 'string' ? datos.codigoCupon : null,
       duenio: typeof datos.duenio === 'string' ? datos.duenio : null,
+      metodoEntrega: datos.metodoEntrega === 'TIENDA' ? 'TIENDA' : 'DOMICILIO',
+      direccion: leerDireccion(datos.direccion),
     }
   } catch {
     return vacio
@@ -92,7 +129,8 @@ export const useCarritoStore = defineStore('carrito', () => {
   /*
    * Pago (HU-09 a HU-12). Vive solo en memoria, a propósito: `localStorage`
    * guarda lo que se compra, no cómo se paga. Un monto de efectivo de hace tres
-   * días no vale para el total de hoy.
+   * días no vale para el total de hoy. La entrega sí se guarda: es a dónde se
+   * lleva, y no caduca con el total.
    */
   /** Sin valor por defecto: el cliente elige. */
   const metodoPago = ref<MetodoPago | null>(null)
@@ -101,7 +139,9 @@ export const useCarritoStore = defineStore('carrito', () => {
   /** Saldo de billetera que quiere aplicar. */
   const usarBilletera = ref(0)
   /** A domicilio mientras no elija otra cosa: es lo que cobra envío. */
-  const metodoEntrega = ref<MetodoEntrega>('DOMICILIO')
+  const metodoEntrega = ref<MetodoEntrega>(guardado.metodoEntrega)
+  /** Borrador de la dirección de este pedido. Nunca toca el perfil (HU-04). */
+  const direccion = ref<DireccionEntrega | null>(guardado.direccion)
 
   /** Secuencia de las llamadas a la API, para descartar las viejas. */
   let ultimaPeticion = 0
@@ -120,7 +160,11 @@ export const useCarritoStore = defineStore('carrito', () => {
     metodoPago.value = null
     pagoCon.value = null
     usarBilletera.value = 0
+  }
+
+  function olvidarEntrega(): void {
     metodoEntrega.value = 'DOMICILIO'
+    direccion.value = null
   }
 
   const vacio = computed(() => lineas.value.length === 0)
@@ -180,6 +224,8 @@ export const useCarritoStore = defineStore('carrito', () => {
           lineas: lineas.value,
           codigoCupon: codigoCupon.value,
           duenio: duenio.value,
+          metodoEntrega: metodoEntrega.value,
+          direccion: direccion.value,
         }),
       )
     } catch {
@@ -203,7 +249,12 @@ export const useCarritoStore = defineStore('carrito', () => {
     if (temporizadorSync) clearTimeout(temporizadorSync)
     temporizadorSync = setTimeout(() => {
       temporizadorSync = null
-      http.put('/perfil/carrito', { items: lineas.value }).catch(() => {})
+      http
+        .put('/perfil/carrito', {
+          items: lineas.value,
+          entrega: { metodoEntrega: metodoEntrega.value, direccion: direccion.value },
+        })
+        .catch(() => {})
     }, RETRASO_SINCRONIZACION)
   }
 
@@ -234,6 +285,7 @@ export const useCarritoStore = defineStore('carrito', () => {
       importePublico.value = null
       errorCupon.value = ''
       olvidarPago()
+      olvidarEntrega()
     }
 
     duenio.value = duenioId
@@ -251,6 +303,11 @@ export const useCarritoStore = defineStore('carrito', () => {
       // aquí gana siempre sobre lo que estaba guardado.
       if (remoto.items.length > 0 && lineas.value.length === 0) {
         lineas.value = remoto.items
+        // El borrador de entrega viaja con el carrito, salvo que aquí ya haya uno.
+        if (remoto.entrega && !direccion.value) {
+          if (remoto.entrega.metodoEntrega) metodoEntrega.value = remoto.entrega.metodoEntrega
+          direccion.value = leerDireccion(remoto.entrega.direccion)
+        }
         persistir()
         await refrescarImporte().catch(() => {})
       }
@@ -274,7 +331,31 @@ export const useCarritoStore = defineStore('carrito', () => {
     importePublico.value = null
     errorCupon.value = ''
     olvidarPago()
+    olvidarEntrega()
     persistir()
+  }
+
+  // ------------------------------------------------------------------
+  // Entrega
+  // ------------------------------------------------------------------
+
+  /** Cambia el método de entrega y lo recuerda. El envío nuevo lo dice `recalcular()`. */
+  function fijarEntrega(entrega: MetodoEntrega): void {
+    metodoEntrega.value = entrega
+    persistir()
+    programarSincronizacion()
+  }
+
+  /**
+   * Guarda la dirección que el cliente va escribiendo para este pedido.
+   *
+   * Va al borrador local y a su respaldo en el servidor, **nunca al perfil**:
+   * el perfil solo cambia con el botón explícito del checkout (HU-05).
+   */
+  function fijarDireccion(nueva: DireccionEntrega): void {
+    direccion.value = { ...nueva }
+    persistir()
+    programarSincronizacion()
   }
 
   // ------------------------------------------------------------------
@@ -450,7 +531,10 @@ export const useCarritoStore = defineStore('carrito', () => {
    * Confirma el pedido. El carrito se vacía **solo tras el 201**: si la API
    * rechaza, el cliente conserva lo que había armado.
    */
-  async function confirmar(aceptaTerminos: boolean): Promise<Pedido> {
+  async function confirmar(
+    aceptaTerminos: boolean,
+    direccionPedido: DireccionEntrega | null,
+  ): Promise<Pedido> {
     // La API vuelve a calcular todo —precios, envío, cupón, billetera y
     // cambio—: de aquí solo salen las elecciones del cliente.
     const pedido = await http.post<Pedido>('/pedidos', {
@@ -460,6 +544,8 @@ export const useCarritoStore = defineStore('carrito', () => {
       pagoCon: metodoPago.value === 'EFECTIVO' ? (pagoCon.value ?? undefined) : undefined,
       usarBilletera: usarBilletera.value > 0 ? usarBilletera.value : undefined,
       metodoEntrega: metodoEntrega.value,
+      // Copia completa, con el pin: el pedido no vuelve a leer el perfil (HU-11).
+      direccion: metodoEntrega.value === 'DOMICILIO' ? (direccionPedido ?? undefined) : undefined,
       aceptaTerminos,
     })
     // El servidor ya borró su copia dentro de la transacción del pedido: aquí
@@ -471,6 +557,9 @@ export const useCarritoStore = defineStore('carrito', () => {
     importePublico.value = null
     errorCupon.value = ''
     olvidarPago()
+    // La dirección quedó copiada en el pedido; el próximo parte del perfil.
+    // El método de entrega se queda: es una preferencia, no un borrador.
+    direccion.value = null
     persistir()
     return pedido
   }
@@ -489,6 +578,7 @@ export const useCarritoStore = defineStore('carrito', () => {
     pagoCon,
     usarBilletera,
     metodoEntrega,
+    direccion,
     pagoListo,
     vacio,
     totalPiezas,
@@ -502,6 +592,8 @@ export const useCarritoStore = defineStore('carrito', () => {
     vaciarAhora,
     olvidar,
     adoptar,
+    fijarEntrega,
+    fijarDireccion,
     refrescarImporte,
     recalcular,
     aplicarCupon,

@@ -311,10 +311,38 @@ export interface SubtotalCarrito {
   avisos: string[]
 }
 
+/**
+ * Dirección de entrega de UN pedido (épica «Dirección de entrega»).
+ *
+ * No es la del perfil: parte de ella, pero lo que se edita aquí vive en el
+ * borrador del pedido y viaja como copia en `POST /pedidos`. Los textos nunca
+ * son `null` para que el formulario los enlace sin conversiones.
+ */
+export interface DireccionEntrega {
+  quienRecibe: string
+  telefono: string
+  calle: string
+  colonia: string
+  cp: string
+  ciudad: string
+  estado: string
+  referencias: string
+  lat: number | null
+  lng: number | null
+}
+
+/** Borrador del checkout que se respalda junto al carrito. */
+export interface BorradorEntrega {
+  metodoEntrega: MetodoEntrega | null
+  /** `null`: no la ha tocado y el checkout parte del perfil. */
+  direccion: DireccionEntrega | null
+}
+
 /** Respuesta de `GET /perfil/carrito` y `PUT /perfil/carrito`. */
 export interface CarritoGuardado {
   items: LineaCarrito[]
   actualizadoEn: string | null
+  entrega: BorradorEntrega | null
 }
 
 /** Respuesta de `GET /pedidos/ultimo`. `null` si todavía no ha comprado. */

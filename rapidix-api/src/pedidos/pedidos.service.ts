@@ -23,7 +23,7 @@ import { CashbackService } from '../cashback/cashback.service';
 import { precioUnitario } from '../catalogo/precios';
 import { CarritoService } from './carrito.service';
 import { InventarioService } from '../inventario/inventario.service';
-import { CrearPedidoDto } from './dto/carrito.dto';
+import { CrearPedidoDto, DireccionEntregaDto } from './dto/carrito.dto';
 
 const Decimal = Prisma.Decimal;
 type Decimal = Prisma.Decimal;
@@ -165,11 +165,7 @@ export class PedidosService {
       if (dto.codigoCupon) {
         // Con el id del token, no con el del cliente que se creara luego: el
         // cupon de bienvenida todavia cuelga del prospecto en este punto.
-        const validacion = await this.carrito.exigirCuponValido(
-          duenioId,
-          dto.codigoCupon,
-          carrito,
-        );
+        const validacion = await this.carrito.exigirCuponValido(duenioId, dto.codigoCupon, carrito);
 
         // Se bloquea la fila del cupon hasta el final de la transaccion. Sin
         // esto, dos pedidos simultaneos del mismo cliente podrian canjear el
@@ -274,17 +270,7 @@ export class PedidosService {
           pagoValidadoEn: estadoPago === EstadoPago.PAGADO ? new Date() : null,
           metodoEntrega,
           estado: 'CONFIRMADO',
-          direccion: {
-            calle: comprador.calle,
-            colonia: comprador.colonia,
-            cp: comprador.cp,
-            ciudad: comprador.ciudad,
-            estado: comprador.estado,
-            referencias: comprador.referencias,
-            lat: comprador.lat,
-            lng: comprador.lng,
-            quienRecibe: comprador.quienRecibe,
-          },
+          direccion: PedidosService.copiaDireccion(metodoEntrega, dto.direccion),
           items: {
             create: carrito.lineas.map((l) => ({
               productoId: l.productoId,
@@ -368,6 +354,9 @@ export class PedidosService {
           // compro.
           carrito: Prisma.DbNull,
           carritoEn: null,
+          // La direccion de este pedido ya quedo copiada en el: el siguiente
+          // checkout vuelve a partir del perfil.
+          borradorEntrega: Prisma.DbNull,
         },
       });
 
@@ -452,6 +441,7 @@ export class PedidosService {
         // pierde por haberlo dado por supuesto aqui.
         carrito: prospecto.carrito ?? Prisma.DbNull,
         carritoEn: prospecto.carritoEn,
+        borradorEntrega: prospecto.borradorEntrega ?? Prisma.DbNull,
       },
     });
 
@@ -464,6 +454,34 @@ export class PedidosService {
 
     this.logger.log(`Prospecto ${prospecto.id} convertido en cliente ${cliente.id}`);
     return cliente;
+  }
+
+  /**
+   * La direccion que se congela en el pedido (HU-11).
+   *
+   * Es una copia de lo que mando el checkout, nunca una lectura del perfil: el
+   * cliente pudo editarla solo para este pedido, y logistica —y el orden de
+   * rutas por `lat`/`lng`— tiene que seguir viendola igual aunque el perfil
+   * cambie despues. Recoger en tienda no lleva direccion: se guarda `{}`.
+   */
+  private static copiaDireccion(
+    metodoEntrega: MetodoEntrega,
+    direccion: DireccionEntregaDto | undefined,
+  ): Prisma.InputJsonObject {
+    if (metodoEntrega !== MetodoEntrega.DOMICILIO || !direccion) return {};
+    const texto = (valor: string | null | undefined): string | null => valor?.trim() || null;
+    return {
+      quienRecibe: direccion.quienRecibe.trim(),
+      telefono: direccion.telefono,
+      calle: direccion.calle.trim(),
+      colonia: direccion.colonia.trim(),
+      cp: direccion.cp,
+      ciudad: direccion.ciudad.trim(),
+      estado: texto(direccion.estado),
+      referencias: texto(direccion.referencias),
+      lat: direccion.lat ?? null,
+      lng: direccion.lng ?? null,
+    };
   }
 
   /** Folio legible y sin colisiones, servido por una secuencia de Postgres. */
@@ -556,8 +574,11 @@ export class PedidosService {
     return {
       folio: pedido.folio,
       creadoEn: pedido.creadoEn.toISOString(),
+      // Recogido en tienda se guarda `{}`: para quien lo lee es "sin direccion".
       direccion:
-        pedido.direccion && typeof pedido.direccion === 'object'
+        pedido.direccion &&
+        typeof pedido.direccion === 'object' &&
+        Object.keys(pedido.direccion).length > 0
           ? (pedido.direccion as Record<string, unknown>)
           : null,
       items,

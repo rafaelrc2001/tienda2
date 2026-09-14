@@ -9,13 +9,39 @@ import {
   PaginaProspectosDto,
   PerfilDto,
 } from './dto/perfil.dto';
-import { LineaCarritoDto } from '../pedidos/dto/carrito.dto';
+import { BorradorEntregaDto, LineaCarritoDto } from '../pedidos/dto/carrito.dto';
+
+/** Campos de texto del borrador de direccion, en el orden en que se leen. */
+const CAMPOS_BORRADOR = [
+  'quienRecibe',
+  'telefono',
+  'calle',
+  'colonia',
+  'cp',
+  'ciudad',
+  'estado',
+  'referencias',
+] as const;
+
+/** Borrador de la entrega tal y como lo devuelve la API. */
+export interface BorradorEntregaGuardadoDto {
+  metodoEntrega: 'DOMICILIO' | 'TIENDA' | null;
+  /** `null`: no ha tocado la direccion y el checkout parte del perfil. */
+  direccion:
+    | (Record<(typeof CAMPOS_BORRADOR)[number], string> & {
+        lat: number | null;
+        lng: number | null;
+      })
+    | null;
+}
 
 /** Respuesta de `GET /perfil/carrito` y de `PUT /perfil/carrito`. */
 export interface CarritoGuardadoDto {
   items: LineaCarritoDto[];
   /** Cuando se guardo por ultima vez. `null` si no hay carrito. */
   actualizadoEn: string | null;
+  /** Metodo de entrega y direccion del checkout a medias (HU-11). */
+  entrega: BorradorEntregaGuardadoDto | null;
 }
 
 /** Lo que hace falta para armar un PerfilDto. */
@@ -147,19 +173,20 @@ export class ClientesService {
   async carritoGuardado(duenioId: string): Promise<CarritoGuardadoDto> {
     const cliente = await this.prisma.cliente.findUnique({
       where: { id: duenioId },
-      select: { carrito: true, carritoEn: true },
+      select: { carrito: true, carritoEn: true, borradorEntrega: true },
     });
     const fila =
       cliente ??
       (await this.prisma.prospecto.findUnique({
         where: { id: duenioId },
-        select: { carrito: true, carritoEn: true },
+        select: { carrito: true, carritoEn: true, borradorEntrega: true },
       }));
     if (!fila) throw new NotFoundException('No encontramos tu perfil');
 
     return {
       items: ClientesService.leerCarrito(fila.carrito),
       actualizadoEn: fila.carritoEn?.toISOString() ?? null,
+      entrega: ClientesService.leerBorradorEntrega(fila.borradorEntrega),
     };
   }
 
@@ -169,8 +196,15 @@ export class ClientesService {
    * Se guarda **solo `productoId` y `cantidad`**, igual que en el navegador:
    * un carrito que puede quedarse ahi semanas no puede llevar precios
    * congelados dentro. Al recuperarlo se vuelve a valorar contra el catalogo.
+   *
+   * `entrega` es el borrador del checkout. Si no viene se deja el que hubiera:
+   * la Tienda sincroniza lineas sin saber nada de la direccion.
    */
-  async guardarCarrito(duenioId: string, items: LineaCarritoDto[]): Promise<CarritoGuardadoDto> {
+  async guardarCarrito(
+    duenioId: string,
+    items: LineaCarritoDto[],
+    entrega?: BorradorEntregaDto,
+  ): Promise<CarritoGuardadoDto> {
     // Se normaliza antes de guardar: el mismo producto repetido en el cuerpo se
     // acumula en una linea, como hace el carrito al resolverse.
     const cantidades = new Map<string, number>();
@@ -183,7 +217,15 @@ export class ClientesService {
     }));
 
     const ahora = limpias.length > 0 ? new Date() : null;
-    const datos = { carrito: limpias, carritoEn: ahora };
+    const borrador =
+      entrega === undefined ? undefined : ClientesService.leerBorradorEntrega(entrega);
+    const datos = {
+      carrito: limpias,
+      carritoEn: ahora,
+      ...(borrador !== undefined && {
+        borradorEntrega: (borrador as Prisma.InputJsonObject | null) ?? Prisma.DbNull,
+      }),
+    };
 
     const tocadas = await this.prisma.cliente.updateMany({ where: { id: duenioId }, data: datos });
     if (tocadas.count === 0) {
@@ -194,7 +236,37 @@ export class ClientesService {
       if (enProspectos.count === 0) throw new NotFoundException('No encontramos tu perfil');
     }
 
-    return { items: limpias, actualizadoEn: ahora?.toISOString() ?? null };
+    if (borrador === undefined) return this.carritoGuardado(duenioId);
+    return { items: limpias, actualizadoEn: ahora?.toISOString() ?? null, entrega: borrador };
+  }
+
+  /**
+   * Lee el borrador de entrega descartando lo que no cuadre, por la misma razon
+   * que `leerCarrito`: es JSON y puede venir de otra version. Tambien normaliza
+   * lo que llega del cuerpo antes de guardarlo.
+   */
+  private static leerBorradorEntrega(valor: unknown): BorradorEntregaGuardadoDto | null {
+    if (typeof valor !== 'object' || valor === null || Array.isArray(valor)) return null;
+    const { metodoEntrega, direccion } = valor as Record<string, unknown>;
+    const metodo =
+      metodoEntrega === 'DOMICILIO' || metodoEntrega === 'TIENDA' ? metodoEntrega : null;
+
+    let copia: BorradorEntregaGuardadoDto['direccion'] = null;
+    if (typeof direccion === 'object' && direccion !== null && !Array.isArray(direccion)) {
+      const d = direccion as Record<string, unknown>;
+      const numero = (v: unknown): number | null =>
+        typeof v === 'number' && Number.isFinite(v) ? v : null;
+      copia = {
+        ...(Object.fromEntries(
+          CAMPOS_BORRADOR.map((campo) => [campo, typeof d[campo] === 'string' ? d[campo] : '']),
+        ) as Record<(typeof CAMPOS_BORRADOR)[number], string>),
+        lat: numero(d.lat),
+        lng: numero(d.lng),
+      };
+    }
+
+    if (!metodo && !copia) return null;
+    return { metodoEntrega: metodo, direccion: copia };
   }
 
   /**
