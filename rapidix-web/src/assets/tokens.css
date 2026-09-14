@@ -13,6 +13,8 @@
   /* Verde equilibrado: cabecera, botones primarios y estados de éxito. */
   --verde: #4caf50;
   --verde-dark: #388e3c;
+  /* Verde profundo del botón «Comprar ahora»: lo separa de los demás verdes. */
+  --verde-compra: #1a5c38;
 
   /* Naranja equilibrado: llamadas a la acción, acentos y notificaciones. */
   --orange: #f57c00;
@@ -25,6 +27,9 @@
    */
   --amarillo: #ffc820;
   --amarillo-dark: #d9a800;
+
+  /* Rojo de alerta: el listón de «Agotado», que no debe confundirse con el naranja de acción. */
+  --rojo: #d32f2f;
 
   /* Neutros */
   --white: #ffffff;
