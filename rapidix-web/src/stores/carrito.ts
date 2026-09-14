@@ -7,6 +7,8 @@ import type {
   LineaCalculada,
   LineaCarrito,
   MetasCarrito,
+  MetodoEntrega,
+  MetodoPago,
   Pedido,
   PrevisualizacionCarrito,
   ResultadoCupon,
@@ -87,9 +89,39 @@ export const useCarritoStore = defineStore('carrito', () => {
   /** Motivo por el que la API rechazó el cupón, para el campo del cupón. */
   const errorCupon = ref('')
 
+  /*
+   * Pago (HU-09 a HU-12). Vive solo en memoria, a propósito: `localStorage`
+   * guarda lo que se compra, no cómo se paga. Un monto de efectivo de hace tres
+   * días no vale para el total de hoy.
+   */
+  /** Sin valor por defecto: el cliente elige. */
+  const metodoPago = ref<MetodoPago | null>(null)
+  /** Efectivo: con cuánto va a pagar. */
+  const pagoCon = ref<number | null>(null)
+  /** Saldo de billetera que quiere aplicar. */
+  const usarBilletera = ref(0)
+  /** A domicilio mientras no elija otra cosa: es lo que cobra envío. */
+  const metodoEntrega = ref<MetodoEntrega>('DOMICILIO')
+
   /** Secuencia de las llamadas a la API, para descartar las viejas. */
   let ultimaPeticion = 0
   let temporizadorSync: ReturnType<typeof setTimeout> | null = null
+
+  /**
+   * El pago elegido deja confirmar. Lo decide la API en la previsualización:
+   * aquí no se compara el monto de efectivo con el total.
+   */
+  const pagoListo = computed(() => {
+    const pago = previsualizacion.value?.pago
+    return !!pago && !pago.errorPago && !pago.errorBilletera
+  })
+
+  function olvidarPago(): void {
+    metodoPago.value = null
+    pagoCon.value = null
+    usarBilletera.value = 0
+    metodoEntrega.value = 'DOMICILIO'
+  }
 
   const vacio = computed(() => lineas.value.length === 0)
   const totalPiezas = computed(() => lineas.value.reduce((s, l) => s + l.cantidad, 0))
@@ -201,6 +233,7 @@ export const useCarritoStore = defineStore('carrito', () => {
       previsualizacion.value = null
       importePublico.value = null
       errorCupon.value = ''
+      olvidarPago()
     }
 
     duenio.value = duenioId
@@ -240,6 +273,7 @@ export const useCarritoStore = defineStore('carrito', () => {
     previsualizacion.value = null
     importePublico.value = null
     errorCupon.value = ''
+    olvidarPago()
     persistir()
   }
 
@@ -282,6 +316,7 @@ export const useCarritoStore = defineStore('carrito', () => {
     previsualizacion.value = null
     importePublico.value = null
     errorCupon.value = ''
+    olvidarPago()
     persistir()
     programarSincronizacion()
   }
@@ -354,15 +389,23 @@ export const useCarritoStore = defineStore('carrito', () => {
       const respuesta = await http.post<PrevisualizacionCarrito>('/carrito/previsualizar', {
         items: lineas.value,
         codigoCupon: codigoCupon.value ?? undefined,
+        metodoPago: metodoPago.value ?? undefined,
+        pagoCon: pagoCon.value ?? undefined,
+        usarBilletera: usarBilletera.value > 0 ? usarBilletera.value : undefined,
+        metodoEntrega: metodoEntrega.value,
       })
       if (miPeticion !== ultimaPeticion) return
 
       previsualizacion.value = respuesta
-      // Si el cupón dejó de valer, la API lo devuelve como `cupon: null`.
+      // Si el cupón dejó de valer —cambió una cantidad y ya no llega al
+      // mínimo, venció…—, la API lo devuelve como `cupon: null`. Se quita, con
+      // el motivo a la vista: seguir mandándolo solo repetiría el rechazo, y
+      // confirmar con él daría un 400 (HU-10).
       if (codigoCupon.value && !respuesta.cupon) {
-        errorCupon.value = respuesta.avisos.at(-1) ?? 'Ese cupón ya no se puede aplicar.'
-      } else {
-        errorCupon.value = ''
+        const motivo = respuesta.avisos.at(-1) ?? 'ya no se puede aplicar.'
+        errorCupon.value = `Quitamos el cupón ${codigoCupon.value}: ${motivo}`
+        codigoCupon.value = null
+        persistir()
       }
     } finally {
       if (miPeticion === ultimaPeticion) calculando.value = false
@@ -407,10 +450,17 @@ export const useCarritoStore = defineStore('carrito', () => {
    * Confirma el pedido. El carrito se vacía **solo tras el 201**: si la API
    * rechaza, el cliente conserva lo que había armado.
    */
-  async function confirmar(): Promise<Pedido> {
+  async function confirmar(aceptaTerminos: boolean): Promise<Pedido> {
+    // La API vuelve a calcular todo —precios, envío, cupón, billetera y
+    // cambio—: de aquí solo salen las elecciones del cliente.
     const pedido = await http.post<Pedido>('/pedidos', {
       items: lineas.value,
       codigoCupon: codigoCupon.value ?? undefined,
+      metodoPago: metodoPago.value ?? undefined,
+      pagoCon: metodoPago.value === 'EFECTIVO' ? (pagoCon.value ?? undefined) : undefined,
+      usarBilletera: usarBilletera.value > 0 ? usarBilletera.value : undefined,
+      metodoEntrega: metodoEntrega.value,
+      aceptaTerminos,
     })
     // El servidor ya borró su copia dentro de la transacción del pedido: aquí
     // sobra volver a mandarla.
@@ -420,6 +470,7 @@ export const useCarritoStore = defineStore('carrito', () => {
     previsualizacion.value = null
     importePublico.value = null
     errorCupon.value = ''
+    olvidarPago()
     persistir()
     return pedido
   }
@@ -434,6 +485,11 @@ export const useCarritoStore = defineStore('carrito', () => {
     metas,
     calculando,
     errorCupon,
+    metodoPago,
+    pagoCon,
+    usarBilletera,
+    metodoEntrega,
+    pagoListo,
     vacio,
     totalPiezas,
     lineasValoradas,

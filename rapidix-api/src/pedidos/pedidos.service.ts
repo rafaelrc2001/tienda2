@@ -1,5 +1,21 @@
-import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { Cliente, EstadoCupon, EstadoPedido, Pedido, Prisma, Prospecto } from '@prisma/client';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import {
+  Cliente,
+  EstadoCupon,
+  EstadoPago,
+  EstadoPedido,
+  MetodoEntrega,
+  MetodoPago,
+  Pedido,
+  Prisma,
+  Prospecto,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConfiguracionService } from '../configuracion/configuracion.service';
 import { CuponesService } from '../cupones/cupones.service';
@@ -24,6 +40,18 @@ export interface PedidoDto {
   total: number;
   cashbackGenerado: number;
   estado: string;
+  pago: {
+    metodo: MetodoPago;
+    estado: EstadoPago;
+    billetera: number;
+    /** Lo que se cobra en efectivo o por transferencia. */
+    aPagar: number;
+    pagoCon: number | null;
+    cambio: number | null;
+    /** Transferencia: lo que el cliente pone como concepto. Es el folio. */
+    referencia: string;
+  };
+  metodoEntrega: MetodoEntrega;
   cupon: { code: string; titulo: string } | null;
   items: {
     productoId: string;
@@ -157,15 +185,68 @@ export class PedidosService {
         descuento = new Decimal(validacion.descuento);
       }
 
-      // Mismo calculo que devuelve POST /carrito/previsualizar.
+      // Se bloquea el saldo hasta el final de la transaccion, por la misma
+      // razon que el cupon: dos pedidos simultaneos no pueden gastar el mismo
+      // peso. Un prospecto no tiene fila y su saldo es cero.
+      const usarBilletera = new Decimal(dto.usarBilletera ?? 0);
+      let saldo = new Decimal(0);
+      if (cliente) {
+        const filas = await tx.$queryRaw<{ saldoCashback: Decimal }[]>`
+          SELECT "saldoCashback" FROM clientes WHERE id = ${cliente.id} FOR UPDATE
+        `;
+        saldo = new Decimal(filas[0]?.saldoCashback ?? 0);
+      }
+
+      // Mismo calculo que devuelve POST /carrito/previsualizar. La billetera se
+      // valida contra el total ya con el cupon, y aqui si se lanza: el cliente
+      // tiene que ver el total real antes de confirmar.
+      const metodoEntrega = dto.metodoEntrega ?? MetodoEntrega.DOMICILIO;
+      const sinBilletera = CarritoService.calcularCarrito(
+        carrito,
+        config,
+        dentroDeHorario,
+        porcentajeCashback,
+        descuento,
+        new Decimal(0),
+        metodoEntrega,
+      );
+      const billetera = CarritoService.validarBilletera(usarBilletera, saldo, sinBilletera.total);
+      if (billetera.error) {
+        throw new ConflictException({
+          statusCode: 409,
+          code: billetera.error.codigo,
+          message: billetera.error.mensaje,
+        });
+      }
+
       const desglose = CarritoService.calcularCarrito(
         carrito,
         config,
         dentroDeHorario,
         porcentajeCashback,
         descuento,
+        billetera.monto,
+        metodoEntrega,
       );
-      const { envio, recargoFuera, total } = desglose;
+      const { envio, recargoFuera, total, aPagar } = desglose;
+
+      const pago = CarritoService.evaluarPago(dto.metodoPago, dto.pagoCon, aPagar);
+      if (pago.error) {
+        throw new BadRequestException({
+          statusCode: 400,
+          code: pago.error.codigo,
+          message: pago.error.mensaje,
+        });
+      }
+
+      // Cubierto entero con la billetera no hay nada que cobrar. Si no, la
+      // transferencia espera a Finanzas y el efectivo lo cobra el repartidor.
+      const estadoPago = !aPagar.greaterThan(0)
+        ? EstadoPago.PAGADO
+        : dto.metodoPago === MetodoPago.TRANSFERENCIA
+          ? EstadoPago.PENDIENTE
+          : EstadoPago.CONTRA_ENTREGA;
+      const enEfectivo = dto.metodoPago === MetodoPago.EFECTIVO && aPagar.greaterThan(0);
 
       const folio = await PedidosService.siguienteFolio(tx);
       const ahora = new Date();
@@ -185,6 +266,13 @@ export class PedidosService {
           recargoFuera,
           descuento,
           total,
+          metodoPago: dto.metodoPago,
+          estadoPago,
+          pagadoConBilletera: billetera.monto,
+          pagoCon: enEfectivo ? new Decimal(dto.pagoCon as number) : null,
+          cambio: enEfectivo ? pago.cambio : null,
+          pagoValidadoEn: estadoPago === EstadoPago.PAGADO ? new Date() : null,
+          metodoEntrega,
           estado: 'CONFIRMADO',
           direccion: {
             calle: comprador.calle,
@@ -219,6 +307,24 @@ export class PedidosService {
             usedPedidoId: pedido.id,
             discountApplied: descuento,
           },
+        });
+      }
+
+      // El saldo sale de la billetera con su renglon, igual que entra el
+      // cashback: el estado de cuenta se explica solo. Va antes de acreditar el
+      // cashback de este pedido, que por tanto no se puede gastar en el mismo.
+      if (billetera.monto.greaterThan(0)) {
+        await tx.movimientoCashback.create({
+          data: {
+            clienteId,
+            pedidoId: pedido.id,
+            monto: billetera.monto.negated(),
+            concepto: `Pago del pedido ${folio}`,
+          },
+        });
+        await tx.cliente.update({
+          where: { id: clienteId },
+          data: { saldoCashback: { decrement: billetera.monto } },
         });
       }
 
@@ -460,6 +566,33 @@ export class PedidosService {
     };
   }
 
+  /**
+   * Finanzas confirma que la transferencia llego (HU-11).
+   *
+   * Solo pasa de PENDIENTE a PAGADO: el efectivo lo cobra el repartidor y lo
+   * ya pagado no se vuelve a validar. Condicional en el propio UPDATE para que
+   * dos clics simultaneos no pisen la fecha del primero.
+   */
+  async validarPago(id: string): Promise<PedidoDto> {
+    const { count } = await this.prisma.pedido.updateMany({
+      where: { id, estadoPago: EstadoPago.PENDIENTE },
+      data: { estadoPago: EstadoPago.PAGADO, pagoValidadoEn: new Date() },
+    });
+    const pedido = await this.prisma.pedido.findUnique({
+      where: { id },
+      include: { items: true, cupon: true, cliente: { select: { nombre: true } } },
+    });
+    if (!pedido) throw new NotFoundException('Pedido no encontrado');
+    if (count === 0) {
+      throw new ConflictException({
+        statusCode: 409,
+        code: 'PAGO_NO_PENDIENTE',
+        message: `El pedido ${pedido.folio} no tiene un pago pendiente de validar.`,
+      });
+    }
+    return { ...this.aDto(pedido), clienteNombre: pedido.cliente.nombre };
+  }
+
   /** Historial completo para Administracion. */
   async todos(limite = 100): Promise<PedidoDto[]> {
     const pedidos = await this.prisma.pedido.findMany({
@@ -494,6 +627,16 @@ export class PedidosService {
       total: pedido.total.toNumber(),
       cashbackGenerado: pedido.cashbackGenerado.toNumber(),
       estado: pedido.estado,
+      pago: {
+        metodo: pedido.metodoPago,
+        estado: pedido.estadoPago,
+        billetera: pedido.pagadoConBilletera.toNumber(),
+        aPagar: pedido.total.sub(pedido.pagadoConBilletera).toNumber(),
+        pagoCon: pedido.pagoCon?.toNumber() ?? null,
+        cambio: pedido.cambio?.toNumber() ?? null,
+        referencia: pedido.folio,
+      },
+      metodoEntrega: pedido.metodoEntrega,
       cupon: pedido.cupon ? { code: pedido.cupon.code, titulo: pedido.cupon.title } : null,
       items: pedido.items.map((i) => ({
         productoId: i.productoId,

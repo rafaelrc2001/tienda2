@@ -333,6 +333,7 @@ describe('carrito · importe sin sesión (HU-11)', () => {
     expect(post).toHaveBeenCalledWith('/carrito/previsualizar', {
       items: [{ productoId: 'p1', cantidad: 1 }],
       codigoCupon: undefined,
+      metodoEntrega: 'DOMICILIO',
     })
     expect(carrito.subtotal).toBe(300)
     expect(carrito.cashbackEstimado).toBe(6)
@@ -350,6 +351,7 @@ describe('carrito · previsualización', () => {
     expect(post).toHaveBeenCalledWith('/carrito/previsualizar', {
       items: [{ productoId: 'p1', cantidad: 1 }],
       codigoCupon: undefined,
+      metodoEntrega: 'DOMICILIO',
     })
     expect(carrito.previsualizacion?.total).toBe(290)
   })
@@ -397,7 +399,7 @@ describe('carrito · previsualización', () => {
     expect(carrito.previsualizacion?.total).toBe(999)
   })
 
-  it('marca el cupón como no aplicable si la API lo devuelve sin cupón', async () => {
+  it('quita el cupón con aviso si la API lo devuelve sin cupón', async () => {
     post.mockResolvedValue(
       previsualizacion({ cupon: null, avisos: ['Te faltan $50.00 para llegar al mínimo'] }),
     )
@@ -407,7 +409,56 @@ describe('carrito · previsualización', () => {
     carrito.codigoCupon = 'BIENV'
     await carrito.recalcular()
 
-    expect(carrito.errorCupon).toBe('Te faltan $50.00 para llegar al mínimo')
+    expect(carrito.errorCupon).toBe(
+      'Quitamos el cupón BIENV: Te faltan $50.00 para llegar al mínimo',
+    )
+    expect(carrito.codigoCupon).toBeNull()
+    expect(JSON.parse(localStorage.getItem(CLAVE) as string).codigoCupon).toBeNull()
+  })
+
+  it('manda el pago y la entrega elegidos para que la API calcule envío, cambio y billetera', async () => {
+    post.mockResolvedValue(previsualizacion())
+
+    const carrito = useCarritoStore()
+    carrito.agregar('p1')
+    carrito.metodoPago = 'EFECTIVO'
+    carrito.pagoCon = 200
+    carrito.usarBilletera = 15
+    carrito.metodoEntrega = 'TIENDA'
+    await carrito.recalcular()
+
+    expect(post).toHaveBeenCalledWith('/carrito/previsualizar', {
+      items: [{ productoId: 'p1', cantidad: 1 }],
+      metodoPago: 'EFECTIVO',
+      pagoCon: 200,
+      usarBilletera: 15,
+      metodoEntrega: 'TIENDA',
+    })
+  })
+
+  it('el pago no está listo mientras la API marque un error', async () => {
+    const pago = {
+      saldoBilletera: 0,
+      metodo: 'EFECTIVO',
+      pagoCon: 50,
+      cambio: null,
+      errorBilletera: null,
+    }
+    post
+      .mockResolvedValueOnce(
+        previsualizacion({
+          pago: { ...pago, errorPago: { codigo: 'PAGO_INSUFICIENTE', mensaje: 'x' } },
+        }),
+      )
+      .mockResolvedValueOnce(previsualizacion({ pago: { ...pago, errorPago: null } }))
+
+    const carrito = useCarritoStore()
+    carrito.agregar('p1')
+    await carrito.recalcular()
+    expect(carrito.pagoListo).toBe(false)
+
+    await carrito.recalcular()
+    expect(carrito.pagoListo).toBe(true)
   })
 })
 
@@ -460,10 +511,20 @@ describe('carrito · confirmar pedido', () => {
 
     const carrito = useCarritoStore()
     carrito.agregar('p1')
-    const pedido = await carrito.confirmar()
+    carrito.metodoPago = 'TRANSFERENCIA'
+    carrito.pagoCon = 500
+    const pedido = await carrito.confirmar(true)
 
+    // En transferencia no viaja el monto de efectivo que quedó escrito.
+    expect(post).toHaveBeenCalledWith('/pedidos', {
+      items: [{ productoId: 'p1', cantidad: 1 }],
+      metodoPago: 'TRANSFERENCIA',
+      metodoEntrega: 'DOMICILIO',
+      aceptaTerminos: true,
+    })
     expect(pedido.folio).toBe('ORD-000001')
     expect(carrito.vacio).toBe(true)
+    expect(carrito.metodoPago).toBeNull()
     expect(carrito.codigoCupon).toBeNull()
     expect(carrito.previsualizacion).toBeNull()
     expect(JSON.parse(localStorage.getItem(CLAVE) as string).lineas).toEqual([])
@@ -477,7 +538,7 @@ describe('carrito · confirmar pedido', () => {
     carrito.agregar('p1')
     carrito.agregar('p2')
 
-    await expect(carrito.confirmar()).rejects.toThrow()
+    await expect(carrito.confirmar(true)).rejects.toThrow()
 
     expect(carrito.vacio).toBe(false)
     expect(carrito.totalPiezas).toBe(2)

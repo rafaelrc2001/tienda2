@@ -24,6 +24,8 @@ export interface BancariosResponse {
   banco: string | null;
   beneficiario: string | null;
   numeroCuenta: string | null;
+  numeroTarjeta: string | null;
+  clabe: string | null;
 }
 
 /** Lo que necesita la app del cliente: horario, envio y datos de pago. */
@@ -102,7 +104,13 @@ export class ConfiguracionService {
 
   async verBancarios(): Promise<BancariosResponse> {
     const c = await this.obtener();
-    return { banco: c.banco, beneficiario: c.beneficiario, numeroCuenta: c.numeroCuenta };
+    return {
+      banco: c.banco,
+      beneficiario: c.beneficiario,
+      numeroCuenta: c.numeroCuenta,
+      numeroTarjeta: c.numeroTarjeta,
+      clabe: c.clabe,
+    };
   }
 
   async guardarBancarios(dto: BancariosDto): Promise<BancariosResponse> {
@@ -113,6 +121,8 @@ export class ConfiguracionService {
         banco: dto.banco ?? null,
         beneficiario: dto.beneficiario ?? null,
         numeroCuenta: dto.numeroCuenta ?? null,
+        numeroTarjeta: dto.numeroTarjeta ?? null,
+        clabe: dto.clabe ?? null,
       },
     });
     return this.verBancarios();

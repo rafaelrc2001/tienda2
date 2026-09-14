@@ -239,6 +239,25 @@ export interface MetasCarrito {
   sinCashback: boolean
 }
 
+/** Cómo se cobra lo que queda tras el cupón y la billetera. */
+export type MetodoPago = 'EFECTIVO' | 'TRANSFERENCIA'
+
+/** Recoger en tienda no paga envío. */
+export type MetodoEntrega = 'DOMICILIO' | 'TIENDA'
+
+export type EstadoPago = 'CONTRA_ENTREGA' | 'PENDIENTE' | 'PAGADO'
+
+/** Por qué el pago elegido no deja confirmar. */
+export interface ErrorPago {
+  codigo:
+    | 'METODO_REQUERIDO'
+    | 'PAGO_CON_REQUERIDO'
+    | 'PAGO_INSUFICIENTE'
+    | 'BILLETERA_INSUFICIENTE'
+    | 'BILLETERA_EXCEDE_TOTAL'
+  mensaje: string
+}
+
 /** Respuesta de `POST /carrito/previsualizar`. */
 export interface PrevisualizacionCarrito {
   items: ItemPrevisualizado[]
@@ -247,11 +266,27 @@ export interface PrevisualizacionCarrito {
   recargoFuera: number
   descuento: number
   total: number
+  /** Saldo de billetera aplicado. */
+  billetera: number
+  /** Lo que se cobra en efectivo o por transferencia. */
+  aPagar: number
   /** Cashback base, sin el ×2 de la billetera (HU-12). */
   cashbackEstimado: number
+  /** Lo que se acreditaría en la billetera: la base por el multiplicador. */
+  cashbackBilletera: number
   cupon: { codigo: string; descripcion: string } | null
+  pago: {
+    /** 0 si no tiene billetera: el bloque no se pinta. */
+    saldoBilletera: number
+    metodo: MetodoPago | null
+    pagoCon: number | null
+    cambio: number | null
+    errorPago: ErrorPago | null
+    errorBilletera: ErrorPago | null
+  }
+  metodoEntrega: MetodoEntrega
   dentroDeHorario: boolean
-  /** false si el carrito no se puede confirmar tal y como está. */
+  /** false si el carrito no se puede confirmar tal y como está. No mira el pago. */
   puedePedir: boolean
   metas: MetasCarrito
   avisos: string[]
@@ -337,6 +372,17 @@ export interface Pedido {
   total: number
   cashbackGenerado: number
   estado: string
+  pago: {
+    metodo: MetodoPago
+    estado: EstadoPago
+    billetera: number
+    aPagar: number
+    pagoCon: number | null
+    cambio: number | null
+    /** Concepto de la transferencia: el folio. */
+    referencia: string
+  }
+  metodoEntrega: MetodoEntrega
   cupon: { code: string; titulo: string } | null
   items: ItemPedido[]
   creadoEn: string
@@ -522,6 +568,9 @@ export interface Bancarios {
   banco: string | null
   beneficiario: string | null
   numeroCuenta: string | null
+  numeroTarjeta: string | null
+  /** 18 dígitos (SPEI). */
+  clabe: string | null
 }
 
 /**

@@ -8,7 +8,7 @@
 import { onMounted, ref } from 'vue'
 import { http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
-import { dinero, fechaHora } from '@/utils/formato'
+import { dinero, fechaHora, nombreEstadoPago, nombreMetodoPago } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
 import type { Pedido } from '@/api/tipos'
 
@@ -70,11 +70,25 @@ function alternar(id: string): void {
               <span>Recargo fuera de horario</span><span>{{ dinero(pedido.recargoFuera) }}</span>
             </div>
             <div v-if="pedido.descuento > 0" class="fila descuento">
-              <span>Descuento{{ pedido.cupon ? ` (${pedido.cupon.code})` : '' }}</span>
+              <span>{{ pedido.cupon ? `Cupón ${pedido.cupon.code}` : 'Descuento' }}</span>
               <span>−{{ dinero(pedido.descuento) }}</span>
             </div>
             <div class="fila total-fila">
               <span>Total</span><span>{{ dinero(pedido.total) }}</span>
+            </div>
+            <div v-if="pedido.pago.billetera > 0" class="fila descuento">
+              <span>Pagado con billetera</span><span>−{{ dinero(pedido.pago.billetera) }}</span>
+            </div>
+            <div class="fila">
+              <span>
+                {{ pedido.pago.aPagar > 0 ? nombreMetodoPago(pedido.pago.metodo) : 'Billetera' }}
+                · {{ nombreEstadoPago(pedido.pago.estado) }}
+              </span>
+              <span>{{ dinero(pedido.pago.aPagar) }}</span>
+            </div>
+            <div v-if="pedido.pago.cambio !== null && pedido.pago.pagoCon !== null" class="fila">
+              <span>Pagas con {{ dinero(pedido.pago.pagoCon) }}</span>
+              <span>Cambio {{ dinero(pedido.pago.cambio) }}</span>
             </div>
             <p v-if="pedido.cashbackGenerado > 0" class="cashback">
               Cashback generado: {{ dinero(pedido.cashbackGenerado) }}

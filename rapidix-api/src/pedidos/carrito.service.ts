@@ -8,6 +8,8 @@ import {
   ConfiguracionNegocio,
   CuponEmitido,
   EstadoCupon,
+  MetodoEntrega,
+  MetodoPago,
   OrigenCupon,
   Prisma,
   Producto,
@@ -78,11 +80,39 @@ export interface DesgloseCarrito {
   envio: Decimal;
   recargoFuera: Decimal;
   descuento: Decimal;
+  /** Lo que vale el pedido: subtotal + envio + recargo - cupon. */
   total: Decimal;
+  /** Saldo de billetera aplicado, ya acotado al total. */
+  billetera: Decimal;
+  /** Lo que queda por cobrar en efectivo o por transferencia. */
+  aPagar: Decimal;
   /** Cashback base, sin el x2 de la billetera. Es el que ve el cliente. */
   cashback: Decimal;
   /** Lo que se acredita: la base por `multiplicadorCashback`. */
   cashbackBilletera: Decimal;
+}
+
+/** Por que el pago elegido no deja confirmar. El frontend lo pinta bajo su campo. */
+export interface ErrorPago {
+  codigo:
+    | 'METODO_REQUERIDO'
+    | 'PAGO_CON_REQUERIDO'
+    | 'PAGO_INSUFICIENTE'
+    | 'BILLETERA_INSUFICIENTE'
+    | 'BILLETERA_EXCEDE_TOTAL';
+  mensaje: string;
+}
+
+/** Bloque de pago de la previsualizacion (HU-09 a HU-12). */
+export interface PagoPrevisualizadoDto {
+  /** Saldo disponible. 0 para quien no tiene billetera: la interfaz oculta el bloque. */
+  saldoBilletera: number;
+  metodo: MetodoPago | null;
+  pagoCon: number | null;
+  /** Solo en efectivo y con un monto que alcanza. */
+  cambio: number | null;
+  errorPago: ErrorPago | null;
+  errorBilletera: ErrorPago | null;
 }
 
 /**
@@ -133,11 +163,23 @@ export interface PrevisualizacionCarritoDto {
   recargoFuera: number;
   descuento: number;
   total: number;
+  /** Saldo de billetera aplicado. */
+  billetera: number;
+  /** Lo que se cobra en efectivo o por transferencia: total - billetera. */
+  aPagar: number;
   /** Cashback base, sin el x2 de la billetera (HU-12). */
   cashbackEstimado: number;
+  /** Lo que se acreditaria en la billetera: la base por el multiplicador (HU-13). */
+  cashbackBilletera: number;
   cupon: { codigo: string; descripcion: string } | null;
+  pago: PagoPrevisualizadoDto;
+  /** El que se uso para el envio: sin elegir, a domicilio. */
+  metodoEntrega: MetodoEntrega;
   dentroDeHorario: boolean;
-  /** false si no se puede confirmar el pedido tal y como esta el carrito. */
+  /**
+   * false si no se puede confirmar el pedido tal y como esta el carrito. No
+   * mira el pago: eso lo dicen `pago.errorPago` y `pago.errorBilletera`.
+   */
   puedePedir: boolean;
   metas: MetasCarrito;
   avisos: string[];
@@ -493,11 +535,13 @@ export class CarritoService {
     clienteId: string,
     dto: PrevisualizarCarritoDto,
   ): Promise<PrevisualizacionCarritoDto> {
-    const [config, porcentaje] = await Promise.all([
+    const [config, porcentaje, saldoBilletera] = await Promise.all([
       this.configuracion.obtener(),
       this.cashback.porcentajePara(clienteId),
+      this.saldoBilletera(clienteId),
     ]);
     const dentroDeHorario = ConfiguracionService.estaDentroDeHorario(config);
+    const metodoEntrega = dto.metodoEntrega ?? MetodoEntrega.DOMICILIO;
 
     const carrito = await this.resolverTolerante(dto.items);
     const avisos = [...carrito.avisos];
@@ -531,13 +575,33 @@ export class CarritoService {
       }
     }
 
+    // La billetera se mide contra el total ya con el cupon (HU-12). Aqui no se
+    // lanza: si pide de mas se aplica lo que cabe y se dice por que, para que
+    // el total en pantalla nunca sea uno que el checkout rechazaria sin aviso.
+    const sinBilletera = CarritoService.calcularCarrito(
+      carrito,
+      config,
+      dentroDeHorario,
+      porcentaje,
+      descuento,
+      new Decimal(0),
+      metodoEntrega,
+    );
+    const billetera = CarritoService.validarBilletera(
+      new Decimal(dto.usarBilletera ?? 0),
+      saldoBilletera,
+      sinBilletera.total,
+    );
     const desglose = CarritoService.calcularCarrito(
       carrito,
       config,
       dentroDeHorario,
       porcentaje,
       descuento,
+      billetera.monto,
+      metodoEntrega,
     );
+    const pago = CarritoService.evaluarPago(dto.metodoPago, dto.pagoCon, desglose.aPagar);
 
     const aItem = (l: LineaResuelta, agotado: boolean): PrevisualizacionCarritoDto['items'][0] => ({
       productoId: l.productoId,
@@ -568,11 +632,23 @@ export class CarritoService {
       recargoFuera: desglose.recargoFuera.toNumber(),
       descuento: desglose.descuento.toNumber(),
       total: desglose.total.toNumber(),
+      billetera: desglose.billetera.toNumber(),
+      aPagar: desglose.aPagar.toNumber(),
       cashbackEstimado: desglose.cashback.toNumber(),
+      cashbackBilletera: desglose.cashbackBilletera.toNumber(),
       cupon,
+      pago: {
+        saldoBilletera: saldoBilletera.toNumber(),
+        metodo: dto.metodoPago ?? null,
+        pagoCon: dto.pagoCon ?? null,
+        cambio: pago.cambio?.toNumber() ?? null,
+        errorPago: pago.error,
+        errorBilletera: billetera.error,
+      },
+      metodoEntrega,
       dentroDeHorario,
       puedePedir,
-      metas: CarritoService.metas(carrito.subtotal, carrito.baseCashback, config),
+      metas: CarritoService.metas(carrito.subtotal, carrito.baseCashback, config, metodoEntrega),
       avisos,
     };
   }
@@ -594,14 +670,19 @@ export class CarritoService {
     dentroDeHorario: boolean,
     porcentajeCashback: Decimal,
     descuento: Decimal = new Decimal(0),
+    billeteraSolicitada: Decimal = new Decimal(0),
+    metodoEntrega: MetodoEntrega = MetodoEntrega.DOMICILIO,
   ): DesgloseCarrito {
     const { subtotal } = carrito;
 
     // Envio gratis segun el subtotal ANTES del descuento, igual que el
-    // prototipo: el cupon no debe hacer perder el envio gratis.
-    const envio = subtotal.greaterThanOrEqualTo(config.montoEnvioGratis)
-      ? new Decimal(0)
-      : new Decimal(config.costoEnvio);
+    // prototipo: el cupon no debe hacer perder el envio gratis. Quien recoge
+    // en tienda no paga envio.
+    const envio =
+      metodoEntrega === MetodoEntrega.TIENDA ||
+      subtotal.greaterThanOrEqualTo(config.montoEnvioGratis)
+        ? new Decimal(0)
+        : new Decimal(config.costoEnvio);
 
     const recargoFuera = dentroDeHorario
       ? new Decimal(0)
@@ -613,21 +694,116 @@ export class CarritoService {
       .sub(descuento)
       .toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
 
+    // DECISION (HU-10): ni el cupon ni la billetera bajan la base del cashback.
+    // La base son los productos participantes a precio escalonado; el cupon ya
+    // es un premio aparte y pagar con saldo no hace la compra mas pequena.
     const cashback = CashbackService.calcular(
       carrito.baseCashback,
       porcentajeCashback,
       config.montoMinimoCashback,
     );
 
+    const totalFinal = total.lessThan(0) ? new Decimal(0) : total;
+    // Aqui solo se acota para que `aPagar` nunca sea negativo. Si pedir de mas
+    // es un error o no lo decide quien llama, con `validarBilletera`.
+    const billetera = Decimal.max(Decimal.min(billeteraSolicitada, totalFinal), 0);
+
     return {
       subtotal,
       envio,
       recargoFuera,
       descuento,
-      total: total.lessThan(0) ? new Decimal(0) : total,
+      total: totalFinal,
+      billetera,
+      aPagar: totalFinal.sub(billetera),
       cashback,
       cashbackBilletera: CashbackService.aBilletera(cashback, config.multiplicadorCashback),
     };
+  }
+
+  /**
+   * Saldo de billetera que se puede aplicar (HU-12): nunca mas que el saldo ni
+   * que el total despues del cupon.
+   *
+   * Devuelve lo que cabe y, si pidio de mas, el motivo. La previsualizacion
+   * aplica `monto` y ensena el error; el checkout lanza con el error.
+   */
+  static validarBilletera(
+    solicitado: Decimal,
+    saldo: Decimal,
+    total: Decimal,
+  ): { monto: Decimal; error: ErrorPago | null } {
+    if (solicitado.greaterThan(saldo)) {
+      return {
+        monto: Decimal.min(saldo, total),
+        error: {
+          codigo: 'BILLETERA_INSUFICIENTE',
+          mensaje: `Tu saldo disponible es de $${saldo.toFixed(2)}`,
+        },
+      };
+    }
+    if (solicitado.greaterThan(total)) {
+      return {
+        monto: total,
+        error: {
+          codigo: 'BILLETERA_EXCEDE_TOTAL',
+          mensaje: `No puedes usar más de $${total.toFixed(2)}, que es el total de tu pedido`,
+        },
+      };
+    }
+    return { monto: solicitado, error: null };
+  }
+
+  /**
+   * Revisa el metodo de pago contra lo que queda por cobrar (HU-09 y HU-11).
+   *
+   * Si la billetera cubre el pedido entero no hay nada que cobrar y cualquier
+   * metodo vale. En efectivo el monto es obligatorio: el repartidor tiene que
+   * saber cuanto cambio llevar, y "exacto" se dice escribiendo el total.
+   */
+  static evaluarPago(
+    metodo: MetodoPago | undefined,
+    pagoCon: number | undefined,
+    aPagar: Decimal,
+  ): { cambio: Decimal | null; error: ErrorPago | null } {
+    if (!aPagar.greaterThan(0)) return { cambio: null, error: null };
+    if (!metodo) {
+      return {
+        cambio: null,
+        error: { codigo: 'METODO_REQUERIDO', mensaje: 'Elige cómo vas a pagar' },
+      };
+    }
+    if (metodo !== MetodoPago.EFECTIVO) return { cambio: null, error: null };
+
+    if (pagoCon === undefined) {
+      return {
+        cambio: null,
+        error: { codigo: 'PAGO_CON_REQUERIDO', mensaje: 'Indica con cuánto vas a pagar' },
+      };
+    }
+    const entrega = new Decimal(pagoCon);
+    if (entrega.lessThan(aPagar)) {
+      return {
+        cambio: null,
+        error: {
+          codigo: 'PAGO_INSUFICIENTE',
+          mensaje: `El monto debe ser de al menos $${aPagar.toFixed(2)}`,
+        },
+      };
+    }
+    return { cambio: entrega.sub(aPagar), error: null };
+  }
+
+  /**
+   * Saldo de la billetera. Un prospecto no tiene fila en `clientes` ni, por
+   * tanto, billetera: vale cero.
+   */
+  async saldoBilletera(duenioId: string): Promise<Decimal> {
+    const cliente = await this.prisma.cliente.findUnique({
+      where: { id: duenioId },
+      select: { saldoCashback: true },
+    });
+    return cliente?.saldoCashback ?? new Decimal(0);
   }
 
   /**
@@ -641,9 +817,12 @@ export class CarritoService {
     subtotal: Decimal,
     baseCashback: Decimal,
     config: ConfiguracionNegocio,
+    metodoEntrega: MetodoEntrega = MetodoEntrega.DOMICILIO,
   ): MetasCarrito {
     const hayAlgo = subtotal.greaterThan(0);
     const faltaEnvio = new Decimal(config.montoEnvioGratis).sub(subtotal);
+    // Recogiendo en tienda el envio ya es gratis: no hay nada que perseguir.
+    const aDomicilio = metodoEntrega === MetodoEntrega.DOMICILIO;
 
     // Mismo 80 % que el upsell: el aviso sale cuando lo que falta, por cinco,
     // no pasa del minimo. Con la base justo en el minimo todavia no hay
@@ -657,7 +836,8 @@ export class CarritoService {
       faltaMinimo.mul(5).lessThanOrEqualTo(minimo);
 
     return {
-      faltaEnvioGratis: hayAlgo && faltaEnvio.greaterThan(0) ? faltaEnvio.toNumber() : null,
+      faltaEnvioGratis:
+        aDomicilio && hayAlgo && faltaEnvio.greaterThan(0) ? faltaEnvio.toNumber() : null,
       faltaCashback: cerca ? Decimal.max(faltaMinimo, 0.01).toNumber() : null,
       sinCashback: hayAlgo && baseCashback.isZero(),
     };

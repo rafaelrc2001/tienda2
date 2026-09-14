@@ -6,12 +6,31 @@
  */
 import { computed, onMounted, ref } from 'vue'
 import { http } from '@/api/http'
+import { useAuthStore } from '@/stores/auth'
 import { useUiStore } from '@/stores/ui'
-import { dinero, fechaHora } from '@/utils/formato'
+import { dinero, fechaHora, nombreEstadoPago, nombreMetodoPago } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
 import type { Pedido } from '@/api/tipos'
 
 const ui = useUiStore()
+const auth = useAuthStore()
+
+/** Validar transferencias es de Finanzas: la API lo exige con esa sección (HU-11). */
+const puedeValidarPagos = computed(() => auth.puedeVer('finanzas'))
+const validando = ref<string | null>(null)
+
+async function validarPago(pedido: Pedido): Promise<void> {
+  validando.value = pedido.id
+  try {
+    const actualizado = await http.patch<Pedido>(`/admin/pedidos/${pedido.id}/pago`)
+    pedidos.value = pedidos.value.map((p) => (p.id === actualizado.id ? actualizado : p))
+    ui.exito(`Pago de ${pedido.folio} validado`)
+  } catch (fallo) {
+    ui.errorDeApi(fallo)
+  } finally {
+    validando.value = null
+  }
+}
 
 const pedidos = ref<Pedido[]>([])
 const cargando = ref(true)
@@ -79,6 +98,7 @@ async function verMas(): Promise<void> {
               <th>Folio</th>
               <th>Cliente</th>
               <th>Estado</th>
+              <th>Pago</th>
               <th class="num">Total</th>
             </tr>
           </thead>
@@ -90,6 +110,21 @@ async function verMas(): Promise<void> {
               </td>
               <td>{{ pedido.clienteNombre ?? '—' }}</td>
               <td><span class="mini-tag">{{ pedido.estado }}</span></td>
+              <td>
+                <span class="pago-metodo">{{ nombreMetodoPago(pedido.pago.metodo) }}</span>
+                <span class="fecha" :class="{ pendiente: pedido.pago.estado === 'PENDIENTE' }">
+                  {{ nombreEstadoPago(pedido.pago.estado) }}
+                </span>
+                <button
+                  v-if="puedeValidarPagos && pedido.pago.estado === 'PENDIENTE'"
+                  type="button"
+                  class="btn-secondary validar"
+                  :disabled="validando === pedido.id"
+                  @click="validarPago(pedido)"
+                >
+                  {{ validando === pedido.id ? '…' : 'Validar' }}
+                </button>
+              </td>
               <td class="num">{{ dinero(pedido.total) }}</td>
             </tr>
           </tbody>
@@ -142,7 +177,7 @@ async function verMas(): Promise<void> {
   width: 100%;
   border-collapse: collapse;
   font-size: 12px;
-  min-width: 460px;
+  min-width: 540px;
 }
 
 .tabla th {
@@ -191,6 +226,22 @@ async function verMas(): Promise<void> {
   color: var(--muted);
   margin-top: 2px;
   white-space: nowrap;
+}
+
+.pago-metodo {
+  display: block;
+  white-space: nowrap;
+}
+
+.fecha.pendiente {
+  color: var(--gold-dark);
+  font-weight: 700;
+}
+
+.validar {
+  margin-top: 6px;
+  padding: 4px 10px;
+  font-size: 11px;
 }
 
 .ver-mas {

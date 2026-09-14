@@ -173,6 +173,24 @@ lo exige y los contadores desnormalizados se desincronizan.
 `CuponEmitido.usedPedidoId` es `@unique` (un cupón por pedido). Son
 invariantes que la base garantiza, no comprobaciones que se puedan olvidar.
 
+**Método de pago (HU-09 a HU-12).** `Pedido.total` es lo que vale el pedido
+(subtotal + envío + recargo − cupón); lo que se cobra es
+`total − pagadoConBilletera`. La billetera no es un método: se combina con
+efectivo o transferencia, no puede pasar del saldo ni del total ya con el cupón,
+y sale de `saldoCashback` con un `MovimientoCashback` negativo dentro de la
+transacción del pedido (con la fila del cliente bloqueada, igual que el cupón).
+Efectivo exige `pagoCon ≥ lo que se cobra` y guarda el cambio; transferencia
+deja el pedido en `estadoPago = PENDIENTE` hasta que Finanzas lo valida con
+`PATCH /admin/pedidos/:id/pago`. Si la billetera cubre todo, nace `PAGADO`. La
+aritmética vive en `CarritoService.calcularCarrito`, `validarBilletera` y
+`evaluarPago`, compartidos por la previsualización y el checkout.
+
+**Ni el cupón ni la billetera bajan la base del cashback.** La base son los
+productos con `aplicaCashback` a precio escalonado. El cupón ya es un premio
+aparte, y pagar con saldo no hace la compra más pequeña. El cashback de un
+pedido se acredita después de descontar la billetera, así que no se puede gastar
+en ese mismo pedido.
+
 ---
 
 ## Supuestos pendientes de confirmar con el cliente
@@ -199,7 +217,7 @@ Ninguna de las dos fuentes los define. Están aislados para poder cambiarlos.
 
 ## Fuera del alcance del SPEC 01
 
-Conectar el mockup HTML a la API · WhatsApp Business API real · pagos ·
-notificaciones push · generación de QR · programa de referidos · CAC por canal ·
-auditoría de cambios administrativos · lógica de negocio de Rutas, Operaciones
-y Finanzas · gasto del saldo de cashback.
+Conectar el mockup HTML a la API · WhatsApp Business API real · pasarela de
+pagos en línea · notificaciones push · generación de QR · programa de
+referidos · CAC por canal · auditoría de cambios administrativos · lógica de
+negocio de Rutas, Operaciones y Finanzas (salvo validar transferencias).

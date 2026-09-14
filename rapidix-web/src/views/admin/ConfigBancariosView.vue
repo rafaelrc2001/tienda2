@@ -12,7 +12,12 @@ import type { Bancarios } from '@/api/tipos'
 
 const ui = useUiStore()
 
-const CAMPOS = ['banco', 'beneficiario', 'numeroCuenta'] as const
+const CAMPOS = ['banco', 'beneficiario', 'numeroCuenta', 'numeroTarjeta', 'clabe'] as const
+
+/** Se pegan con espacios o guiones desde la app del banco; la API solo acepta dígitos. */
+function soloDigitos(valor: string | null): string | null {
+  return valor?.replace(/\D/g, '') || null
+}
 
 const bancarios = ref<Bancarios | null>(null)
 const cargando = ref(true)
@@ -40,6 +45,8 @@ async function guardar(): Promise<void> {
       banco: bancarios.value.banco || null,
       beneficiario: bancarios.value.beneficiario || null,
       numeroCuenta: bancarios.value.numeroCuenta || null,
+      numeroTarjeta: soloDigitos(bancarios.value.numeroTarjeta),
+      clabe: soloDigitos(bancarios.value.clabe),
     })
     ui.exito('Datos bancarios guardados')
   } catch (fallo) {
@@ -135,6 +142,48 @@ async function copiar(valor: string | null, etiqueta: string): Promise<void> {
           </button>
         </div>
         <p v-if="errores.numeroCuenta" class="form-error">{{ errores.numeroCuenta }}</p>
+
+        <label class="form-label" for="tarjeta">Número de tarjeta</label>
+        <div class="fila">
+          <input
+            id="tarjeta"
+            v-model="bancarios.numeroTarjeta"
+            class="form-input"
+            :class="{ 'is-invalid': errores.numeroTarjeta }"
+            inputmode="numeric"
+            maxlength="23"
+          />
+          <button
+            type="button"
+            class="btn-secondary copiar"
+            :disabled="!bancarios.numeroTarjeta"
+            @click="copiar(bancarios.numeroTarjeta, 'Número de tarjeta')"
+          >
+            Copiar
+          </button>
+        </div>
+        <p v-if="errores.numeroTarjeta" class="form-error">{{ errores.numeroTarjeta }}</p>
+
+        <label class="form-label" for="clabe">CLABE interbancaria</label>
+        <div class="fila">
+          <input
+            id="clabe"
+            v-model="bancarios.clabe"
+            class="form-input"
+            :class="{ 'is-invalid': errores.clabe }"
+            inputmode="numeric"
+            maxlength="22"
+          />
+          <button
+            type="button"
+            class="btn-secondary copiar"
+            :disabled="!bancarios.clabe"
+            @click="copiar(bancarios.clabe, 'CLABE')"
+          >
+            Copiar
+          </button>
+        </div>
+        <p v-if="errores.clabe" class="form-error">{{ errores.clabe }}</p>
       </div>
 
       <button type="button" class="btn-primary ancho" :disabled="guardando" @click="guardar">
