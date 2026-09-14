@@ -81,6 +81,12 @@ model Cliente {
   /// Sirve para que la compra a medias siga ahi al cambiar de telefono.
   carrito      Json?
   carritoEn    DateTime?
+  /// Borrador de la entrega del checkout: `{ metodoEntrega, direccion }`.
+  ///
+  /// Es la direccion de ESTE pedido, no la del perfil: puede ser la casa de un
+  /// familiar. Se respalda junto al carrito para no perderla si el navegador
+  /// borra su almacenamiento, y se borra con el al confirmar el pedido.
+  borradorEntrega Json?
 
   // Contadores derivados de Pedido, mantenidos dentro de la transaccion de pedido
   pedidos      Int       @default(0)
@@ -147,8 +153,10 @@ model Prospecto {
   /// que se repite la direccion: quien todavia no ha comprado es justo el que
   /// esta armando su primer carrito, y no puede perderlo por no ser cliente.
   /// Al convertirse se copia tal cual.
-  carrito   Json?
-  carritoEn DateTime?
+  carrito         Json?
+  carritoEn       DateTime?
+  /// Mismo borrador de entrega que en `clientes`.
+  borradorEntrega Json?
 
   /// Codigo de la fuente de adquisicion, capturado del enlace rapidix.mx/r/CODIGO.
   /// Viaja al cliente al convertirse: la atribucion es del registro, no de la compra.

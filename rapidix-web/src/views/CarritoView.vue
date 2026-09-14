@@ -11,7 +11,16 @@ import { useCarritoStore } from '@/stores/carrito'
 import { useUiStore } from '@/stores/ui'
 import { dinero } from '@/utils/formato'
 import { ErrorApi, http } from '@/api/http'
-import type { Bancarios, MetodoEntrega, MetodoPago, Pedido } from '@/api/tipos'
+import type {
+  Bancarios,
+  DireccionEntrega,
+  MetodoEntrega,
+  MetodoPago,
+  Pedido,
+  Perfil,
+} from '@/api/tipos'
+import BloqueDireccionEntrega from '@/components/BloqueDireccionEntrega.vue'
+import { direccionInicial, erroresDireccion, faltantesDireccion } from '@/utils/direccion'
 
 const carrito = useCarritoStore()
 const ui = useUiStore()
@@ -47,7 +56,11 @@ const METODOS = computed<{ valor: MetodoPago; titulo: string; detalle: string }[
     titulo: 'Efectivo',
     detalle: carrito.metodoEntrega === 'TIENDA' ? 'Pagas al recoger' : 'Pagas al recibir',
   },
-  { valor: 'TRANSFERENCIA', titulo: 'Transferencia electrónica', detalle: 'Desde tu banco' },
+  {
+    valor: 'TRANSFERENCIA',
+    titulo: 'Transferencia electrónica',
+    detalle: 'Desde tu banco',
+  },
 ])
 
 const ENTREGAS: { valor: MetodoEntrega; titulo: string }[] = [
@@ -60,7 +73,9 @@ const motivoBloqueo = computed(() => {
   const p = previsualizacion.value
   if (!p || p.puedePedir) return ''
   if (!p.dentroDeHorario) {
-    return p.avisos.find((a) => a.includes('horario')) ?? 'Ahora mismo no estamos recibiendo pedidos.'
+    return (
+      p.avisos.find((a) => a.includes('horario')) ?? 'Ahora mismo no estamos recibiendo pedidos.'
+    )
   }
   if (p.items.some((i) => i.agotado)) {
     return 'Quita los productos agotados para poder confirmar tu pedido.'
@@ -68,9 +83,63 @@ const motivoBloqueo = computed(() => {
   return 'Tu carrito no se puede pedir todavía.'
 })
 
+// ---- Dirección de entrega (épica «Dirección de entrega») ----
+
+/** El perfil solo aporta la dirección de partida y el texto del botón de guardarla. */
+const perfil = ref<Perfil | null>(null)
+/**
+ * La dirección de este pedido. `null` hasta saber de dónde parte: el borrador
+ * si lo hay, si no el perfil (que llega por API), si no vacía (HU-02).
+ */
+const direccion = ref<DireccionEntrega | null>(
+  carrito.direccion ? direccionInicial(carrito.direccion, null) : null,
+)
+const bloqueDireccion = ref<InstanceType<typeof BloqueDireccionEntrega> | null>(null)
+/** Tras tocar el aviso de «faltan datos», todo lo que falte se marca en rojo. */
+const marcarErroresDireccion = ref(false)
+
+const aDomicilio = computed(() => carrito.metodoEntrega === 'DOMICILIO')
+
+async function cargarPerfil(): Promise<void> {
+  try {
+    perfil.value = await http.get<Perfil>('/perfil')
+  } catch {
+    // Sin perfil se captura a mano: el checkout no se bloquea por esto.
+    perfil.value = null
+  }
+  if (!direccion.value) direccion.value = direccionInicial(carrito.direccion, perfil.value)
+}
+
+/** Cada cambio va al borrador del pedido, nunca al perfil (HU-04). */
+function cambiarDireccion(nueva: DireccionEntrega): void {
+  const cambioCp = nueva.cp !== direccion.value?.cp
+  direccion.value = nueva
+  carrito.fijarDireccion(nueva)
+  // El envío podría depender de la zona: con un CP nuevo la API vuelve a calcular (HU-08).
+  if (cambioCp && /^\d{5}$/.test(nueva.cp)) programarRecalculo()
+}
+
+/** A domicilio no se paga sin dirección válida; en tienda no se mira (HU-10). */
+const direccionValida = computed(
+  () =>
+    !aDomicilio.value ||
+    (!!direccion.value && Object.keys(erroresDireccion(direccion.value)).length === 0),
+)
+
+const motivoDireccion = computed(() => {
+  if (motivoBloqueo.value || direccionValida.value) return ''
+  if (!direccion.value) return 'Cargando tu dirección…'
+  return `Completa tus datos de entrega: falta ${faltantesDireccion(direccion.value).join(', ')}.`
+})
+
+function revisarDireccion(): void {
+  marcarErroresDireccion.value = true
+  bloqueDireccion.value?.abrir()
+}
+
 /** Lo que falta para poder confirmar, en el orden en que el cliente lo resuelve. */
 const motivoPago = computed(() => {
-  if (motivoBloqueo.value || !pago.value) return ''
+  if (motivoBloqueo.value || motivoDireccion.value || !pago.value) return ''
   const error = pago.value.errorBilletera ?? pago.value.errorPago
   if (error) return error.mensaje
   if (!aceptaTerminos.value) return 'Acepta el aviso de privacidad y los términos para continuar.'
@@ -83,6 +152,7 @@ const puedeConfirmar = computed(
     !carrito.calculando &&
     !montoPendiente.value &&
     !!previsualizacion.value?.puedePedir &&
+    direccionValida.value &&
     carrito.pagoListo &&
     aceptaTerminos.value,
 )
@@ -93,6 +163,7 @@ function recalcular(): void {
 
 onMounted(() => {
   if (!carrito.vacio) recalcular()
+  void cargarPerfil()
 })
 
 watch(() => carrito.lineas.map((l) => `${l.productoId}:${l.cantidad}`).join(','), recalcular)
@@ -140,7 +211,7 @@ function elegirMetodo(metodo: MetodoPago): void {
 /** Cambiar la entrega mueve el envío: el total nuevo lo dice la API. */
 function elegirEntrega(entrega: MetodoEntrega): void {
   if (carrito.metodoEntrega === entrega) return
-  carrito.metodoEntrega = entrega
+  carrito.fijarEntrega(entrega)
   recalcular()
 }
 
@@ -240,7 +311,7 @@ async function confirmar(): Promise<void> {
   if (!puedeConfirmar.value) return
   confirmando.value = true
   try {
-    const pedido = await carrito.confirmar(aceptaTerminos.value)
+    const pedido = await carrito.confirmar(aceptaTerminos.value, direccion.value)
     pedidoHecho.value = pedido
     if (pedido.pago.metodo === 'TRANSFERENCIA' && pedido.pago.aPagar > 0) {
       // Si fallan, el pedido sigue hecho: la pantalla de éxito lo dice sin toast.
@@ -268,29 +339,34 @@ async function confirmar(): Promise<void> {
     <h2 class="exito-titulo">¡Pedido confirmado!</h2>
     <p class="exito-folio">{{ pedidoHecho.folio }}</p>
 
-    <div class="cart-summary-box">
-      <div class="cart-summary-row">
-        <span>Productos</span><span>{{ dinero(pedidoHecho.subtotal) }}</span>
-      </div>
-      <div class="cart-summary-row">
-        <span>{{ pedidoHecho.metodoEntrega === 'TIENDA' ? 'Recoger en tienda' : 'Envío' }}</span>
-        <span>{{ pedidoHecho.envio === 0 ? 'Gratis' : dinero(pedidoHecho.envio) }}</span>
-      </div>
-      <div v-if="pedidoHecho.recargoFuera > 0" class="cart-summary-row">
-        <span>Recargo fuera de horario</span><span>{{ dinero(pedidoHecho.recargoFuera) }}</span>
-      </div>
-      <div v-if="pedidoHecho.descuento > 0" class="cart-summary-row descuento">
-        <span>{{ pedidoHecho.cupon ? `Cupón ${pedidoHecho.cupon.code}` : 'Descuento' }}</span>
-        <span>−{{ dinero(pedidoHecho.descuento) }}</span>
+    <div class="res-card">
+      <p class="res-subtitulo">Desglose de costos</p>
+      <div class="res-filas">
+        <div class="cart-summary-row">
+          <span>Productos</span><span>{{ dinero(pedidoHecho.subtotal) }}</span>
+        </div>
+        <div class="cart-summary-row">
+          <span>{{ pedidoHecho.metodoEntrega === 'TIENDA' ? 'Recoger en tienda' : 'Envío' }}</span>
+          <span>{{ pedidoHecho.envio === 0 ? 'Gratis' : dinero(pedidoHecho.envio) }}</span>
+        </div>
+        <div v-if="pedidoHecho.recargoFuera > 0" class="cart-summary-row">
+          <span>Recargo fuera de horario</span><span>{{ dinero(pedidoHecho.recargoFuera) }}</span>
+        </div>
+        <div v-if="pedidoHecho.descuento > 0" class="cart-summary-row descuento">
+          <span>{{ pedidoHecho.cupon ? `Cupón ${pedidoHecho.cupon.code}` : 'Descuento' }}</span>
+          <span>−{{ dinero(pedidoHecho.descuento) }}</span>
+        </div>
       </div>
       <div class="cart-summary-row total">
         <span>Total</span><span>{{ dinero(pedidoHecho.total) }}</span>
       </div>
-      <div v-if="pedidoHecho.pago.billetera > 0" class="cart-summary-row descuento">
-        <span>Pagado con billetera</span><span>−{{ dinero(pedidoHecho.pago.billetera) }}</span>
-      </div>
-      <div v-if="pedidoHecho.pago.billetera > 0" class="cart-summary-row a-pagar">
-        <span>Por pagar</span><span>{{ dinero(pedidoHecho.pago.aPagar) }}</span>
+      <div v-if="pedidoHecho.pago.billetera > 0" class="res-filas">
+        <div class="cart-summary-row descuento">
+          <span>Pagado con billetera</span><span>−{{ dinero(pedidoHecho.pago.billetera) }}</span>
+        </div>
+        <div class="cart-summary-row a-pagar">
+          <span>Por pagar</span><span>{{ dinero(pedidoHecho.pago.aPagar) }}</span>
+        </div>
       </div>
     </div>
 
@@ -306,21 +382,38 @@ async function confirmar(): Promise<void> {
       </p>
     </div>
     <div v-else class="exito-pago transferencia">
-      <p class="exito-pago-titulo">🏦 Transferencia · <span class="pendiente">Pago pendiente</span></p>
+      <p class="exito-pago-titulo">
+        🏦 Transferencia · <span class="pendiente">Pago pendiente</span>
+      </p>
       <dl v-if="bancarios && hayBancarios" class="datos-banco">
-        <div><dt>Banco</dt><dd>{{ bancarios.banco ?? '—' }}</dd></div>
-        <div><dt>Beneficiario</dt><dd>{{ bancarios.beneficiario ?? '—' }}</dd></div>
+        <div>
+          <dt>Banco</dt>
+          <dd>{{ bancarios.banco ?? '—' }}</dd>
+        </div>
+        <div>
+          <dt>Beneficiario</dt>
+          <dd>{{ bancarios.beneficiario ?? '—' }}</dd>
+        </div>
         <div v-if="bancarios.numeroCuenta">
-          <dt>Cuenta</dt><dd class="dato-fuerte">{{ bancarios.numeroCuenta }}</dd>
+          <dt>Cuenta</dt>
+          <dd class="dato-fuerte">{{ bancarios.numeroCuenta }}</dd>
         </div>
         <div v-if="bancarios.clabe">
-          <dt>CLABE</dt><dd class="dato-fuerte">{{ bancarios.clabe }}</dd>
+          <dt>CLABE</dt>
+          <dd class="dato-fuerte">{{ bancarios.clabe }}</dd>
         </div>
         <div v-if="bancarios.numeroTarjeta">
-          <dt>Tarjeta</dt><dd class="dato-fuerte">{{ bancarios.numeroTarjeta }}</dd>
+          <dt>Tarjeta</dt>
+          <dd class="dato-fuerte">{{ bancarios.numeroTarjeta }}</dd>
         </div>
-        <div><dt>Monto</dt><dd class="dato-fuerte">{{ dinero(pedidoHecho.pago.aPagar) }}</dd></div>
-        <div><dt>Referencia</dt><dd class="dato-fuerte">{{ pedidoHecho.pago.referencia }}</dd></div>
+        <div>
+          <dt>Monto</dt>
+          <dd class="dato-fuerte">{{ dinero(pedidoHecho.pago.aPagar) }}</dd>
+        </div>
+        <div>
+          <dt>Referencia</dt>
+          <dd class="dato-fuerte">{{ pedidoHecho.pago.referencia }}</dd>
+        </div>
       </dl>
       <p v-else class="exito-pago-linea">
         No pudimos mostrar los datos bancarios. Escríbenos y usa
@@ -349,7 +442,9 @@ async function confirmar(): Promise<void> {
   <div v-else class="carrito sin-colchon">
     <!-- Avisos de la API: fuera de horario, producto agotado… -->
     <div v-if="previsualizacion && previsualizacion.avisos.length > 0" class="avisos">
-      <p v-for="(aviso, i) in previsualizacion.avisos" :key="i" class="aviso">{{ aviso }}</p>
+      <p v-for="(aviso, i) in previsualizacion.avisos" :key="i" class="aviso">
+        {{ aviso }}
+      </p>
     </div>
 
     <div class="lista">
@@ -363,16 +458,13 @@ async function confirmar(): Promise<void> {
         <div class="info">
           <p class="nm">{{ item.nombre }}</p>
           <p class="pr">
-            {{ dinero(item.precioUnitario) }} · {{ item.unidad }}
+            <span class="precio">{{ dinero(item.precioUnitario) }}</span> ·
+            {{ item.unidad }}
             <span v-if="item.agotado" class="etiqueta-agotado">Agotado</span>
           </p>
         </div>
         <div class="qty-control">
-          <button
-            type="button"
-            aria-label="Quitar uno"
-            @click="carrito.quitar(item.productoId)"
-          >
+          <button type="button" aria-label="Quitar uno" @click="carrito.quitar(item.productoId)">
             −
           </button>
           <span class="qn">{{ item.cantidad }}</span>
@@ -390,39 +482,54 @@ async function confirmar(): Promise<void> {
       <div v-if="!previsualizacion && carrito.calculando" class="cargando-lista">Calculando…</div>
     </div>
 
-    <!-- Desglose. Cada línea viene de la API tal cual. -->
-    <div v-if="previsualizacion" class="cart-summary-box" :class="{ recalculando: carrito.calculando }">
-      <div class="cart-summary-row">
-        <span>Productos</span><span>{{ dinero(previsualizacion.subtotal) }}</span>
-      </div>
-      <div class="cart-summary-row">
-        <span>Envío</span>
-        <span>{{ previsualizacion.envio === 0 ? 'Gratis' : dinero(previsualizacion.envio) }}</span>
-      </div>
-      <div v-if="previsualizacion.recargoFuera > 0" class="cart-summary-row">
-        <span>Recargo fuera de horario</span>
-        <span>{{ dinero(previsualizacion.recargoFuera) }}</span>
-      </div>
-      <div v-if="previsualizacion.descuento > 0" class="cart-summary-row descuento">
-        <span>{{ previsualizacion.cupon ? `Cupón ${previsualizacion.cupon.codigo}` : 'Descuento' }}</span>
-        <span>−{{ dinero(previsualizacion.descuento) }}</span>
-      </div>
-      <div class="cart-summary-row total">
-        <span>Total</span><span>{{ dinero(previsualizacion.total) }}</span>
-      </div>
-      <!-- La billetera no rebaja el pedido: paga parte de él. Por eso va tras el total. -->
-      <template v-if="previsualizacion.billetera > 0">
-        <div class="cart-summary-row descuento">
-          <span>Billetera</span><span>−{{ dinero(previsualizacion.billetera) }}</span>
+    <!--
+      Resumen: desglose, envío, pago y cashback en UNA tarjeta. Las secciones
+      se separan con subtítulos en mayúsculas y divisores finos, no con cajas.
+    -->
+    <div v-if="previsualizacion" class="res-card">
+      <h2 class="res-titulo">Resumen del pedido</h2>
+
+      <!-- Desglose. Cada línea viene de la API tal cual. Solo él se atenúa al recalcular. -->
+      <div class="desglose" :class="{ recalculando: carrito.calculando }">
+        <p class="res-subtitulo">Desglose de costos</p>
+        <div class="res-filas">
+          <div class="cart-summary-row">
+            <span>Productos</span><span>{{ dinero(previsualizacion.subtotal) }}</span>
+          </div>
+          <div class="cart-summary-row">
+            <span>Envío</span>
+            <span>{{
+              previsualizacion.envio === 0 ? 'Gratis' : dinero(previsualizacion.envio)
+            }}</span>
+          </div>
+          <div v-if="previsualizacion.recargoFuera > 0" class="cart-summary-row">
+            <span>Recargo fuera de horario</span>
+            <span>{{ dinero(previsualizacion.recargoFuera) }}</span>
+          </div>
+          <div v-if="previsualizacion.descuento > 0" class="cart-summary-row descuento">
+            <span>{{
+              previsualizacion.cupon ? `Cupón ${previsualizacion.cupon.codigo}` : 'Descuento'
+            }}</span>
+            <span>−{{ dinero(previsualizacion.descuento) }}</span>
+          </div>
         </div>
-        <div class="cart-summary-row a-pagar">
-          <span>Total a pagar</span><span>{{ dinero(previsualizacion.aPagar) }}</span>
+        <div class="cart-summary-row total">
+          <span>Total</span><span>{{ dinero(previsualizacion.total) }}</span>
         </div>
-      </template>
+        <!-- La billetera no rebaja el pedido: paga parte de él. Por eso va tras el total. -->
+        <div v-if="previsualizacion.billetera > 0" class="res-filas">
+          <div class="cart-summary-row descuento">
+            <span>Billetera</span><span>−{{ dinero(previsualizacion.billetera) }}</span>
+          </div>
+          <div class="cart-summary-row a-pagar">
+            <span>Total a pagar</span><span>{{ dinero(previsualizacion.aPagar) }}</span>
+          </div>
+        </div>
+      </div>
 
       <!-- Entrega: recoger en tienda no paga envío; el total nuevo lo trae la API. -->
-      <fieldset class="entrega">
-        <legend class="entrega-titulo">Método de envío</legend>
+      <fieldset class="entrega res-seccion">
+        <legend class="res-subtitulo">Método de envío</legend>
         <label v-for="e in ENTREGAS" :key="e.valor" class="entrega-opcion">
           <input
             type="radio"
@@ -434,6 +541,23 @@ async function confirmar(): Promise<void> {
           <span>{{ e.titulo }}</span>
         </label>
       </fieldset>
+
+      <!--
+        Dirección de este pedido (HU-01): solo a domicilio. Al volver a tienda
+        se oculta, pero lo capturado sigue en el borrador del carrito.
+      -->
+      <div v-if="aDomicilio" class="res-seccion">
+        <BloqueDireccionEntrega
+          v-if="direccion"
+          ref="bloqueDireccion"
+          :model-value="direccion"
+          :perfil="perfil"
+          :marcar-errores="marcarErroresDireccion"
+          @update:model-value="cambiarDireccion"
+          @perfil-guardado="perfil = $event"
+        />
+        <p v-else class="cargando-direccion">Cargando tu dirección…</p>
+      </div>
 
       <!-- Lo que le falta al pedido (HU-20): se dice aquí, no en la Tienda. -->
       <div
@@ -453,190 +577,204 @@ async function confirmar(): Promise<void> {
           Te faltan {{ dinero(previsualizacion.metas.faltaEnvioGratis) }} para envío gratis
         </p>
       </div>
-    </div>
 
-    <!--
+      <!--
       Método de pago (HU-09 a HU-12). Va DEBAJO del total: primero el
       cliente ve lo que cuesta y luego decide cómo pagarlo. Cada monto
       (cambio, tope de la billetera, descuento) lo calcula la API; aquí
       solo se recogen las elecciones y se pinta su respuesta.
     -->
-    <section v-if="previsualizacion && pago" class="seccion-pago" aria-labelledby="titulo-pago">
-      <h2 id="titulo-pago" class="seccion-titulo">Método de pago</h2>
+      <section v-if="pago" class="seccion-pago res-seccion" aria-labelledby="titulo-pago">
+        <h3 id="titulo-pago" class="res-subtitulo">Método de pago</h3>
 
-      <!-- Cupón (HU-10): uno por pedido. El motivo del rechazo, bajo el campo. -->
-      <div class="bloque">
-        <label class="form-label" for="cupon">¿Tienes un cupón?</label>
-        <div v-if="previsualizacion.cupon" class="chip-cupon">
-          <span class="chip-codigo">{{ previsualizacion.cupon.codigo }}</span>
-          <span class="chip-texto">
-            {{ previsualizacion.cupon.descripcion }} · −{{ dinero(previsualizacion.descuento) }}
-          </span>
-          <button
-            type="button"
-            class="chip-quitar"
-            :aria-label="`Quitar el cupón ${previsualizacion.cupon.codigo}`"
-            @click="quitarCupon"
-          >
-            ×
-          </button>
-        </div>
-        <template v-else>
-          <div class="fila-cupon">
-            <input
-              id="cupon"
-              v-model="cupon"
-              class="form-input campo-16"
-              :class="{ 'is-invalid': carrito.errorCupon }"
-              placeholder="Escribe tu código"
-              autocomplete="off"
-              autocapitalize="characters"
-              @keyup.enter="cupon.trim() && aplicarCupon()"
-            />
+        <!-- Cupón (HU-10): uno por pedido. El motivo del rechazo, bajo el campo. -->
+        <div class="bloque">
+          <label class="form-label" for="cupon">¿Tienes un cupón?</label>
+          <div v-if="previsualizacion.cupon" class="chip-cupon">
+            <span class="chip-codigo">{{ previsualizacion.cupon.codigo }}</span>
+            <span class="chip-texto">
+              {{ previsualizacion.cupon.descripcion }} · −{{ dinero(previsualizacion.descuento) }}
+            </span>
             <button
               type="button"
-              class="btn-secondary boton-cupon"
-              :disabled="aplicandoCupon || !cupon.trim()"
-              @click="aplicarCupon"
+              class="chip-quitar"
+              :aria-label="`Quitar el cupón ${previsualizacion.cupon.codigo}`"
+              @click="quitarCupon"
             >
-              {{ aplicandoCupon ? '…' : 'Aplicar' }}
+              ×
             </button>
           </div>
-          <p v-if="carrito.errorCupon" class="form-error">{{ carrito.errorCupon }}</p>
-        </template>
-      </div>
-
-      <!-- Billetera (HU-12): solo con saldo. Se combina con cualquier método. -->
-      <div v-if="pago.saldoBilletera > 0" class="bloque">
-        <label class="opcion-check">
-          <input v-model="usaBilletera" type="checkbox" @change="alternarBilletera" />
-          <span>
-            Usar mi billetera
-            <span class="saldo">Disponible: {{ dinero(pago.saldoBilletera) }}</span>
-          </span>
-        </label>
-        <template v-if="usaBilletera">
-          <label class="form-label sub" for="monto-billetera">¿Cuánto quieres usar?</label>
-          <input
-            id="monto-billetera"
-            v-model="billeteraTexto"
-            class="form-input campo-16"
-            :class="{ 'is-invalid': pago.errorBilletera }"
-            inputmode="decimal"
-            placeholder="$0.00"
-          />
-          <p v-if="pago.errorBilletera" class="form-error">{{ pago.errorBilletera.mensaje }}</p>
-        </template>
-      </div>
-
-      <p v-if="cubiertoConBilletera" class="nota-cubierto">
-        Tu billetera cubre el total del pedido: no tienes que pagar nada más.
-      </p>
-
-      <!-- Cómo se paga lo que queda. -->
-      <div v-else class="bloque">
-        <p class="form-label">¿Cómo vas a pagar?</p>
-        <!-- Uno debajo del otro; el detalle de cada método se abre bajo su opción. -->
-        <div class="metodos" role="radiogroup" aria-label="Método de pago">
-          <template v-for="m in METODOS" :key="m.valor">
-            <label class="metodo" :class="{ activo: carrito.metodoPago === m.valor }">
+          <template v-else>
+            <div class="fila-cupon">
               <input
-                type="radio"
-                name="metodo-pago"
-                :value="m.valor"
-                :checked="carrito.metodoPago === m.valor"
-                @change="elegirMetodo(m.valor)"
-              />
-              <span class="metodo-titulo">{{ m.titulo }}</span>
-              <span class="metodo-detalle">{{ m.detalle }}</span>
-            </label>
-
-            <!-- Efectivo (HU-09): con cuánto paga, para que el repartidor lleve cambio. -->
-            <div
-              v-if="m.valor === 'EFECTIVO' && carrito.metodoPago === 'EFECTIVO'"
-              class="detalle-metodo"
-            >
-              <label class="form-label" for="pago-con">¿Con cuánto vas a pagar?</label>
-              <input
-                id="pago-con"
-                v-model="pagoConTexto"
+                id="cupon"
+                v-model="cupon"
                 class="form-input campo-16"
-                :class="{ 'is-invalid': pago.errorPago?.codigo === 'PAGO_INSUFICIENTE' }"
-                inputmode="decimal"
-                :placeholder="dinero(previsualizacion.aPagar)"
+                :class="{ 'is-invalid': carrito.errorCupon }"
+                placeholder="Escribe tu código"
+                autocomplete="off"
+                autocapitalize="characters"
+                @keyup.enter="cupon.trim() && aplicarCupon()"
               />
-              <p v-if="pago.errorPago?.codigo === 'PAGO_INSUFICIENTE'" class="form-error">
-                {{ pago.errorPago.mensaje }}
-              </p>
-              <p v-else-if="pago.cambio !== null && !montoPendiente" class="cambio">
-                Tu cambio: <strong>{{ dinero(pago.cambio) }}</strong>
-              </p>
+              <button
+                type="button"
+                class="btn-secondary boton-cupon"
+                :disabled="aplicandoCupon || !cupon.trim()"
+                @click="aplicarCupon"
+              >
+                {{ aplicandoCupon ? '…' : 'Aplicar' }}
+              </button>
             </div>
+            <p v-if="carrito.errorCupon" class="form-error">
+              {{ carrito.errorCupon }}
+            </p>
+          </template>
+        </div>
 
-            <!--
+        <!-- Billetera (HU-12): solo con saldo. Se combina con cualquier método. -->
+        <div v-if="pago.saldoBilletera > 0" class="bloque">
+          <label class="opcion-check">
+            <input v-model="usaBilletera" type="checkbox" @change="alternarBilletera" />
+            <span>
+              Usar mi billetera
+              <span class="saldo">Disponible: {{ dinero(pago.saldoBilletera) }}</span>
+            </span>
+          </label>
+          <template v-if="usaBilletera">
+            <label class="form-label sub" for="monto-billetera">¿Cuánto quieres usar?</label>
+            <input
+              id="monto-billetera"
+              v-model="billeteraTexto"
+              class="form-input campo-16"
+              :class="{ 'is-invalid': pago.errorBilletera }"
+              inputmode="decimal"
+              placeholder="$0.00"
+            />
+            <p v-if="pago.errorBilletera" class="form-error">
+              {{ pago.errorBilletera.mensaje }}
+            </p>
+          </template>
+        </div>
+
+        <p v-if="cubiertoConBilletera" class="nota-cubierto">
+          Tu billetera cubre el total del pedido: no tienes que pagar nada más.
+        </p>
+
+        <!-- Cómo se paga lo que queda. -->
+        <div v-else class="bloque">
+          <p class="form-label">¿Cómo vas a pagar?</p>
+          <!-- Uno debajo del otro; el detalle de cada método se abre bajo su opción. -->
+          <div class="metodos" role="radiogroup" aria-label="Método de pago">
+            <template v-for="m in METODOS" :key="m.valor">
+              <label class="metodo" :class="{ activo: carrito.metodoPago === m.valor }">
+                <input
+                  type="radio"
+                  name="metodo-pago"
+                  :value="m.valor"
+                  :checked="carrito.metodoPago === m.valor"
+                  @change="elegirMetodo(m.valor)"
+                />
+                <span class="metodo-titulo">{{ m.titulo }}</span>
+                <span class="metodo-detalle">{{ m.detalle }}</span>
+              </label>
+
+              <!-- Efectivo (HU-09): con cuánto paga, para que el repartidor lleve cambio. -->
+              <div
+                v-if="m.valor === 'EFECTIVO' && carrito.metodoPago === 'EFECTIVO'"
+                class="detalle-metodo"
+              >
+                <label class="form-label" for="pago-con">¿Con cuánto vas a pagar?</label>
+                <input
+                  id="pago-con"
+                  v-model="pagoConTexto"
+                  class="form-input campo-16"
+                  :class="{
+                    'is-invalid': pago.errorPago?.codigo === 'PAGO_INSUFICIENTE',
+                  }"
+                  inputmode="decimal"
+                  :placeholder="dinero(previsualizacion.aPagar)"
+                />
+                <p v-if="pago.errorPago?.codigo === 'PAGO_INSUFICIENTE'" class="form-error">
+                  {{ pago.errorPago.mensaje }}
+                </p>
+                <p v-else-if="pago.cambio !== null && !montoPendiente" class="cambio">
+                  Tu cambio: <strong>{{ dinero(pago.cambio) }}</strong>
+                </p>
+              </div>
+
+              <!--
               Transferencia (HU-11): los datos del negocio se ven antes de
               confirmar; la referencia es el folio, que solo existe después.
             -->
-            <div
-              v-else-if="m.valor === 'TRANSFERENCIA' && carrito.metodoPago === 'TRANSFERENCIA'"
-              class="detalle-metodo"
-            >
-              <p v-if="cargandoBancarios" class="nota">Cargando datos bancarios…</p>
-              <dl v-else-if="bancarios && hayBancarios" class="datos-banco">
-                <div v-if="bancarios.banco"><dt>Banco</dt><dd>{{ bancarios.banco }}</dd></div>
-                <div v-if="bancarios.beneficiario">
-                  <dt>Beneficiario</dt><dd>{{ bancarios.beneficiario }}</dd>
-                </div>
-                <div v-if="bancarios.numeroCuenta">
-                  <dt>Cuenta</dt><dd class="dato-fuerte">{{ bancarios.numeroCuenta }}</dd>
-                </div>
-                <div v-if="bancarios.numeroTarjeta">
-                  <dt>Tarjeta</dt>
-                  <dd class="dato-copiable">
-                    <span class="dato-fuerte">{{ bancarios.numeroTarjeta }}</span>
-                    <button
-                      type="button"
-                      class="boton-copiar"
-                      aria-label="Copiar número de tarjeta"
-                      @click="copiar(bancarios.numeroTarjeta, 'Tarjeta')"
-                    >
-                      Copiar
-                    </button>
-                  </dd>
-                </div>
-                <div v-if="bancarios.clabe">
-                  <dt>CLABE</dt>
-                  <dd class="dato-copiable">
-                    <span class="dato-fuerte">{{ bancarios.clabe }}</span>
-                    <button
-                      type="button"
-                      class="boton-copiar"
-                      aria-label="Copiar CLABE"
-                      @click="copiar(bancarios.clabe, 'CLABE')"
-                    >
-                      Copiar
-                    </button>
-                  </dd>
-                </div>
-              </dl>
-              <p v-else class="nota">No pudimos cargar los datos bancarios; te los mostramos al confirmar.</p>
-              <p class="nota">
-                Usa el folio de tu pedido como referencia: te lo damos al confirmar. Queda en
-                <strong>Pago pendiente</strong> hasta que validemos la transferencia.
-              </p>
-            </div>
-          </template>
+              <div
+                v-else-if="m.valor === 'TRANSFERENCIA' && carrito.metodoPago === 'TRANSFERENCIA'"
+                class="detalle-metodo"
+              >
+                <p v-if="cargandoBancarios" class="nota">Cargando datos bancarios…</p>
+                <dl v-else-if="bancarios && hayBancarios" class="datos-banco">
+                  <div v-if="bancarios.banco">
+                    <dt>Banco</dt>
+                    <dd>{{ bancarios.banco }}</dd>
+                  </div>
+                  <div v-if="bancarios.beneficiario">
+                    <dt>Beneficiario</dt>
+                    <dd>{{ bancarios.beneficiario }}</dd>
+                  </div>
+                  <div v-if="bancarios.numeroCuenta">
+                    <dt>Cuenta</dt>
+                    <dd class="dato-fuerte">{{ bancarios.numeroCuenta }}</dd>
+                  </div>
+                  <div v-if="bancarios.numeroTarjeta">
+                    <dt>Tarjeta</dt>
+                    <dd class="dato-copiable">
+                      <span class="dato-fuerte">{{ bancarios.numeroTarjeta }}</span>
+                      <button
+                        type="button"
+                        class="boton-copiar"
+                        aria-label="Copiar número de tarjeta"
+                        @click="copiar(bancarios.numeroTarjeta, 'Tarjeta')"
+                      >
+                        Copiar
+                      </button>
+                    </dd>
+                  </div>
+                  <div v-if="bancarios.clabe">
+                    <dt>CLABE</dt>
+                    <dd class="dato-copiable">
+                      <span class="dato-fuerte">{{ bancarios.clabe }}</span>
+                      <button
+                        type="button"
+                        class="boton-copiar"
+                        aria-label="Copiar CLABE"
+                        @click="copiar(bancarios.clabe, 'CLABE')"
+                      >
+                        Copiar
+                      </button>
+                    </dd>
+                  </div>
+                </dl>
+                <p v-else class="nota">
+                  No pudimos cargar los datos bancarios; te los mostramos al confirmar.
+                </p>
+                <p class="nota">
+                  Usa el folio de tu pedido como referencia: te lo damos al confirmar. Queda en
+                  <strong>Pago pendiente</strong> hasta que validemos la transferencia.
+                </p>
+              </div>
+            </template>
+          </div>
         </div>
-      </div>
-    </section>
+      </section>
 
-    <!-- Cashback (HU-13): lo que se acredita es la base por el multiplicador. -->
-    <div v-if="previsualizacion && previsualizacion.cashbackEstimado > 0" class="bloque-cashback">
-      <span class="cashback-ico" aria-hidden="true">🎁</span>
-      <p>
-        Ganarás <strong>{{ dinero(previsualizacion.cashbackEstimado) }}</strong> de cashback, que
-        valen <strong>{{ dinero(previsualizacion.cashbackBilletera) }}</strong> en tu billetera.
-      </p>
+      <!-- Cashback (HU-13): lo que se acredita es la base por el multiplicador. -->
+      <div v-if="previsualizacion.cashbackEstimado > 0" class="bloque-cashback res-seccion">
+        <span class="cashback-ico" aria-hidden="true">🎁</span>
+        <p>
+          Ganarás
+          <strong>{{ dinero(previsualizacion.cashbackEstimado) }}</strong> de cashback, que valen
+          <strong>{{ dinero(previsualizacion.cashbackBilletera) }}</strong> en tu billetera.
+        </p>
+      </div>
     </div>
 
     <!-- Términos y confirmación (HU-14). -->
@@ -659,8 +797,16 @@ async function confirmar(): Promise<void> {
       >
         {{ confirmando ? 'Confirmando…' : 'Confirmar pedido' }}
       </button>
-      <p v-if="motivoBloqueo || motivoPago" class="motivo-bloqueo">
-        {{ motivoBloqueo || motivoPago }}
+      <button
+        v-if="motivoDireccion && direccion"
+        type="button"
+        class="motivo-bloqueo motivo-enlace"
+        @click="revisarDireccion"
+      >
+        {{ motivoDireccion }}
+      </button>
+      <p v-else-if="motivoBloqueo || motivoDireccion || motivoPago" class="motivo-bloqueo">
+        {{ motivoBloqueo || motivoDireccion || motivoPago }}
       </p>
     </div>
   </div>
@@ -737,6 +883,11 @@ async function confirmar(): Promise<void> {
   margin: 2px 0 0;
 }
 
+.cart-item-row .info .precio {
+  color: var(--verde-dark);
+  font-weight: 700;
+}
+
 .etiqueta-agotado {
   color: var(--terracotta);
   font-weight: 700;
@@ -784,27 +935,8 @@ async function confirmar(): Promise<void> {
 
 /* ---- Método de pago ---- */
 
-.seccion-pago {
-  background: var(--white);
-  border-radius: 14px;
-  padding: 12px 14px 10px;
-  box-shadow: var(--shadow);
-  margin: 0 0 10px;
-}
-
-/* Mismo estilo que «Método de envío» en el desglose: las dos tarjetas se leen igual. */
-.seccion-titulo {
-  font-family: var(--font-heading);
-  font-weight: 700;
-  font-size: 11.5px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--ink);
-  margin: 0 0 10px;
-}
-
 .bloque {
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 
 /* Compacto: la sección entera debe caber sin tanto desplazamiento. */
@@ -918,25 +1050,17 @@ async function confirmar(): Promise<void> {
   margin: 0;
 }
 
-/* Una opción por renglón, con su radio a la izquierda, como en el mockup. */
-.metodos {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
+/*
+ * Una opción por renglón, radio a la izquierda y detalle a la derecha: filas
+ * de la tabla del resumen, no cajas. El detalle abierto se sangra bajo el radio.
+ */
 .metodo {
   display: flex;
   align-items: center;
   gap: 10px;
-  background: var(--white);
-  border: 1.5px solid var(--line);
-  border-radius: 12px;
-  padding: 8px 12px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--divisor);
   cursor: pointer;
-  transition:
-    border-color 0.15s ease,
-    background 0.15s ease;
 }
 
 .metodo input {
@@ -947,9 +1071,9 @@ async function confirmar(): Promise<void> {
   flex-shrink: 0;
 }
 
+/* Con su detalle abierto, la línea pasa al final del detalle. */
 .metodo.activo {
-  border-color: var(--verde-dark);
-  background: color-mix(in srgb, var(--verde) 16%, var(--white));
+  border-bottom: none;
 }
 
 .metodo-titulo {
@@ -960,7 +1084,8 @@ async function confirmar(): Promise<void> {
 }
 
 .metodo.activo .metodo-titulo {
-  font-weight: 600;
+  font-weight: 700;
+  color: var(--verde-dark);
 }
 
 .metodo-detalle {
@@ -970,7 +1095,12 @@ async function confirmar(): Promise<void> {
 }
 
 .detalle-metodo {
-  padding: 2px 2px 4px;
+  padding: 0 0 10px 28px;
+  border-bottom: 1px solid var(--divisor);
+}
+
+.metodos > :last-child {
+  border-bottom: none;
 }
 
 .detalle-metodo .nota {
@@ -1000,25 +1130,16 @@ async function confirmar(): Promise<void> {
   cursor: pointer;
 }
 
-/* ---- Método de envío, dentro del desglose y bajo el total ---- */
+/* ---- Método de envío ---- */
 
 .entrega {
   border: none;
-  border-top: 1px solid var(--line);
-  margin: 8px 0 0;
-  padding: 10px 0 0;
+  padding: 0;
   min-width: 0;
 }
 
-.entrega-titulo {
-  font-family: var(--font-heading);
-  font-weight: 700;
-  font-size: 11.5px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--ink);
+.entrega legend {
   padding: 0;
-  margin-bottom: 4px;
 }
 
 .entrega-opcion {
@@ -1027,8 +1148,18 @@ async function confirmar(): Promise<void> {
   gap: 10px;
   font-size: 13.5px;
   color: var(--ink);
-  padding: 5px 0;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--divisor);
   cursor: pointer;
+}
+
+.entrega-opcion:last-of-type {
+  border-bottom: none;
+}
+
+.entrega-opcion:has(input:checked) span {
+  font-weight: 700;
+  color: var(--verde-dark);
 }
 
 .entrega-opcion input {
@@ -1049,11 +1180,6 @@ async function confirmar(): Promise<void> {
   display: flex;
   align-items: center;
   gap: 10px;
-  background: var(--white);
-  border: 1.5px solid var(--gold);
-  border-radius: 14px;
-  padding: 8px 12px;
-  margin: 0 0 10px;
 }
 
 .bloque-cashback p {
@@ -1103,48 +1229,90 @@ async function confirmar(): Promise<void> {
   height: 40px;
 }
 
-.cart-summary-box {
+/*
+ * ---- Resumen: una tarjeta que se lee como tabla sin serlo ----
+ * Filas con los extremos alineados (los importes caen en la misma columna),
+ * divisores de 1px casi invisibles y un solo acento verde fuerte: el total.
+ */
+
+.res-card {
+  --divisor: color-mix(in srgb, var(--line) 55%, var(--white));
   background: var(--white);
+  border: 1px solid var(--divisor);
   border-radius: 14px;
   padding: 14px;
-  box-shadow: var(--shadow);
   margin: 12px 0;
+}
+
+.res-titulo {
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 1.125rem;
+  color: var(--verde-dark);
+  margin: 0 0 8px;
+}
+
+/* Las mayúsculas espaciadas separan secciones sin necesitar cajas. */
+.res-subtitulo {
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 4px;
+}
+
+.res-seccion {
+  margin-top: 16px;
+}
+
+.desglose {
   transition: opacity 0.15s ease;
 }
 
-.cart-summary-box.recalculando {
+.desglose.recalculando {
   opacity: 0.55;
 }
 
 .cart-summary-row {
   display: flex;
   justify-content: space-between;
+  align-items: baseline;
   gap: 12px;
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--ink);
-  padding: 5px 0;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--divisor);
+}
+
+/* Sin línea en el último renglón: no se ve una caja cerrada. */
+.res-filas > .cart-summary-row:last-child {
+  border-bottom: none;
 }
 
 .cart-summary-row.descuento {
-  color: var(--sage);
+  color: var(--verde-dark);
   font-weight: 700;
 }
 
+/* La única línea fuerte: marca el cierre de la cuenta. */
 .cart-summary-row.total {
   font-family: var(--font-heading);
-  font-weight: 800;
-  font-size: 15.5px;
-  border-top: 1px solid var(--line);
-  margin-top: 6px;
-  padding-top: 10px;
-  color: var(--terracotta-dark);
+  font-weight: 900;
+  font-size: 1.375rem;
+  color: var(--verde-dark);
+  border-top: 2px solid var(--verde);
+  border-bottom: none;
+  margin-top: 2px;
+  padding: 8px 0 4px;
 }
 
 .metas {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  margin-top: 10px;
+  margin-top: 12px;
 }
 
 /* Lo que falta es un empujón, no un logro: borde dorado, sin fondo dorado. */
@@ -1178,6 +1346,23 @@ async function confirmar(): Promise<void> {
   text-align: center;
   line-height: 1.45;
   margin: 10px 0 0;
+}
+
+.motivo-enlace {
+  display: block;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.cargando-direccion {
+  font-size: 12.5px;
+  color: var(--muted);
+  margin: 0;
 }
 
 .volver {
@@ -1263,10 +1448,15 @@ async function confirmar(): Promise<void> {
 .datos-banco div {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 12px;
-  padding: 5px 0;
-  border-bottom: 1px solid var(--line);
+  padding: 6px 0;
+  border-bottom: 1px solid var(--divisor, var(--line));
   font-size: 12px;
+}
+
+.datos-banco > div:last-child {
+  border-bottom: none;
 }
 
 .datos-banco dt {

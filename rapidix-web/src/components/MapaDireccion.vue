@@ -22,6 +22,8 @@ const emit = defineEmits<{ (e: 'mover', coordenadas: { lat: number; lng: number 
 /** Centro por defecto cuando el perfil todavía no tiene coordenadas. */
 const CENTRO_POR_DEFECTO: [number, number] = [17.9869, -92.9303] // Villahermosa
 const ZOOM = 16
+/** «Usar mi ubicación actual» acerca más: el GPS ya dice dónde está. */
+const ZOOM_CERCANO = 18
 
 const contenedor = ref<HTMLDivElement | null>(null)
 const buscandoUbicacion = ref(false)
@@ -29,6 +31,7 @@ const errorUbicacion = ref('')
 
 let mapa: L.Map | null = null
 let marcador: L.Marker | null = null
+let observador: ResizeObserver | null = null
 
 /**
  * Leaflet resuelve los iconos por CSS con rutas relativas que el bundler no
@@ -52,6 +55,13 @@ onMounted(() => {
   if (!contenedor.value) return
 
   mapa = L.map(contenedor.value).setView(posicionInicial(), ZOOM)
+
+  // Montado dentro de un bloque cerrado mide 0×0 y Leaflet pinta solo un
+  // trozo de mosaicos. Al abrirse cambia de tamaño: se le avisa.
+  if (typeof ResizeObserver !== 'undefined') {
+    observador = new ResizeObserver(() => mapa?.invalidateSize())
+    observador.observe(contenedor.value)
+  }
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap',
     maxZoom: 19,
@@ -83,6 +93,8 @@ watch(
 )
 
 onBeforeUnmount(() => {
+  observador?.disconnect()
+  observador = null
   mapa?.remove()
   mapa = null
   marcador = null
@@ -102,7 +114,7 @@ function usarUbicacionActual(): void {
       buscandoUbicacion.value = false
       const { latitude, longitude } = posicion.coords
       marcador?.setLatLng([latitude, longitude])
-      mapa?.setView([latitude, longitude], ZOOM)
+      mapa?.setView([latitude, longitude], ZOOM_CERCANO)
       emit('mover', { lat: latitude, lng: longitude })
     },
     () => {
