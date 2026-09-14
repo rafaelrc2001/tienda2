@@ -291,8 +291,12 @@ async function comprarAhora(): Promise<void> {
     </p>
     <p v-else class="empty-block">No hay productos disponibles.</p>
 
-    <!-- Barra de compra: el importe lo da la API, no se suma aquí. -->
-    <div class="barra-compra pegada-al-nav">
+    <!--
+      Barra de compra: el importe lo da la API, no se suma aquí. Con el carrito
+      vacío no se pinta: no hay nada que comprar y solo le quitaría espacio al
+      catálogo. Al desaparecer, el layout recupera su colchón inferior.
+    -->
+    <div v-if="!carrito.vacio" class="barra-compra pegada-al-nav">
       <!-- Lo que falta para el cashback o el envío gratis se dice en el checkout. -->
       <div class="fila-compra">
         <!-- Solo cuando el pedido ya genera cashback: el billete con lo que gana. -->
@@ -311,24 +315,19 @@ async function comprarAhora(): Promise<void> {
             stroke-linejoin="round"
             aria-hidden="true"
           >
-            <rect x="2" y="6" width="20" height="12" rx="2" />
-            <circle cx="12" cy="12" r="2.6" />
-            <path d="M6 9.5v5M18 9.5v5" />
+            <!-- Dos billetes encimados: el de atrás solo asoma por arriba y a la derecha. -->
+            <path d="M6 8V6.5A2 2 0 0 1 8 4.5h12a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-2" />
+            <rect x="2" y="8.5" width="16" height="11" rx="2" />
+            <circle cx="10" cy="14" r="2.3" />
           </svg>
           <span class="cashback-monto">{{ dinero(cashback) }}</span>
         </span>
 
-        <button
-          type="button"
-          class="comprar"
-          :disabled="carrito.vacio"
-          @click="comprarAhora"
-        >
-          Comprar ahora<template v-if="!carrito.vacio">:
-            <span class="amt">
-              {{ carrito.subtotal !== null ? dinero(carrito.subtotal) : '…' }}
-            </span>
-          </template>
+        <button type="button" class="comprar" @click="comprarAhora">
+          Comprar ahora:
+          <span class="amt">
+            {{ carrito.subtotal !== null ? dinero(carrito.subtotal) : '…' }}
+          </span>
         </button>
       </div>
     </div>
@@ -485,11 +484,6 @@ async function comprarAhora(): Promise<void> {
   letter-spacing: 0.2px;
   text-align: center;
   cursor: pointer;
-}
-
-.comprar:disabled {
-  opacity: 0.5;
-  cursor: default;
 }
 
 /* El importe solo en negrita: el naranja sobre el verde no se lee. */
