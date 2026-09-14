@@ -522,6 +522,29 @@ enum EstadoPedido {
   CANCELADO
 }
 
+/// Como se cobra lo que queda despues del cupon y de la billetera. La
+/// billetera no es un metodo: se combina con cualquiera de los dos (HU-12).
+enum MetodoPago {
+  EFECTIVO
+  TRANSFERENCIA
+}
+
+/// Estado del cobro, independiente del de la entrega.
+enum EstadoPago {
+  /// Efectivo: lo cobra el repartidor al entregar.
+  CONTRA_ENTREGA
+  /// Transferencia: espera a que Finanzas valide el deposito (HU-11).
+  PENDIENTE
+  /// Validado, o cubierto entero con la billetera.
+  PAGADO
+}
+
+/// Como llega el pedido al cliente. Recoger en tienda no paga envio.
+enum MetodoEntrega {
+  DOMICILIO
+  TIENDA
+}
+
 model Pedido {
   id        String  @id @default(uuid())
   folio     String  @unique
@@ -534,6 +557,21 @@ model Pedido {
   recargoFuera Decimal @default(0) @db.Decimal(12, 2)
   descuento    Decimal @default(0) @db.Decimal(12, 2)
   total        Decimal @db.Decimal(12, 2)
+
+  // Pago (HU-09 a HU-12). `total` es lo que vale el pedido; lo que cobra el
+  // repartidor o la transferencia es `total - pagadoConBilletera`.
+  metodoPago         MetodoPago @default(EFECTIVO)
+  estadoPago         EstadoPago @default(CONTRA_ENTREGA)
+  /// Saldo de billetera aplicado. Sale de `clientes.saldoCashback` con su
+  /// movimiento negativo dentro de la misma transaccion.
+  pagadoConBilletera Decimal    @default(0) @db.Decimal(12, 2)
+  /// Efectivo: con cuanto dijo que pagaria, para que el repartidor lleve cambio.
+  pagoCon            Decimal?   @db.Decimal(12, 2)
+  cambio             Decimal?   @db.Decimal(12, 2)
+  pagoValidadoEn     DateTime?
+
+  /// A domicilio paga envio; recogido en tienda no.
+  metodoEntrega MetodoEntrega @default(DOMICILIO)
 
   cashbackGenerado Decimal      @default(0) @db.Decimal(12, 2)
   estado           EstadoPedido @default(CONFIRMADO)
@@ -767,6 +805,10 @@ model ConfiguracionNegocio {
   banco        String?
   beneficiario String?
   numeroCuenta String?
+  /// Para depositos en tienda de conveniencia (OXXO y similares).
+  numeroTarjeta String?
+  /// 18 digitos; es lo que pide una transferencia SPEI.
+  clabe         String?
 
   actualizadoEn DateTime @updatedAt
 

@@ -1,4 +1,4 @@
-import { Controller, Get, ParseIntPipe, Query } from '@nestjs/common';
+import { Controller, Get, Param, ParseIntPipe, ParseUUIDPipe, Patch, Query } from '@nestjs/common';
 import { PedidoDto, PedidosService } from './pedidos.service';
 import { RequiereSeccion } from '../auth/seccion.decorator';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
@@ -16,5 +16,15 @@ export class AdminPedidosController {
     @Query('limite', new ParseIntPipe({ optional: true })) limite?: number,
   ): Promise<PedidoDto[]> {
     return this.pedidos.todos(Math.min(limite ?? 100, 500));
+  }
+
+  /**
+   * Validar una transferencia (HU-11). Es trabajo de Finanzas, no de quien
+   * solo consulta pedidos: la seccion del metodo pisa la de la clase.
+   */
+  @Patch(':id/pago')
+  @RequiereSeccion('finanzas')
+  validarPago(@Param('id', ParseUUIDPipe) id: string): Promise<PedidoDto> {
+    return this.pedidos.validarPago(id);
   }
 }

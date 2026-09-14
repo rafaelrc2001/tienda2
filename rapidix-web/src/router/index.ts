@@ -232,6 +232,13 @@ const routes: RouteRecordRaw[] = [
     meta: { seccion: 'finanzas', titulo: 'Finanzas' },
   },
   {
+    // Se abren desde la casilla de términos del carrito, en otra pestaña.
+    path: '/legal/:documento(privacidad|terminos)',
+    name: 'legal',
+    component: () => import('@/views/LegalView.vue'),
+    meta: { publica: true, titulo: 'Rapidix' },
+  },
+  {
     path: '/:resto(.*)*',
     name: 'no-encontrada',
     component: () => import('@/views/NoEncontradaView.vue'),

@@ -1,4 +1,4 @@
-import { ConfiguracionNegocio, Prisma } from '@prisma/client';
+import { ConfiguracionNegocio, MetodoEntrega, Prisma } from '@prisma/client';
 import { CarritoService } from './carrito.service';
 
 const D = (n: number) => new Prisma.Decimal(n);
@@ -41,6 +41,101 @@ describe('CarritoService.calcularCarrito', () => {
       D(1),
     );
     expect(cobrado.envio.toNumber()).toBe(30);
+  });
+
+  it('recoger en tienda no paga envio ni persigue el envio gratis', () => {
+    const tienda = CarritoService.calcularCarrito(
+      { subtotal: D(100), baseCashback: D(0) },
+      config,
+      true,
+      D(1),
+      D(0),
+      D(0),
+      MetodoEntrega.TIENDA,
+    );
+    expect(tienda.envio.toNumber()).toBe(0);
+    expect(tienda.total.toNumber()).toBe(100);
+    expect(
+      CarritoService.metas(D(100), D(0), config, MetodoEntrega.TIENDA).faltaEnvioGratis,
+    ).toBeNull();
+  });
+});
+
+describe('CarritoService: cupon y billetera', () => {
+  const base = { subtotal: D(700), baseCashback: D(700) };
+
+  it('el cupon no baja la base del cashback', () => {
+    const conCupon = CarritoService.calcularCarrito(base, config, true, D(1), D(100));
+    expect(conCupon.total.toNumber()).toBe(600);
+    expect(conCupon.cashback.toNumber()).toBe(7);
+  });
+
+  it('la billetera reduce lo que se cobra, no el total del pedido', () => {
+    const desglose = CarritoService.calcularCarrito(base, config, true, D(1), D(100), D(50));
+    expect(desglose.total.toNumber()).toBe(600);
+    expect(desglose.billetera.toNumber()).toBe(50);
+    expect(desglose.aPagar.toNumber()).toBe(550);
+    expect(desglose.cashback.toNumber()).toBe(7);
+  });
+
+  it('la billetera nunca deja lo que se cobra por debajo de cero', () => {
+    const desglose = CarritoService.calcularCarrito(base, config, true, D(1), D(0), D(9999));
+    expect(desglose.billetera.toNumber()).toBe(700);
+    expect(desglose.aPagar.toNumber()).toBe(0);
+  });
+});
+
+describe('CarritoService.validarBilletera', () => {
+  it('acepta lo que cabe en el saldo y en el total', () => {
+    const r = CarritoService.validarBilletera(D(40), D(50), D(100));
+    expect(r.monto.toNumber()).toBe(40);
+    expect(r.error).toBeNull();
+  });
+
+  it('no deja pasar del saldo', () => {
+    const r = CarritoService.validarBilletera(D(80), D(50), D(100));
+    expect(r.error?.codigo).toBe('BILLETERA_INSUFICIENTE');
+    expect(r.monto.toNumber()).toBe(50);
+  });
+
+  it('no deja pasar del total despues del cupon', () => {
+    const r = CarritoService.validarBilletera(D(80), D(200), D(60));
+    expect(r.error?.codigo).toBe('BILLETERA_EXCEDE_TOTAL');
+    expect(r.monto.toNumber()).toBe(60);
+  });
+});
+
+describe('CarritoService.evaluarPago', () => {
+  it('pide un metodo mientras haya algo que cobrar', () => {
+    expect(CarritoService.evaluarPago(undefined, undefined, D(10)).error?.codigo).toBe(
+      'METODO_REQUERIDO',
+    );
+  });
+
+  it('no pide nada si la billetera cubre el pedido', () => {
+    expect(CarritoService.evaluarPago(undefined, undefined, D(0)).error).toBeNull();
+  });
+
+  it('en efectivo calcula el cambio', () => {
+    const r = CarritoService.evaluarPago('EFECTIVO', 200, D(173.99));
+    expect(r.error).toBeNull();
+    expect(r.cambio?.toNumber()).toBe(26.01);
+  });
+
+  it('en efectivo rechaza un monto menor al total', () => {
+    expect(CarritoService.evaluarPago('EFECTIVO', 100, D(173.99)).error?.codigo).toBe(
+      'PAGO_INSUFICIENTE',
+    );
+  });
+
+  it('en efectivo exige el monto', () => {
+    expect(CarritoService.evaluarPago('EFECTIVO', undefined, D(10)).error?.codigo).toBe(
+      'PAGO_CON_REQUERIDO',
+    );
+  });
+
+  it('la transferencia no pide monto', () => {
+    expect(CarritoService.evaluarPago('TRANSFERENCIA', undefined, D(10)).error).toBeNull();
   });
 });
 

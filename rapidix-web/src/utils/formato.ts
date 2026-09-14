@@ -60,6 +60,18 @@ export function fechaHora(iso: string | null | undefined): string {
   return Number.isNaN(valor.getTime()) ? '' : FECHA_HORA.format(valor)
 }
 
+/** `TRANSFERENCIA` → `Transferencia`. Lo que llega del enum de la API, legible. */
+export function nombreMetodoPago(metodo: string): string {
+  return metodo === 'TRANSFERENCIA' ? 'Transferencia' : 'Efectivo'
+}
+
+/** `CONTRA_ENTREGA` → `Contra entrega`. */
+export function nombreEstadoPago(estado: string): string {
+  if (estado === 'PENDIENTE') return 'Pago pendiente'
+  if (estado === 'PAGADO') return 'Pagado'
+  return 'Contra entrega'
+}
+
 /** Días que faltan para una fecha. Negativo si ya pasó. */
 export function diasHasta(iso: string | null | undefined): number | null {
   if (!iso) return null

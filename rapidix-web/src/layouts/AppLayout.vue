@@ -328,9 +328,11 @@ onBeforeUnmount(() => {
 /*
  * Si la pantalla trae una barra que se pega al menú (la de compra de la
  * Tienda), sobra el colchón inferior: un sticky no baja más allá del padding
- * del contenedor que desplaza, así que dejaría ese hueco.
+ * del contenedor que desplaza, así que dejaría ese hueco. `.sin-colchon` es lo
+ * mismo para la pantalla que quiere acabar a ras de la cinta (el carrito).
  */
-.app-column:has(.pegada-al-nav) .app-screen {
+.app-column:has(.pegada-al-nav) .app-screen,
+.app-column:has(.sin-colchon) .app-screen {
   padding-bottom: 0;
 }
 </style>

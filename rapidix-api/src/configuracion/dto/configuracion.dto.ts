@@ -104,6 +104,17 @@ export class BancariosDto {
   @IsString()
   @MaxLength(40)
   numeroCuenta?: string | null;
+
+  /** Solo digitos: el cliente lo copia tal cual a la app de su banco. */
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{15,19}$/, { message: 'El número de tarjeta debe tener entre 15 y 19 dígitos' })
+  numeroTarjeta?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{18}$/, { message: 'La CLABE debe tener 18 dígitos' })
+  clabe?: string | null;
 }
 
 export class NoticiaDto {
