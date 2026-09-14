@@ -36,6 +36,7 @@ configuración que ya trae el `.env.example`.
 | `JWT_SECRET` | sí | Firma de los tokens. **La aplicación no arranca sin ella.** |
 | `JWT_EXPIRES_IN` | no | Vigencia del token. Por defecto `7d`. |
 | `PORT` | no | Puerto de escucha. Railway lo inyecta. |
+| `ZONA_HORARIA` | no | Zona en la que se evalúa el horario de servicio (IANA). Por defecto `America/Mexico_City`. El servidor corre en UTC, así que no se usa su reloj. |
 | `NODE_ENV` | no | En `production` se activan comprobaciones extra (ver abajo). |
 | `CORS_ORIGIN` | en producción | Orígenes que pueden llamar a la API, separados por comas. Sin ella solo se permite `http://localhost:5173` (Vite en desarrollo). |
 | `APP_PUBLIC_URL` | no | Base de los enlaces de fuentes: `<APP_PUBLIC_URL>/r/CODIGO`. Por defecto `https://rapidix.mx`. |

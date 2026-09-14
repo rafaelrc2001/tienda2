@@ -39,6 +39,9 @@ export interface ConfiguracionPublica {
 
 const CLAVES_DIA = ['dom', 'lun', 'mar', 'mie', 'jue', 'vie', 'sab'] as const;
 
+/** Zona del negocio si no hay `ZONA_HORARIA`. Mexico no tiene horario de verano desde 2022. */
+const ZONA_HORARIA_NEGOCIO = 'America/Mexico_City';
+
 @Injectable()
 export class ConfiguracionService {
   constructor(private readonly prisma: PrismaService) {}
@@ -145,13 +148,20 @@ export class ConfiguracionService {
    * Lo usa el paso 19 para decidir si aplica el recargo por atencion fuera de
    * horario. Un horario que cierra antes de abrir (22:00 a 02:00) se entiende
    * como que cruza la medianoche.
+   *
+   * Dia y hora se leen en la zona del negocio, no en la del servidor: Railway
+   * corre en UTC y con `getHours()` a las 16:00 de Mexico ya eran las 22:00,
+   * fuera de horario.
    */
-  static estaDentroDeHorario(config: ConfiguracionNegocio, momento = new Date()): boolean {
+  static estaDentroDeHorario(
+    config: ConfiguracionNegocio,
+    momento = new Date(),
+    zona = process.env.ZONA_HORARIA || ZONA_HORARIA_NEGOCIO,
+  ): boolean {
+    const { dia, minutos } = ConfiguracionService.relojLocal(momento, zona);
     const dias = config.diasServicio as Record<string, boolean>;
-    const claveHoy = CLAVES_DIA[momento.getDay()];
-    if (!dias[claveHoy]) return false;
+    if (!dias[CLAVES_DIA[dia]]) return false;
 
-    const minutos = momento.getHours() * 60 + momento.getMinutes();
     const aMinutos = (hhmm: string): number => {
       const [h, m] = hhmm.split(':').map(Number);
       return h * 60 + m;
@@ -162,5 +172,20 @@ export class ConfiguracionService {
     return abre <= cierra
       ? minutos >= abre && minutos < cierra
       : minutos >= abre || minutos < cierra;
+  }
+
+  /** Dia de la semana (0 = domingo) y minutos del dia de `momento` en `zona`. */
+  static relojLocal(momento: Date, zona: string): { dia: number; minutos: number } {
+    const partes = new Intl.DateTimeFormat('en-US', {
+      timeZone: zona,
+      weekday: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(momento);
+    const valor = (tipo: Intl.DateTimeFormatPartTypes): string =>
+      partes.find((p) => p.type === tipo)?.value ?? '';
+    const dia = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(valor('weekday'));
+    return { dia, minutos: Number(valor('hour')) * 60 + Number(valor('minute')) };
   }
 }
