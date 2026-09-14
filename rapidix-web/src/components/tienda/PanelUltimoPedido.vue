@@ -222,12 +222,12 @@ function alternar(): void {
   cursor: pointer;
 }
 
-/* El verde y el texto blanco son los de `.btn-primary`, en tamaño chico. */
+/* Plano y en el verde profundo de «Comprar ahora»: las dos llevan a comprar. */
 .usar {
-  background: linear-gradient(180deg, var(--verde) 0%, var(--verde-dark) 100%);
+  background: var(--verde-compra);
   color: var(--white);
   font-weight: 700;
-  border: 1px solid var(--verde-dark);
+  border: 1px solid var(--verde-compra);
 }
 
 .usar:disabled {
