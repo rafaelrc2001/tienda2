@@ -287,7 +287,12 @@ async function alternarHabilitado(producto: Producto): Promise<void> {
 }
 
 async function eliminar(producto: Producto): Promise<void> {
-  if (!confirm(`¿Eliminar «${producto.nombre}»? Esta acción no se puede deshacer.`)) return
+  if (
+    !confirm(
+      `¿Eliminar «${producto.nombre}»? Dejará de aparecer en la Tienda y en el panel; los pedidos donde ya aparece lo conservan.`,
+    )
+  )
+    return
   try {
     await http.delete(`/admin/productos/${producto.id}`)
     ui.exito('Producto eliminado')

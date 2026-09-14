@@ -98,10 +98,11 @@ export class InventarioService {
    *
    * Los agotados tambien salen a proposito: un producto retirado de la Tienda
    * sigue teniendo mercancia en bodega, y si no apareciera aqui no habria
-   * forma de darle salida.
+   * forma de darle salida. Los eliminados no: ya no forman parte del catalogo.
    */
   async saldos(): Promise<SaldoProductoDto[]> {
     const productos = await this.prisma.producto.findMany({
+      where: { eliminadoEn: null },
       include: { categoria: { select: { nombre: true } } },
       orderBy: [{ categoria: { nombre: 'asc' } }, { nombre: 'asc' }],
     });
@@ -227,8 +228,8 @@ export class InventarioService {
     tx: Prisma.TransactionClient,
     a: Aplicacion,
   ): Promise<MovimientoConProducto> {
-    const producto = await tx.producto.findUnique({
-      where: { id: a.productoId },
+    const producto = await tx.producto.findFirst({
+      where: { id: a.productoId, eliminadoEn: null },
       select: { id: true, nombre: true, inventario: true, aptInventario: true },
     });
     if (!producto) throw new NotFoundException('Producto no encontrado');

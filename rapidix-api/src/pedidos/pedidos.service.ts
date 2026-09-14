@@ -398,7 +398,7 @@ export class PedidosService {
     if (!pedido) return null;
 
     const productos = await this.prisma.producto.findMany({
-      where: { id: { in: pedido.items.map((i) => i.productoId) } },
+      where: { id: { in: pedido.items.map((i) => i.productoId) }, eliminadoEn: null },
       select: {
         id: true,
         nombre: true,
