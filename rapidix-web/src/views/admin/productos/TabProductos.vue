@@ -663,9 +663,14 @@ const filasConError = computed(() => resumen.value?.filas.filter((f) => f.estado
   min-width: 0;
 }
 
+/*
+ * Los campos bloqueados van del mismo gris que la hoja: blanco solo donde se
+ * puede escribir. Con `--cream-2`, casi blanco, se confundían con los editables.
+ */
 .lista-precios .form-input:disabled {
-  background: var(--cream-2);
+  background: var(--cream);
   color: var(--muted);
+  cursor: not-allowed;
 }
 
 .lp-encabezado {
