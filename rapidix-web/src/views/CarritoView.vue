@@ -108,7 +108,9 @@ async function cargarPerfil(): Promise<void> {
     // Sin perfil se captura a mano: el checkout no se bloquea por esto.
     perfil.value = null
   }
-  if (!direccion.value) direccion.value = direccionInicial(carrito.direccion, perfil.value)
+  // Siempre, aunque ya hubiera borrador: si no trae domicilio, lo guardado en
+  // Mi Perfil lo completa. `carrito.direccion` va al día con lo tecleado mientras tanto.
+  direccion.value = direccionInicial(carrito.direccion, perfil.value)
 }
 
 /** Cada cambio va al borrador del pedido, nunca al perfil (HU-04). */
@@ -478,9 +480,16 @@ async function confirmar(): Promise<void> {
       </p>
     </div>
 
-    <!-- Productos en tabla: el importe de cada línea también lo trae la API. -->
-    <div class="lista">
-      <table v-if="previsualizacion && previsualizacion.items.length > 0" class="tabla-carrito">
+    <div v-if="!previsualizacion && carrito.calculando" class="cargando-lista">Calculando…</div>
+
+    <!--
+      Productos y resumen en UNA tarjeta: desglose, envío, pago y cashback van
+      debajo de la tabla. Las secciones se separan con subtítulos en mayúsculas
+      y divisores finos, no con cajas.
+    -->
+    <div v-if="previsualizacion" class="res-card">
+      <!-- Productos en tabla: el importe de cada línea también lo trae la API. -->
+      <table v-if="previsualizacion.items.length > 0" class="tabla-carrito">
         <thead>
           <tr>
             <th class="col-producto">Producto</th>
@@ -554,14 +563,6 @@ async function confirmar(): Promise<void> {
         </tbody>
       </table>
 
-      <div v-if="!previsualizacion && carrito.calculando" class="cargando-lista">Calculando…</div>
-    </div>
-
-    <!--
-      Resumen: desglose, envío, pago y cashback en UNA tarjeta. Las secciones
-      se separan con subtítulos en mayúsculas y divisores finos, no con cajas.
-    -->
-    <div v-if="previsualizacion" class="res-card">
       <h2 class="res-titulo">Resumen del pedido</h2>
 
       <!--
@@ -932,17 +933,14 @@ async function confirmar(): Promise<void> {
   margin-bottom: 0;
 }
 
-/* ---- Tabla de productos: misma tarjeta blanca que el resumen ---- */
+/* ---- Tabla de productos: vive dentro de la tarjeta del resumen, sin caja propia ---- */
 
 .tabla-carrito {
   width: 100%;
   border-collapse: collapse;
-  background: var(--white);
-  border-radius: 14px;
-  overflow: hidden;
-  box-shadow: var(--shadow);
   font-size: 12px;
   color: var(--ink);
+  margin-bottom: 16px;
 }
 
 .tabla-carrito th {
@@ -962,14 +960,23 @@ async function confirmar(): Promise<void> {
   vertical-align: middle;
 }
 
+/* La tarjeta ya da el margen lateral: la franja de encabezado solo redondea sus puntas. */
 .tabla-carrito th:first-child,
 .tabla-carrito td:first-child {
-  padding-left: 12px;
+  padding-left: 8px;
 }
 
 .tabla-carrito th:last-child,
 .tabla-carrito td:last-child {
-  padding-right: 12px;
+  padding-right: 8px;
+}
+
+.tabla-carrito th:first-child {
+  border-radius: 8px 0 0 8px;
+}
+
+.tabla-carrito th:last-child {
+  border-radius: 0 8px 8px 0;
 }
 
 .tabla-carrito tr.is-agotado td {
