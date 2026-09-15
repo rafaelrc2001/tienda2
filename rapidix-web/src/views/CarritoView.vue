@@ -398,13 +398,33 @@ async function confirmar(): Promise<void> {
           <dt>Cuenta</dt>
           <dd class="dato-fuerte">{{ bancarios.numeroCuenta }}</dd>
         </div>
-        <div v-if="bancarios.clabe">
-          <dt>CLABE</dt>
-          <dd class="dato-fuerte">{{ bancarios.clabe }}</dd>
-        </div>
         <div v-if="bancarios.numeroTarjeta">
           <dt>Tarjeta</dt>
-          <dd class="dato-fuerte">{{ bancarios.numeroTarjeta }}</dd>
+          <dd class="dato-copiable">
+            <span class="dato-fuerte">{{ bancarios.numeroTarjeta }}</span>
+            <button
+              type="button"
+              class="boton-copiar"
+              aria-label="Copiar número de tarjeta"
+              @click="copiar(bancarios.numeroTarjeta, 'Tarjeta')"
+            >
+              Copiar
+            </button>
+          </dd>
+        </div>
+        <div v-if="bancarios.clabe">
+          <dt>CLABE</dt>
+          <dd class="dato-copiable">
+            <span class="dato-fuerte">{{ bancarios.clabe }}</span>
+            <button
+              type="button"
+              class="boton-copiar"
+              aria-label="Copiar CLABE"
+              @click="copiar(bancarios.clabe, 'CLABE')"
+            >
+              Copiar
+            </button>
+          </dd>
         </div>
         <div>
           <dt>Monto</dt>
@@ -753,6 +773,10 @@ async function confirmar(): Promise<void> {
                     </dd>
                   </div>
                 </dl>
+                <p v-else-if="bancarios" class="nota">
+                  El negocio aún no registra sus datos bancarios. Escríbenos para pagar por
+                  transferencia.
+                </p>
                 <p v-else class="nota">
                   No pudimos cargar los datos bancarios; te los mostramos al confirmar.
                 </p>

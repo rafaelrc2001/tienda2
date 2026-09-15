@@ -12,7 +12,6 @@ import { http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
 import type { DireccionEntrega, Perfil } from '@/api/tipos'
 import {
-  direccionCompleta,
   erroresDireccion,
   perfilTieneDireccion,
   resumenDireccion,
@@ -48,8 +47,11 @@ const emit = defineEmits<{
 
 const ui = useUiStore()
 
-/** Precargada con calle y ciudad empieza cerrada; si no, abierta (HU-06). */
-const abierto = ref(!direccionCompleta(props.modelValue))
+/**
+ * Siempre empieza cerrado y enseña el resumen (o «Toca para agregar dirección»).
+ * Si al confirmar falta algo, la vista lo abre con `abrir()`.
+ */
+const abierto = ref(false)
 /** El mapa se monta la primera vez que se abre y ya no se desmonta. */
 const mapaMontado = ref(abierto.value)
 
