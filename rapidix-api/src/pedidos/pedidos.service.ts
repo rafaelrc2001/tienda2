@@ -357,6 +357,7 @@ export class PedidosService {
           // La direccion de este pedido ya quedo copiada en el: el siguiente
           // checkout vuelve a partir del perfil.
           borradorEntrega: Prisma.DbNull,
+          ...PedidosService.direccionParaPerfil(comprador, metodoEntrega, dto.direccion),
         },
       });
 
@@ -473,6 +474,36 @@ export class PedidosService {
     return {
       quienRecibe: direccion.quienRecibe.trim(),
       telefono: direccion.telefono,
+      calle: direccion.calle.trim(),
+      colonia: direccion.colonia.trim(),
+      cp: direccion.cp,
+      ciudad: direccion.ciudad.trim(),
+      estado: texto(direccion.estado),
+      referencias: texto(direccion.referencias),
+      lat: direccion.lat ?? null,
+      lng: direccion.lng ?? null,
+    };
+  }
+
+  /**
+   * La primera direccion a domicilio llena el perfil vacio.
+   *
+   * Sin esto, quien compra sin haber guardado nada abre Mi Perfil y no ve la
+   * direccion que acaba de usar. Solo si el perfil no tiene calle: una
+   * direccion ya guardada es decision del cliente y la de un pedido no la pisa
+   * (para eso esta «Guardar en mi perfil», HU-05). El telefono no se copia: el
+   * del perfil es el de login.
+   */
+  private static direccionParaPerfil(
+    comprador: Cliente,
+    metodoEntrega: MetodoEntrega,
+    direccion: DireccionEntregaDto | undefined,
+  ): Prisma.ClienteUpdateInput {
+    if (metodoEntrega !== MetodoEntrega.DOMICILIO || !direccion) return {};
+    if (comprador.calle?.trim()) return {};
+    const texto = (valor: string | null | undefined): string | null => valor?.trim() || null;
+    return {
+      quienRecibe: comprador.quienRecibe?.trim() ? undefined : direccion.quienRecibe.trim(),
       calle: direccion.calle.trim(),
       colonia: direccion.colonia.trim(),
       cp: direccion.cp,
