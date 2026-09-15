@@ -29,7 +29,8 @@ const cupon = ref(carrito.codigoCupon ?? '')
 const aplicandoCupon = ref(false)
 const confirmando = ref(false)
 const pedidoHecho = ref<Pedido | null>(null)
-const aceptaTerminos = ref(false)
+// Nace marcado a petición del negocio; el cliente puede desmarcarlo y entonces no confirma.
+const aceptaTerminos = ref(true)
 /** Datos para la transferencia, pedidos la primera vez que se elige ese método. */
 const bancarios = ref<Bancarios | null>(null)
 const cargandoBancarios = ref(false)
@@ -345,8 +346,8 @@ async function confirmar(): Promise<void> {
         <div class="cart-summary-row">
           <span>Productos</span><span>{{ dinero(pedidoHecho.subtotal) }}</span>
         </div>
-        <div class="cart-summary-row">
-          <span>{{ pedidoHecho.metodoEntrega === 'TIENDA' ? 'Recoger en tienda' : 'Envío' }}</span>
+        <div v-if="pedidoHecho.metodoEntrega !== 'TIENDA'" class="cart-summary-row">
+          <span>Envío</span>
           <span>{{ pedidoHecho.envio === 0 ? 'Gratis' : dinero(pedidoHecho.envio) }}</span>
         </div>
         <div v-if="pedidoHecho.recargoFuera > 0" class="cart-summary-row">
@@ -396,7 +397,17 @@ async function confirmar(): Promise<void> {
         </div>
         <div v-if="bancarios.numeroCuenta">
           <dt>Cuenta</dt>
-          <dd class="dato-fuerte">{{ bancarios.numeroCuenta }}</dd>
+          <dd class="dato-copiable">
+            <span class="dato-fuerte">{{ bancarios.numeroCuenta }}</span>
+            <button
+              type="button"
+              class="boton-copiar"
+              aria-label="Copiar número de cuenta"
+              @click="copiar(bancarios.numeroCuenta, 'Cuenta')"
+            >
+              Copiar
+            </button>
+          </dd>
         </div>
         <div v-if="bancarios.numeroTarjeta">
           <dt>Tarjeta</dt>
@@ -467,37 +478,81 @@ async function confirmar(): Promise<void> {
       </p>
     </div>
 
+    <!-- Productos en tabla: el importe de cada línea también lo trae la API. -->
     <div class="lista">
-      <article
-        v-for="item in previsualizacion?.items ?? []"
-        :key="item.productoId"
-        class="cart-item-row"
-        :class="{ 'is-agotado': item.agotado }"
-      >
-        <div class="media">🛒</div>
-        <div class="info">
-          <p class="nm">{{ item.nombre }}</p>
-          <p class="pr">
-            <span class="precio">{{ dinero(item.precioUnitario) }}</span> ·
-            {{ item.unidad }}
-            <span v-if="item.agotado" class="etiqueta-agotado">Agotado</span>
-          </p>
-        </div>
-        <div class="qty-control">
-          <button type="button" aria-label="Quitar uno" @click="carrito.quitar(item.productoId)">
-            −
-          </button>
-          <span class="qn">{{ item.cantidad }}</span>
-          <button
-            type="button"
-            :disabled="item.agotado"
-            aria-label="Añadir uno"
-            @click="carrito.agregar(item.productoId)"
+      <table v-if="previsualizacion && previsualizacion.items.length > 0" class="tabla-carrito">
+        <thead>
+          <tr>
+            <th class="col-producto">Producto</th>
+            <th class="col-num">Precio</th>
+            <th class="col-cant">Cant.</th>
+            <th class="col-num">Importe</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            v-for="item in previsualizacion.items"
+            :key="item.productoId"
+            :class="{ 'is-agotado': item.agotado }"
           >
-            +
-          </button>
-        </div>
-      </article>
+            <td class="col-producto">
+              <span class="nm">{{ item.nombre }}</span>
+              <span class="unidad">
+                {{ item.unidad }}
+                <span v-if="item.agotado" class="etiqueta-agotado">Agotado</span>
+              </span>
+            </td>
+            <td class="col-num">
+              <div class="celda-precio">
+                <span class="precio">{{ dinero(item.precioUnitario) }}</span>
+                <!-- Quita la línea entera, no una pieza: para eso está el «−». -->
+                <button
+                  type="button"
+                  class="boton-borrar"
+                  :aria-label="`Quitar ${item.nombre} del carrito`"
+                  @click="carrito.fijarCantidad(item.productoId, 0)"
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M3 6h18" />
+                    <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
+                    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                    <path d="M10 11v6M14 11v6" />
+                  </svg>
+                </button>
+              </div>
+            </td>
+            <td class="col-cant">
+              <div class="qty-control">
+                <button
+                  type="button"
+                  aria-label="Quitar uno"
+                  @click="carrito.quitar(item.productoId)"
+                >
+                  −
+                </button>
+                <span class="qn">{{ item.cantidad }}</span>
+                <button
+                  type="button"
+                  :disabled="item.agotado"
+                  aria-label="Añadir uno"
+                  @click="carrito.agregar(item.productoId)"
+                >
+                  +
+                </button>
+              </div>
+            </td>
+            <td class="col-num importe">{{ dinero(item.importe) }}</td>
+          </tr>
+        </tbody>
+      </table>
 
       <div v-if="!previsualizacion && carrito.calculando" class="cargando-lista">Calculando…</div>
     </div>
@@ -509,6 +564,55 @@ async function confirmar(): Promise<void> {
     <div v-if="previsualizacion" class="res-card">
       <h2 class="res-titulo">Resumen del pedido</h2>
 
+      <!--
+        Cupón (HU-10): uno por pedido. Va entre los productos y el total para
+        que el descuento se vea caer en el desglose de justo debajo. Pregunta,
+        campo y botón en una sola línea; el motivo del rechazo, bajo ella.
+        Solo con `pago`: la previsualización pública no acepta cupones.
+      -->
+      <div v-if="pago" class="bloque-cupon">
+        <div class="fila-cupon">
+          <label class="form-label etiqueta-cupon" for="cupon">¿Tienes un cupón?</label>
+          <div v-if="previsualizacion.cupon" class="chip-cupon">
+            <span class="chip-codigo">{{ previsualizacion.cupon.codigo }}</span>
+            <span class="chip-texto">
+              {{ previsualizacion.cupon.descripcion }} · −{{ dinero(previsualizacion.descuento) }}
+            </span>
+            <button
+              type="button"
+              class="chip-quitar"
+              :aria-label="`Quitar el cupón ${previsualizacion.cupon.codigo}`"
+              @click="quitarCupon"
+            >
+              ×
+            </button>
+          </div>
+          <template v-else>
+            <input
+              id="cupon"
+              v-model="cupon"
+              class="form-input campo-16"
+              :class="{ 'is-invalid': carrito.errorCupon }"
+              placeholder="Código"
+              autocomplete="off"
+              autocapitalize="characters"
+              @keyup.enter="cupon.trim() && aplicarCupon()"
+            />
+            <button
+              type="button"
+              class="btn-secondary boton-cupon"
+              :disabled="aplicandoCupon || !cupon.trim()"
+              @click="aplicarCupon"
+            >
+              {{ aplicandoCupon ? '…' : 'Aplicar' }}
+            </button>
+          </template>
+        </div>
+        <p v-if="!previsualizacion.cupon && carrito.errorCupon" class="form-error">
+          {{ carrito.errorCupon }}
+        </p>
+      </div>
+
       <!-- Desglose. Cada línea viene de la API tal cual. Solo él se atenúa al recalcular. -->
       <div class="desglose" :class="{ recalculando: carrito.calculando }">
         <p class="res-subtitulo">Desglose de costos</p>
@@ -516,7 +620,8 @@ async function confirmar(): Promise<void> {
           <div class="cart-summary-row">
             <span>Productos</span><span>{{ dinero(previsualizacion.subtotal) }}</span>
           </div>
-          <div class="cart-summary-row">
+          <!-- Recoger en tienda no es un envío: ni "Gratis" tiene sentido ahí. -->
+          <div v-if="aDomicilio" class="cart-summary-row">
             <span>Envío</span>
             <span>{{
               previsualizacion.envio === 0 ? 'Gratis' : dinero(previsualizacion.envio)
@@ -607,56 +712,12 @@ async function confirmar(): Promise<void> {
       <section v-if="pago" class="seccion-pago res-seccion" aria-labelledby="titulo-pago">
         <h3 id="titulo-pago" class="res-subtitulo">Método de pago</h3>
 
-        <!-- Cupón (HU-10): uno por pedido. El motivo del rechazo, bajo el campo. -->
-        <div class="bloque">
-          <label class="form-label" for="cupon">¿Tienes un cupón?</label>
-          <div v-if="previsualizacion.cupon" class="chip-cupon">
-            <span class="chip-codigo">{{ previsualizacion.cupon.codigo }}</span>
-            <span class="chip-texto">
-              {{ previsualizacion.cupon.descripcion }} · −{{ dinero(previsualizacion.descuento) }}
-            </span>
-            <button
-              type="button"
-              class="chip-quitar"
-              :aria-label="`Quitar el cupón ${previsualizacion.cupon.codigo}`"
-              @click="quitarCupon"
-            >
-              ×
-            </button>
-          </div>
-          <template v-else>
-            <div class="fila-cupon">
-              <input
-                id="cupon"
-                v-model="cupon"
-                class="form-input campo-16"
-                :class="{ 'is-invalid': carrito.errorCupon }"
-                placeholder="Escribe tu código"
-                autocomplete="off"
-                autocapitalize="characters"
-                @keyup.enter="cupon.trim() && aplicarCupon()"
-              />
-              <button
-                type="button"
-                class="btn-secondary boton-cupon"
-                :disabled="aplicandoCupon || !cupon.trim()"
-                @click="aplicarCupon"
-              >
-                {{ aplicandoCupon ? '…' : 'Aplicar' }}
-              </button>
-            </div>
-            <p v-if="carrito.errorCupon" class="form-error">
-              {{ carrito.errorCupon }}
-            </p>
-          </template>
-        </div>
-
         <!-- Billetera (HU-12): solo con saldo. Se combina con cualquier método. -->
         <div v-if="pago.saldoBilletera > 0" class="bloque">
           <label class="opcion-check">
             <input v-model="usaBilletera" type="checkbox" @change="alternarBilletera" />
             <span>
-              Usar mi billetera
+              Usar mi billetera electrónica
               <span class="saldo">Disponible: {{ dinero(pago.saldoBilletera) }}</span>
             </span>
           </label>
@@ -742,7 +803,17 @@ async function confirmar(): Promise<void> {
                   </div>
                   <div v-if="bancarios.numeroCuenta">
                     <dt>Cuenta</dt>
-                    <dd class="dato-fuerte">{{ bancarios.numeroCuenta }}</dd>
+                    <dd class="dato-copiable">
+                      <span class="dato-fuerte">{{ bancarios.numeroCuenta }}</span>
+                      <button
+                        type="button"
+                        class="boton-copiar"
+                        aria-label="Copiar número de cuenta"
+                        @click="copiar(bancarios.numeroCuenta, 'Cuenta')"
+                      >
+                        Copiar
+                      </button>
+                    </dd>
                   </div>
                   <div v-if="bancarios.numeroTarjeta">
                     <dt>Tarjeta</dt>
@@ -861,55 +932,116 @@ async function confirmar(): Promise<void> {
   margin-bottom: 0;
 }
 
-.cart-item-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+/* ---- Tabla de productos: misma tarjeta blanca que el resumen ---- */
+
+.tabla-carrito {
+  width: 100%;
+  border-collapse: collapse;
   background: var(--white);
   border-radius: 14px;
-  padding: 10px 12px;
-  margin-bottom: 10px;
+  overflow: hidden;
   box-shadow: var(--shadow);
+  font-size: 12px;
+  color: var(--ink);
 }
 
-.cart-item-row.is-agotado {
+.tabla-carrito th {
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: var(--cream-2);
+  padding: 8px 6px;
+}
+
+.tabla-carrito td {
+  padding: 8px 6px;
+  border-top: 1px solid var(--line);
+  vertical-align: middle;
+}
+
+.tabla-carrito th:first-child,
+.tabla-carrito td:first-child {
+  padding-left: 12px;
+}
+
+.tabla-carrito th:last-child,
+.tabla-carrito td:last-child {
+  padding-right: 12px;
+}
+
+.tabla-carrito tr.is-agotado td {
   opacity: 0.7;
 }
 
-.cart-item-row .media {
-  width: 46px;
-  height: 46px;
-  border-radius: 10px;
-  background: var(--cream-2);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 22px;
-  flex-shrink: 0;
+.col-producto {
+  text-align: left;
 }
 
-.cart-item-row .info {
-  flex: 1;
-  min-width: 0;
+/* Los importes alineados a la derecha caen en la misma columna. */
+.col-num {
+  text-align: right;
+  white-space: nowrap;
 }
 
-.cart-item-row .info .nm {
+.col-cant {
+  text-align: center;
+  width: 1%;
+}
+
+.tabla-carrito .nm {
+  display: block;
   font-family: var(--font-heading);
   font-weight: 700;
   font-size: 12.5px;
-  color: var(--ink);
-  margin: 0;
+  line-height: 1.3;
 }
 
-.cart-item-row .info .pr {
+.tabla-carrito .unidad {
+  display: block;
   font-size: 11px;
   color: var(--muted);
-  margin: 2px 0 0;
+  margin-top: 2px;
 }
 
-.cart-item-row .info .precio {
+.tabla-carrito .precio {
   color: var(--verde-dark);
   font-weight: 700;
+}
+
+.celda-precio {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+/* Rojo claro de fondo y trazo terracota: se ve como acción destructiva sin gritar. */
+.boton-borrar {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 8px;
+  border: 1.5px solid color-mix(in srgb, var(--terracotta) 35%, var(--white));
+  background: color-mix(in srgb, var(--terracotta) 10%, var(--white));
+  color: var(--terracotta-dark);
+  cursor: pointer;
+}
+
+.boton-borrar svg {
+  width: 15px;
+  height: 15px;
+}
+
+.tabla-carrito .importe {
+  font-family: var(--font-heading);
+  font-weight: 800;
 }
 
 .etiqueta-agotado {
@@ -921,8 +1053,8 @@ async function confirmar(): Promise<void> {
 .qty-control {
   display: flex;
   align-items: center;
-  gap: 7px;
-  flex-shrink: 0;
+  justify-content: center;
+  gap: 5px;
 }
 
 .qty-control button {
@@ -1024,6 +1156,10 @@ async function confirmar(): Promise<void> {
   font-size: 12px;
   font-weight: 600;
   color: var(--ink);
+  /* Comparte línea con la pregunta: se recorta en vez de crecer hacia abajo. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .chip-quitar {
@@ -1058,12 +1194,18 @@ async function confirmar(): Promise<void> {
   flex-shrink: 0;
 }
 
+/* En la misma línea que «Usar mi billetera electrónica», no debajo. */
 .saldo {
-  display: block;
   font-weight: 600;
   font-size: 11.5px;
   color: var(--sage);
-  margin-top: 2px;
+  margin-left: 6px;
+  white-space: nowrap;
+}
+
+/* La casilla se centra con la única línea de texto. */
+.opcion-check:has(.saldo) {
+  align-items: center;
 }
 
 .nota-cubierto {
@@ -1239,7 +1381,24 @@ async function confirmar(): Promise<void> {
 .fila-cupon {
   display: flex;
   gap: 8px;
-  align-items: flex-start;
+  align-items: center;
+}
+
+.bloque-cupon {
+  margin-bottom: 14px;
+}
+
+/* La pregunta va a la izquierda del campo, no encima: sin margen inferior ni salto. */
+.etiqueta-cupon {
+  flex-shrink: 0;
+  font-size: 12px;
+  margin-bottom: 0;
+  white-space: nowrap;
+}
+
+.fila-cupon .chip-cupon {
+  flex: 1;
+  min-width: 0;
 }
 
 .fila-cupon .form-input {

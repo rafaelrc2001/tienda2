@@ -372,9 +372,17 @@ async function guardarEnPerfil(): Promise<void> {
   color: var(--muted);
 }
 
+/* Flecha grande y con área de toque de 36px: con 14px pasaba desapercibida en móvil. */
 .flecha {
-  font-size: 14px;
-  color: var(--muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  font-size: 26px;
+  line-height: 1;
+  color: var(--ink);
   transition: transform 0.15s ease;
 }
 
