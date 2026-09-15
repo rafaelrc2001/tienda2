@@ -422,6 +422,24 @@ export const useCarritoStore = defineStore('carrito', () => {
   // ------------------------------------------------------------------
 
   /**
+   * Quita las líneas de productos que la API ya no encuentra (borrados).
+   *
+   * Las dos respuestas de importes traen en `items` todo producto que sigue
+   * existiendo, agotados incluidos: lo que se mandó y no volvió ya no se vende.
+   * Si se quedara aquí, el contador del carrito lo seguiría sumando y el cupón y
+   * el pedido —que no toleran faltantes— responderían «ya no existen». Solo se
+   * miran los ids de ESA petición: lo añadido mientras tanto no se toca.
+   */
+  function quitarInexistentes(enviados: string[], items: { productoId: string }[]): void {
+    const vivos = new Set(items.map((i) => i.productoId))
+    const borrados = new Set(enviados.filter((id) => !vivos.has(id)))
+    if (borrados.size === 0) return
+    lineas.value = lineas.value.filter((l) => !borrados.has(l.productoId))
+    persistir()
+    programarSincronizacion()
+  }
+
+  /**
    * Pide a la API lo que cuesta el carrito.
    *
    * Con sesión de cliente pide el desglose entero —envío, recargo, cupón y
@@ -438,6 +456,7 @@ export const useCarritoStore = defineStore('carrito', () => {
     }
 
     const miPeticion = ++ultimaPeticion
+    const enviados = lineas.value.map((l) => l.productoId)
     calculando.value = true
     try {
       const respuesta = await http.post<SubtotalCarrito>('/carrito/subtotal', {
@@ -445,6 +464,7 @@ export const useCarritoStore = defineStore('carrito', () => {
       })
       if (miPeticion !== ultimaPeticion) return
       importePublico.value = respuesta
+      quitarInexistentes(enviados, respuesta.items)
     } finally {
       if (miPeticion === ultimaPeticion) calculando.value = false
     }
@@ -465,6 +485,7 @@ export const useCarritoStore = defineStore('carrito', () => {
     // Pulsar "+" varias veces seguidas lanza varias peticiones y pueden
     // volver desordenadas: solo la última manda sobre el desglose.
     const miPeticion = ++ultimaPeticion
+    const enviados = lineas.value.map((l) => l.productoId)
     calculando.value = true
     try {
       const respuesta = await http.post<PrevisualizacionCarrito>('/carrito/previsualizar', {
@@ -478,6 +499,7 @@ export const useCarritoStore = defineStore('carrito', () => {
       if (miPeticion !== ultimaPeticion) return
 
       previsualizacion.value = respuesta
+      quitarInexistentes(enviados, respuesta.items)
       // Si el cupón dejó de valer —cambió una cantidad y ya no llega al
       // mínimo, venció…—, la API lo devuelve como `cupon: null`. Se quita, con
       // el motivo a la vista: seguir mandándolo solo repetiría el rechazo, y
