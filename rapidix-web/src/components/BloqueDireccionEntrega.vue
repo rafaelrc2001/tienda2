@@ -409,8 +409,16 @@ async function guardarEnPerfil(): Promise<void> {
   color: var(--terracotta-dark);
 }
 
+/*
+ * Fondo crema alrededor de la captura: los campos son blancos y la tarjeta del
+ * resumen también, así que sin esto no se veía dónde se escribe.
+ */
 .campos {
   margin-top: 8px;
+  background: var(--cream);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
 }
 
 .campos .form-label {

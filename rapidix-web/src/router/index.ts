@@ -20,6 +20,12 @@ declare module 'vue-router' {
     soloCliente?: boolean
     /** Título de la barra superior. */
     titulo?: string
+    /**
+     * Pantalla con salida propia: en vez de la hamburguesa, la barra superior
+     * pinta «Regresar» y lleva a esta ruta. El carrito vuelve a la Tienda, que
+     * es de donde se llega a él.
+     */
+    volverA?: string
   }
 }
 
@@ -72,7 +78,7 @@ const routes: RouteRecordRaw[] = [
     path: '/carrito',
     name: 'carrito',
     component: () => import('@/views/CarritoView.vue'),
-    meta: { soloCliente: true, titulo: 'Mi carrito' },
+    meta: { soloCliente: true, titulo: 'Mi carrito', volverA: '/tienda' },
   },
   {
     path: '/recetario',

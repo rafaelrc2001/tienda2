@@ -29,6 +29,7 @@ const route = useRoute()
  */
 const sinMarco = computed(() => route.meta.pantallaCompleta === true)
 const titulo = computed(() => (route.meta.titulo as string | undefined) ?? 'Rapidix')
+const volverA = computed(() => (route.meta.volverA as string | undefined) ?? '')
 const enAdmin = computed(() => route.path.startsWith('/admin'))
 const variante = computed<'cliente' | 'admin'>(() => (enAdmin.value ? 'admin' : 'cliente'))
 
@@ -71,6 +72,7 @@ watch(
     v-else
     :titulo="titulo"
     :variante="variante"
+    :volver-a="volverA"
     :con-drawer="auth.autenticado"
     :con-carrito="!auth.autenticado || auth.esCliente"
     @menu="ui.abrirDrawer()"

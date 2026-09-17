@@ -28,8 +28,21 @@ const props = withDefaults(
     conDrawer?: boolean
     /** Pinta el widget «Mi carrito». El personal del negocio no compra. */
     conCarrito?: boolean
+    /**
+     * Ruta de salida de la pantalla. Con ella puesta, arriba a la izquierda va
+     * «Regresar» en lugar de la hamburguesa: la pantalla tiene un sitio del que
+     * se viene (el carrito, la Tienda) y volver es lo que se quiere hacer ahí.
+     */
+    volverA?: string
   }>(),
-  { titulo: '', variante: 'cliente', sinNav: false, conDrawer: true, conCarrito: false },
+  {
+    titulo: '',
+    variante: 'cliente',
+    sinNav: false,
+    conDrawer: true,
+    conCarrito: false,
+    volverA: '',
+  },
 )
 
 const emit = defineEmits<{ (e: 'menu'): void }>()
@@ -111,8 +124,15 @@ onBeforeUnmount(() => {
   <div class="app-frame" :class="`is-${variante}`">
     <div class="app-column" :style="{ '--alto-nav': `${altoNav}px` }">
       <header v-if="titulo" class="app-topbar">
+        <!-- La salida gana a la hamburguesa: en estas pantallas se viene a hacer una cosa y volver. -->
+        <RouterLink v-if="volverA" :to="volverA" class="volver-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4">
+            <path d="M15 5l-7 7 7 7" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <span>Regresar</span>
+        </RouterLink>
         <button
-          v-if="conDrawer"
+          v-else-if="conDrawer"
           type="button"
           class="hamburger-btn"
           aria-label="Abrir menú de administración"
@@ -251,6 +271,34 @@ onBeforeUnmount(() => {
 
 .hueco-hamburguesa {
   width: 34px;
+  flex-shrink: 0;
+}
+
+/*
+ * «Regresar» sí lleva caja: es la única acción de la barra que se pulsa para
+ * irse, y una pastilla blanca sobre el naranja la separa del título. El texto
+ * va en tinta, no en blanco, porque el fondo ya es blanco.
+ */
+.volver-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  height: 34px;
+  padding: 0 12px 0 8px;
+  border-radius: 999px;
+  background: var(--white);
+  color: var(--ink);
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 12.5px;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.volver-btn svg {
+  width: 16px;
+  height: 16px;
   flex-shrink: 0;
 }
 
