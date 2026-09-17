@@ -14,6 +14,7 @@ import { ErrorApi, http } from '@/api/http'
 import type {
   Bancarios,
   DireccionEntrega,
+  EstadoCashback,
   MetodoEntrega,
   MetodoPago,
   Pedido,
@@ -82,6 +83,48 @@ const motivoBloqueo = computed(() => {
     return 'Quita los productos agotados para poder confirmar tu pedido.'
   }
   return 'Tu carrito no se puede pedir todavía.'
+})
+
+// ---- Nivel de cashback (HU-17) ----
+
+/**
+ * El nivel del cliente y el % que gana hoy. La previsualización trae el monto
+ * del cashback pero no de dónde sale, así que se pide al mismo endpoint que
+ * alimenta la tarjeta de Mi Perfil. Es informativo: si falla, el bloque de
+ * cashback se pinta como siempre, sin la línea del nivel.
+ */
+const cashback = ref<EstadoCashback | null>(null)
+
+async function cargarCashback(): Promise<void> {
+  try {
+    cashback.value = await http.get<EstadoCashback>('/perfil/cashback')
+  } catch {
+    cashback.value = null
+  }
+}
+
+/**
+ * La medalla del nivel. Los nombres los teclea el negocio en Config. Niveles,
+ * asi que se buscan por su raiz y cualquier otro se lleva una medalla generica.
+ */
+const MEDALLAS: { raiz: string; medalla: string }[] = [
+  { raiz: 'bronce', medalla: '🥉' },
+  { raiz: 'plata', medalla: '🥈' },
+  { raiz: 'oro', medalla: '🥇' },
+  { raiz: 'diamante', medalla: '💎' },
+  { raiz: 'platino', medalla: '💠' },
+]
+
+/**
+ * «Cashback estimado por tu nivel 🥉 Bronce:». La frase se arma aquí y no en
+ * la plantilla para que el nivel y los dos puntos queden pegados; sin nivel a
+ * la vista (o si falla su carga) sigue teniendo sentido.
+ */
+const etiquetaCashback = computed(() => {
+  const nivel = cashback.value?.nivelActual
+  if (!nivel) return 'Cashback estimado:'
+  const medalla = MEDALLAS.find((m) => nivel.toLowerCase().includes(m.raiz))?.medalla ?? '🏅'
+  return `Cashback estimado por tu nivel ${medalla} ${nivel}:`
 })
 
 // ---- Dirección de entrega (épica «Dirección de entrega») ----
@@ -167,6 +210,7 @@ function recalcular(): void {
 onMounted(() => {
   if (!carrito.vacio) recalcular()
   void cargarPerfil()
+  void cargarCashback()
 })
 
 watch(() => carrito.lineas.map((l) => `${l.productoId}:${l.cantidad}`).join(','), recalcular)
@@ -242,11 +286,15 @@ const hayBancarios = computed(
     !!(bancarios.value.numeroCuenta || bancarios.value.clabe || bancarios.value.numeroTarjeta),
 )
 
-/** Copia un dato bancario. Sin permiso de portapapeles, el dato sigue seleccionable. */
-async function copiar(texto: string, que: string): Promise<void> {
+/**
+ * Copia un dato bancario. Sin permiso de portapapeles, el dato sigue
+ * seleccionable. El aviso llega ya conjugado: «CLABE copiada» pero
+ * «Beneficiario copiado».
+ */
+async function copiar(texto: string, aviso: string): Promise<void> {
   try {
     await navigator.clipboard.writeText(texto)
-    ui.exito(`${que} copiada`)
+    ui.exito(aviso)
   } catch {
     ui.error('No pudimos copiar. Mantén presionado el número para copiarlo.')
   }
@@ -343,6 +391,8 @@ async function confirmar(): Promise<void> {
     <p class="exito-folio">{{ pedidoHecho.folio }}</p>
 
     <div class="res-card">
+      <!-- Aquí sí encabeza: el pedido ya está hecho y esto es la cuenta de lo cobrado. -->
+      <p class="res-subtitulo titulo-desglose">Desglose de costos</p>
       <div class="res-filas">
         <div class="cart-summary-row">
           <span>Subtotal</span><span>{{ dinero(pedidoHecho.subtotal) }}</span>
@@ -392,9 +442,20 @@ async function confirmar(): Promise<void> {
           <dt>Banco</dt>
           <dd>{{ bancarios.banco ?? '—' }}</dd>
         </div>
-        <div>
+        <!-- Todo lo que hay que teclear en la app del banco se puede copiar. -->
+        <div v-if="bancarios.beneficiario">
           <dt>Beneficiario</dt>
-          <dd>{{ bancarios.beneficiario ?? '—' }}</dd>
+          <dd class="dato-copiable">
+            <span class="dato-fuerte">{{ bancarios.beneficiario }}</span>
+            <button
+              type="button"
+              class="boton-copiar"
+              aria-label="Copiar beneficiario"
+              @click="copiar(bancarios.beneficiario, 'Beneficiario copiado')"
+            >
+              Copiar
+            </button>
+          </dd>
         </div>
         <div v-if="bancarios.numeroCuenta">
           <dt>Cuenta</dt>
@@ -404,7 +465,7 @@ async function confirmar(): Promise<void> {
               type="button"
               class="boton-copiar"
               aria-label="Copiar número de cuenta"
-              @click="copiar(bancarios.numeroCuenta, 'Cuenta')"
+              @click="copiar(bancarios.numeroCuenta, 'Cuenta copiada')"
             >
               Copiar
             </button>
@@ -418,7 +479,7 @@ async function confirmar(): Promise<void> {
               type="button"
               class="boton-copiar"
               aria-label="Copiar número de tarjeta"
-              @click="copiar(bancarios.numeroTarjeta, 'Tarjeta')"
+              @click="copiar(bancarios.numeroTarjeta, 'Tarjeta copiada')"
             >
               Copiar
             </button>
@@ -432,7 +493,7 @@ async function confirmar(): Promise<void> {
               type="button"
               class="boton-copiar"
               aria-label="Copiar CLABE"
-              @click="copiar(bancarios.clabe, 'CLABE')"
+              @click="copiar(bancarios.clabe, 'CLABE copiada')"
             >
               Copiar
             </button>
@@ -440,11 +501,32 @@ async function confirmar(): Promise<void> {
         </div>
         <div>
           <dt>Monto</dt>
-          <dd class="dato-fuerte">{{ dinero(pedidoHecho.pago.aPagar) }}</dd>
+          <dd class="dato-copiable">
+            <span class="dato-fuerte">{{ dinero(pedidoHecho.pago.aPagar) }}</span>
+            <!-- Se copia el número pelado: el «$» no se teclea en el banco. -->
+            <button
+              type="button"
+              class="boton-copiar"
+              aria-label="Copiar monto"
+              @click="copiar(pedidoHecho.pago.aPagar.toFixed(2), 'Monto copiado')"
+            >
+              Copiar
+            </button>
+          </dd>
         </div>
         <div>
           <dt>Referencia</dt>
-          <dd class="dato-fuerte">{{ pedidoHecho.pago.referencia }}</dd>
+          <dd class="dato-copiable">
+            <span class="dato-fuerte">{{ pedidoHecho.pago.referencia }}</span>
+            <button
+              type="button"
+              class="boton-copiar"
+              aria-label="Copiar referencia"
+              @click="copiar(pedidoHecho.pago.referencia, 'Referencia copiada')"
+            >
+              Copiar
+            </button>
+          </dd>
         </div>
       </dl>
       <p v-else class="exito-pago-linea">
@@ -805,17 +887,24 @@ async function confirmar(): Promise<void> {
             </template>
           </div>
         </div>
-      </section>
 
-      <!-- Cashback (HU-13): lo que se acredita es la base por el multiplicador. -->
-      <div v-if="previsualizacion.cashbackEstimado > 0" class="bloque-cashback res-seccion">
-        <span class="cashback-ico" aria-hidden="true">🎁</span>
-        <p>
-          Ganarás
-          <strong>{{ dinero(previsualizacion.cashbackEstimado) }}</strong> de cashback, que valen
-          <strong>{{ dinero(previsualizacion.cashbackBilletera) }}</strong> en tu billetera.
-        </p>
-      </div>
+        <!--
+          Cashback (HU-13): cierra el bloque del pago, que es donde el cliente
+          ve lo que da y lo que recibe. Dice de dónde sale el monto —su nivel—
+          porque el porcentaje es del nivel, no del pedido.
+        -->
+        <div v-if="previsualizacion.cashbackEstimado > 0" class="recompensas">
+          <p class="recompensas-titulo">Programa de recompensas</p>
+          <p class="recompensas-linea">
+            {{ etiquetaCashback }}
+            <strong>{{ dinero(previsualizacion.cashbackEstimado) }}</strong>
+          </p>
+          <!-- El ×2 solo aplica al gastarlo desde la billetera (HU-12). -->
+          <p class="recompensas-nota">
+            Valen {{ dinero(previsualizacion.cashbackBilletera) }} en tu billetera.
+          </p>
+        </div>
+      </section>
     </div>
 
     <!-- Términos y confirmación (HU-14). -->
@@ -830,6 +919,8 @@ async function confirmar(): Promise<void> {
     </label>
 
     <div class="confirmar-wrap">
+      <!-- La salida sin comprar va antes del primario: el verde cierra la pantalla. -->
+      <RouterLink to="/tienda" class="btn-cancel ancho">Seguir comprando</RouterLink>
       <button
         type="button"
         class="btn-primary ancho"
@@ -1319,21 +1410,49 @@ async function confirmar(): Promise<void> {
   margin: -4px 0 0;
 }
 
-.bloque-cashback {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+/*
+ * Caja amarilla del cashback. Amarillo lavado y no sólido como la píldora de
+ * «te falta»: aquí no se empuja a nada, se informa de lo ganado.
+ */
+.recompensas {
+  background: color-mix(in srgb, var(--amarillo) 22%, var(--white));
+  border: 1px solid color-mix(in srgb, var(--amarillo) 55%, var(--white));
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  margin-top: 14px;
 }
 
-.bloque-cashback p {
-  font-size: 12px;
-  line-height: 1.45;
-  color: var(--ink);
+.recompensas p {
   margin: 0;
 }
 
-.cashback-ico {
-  font-size: 22px;
+.recompensas-titulo {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.recompensas-linea {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--amarillo-dark);
+}
+
+.recompensas-linea strong {
+  font-weight: 800;
+}
+
+.recompensas-nota {
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--ink);
+  margin-top: 2px;
 }
 
 .terminos {
@@ -1499,12 +1618,17 @@ async function confirmar(): Promise<void> {
 
 /* Sin margen abajo: el botón cierra la pantalla (ver `.sin-colchon` en AppLayout). */
 .confirmar-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   margin: 6px 0 0;
 }
 
+/* Centrado explícito: los enlaces-botón no heredan el centrado del <button>. */
 .ancho {
   width: 100%;
   display: block;
+  text-align: center;
   text-decoration: none;
 }
 
@@ -1609,6 +1733,11 @@ async function confirmar(): Promise<void> {
   color: var(--muted);
 }
 
+/* En la pantalla de éxito el desglose se lee como un recibo: título centrado. */
+.titulo-desglose {
+  text-align: center;
+}
+
 .datos-banco {
   margin: 10px 0 0;
 }
@@ -1631,11 +1760,12 @@ async function confirmar(): Promise<void> {
   color: var(--muted);
 }
 
+/* `anywhere` y no `break-all`: parte el número largo sin trocear los nombres. */
 .datos-banco dd {
   margin: 0;
   color: var(--ink);
   text-align: right;
-  word-break: break-all;
+  overflow-wrap: anywhere;
 }
 
 .datos-banco .dato-fuerte {
