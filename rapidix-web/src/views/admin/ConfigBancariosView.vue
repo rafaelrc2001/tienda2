@@ -2,8 +2,8 @@
 /**
  * Configuración → Datos bancarios (HU-A06).
  *
- * Cada campo lleva su botón de copiar: es lo que el negocio dicta por
- * teléfono o pega en un chat.
+ * Solo captura: los datos que aquí se guardan son los que el cliente ve al
+ * confirmar un pedido por transferencia.
  */
 import { onMounted, ref } from 'vue'
 import { ErrorApi, http } from '@/api/http'
@@ -61,16 +61,6 @@ async function guardar(): Promise<void> {
     guardando.value = false
   }
 }
-
-async function copiar(valor: string | null, etiqueta: string): Promise<void> {
-  if (!valor) return
-  try {
-    await navigator.clipboard.writeText(valor)
-    ui.exito(`${etiqueta} copiado`)
-  } catch {
-    ui.error('No pudimos copiar. Cópialo a mano.')
-  }
-}
 </script>
 
 <template>
@@ -86,103 +76,53 @@ async function copiar(valor: string | null, etiqueta: string): Promise<void> {
 
       <div class="form-block">
         <label class="form-label" for="banco">Banco</label>
-        <div class="fila">
-          <input
-            id="banco"
-            v-model="bancarios.banco"
-            class="form-input"
-            :class="{ 'is-invalid': errores.banco }"
-          />
-          <button
-            type="button"
-            class="btn-secondary copiar"
-            :disabled="!bancarios.banco"
-            @click="copiar(bancarios.banco, 'Banco')"
-          >
-            Copiar
-          </button>
-        </div>
+        <input
+          id="banco"
+          v-model="bancarios.banco"
+          class="form-input"
+          :class="{ 'is-invalid': errores.banco }"
+        />
         <p v-if="errores.banco" class="form-error">{{ errores.banco }}</p>
 
         <label class="form-label" for="beneficiario">Beneficiario</label>
-        <div class="fila">
-          <input
-            id="beneficiario"
-            v-model="bancarios.beneficiario"
-            class="form-input"
-            :class="{ 'is-invalid': errores.beneficiario }"
-          />
-          <button
-            type="button"
-            class="btn-secondary copiar"
-            :disabled="!bancarios.beneficiario"
-            @click="copiar(bancarios.beneficiario, 'Beneficiario')"
-          >
-            Copiar
-          </button>
-        </div>
+        <input
+          id="beneficiario"
+          v-model="bancarios.beneficiario"
+          class="form-input"
+          :class="{ 'is-invalid': errores.beneficiario }"
+        />
         <p v-if="errores.beneficiario" class="form-error">{{ errores.beneficiario }}</p>
 
         <label class="form-label" for="cuenta">Número de cuenta</label>
-        <div class="fila">
-          <input
-            id="cuenta"
-            v-model="bancarios.numeroCuenta"
-            class="form-input"
-            :class="{ 'is-invalid': errores.numeroCuenta }"
-            inputmode="numeric"
-          />
-          <button
-            type="button"
-            class="btn-secondary copiar"
-            :disabled="!bancarios.numeroCuenta"
-            @click="copiar(bancarios.numeroCuenta, 'Número de cuenta')"
-          >
-            Copiar
-          </button>
-        </div>
+        <input
+          id="cuenta"
+          v-model="bancarios.numeroCuenta"
+          class="form-input"
+          :class="{ 'is-invalid': errores.numeroCuenta }"
+          inputmode="numeric"
+        />
         <p v-if="errores.numeroCuenta" class="form-error">{{ errores.numeroCuenta }}</p>
 
         <label class="form-label" for="tarjeta">Número de tarjeta</label>
-        <div class="fila">
-          <input
-            id="tarjeta"
-            v-model="bancarios.numeroTarjeta"
-            class="form-input"
-            :class="{ 'is-invalid': errores.numeroTarjeta }"
-            inputmode="numeric"
-            maxlength="23"
-          />
-          <button
-            type="button"
-            class="btn-secondary copiar"
-            :disabled="!bancarios.numeroTarjeta"
-            @click="copiar(bancarios.numeroTarjeta, 'Número de tarjeta')"
-          >
-            Copiar
-          </button>
-        </div>
+        <input
+          id="tarjeta"
+          v-model="bancarios.numeroTarjeta"
+          class="form-input"
+          :class="{ 'is-invalid': errores.numeroTarjeta }"
+          inputmode="numeric"
+          maxlength="23"
+        />
         <p v-if="errores.numeroTarjeta" class="form-error">{{ errores.numeroTarjeta }}</p>
 
         <label class="form-label" for="clabe">CLABE interbancaria</label>
-        <div class="fila">
-          <input
-            id="clabe"
-            v-model="bancarios.clabe"
-            class="form-input"
-            :class="{ 'is-invalid': errores.clabe }"
-            inputmode="numeric"
-            maxlength="22"
-          />
-          <button
-            type="button"
-            class="btn-secondary copiar"
-            :disabled="!bancarios.clabe"
-            @click="copiar(bancarios.clabe, 'CLABE')"
-          >
-            Copiar
-          </button>
-        </div>
+        <input
+          id="clabe"
+          v-model="bancarios.clabe"
+          class="form-input"
+          :class="{ 'is-invalid': errores.clabe }"
+          inputmode="numeric"
+          maxlength="22"
+        />
         <p v-if="errores.clabe" class="form-error">{{ errores.clabe }}</p>
       </div>
 
@@ -210,22 +150,6 @@ async function copiar(valor: string | null, etiqueta: string): Promise<void> {
 
 .form-block {
   margin: 0 0 16px;
-}
-
-.fila {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-}
-
-.fila .form-input {
-  flex: 1;
-  min-width: 0;
-}
-
-.copiar {
-  flex-shrink: 0;
-  height: 42px;
 }
 
 .ancho {

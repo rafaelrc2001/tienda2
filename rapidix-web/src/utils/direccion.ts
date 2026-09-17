@@ -1,4 +1,4 @@
-import type { DireccionEntrega, Perfil } from '@/api/tipos'
+import type { DireccionEntrega, Perfil } from "@/api/tipos";
 
 /**
  * Reglas de la dirección de entrega del checkout (épica «Dirección de entrega»).
@@ -7,26 +7,26 @@ import type { DireccionEntrega, Perfil } from '@/api/tipos'
  * prueban sin montar nada.
  */
 
-export type CampoDireccion = keyof Omit<DireccionEntrega, 'lat' | 'lng'>
+export type CampoDireccion = keyof Omit<DireccionEntrega, "lat" | "lng">;
 
 export function direccionVacia(): DireccionEntrega {
   return {
-    quienRecibe: '',
-    telefono: '',
-    calle: '',
-    colonia: '',
-    cp: '',
-    ciudad: '',
-    estado: '',
-    referencias: '',
+    quienRecibe: "",
+    telefono: "",
+    calle: "",
+    colonia: "",
+    cp: "",
+    ciudad: "",
+    estado: "",
+    referencias: "",
     lat: null,
     lng: null,
-  }
+  };
 }
 
 /** Solo dígitos, con tope. Para CP y teléfono, que se pegan con espacios o guiones. */
 export function soloDigitos(texto: string, maximo: number): string {
-  return texto.replace(/\D/g, '').slice(0, maximo)
+  return texto.replace(/\D/g, "").slice(0, maximo);
 }
 
 /**
@@ -34,44 +34,70 @@ export function soloDigitos(texto: string, maximo: number): string {
  * precarga con los últimos 10 dígitos, que es lo que pide el formulario.
  */
 function telefonoLocal(telefono: string | null | undefined): string {
-  const digitos = (telefono ?? '').replace(/\D/g, '')
-  return digitos.length >= 10 ? digitos.slice(-10) : digitos
+  const digitos = (telefono ?? "").replace(/\D/g, "");
+  return digitos.length >= 10 ? digitos.slice(-10) : digitos;
+}
+
+/** El borrador ya dice a dónde va si tiene cualquiera de los datos del domicilio. */
+function tieneDomicilio(d: DireccionEntrega): boolean {
+  return [d.calle, d.colonia, d.cp, d.ciudad].some(
+    (campo) => campo.trim() !== "",
+  );
 }
 
 /**
  * La dirección con la que abre el checkout (HU-02), en orden de prioridad:
  * lo que ya capturó para este pedido, la de su perfil, o vacía. Si el perfil
  * no dice quién recibe, recibe el propio usuario.
+ *
+ * Un borrador sin domicilio no tapa el perfil: basta con tocar un campo del
+ * checkout para que exista, y entonces lo guardado en Mi Perfil no volvía a
+ * aparecer hasta el siguiente pedido. El domicilio se toma entero de uno u
+ * otro, nunca campo a campo, para no mezclar la calle de una casa con la
+ * colonia de otra; quién recibe y el teléfono sí se completan sueltos.
  */
 export function direccionInicial(
   borrador: DireccionEntrega | null,
   perfil: Perfil | null,
 ): DireccionEntrega {
-  if (borrador) return { ...direccionVacia(), ...borrador }
-  if (!perfil) return direccionVacia()
-  const d = perfil.direccion
+  const delPerfil = direccionDelPerfil(perfil);
+  if (!borrador) return delPerfil;
+  const b = { ...direccionVacia(), ...borrador };
+  const base = tieneDomicilio(b)
+    ? b
+    : { ...delPerfil, referencias: b.referencias || delPerfil.referencias };
   return {
-    quienRecibe: perfil.quienRecibe?.trim() || perfil.nombre || '',
+    ...base,
+    quienRecibe: b.quienRecibe.trim() ? b.quienRecibe : delPerfil.quienRecibe,
+    telefono: b.telefono ? b.telefono : delPerfil.telefono,
+  };
+}
+
+function direccionDelPerfil(perfil: Perfil | null): DireccionEntrega {
+  if (!perfil) return direccionVacia();
+  const d = perfil.direccion;
+  return {
+    quienRecibe: perfil.quienRecibe?.trim() || perfil.nombre || "",
     telefono: telefonoLocal(perfil.telefono),
-    calle: d.calle ?? '',
-    colonia: d.colonia ?? '',
-    cp: d.cp ?? '',
-    ciudad: d.ciudad ?? '',
-    estado: d.estado ?? '',
-    referencias: d.referencias ?? '',
+    calle: d.calle ?? "",
+    colonia: d.colonia ?? "",
+    cp: d.cp ?? "",
+    ciudad: d.ciudad ?? "",
+    estado: d.estado ?? "",
+    referencias: d.referencias ?? "",
     lat: d.lat,
     lng: d.lng,
-  }
+  };
 }
 
 /** El perfil tiene dirección si tiene calle: decide el texto del botón (HU-05). */
 export function perfilTieneDireccion(perfil: Perfil | null): boolean {
-  return !!perfil?.direccion.calle?.trim()
+  return !!perfil?.direccion.calle?.trim();
 }
 
 /** Con calle y ciudad ya se sabe a dónde va: el bloque puede empezar cerrado (HU-06). */
 export function direccionCompleta(d: DireccionEntrega): boolean {
-  return !!d.calle.trim() && !!d.ciudad.trim()
+  return !!d.calle.trim() && !!d.ciudad.trim();
 }
 
 /** «Quién recibe · Calle · Ciudad», o vacío si no hay nada que resumir. */
@@ -79,7 +105,7 @@ export function resumenDireccion(d: DireccionEntrega): string {
   return [d.quienRecibe, d.calle, d.ciudad]
     .map((parte) => parte.trim())
     .filter(Boolean)
-    .join(' · ')
+    .join(" · ");
 }
 
 /**
@@ -87,29 +113,34 @@ export function resumenDireccion(d: DireccionEntrega): string {
  * orden del formulario. Es la misma regla que aplica `CrearPedidoDto` en la
  * API; aquí sirve para apagar el botón y marcar en rojo, no para decidir.
  */
-export function erroresDireccion(d: DireccionEntrega): Partial<Record<CampoDireccion, string>> {
-  const errores: Partial<Record<CampoDireccion, string>> = {}
-  if (!d.quienRecibe.trim()) errores.quienRecibe = 'Escribe quién recibe'
-  if (!/^\d{10}$/.test(d.telefono)) errores.telefono = 'El teléfono debe tener 10 dígitos'
-  if (!d.calle.trim()) errores.calle = 'Escribe la calle y el número'
-  if (!d.colonia.trim()) errores.colonia = 'Escribe la colonia'
-  if (!/^\d{5}$/.test(d.cp)) errores.cp = 'El CP debe tener 5 dígitos'
-  if (!d.ciudad.trim()) errores.ciudad = 'Escribe la ciudad'
-  return errores
+export function erroresDireccion(
+  d: DireccionEntrega,
+): Partial<Record<CampoDireccion, string>> {
+  const errores: Partial<Record<CampoDireccion, string>> = {};
+  if (!d.quienRecibe.trim()) errores.quienRecibe = "Escribe quién recibe";
+  if (!/^\d{10}$/.test(d.telefono))
+    errores.telefono = "El teléfono debe tener 10 dígitos";
+  if (!d.calle.trim()) errores.calle = "Escribe la calle y el número";
+  if (!d.colonia.trim()) errores.colonia = "Escribe la colonia";
+  if (!/^\d{5}$/.test(d.cp)) errores.cp = "El CP debe tener 5 dígitos";
+  if (!d.ciudad.trim()) errores.ciudad = "Escribe la ciudad";
+  return errores;
 }
 
 /** Nombres cortos para el aviso bajo el botón de confirmar. */
 const NOMBRES: Record<CampoDireccion, string> = {
-  quienRecibe: 'quién recibe',
-  telefono: 'teléfono',
-  calle: 'calle',
-  colonia: 'colonia',
-  cp: 'código postal',
-  ciudad: 'ciudad',
-  estado: 'estado',
-  referencias: 'referencias',
-}
+  quienRecibe: "quién recibe",
+  telefono: "teléfono",
+  calle: "calle",
+  colonia: "colonia",
+  cp: "código postal",
+  ciudad: "ciudad",
+  estado: "estado",
+  referencias: "referencias",
+};
 
 export function faltantesDireccion(d: DireccionEntrega): string[] {
-  return (Object.keys(erroresDireccion(d)) as CampoDireccion[]).map((c) => NOMBRES[c])
+  return (Object.keys(erroresDireccion(d)) as CampoDireccion[]).map(
+    (c) => NOMBRES[c],
+  );
 }
