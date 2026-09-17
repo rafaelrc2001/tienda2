@@ -512,8 +512,26 @@ async function confirmar(): Promise<void> {
               </span>
             </td>
             <td class="col-num">
-              <div class="celda-precio">
-                <span class="precio">{{ dinero(item.precioUnitario) }}</span>
+              <span class="precio">{{ dinero(item.precioUnitario) }}</span>
+            </td>
+            <td class="col-cant">
+              <div class="qty-control">
+                <button
+                  type="button"
+                  aria-label="Quitar uno"
+                  @click="carrito.quitar(item.productoId)"
+                >
+                  −
+                </button>
+                <span class="qn">{{ item.cantidad }}</span>
+                <button
+                  type="button"
+                  :disabled="item.agotado"
+                  aria-label="Añadir uno"
+                  @click="carrito.agregar(item.productoId)"
+                >
+                  +
+                </button>
                 <!-- Quita la línea entera, no una pieza: para eso está el «−». -->
                 <button
                   type="button"
@@ -535,26 +553,6 @@ async function confirmar(): Promise<void> {
                     <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
                     <path d="M10 11v6M14 11v6" />
                   </svg>
-                </button>
-              </div>
-            </td>
-            <td class="col-cant">
-              <div class="qty-control">
-                <button
-                  type="button"
-                  aria-label="Quitar uno"
-                  @click="carrito.quitar(item.productoId)"
-                >
-                  −
-                </button>
-                <span class="qn">{{ item.cantidad }}</span>
-                <button
-                  type="button"
-                  :disabled="item.agotado"
-                  aria-label="Añadir uno"
-                  @click="carrito.agregar(item.productoId)"
-                >
-                  +
                 </button>
               </div>
             </td>
@@ -1018,17 +1016,15 @@ async function confirmar(): Promise<void> {
   font-weight: 700;
 }
 
-.celda-precio {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-}
-
-/* Rojo claro de fondo y trazo terracota: se ve como acción destructiva sin gritar. */
-.boton-borrar {
+/*
+ * Rojo claro de fondo y trazo terracota: se ve como acción destructiva sin gritar.
+ * Va tras el «+» y algo separado para no pulsarlo por error; el selector doble le gana
+ * a `.qty-control button`.
+ */
+.qty-control .boton-borrar {
   width: 26px;
   height: 26px;
+  margin-left: 4px;
   padding: 0;
   display: flex;
   align-items: center;
