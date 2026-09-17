@@ -1,14 +1,14 @@
-import { createPinia, setActivePinia } from 'pinia'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createPinia, setActivePinia } from "pinia";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * El store llama a la API a través de `http`, así que se sustituye. Lo que se
  * prueba aquí es la lógica del carrito, no la red.
  */
-const post = vi.fn()
-const get = vi.fn()
-const put = vi.fn()
-vi.mock('@/api/http', () => ({
+const post = vi.fn();
+const get = vi.fn();
+const put = vi.fn();
+vi.mock("@/api/http", () => ({
   http: {
     get: (...args: unknown[]) => get(...args),
     post: (...args: unknown[]) => post(...args),
@@ -16,24 +16,24 @@ vi.mock('@/api/http', () => ({
     put: (...args: unknown[]) => put(...args),
     delete: vi.fn(),
   },
-}))
+}));
 
-import { useCarritoStore } from './carrito'
+import { useCarritoStore } from "./carrito";
 
-const CLAVE = 'rapidix.carrito'
+const CLAVE = "rapidix.carrito";
 
 const DIRECCION = {
-  quienRecibe: 'Ana',
-  telefono: '9931234567',
-  calle: 'Reforma 12',
-  colonia: 'Centro',
-  cp: '86000',
-  ciudad: 'Villahermosa',
-  estado: 'Tabasco',
-  referencias: '',
+  quienRecibe: "Ana",
+  telefono: "9931234567",
+  calle: "Reforma 12",
+  colonia: "Centro",
+  cp: "86000",
+  ciudad: "Villahermosa",
+  estado: "Tabasco",
+  referencias: "",
   lat: 17.98,
   lng: -92.93,
-}
+};
 
 /** Previsualización mínima con la forma que devuelve la API. */
 function previsualizacion(sobre: Record<string, unknown> = {}) {
@@ -50,243 +50,247 @@ function previsualizacion(sobre: Record<string, unknown> = {}) {
     puedePedir: true,
     avisos: [],
     ...sobre,
-  }
+  };
 }
 
 beforeEach(() => {
-  localStorage.clear()
-  post.mockReset()
-  get.mockReset()
-  put.mockReset()
-  put.mockResolvedValue(undefined)
-  setActivePinia(createPinia())
-})
+  localStorage.clear();
+  post.mockReset();
+  get.mockReset();
+  put.mockReset();
+  put.mockResolvedValue(undefined);
+  setActivePinia(createPinia());
+});
 
-describe('carrito · cantidades', () => {
-  it('empieza vacío', () => {
-    const carrito = useCarritoStore()
-    expect(carrito.vacio).toBe(true)
-    expect(carrito.totalPiezas).toBe(0)
-  })
+describe("carrito · cantidades", () => {
+  it("empieza vacío", () => {
+    const carrito = useCarritoStore();
+    expect(carrito.vacio).toBe(true);
+    expect(carrito.totalPiezas).toBe(0);
+  });
 
-  it('agrega y acumula el mismo producto en una sola línea', () => {
-    const carrito = useCarritoStore()
-    carrito.agregar('p1')
-    carrito.agregar('p1')
-    carrito.agregar('p2')
+  it("agrega y acumula el mismo producto en una sola línea", () => {
+    const carrito = useCarritoStore();
+    carrito.agregar("p1");
+    carrito.agregar("p1");
+    carrito.agregar("p2");
 
-    expect(carrito.lineas).toHaveLength(2)
-    expect(carrito.cantidadDe('p1')).toBe(2)
-    expect(carrito.totalPiezas).toBe(3)
-  })
+    expect(carrito.lineas).toHaveLength(2);
+    expect(carrito.cantidadDe("p1")).toBe(2);
+    expect(carrito.totalPiezas).toBe(3);
+  });
 
-  it('quita la línea al bajar a cero, en vez de dejarla en 0', () => {
-    const carrito = useCarritoStore()
-    carrito.agregar('p1')
-    carrito.quitar('p1')
+  it("quita la línea al bajar a cero, en vez de dejarla en 0", () => {
+    const carrito = useCarritoStore();
+    carrito.agregar("p1");
+    carrito.quitar("p1");
 
-    expect(carrito.cantidadDe('p1')).toBe(0)
-    expect(carrito.lineas).toHaveLength(0)
-    expect(carrito.vacio).toBe(true)
-  })
+    expect(carrito.cantidadDe("p1")).toBe(0);
+    expect(carrito.lineas).toHaveLength(0);
+    expect(carrito.vacio).toBe(true);
+  });
 
-  it('no deja cantidades negativas', () => {
-    const carrito = useCarritoStore()
-    carrito.fijarCantidad('p1', -3)
-    expect(carrito.lineas).toHaveLength(0)
-  })
+  it("no deja cantidades negativas", () => {
+    const carrito = useCarritoStore();
+    carrito.fijarCantidad("p1", -3);
+    expect(carrito.lineas).toHaveLength(0);
+  });
 
   /**
    * HU-07. El tope solo lo manda la Tienda cuando el negocio descuenta
    * existencias; sin él la cantidad no se limita, que es el caso de una tienda
    * con el control de inventario apagado.
    */
-  it('topa la cantidad al saldo cuando la Tienda lo manda', () => {
-    const carrito = useCarritoStore()
+  it("topa la cantidad al saldo cuando la Tienda lo manda", () => {
+    const carrito = useCarritoStore();
 
-    carrito.fijarCantidad('p1', 20, 8)
-    expect(carrito.cantidadDe('p1')).toBe(8)
+    carrito.fijarCantidad("p1", 20, 8);
+    expect(carrito.cantidadDe("p1")).toBe(8);
 
-    carrito.agregar('p1', 8)
-    expect(carrito.cantidadDe('p1')).toBe(8)
+    carrito.agregar("p1", 8);
+    expect(carrito.cantidadDe("p1")).toBe(8);
 
-    carrito.fijarCantidad('p2', 20)
-    expect(carrito.cantidadDe('p2')).toBe(20)
-  })
-})
+    carrito.fijarCantidad("p2", 20);
+    expect(carrito.cantidadDe("p2")).toBe(20);
+  });
+});
 
-describe('carrito · persistencia', () => {
+describe("carrito · persistencia", () => {
   /**
    * Decisión del SPEC 02: se guardan solo ids y cantidades. Un carrito que
    * sobrevive tres días no puede llevar precios congelados dentro.
    */
-  it('persiste solo productoId y cantidad, nunca precios', () => {
-    const carrito = useCarritoStore()
-    carrito.agregar('p1')
-    carrito.agregar('p1')
+  it("persiste solo productoId y cantidad, nunca precios", () => {
+    const carrito = useCarritoStore();
+    carrito.agregar("p1");
+    carrito.agregar("p1");
 
-    const guardado = JSON.parse(localStorage.getItem(CLAVE) as string)
+    const guardado = JSON.parse(localStorage.getItem(CLAVE) as string);
 
-    expect(guardado.lineas).toEqual([{ productoId: 'p1', cantidad: 2 }])
-    expect(JSON.stringify(guardado)).not.toMatch(/precio/i)
-  })
+    expect(guardado.lineas).toEqual([{ productoId: "p1", cantidad: 2 }]);
+    expect(JSON.stringify(guardado)).not.toMatch(/precio/i);
+  });
 
-  it('recupera el carrito de una sesión anterior', () => {
+  it("recupera el carrito de una sesión anterior", () => {
     localStorage.setItem(
       CLAVE,
       JSON.stringify({
-        lineas: [{ productoId: 'p9', cantidad: 4 }],
-        codigoCupon: 'BIENV',
+        lineas: [{ productoId: "p9", cantidad: 4 }],
+        codigoCupon: "BIENV",
       }),
-    )
-    setActivePinia(createPinia())
+    );
+    setActivePinia(createPinia());
 
-    const carrito = useCarritoStore()
-    expect(carrito.cantidadDe('p9')).toBe(4)
-    expect(carrito.codigoCupon).toBe('BIENV')
-  })
+    const carrito = useCarritoStore();
+    expect(carrito.cantidadDe("p9")).toBe(4);
+    expect(carrito.codigoCupon).toBe("BIENV");
+  });
 
-  it('ignora un carrito guardado corrupto en vez de romper el arranque', () => {
-    localStorage.setItem(CLAVE, 'esto no es json')
-    setActivePinia(createPinia())
+  it("ignora un carrito guardado corrupto en vez de romper el arranque", () => {
+    localStorage.setItem(CLAVE, "esto no es json");
+    setActivePinia(createPinia());
 
-    expect(useCarritoStore().vacio).toBe(true)
-  })
+    expect(useCarritoStore().vacio).toBe(true);
+  });
 
-  it('descarta las líneas mal formadas del almacenamiento', () => {
+  it("descarta las líneas mal formadas del almacenamiento", () => {
     localStorage.setItem(
       CLAVE,
       JSON.stringify({
         lineas: [
-          { productoId: 'p1', cantidad: 2 },
-          { productoId: 'p2', cantidad: 0 },
+          { productoId: "p1", cantidad: 2 },
+          { productoId: "p2", cantidad: 0 },
           { productoId: 123, cantidad: 1 },
           { cantidad: 5 },
         ],
         codigoCupon: null,
       }),
-    )
-    setActivePinia(createPinia())
+    );
+    setActivePinia(createPinia());
 
-    expect(useCarritoStore().lineas).toEqual([{ productoId: 'p1', cantidad: 2 }])
-  })
-})
+    expect(useCarritoStore().lineas).toEqual([
+      { productoId: "p1", cantidad: 2 },
+    ]);
+  });
+});
 
-describe('carrito · sincronización con el servidor (HU-13)', () => {
+describe("carrito · sincronización con el servidor (HU-13)", () => {
   /** Dos personas en el mismo teléfono: nadie hereda la compra de la otra. */
-  it('descarta el carrito de otro usuario al abrir sesión', async () => {
+  it("descarta el carrito de otro usuario al abrir sesión", async () => {
     localStorage.setItem(
       CLAVE,
       JSON.stringify({
-        lineas: [{ productoId: 'p1', cantidad: 3 }],
-        codigoCupon: 'BIENV',
-        duenio: 'cliente-antiguo',
+        lineas: [{ productoId: "p1", cantidad: 3 }],
+        codigoCupon: "BIENV",
+        duenio: "cliente-antiguo",
       }),
-    )
-    setActivePinia(createPinia())
-    get.mockResolvedValue({ items: [], actualizadoEn: null })
+    );
+    setActivePinia(createPinia());
+    get.mockResolvedValue({ items: [], actualizadoEn: null });
 
-    const carrito = useCarritoStore()
-    await carrito.adoptar('cliente-nuevo')
+    const carrito = useCarritoStore();
+    await carrito.adoptar("cliente-nuevo");
 
-    expect(carrito.vacio).toBe(true)
-    expect(carrito.codigoCupon).toBeNull()
-    expect(carrito.duenio).toBe('cliente-nuevo')
-  })
+    expect(carrito.vacio).toBe(true);
+    expect(carrito.codigoCupon).toBeNull();
+    expect(carrito.duenio).toBe("cliente-nuevo");
+  });
 
   /** HU-14: lo que armó antes de entrar es suyo y se conserva. */
-  it('conserva el carrito armado sin sesión y lo sube', async () => {
-    const carrito = useCarritoStore()
-    carrito.agregar('p1')
-    carrito.agregar('p1')
+  it("conserva el carrito armado sin sesión y lo sube", async () => {
+    const carrito = useCarritoStore();
+    carrito.agregar("p1");
+    carrito.agregar("p1");
 
-    await carrito.adoptar('cliente-1')
+    await carrito.adoptar("cliente-1");
 
-    expect(carrito.cantidadDe('p1')).toBe(2)
-    expect(get).not.toHaveBeenCalled()
+    expect(carrito.cantidadDe("p1")).toBe(2);
+    expect(get).not.toHaveBeenCalled();
 
-    vi.useFakeTimers()
-    carrito.agregar('p1')
-    vi.advanceTimersByTime(2000)
-    vi.useRealTimers()
+    vi.useFakeTimers();
+    carrito.agregar("p1");
+    vi.advanceTimersByTime(2000);
+    vi.useRealTimers();
 
-    expect(put).toHaveBeenCalledWith('/perfil/carrito', {
-      items: [{ productoId: 'p1', cantidad: 3 }],
-      entrega: { metodoEntrega: 'DOMICILIO', direccion: null },
-    })
-  })
+    expect(put).toHaveBeenCalledWith("/perfil/carrito", {
+      items: [{ productoId: "p1", cantidad: 3 }],
+      entrega: { metodoEntrega: "DOMICILIO", direccion: null },
+    });
+  });
 
-  it('recupera el carrito del servidor cuando el navegador no tiene ninguno', async () => {
+  it("recupera el carrito del servidor cuando el navegador no tiene ninguno", async () => {
     get.mockResolvedValue({
-      items: [{ productoId: 'p7', cantidad: 5 }],
-      actualizadoEn: '2026-09-01T10:00:00.000Z',
-    })
-    post.mockResolvedValue({ items: [], subtotal: 120, avisos: [] })
+      items: [{ productoId: "p7", cantidad: 5 }],
+      actualizadoEn: "2026-09-01T10:00:00.000Z",
+    });
+    post.mockResolvedValue(
+      previsualizacion({ items: [{ productoId: "p7", cantidad: 5 }] }),
+    );
 
-    const carrito = useCarritoStore()
-    await carrito.adoptar('cliente-1')
+    const carrito = useCarritoStore();
+    await carrito.adoptar("cliente-1");
 
-    expect(get).toHaveBeenCalledWith('/perfil/carrito')
-    expect(carrito.cantidadDe('p7')).toBe(5)
-  })
+    expect(get).toHaveBeenCalledWith("/perfil/carrito");
+    expect(carrito.cantidadDe("p7")).toBe(5);
+  });
 
   /** Cerrar sesión borra el rastro del navegador, no la copia del servidor. */
-  it('olvida el carrito sin tocar el del servidor', async () => {
-    const carrito = useCarritoStore()
-    await carrito.adoptar('cliente-1')
-    carrito.agregar('p1')
+  it("olvida el carrito sin tocar el del servidor", async () => {
+    const carrito = useCarritoStore();
+    await carrito.adoptar("cliente-1");
+    carrito.agregar("p1");
 
-    vi.useFakeTimers()
-    carrito.olvidar()
-    vi.advanceTimersByTime(2000)
-    vi.useRealTimers()
+    vi.useFakeTimers();
+    carrito.olvidar();
+    vi.advanceTimersByTime(2000);
+    vi.useRealTimers();
 
-    expect(carrito.vacio).toBe(true)
-    expect(carrito.duenio).toBeNull()
-    expect(put).not.toHaveBeenCalled()
-  })
+    expect(carrito.vacio).toBe(true);
+    expect(carrito.duenio).toBeNull();
+    expect(put).not.toHaveBeenCalled();
+  });
 
   /** Widget «Mi carrito», HU-06: las tres capas, sin esperar al debounce. */
-  it('vacía el carrito y el del servidor en el acto', async () => {
-    const carrito = useCarritoStore()
-    await carrito.adoptar('cliente-1')
-    carrito.agregar('p1')
+  it("vacía el carrito y el del servidor en el acto", async () => {
+    const carrito = useCarritoStore();
+    await carrito.adoptar("cliente-1");
+    carrito.agregar("p1");
 
-    await carrito.vaciarAhora()
+    await carrito.vaciarAhora();
 
-    expect(carrito.vacio).toBe(true)
-    expect(JSON.parse(localStorage.getItem(CLAVE)!).lineas).toEqual([])
-    expect(put).toHaveBeenCalledTimes(1)
-    expect(put).toHaveBeenCalledWith('/perfil/carrito', { items: [] })
-  })
+    expect(carrito.vacio).toBe(true);
+    expect(JSON.parse(localStorage.getItem(CLAVE)!).lineas).toEqual([]);
+    expect(put).toHaveBeenCalledTimes(1);
+    expect(put).toHaveBeenCalledWith("/perfil/carrito", { items: [] });
+  });
 
-  it('vacía lo local aunque falle la red', async () => {
-    put.mockRejectedValue(new Error('sin red'))
-    const carrito = useCarritoStore()
-    await carrito.adoptar('cliente-1')
-    carrito.agregar('p1')
+  it("vacía lo local aunque falle la red", async () => {
+    put.mockRejectedValue(new Error("sin red"));
+    const carrito = useCarritoStore();
+    await carrito.adoptar("cliente-1");
+    carrito.agregar("p1");
 
-    await expect(carrito.vaciarAhora()).resolves.toBeUndefined()
-    expect(carrito.vacio).toBe(true)
-  })
+    await expect(carrito.vaciarAhora()).resolves.toBeUndefined();
+    expect(carrito.vacio).toBe(true);
+  });
 
-  it('sin sesión no llama al servidor al vaciar', async () => {
-    const carrito = useCarritoStore()
-    carrito.agregar('p1')
+  it("sin sesión no llama al servidor al vaciar", async () => {
+    const carrito = useCarritoStore();
+    carrito.agregar("p1");
 
-    await carrito.vaciarAhora()
+    await carrito.vaciarAhora();
 
-    expect(carrito.vacio).toBe(true)
-    expect(put).not.toHaveBeenCalled()
-  })
-})
+    expect(carrito.vacio).toBe(true);
+    expect(put).not.toHaveBeenCalled();
+  });
+});
 
-describe('carrito · importe sin sesión (HU-11)', () => {
+describe("carrito · importe sin sesión (HU-11)", () => {
   /**
    * `previsualizar` exige ser cliente: el visitante pide solo lo que suman los
    * productos. Lo que no hace en ningún caso es multiplicar precios aquí.
    */
-  it('pide el subtotal público mientras no hay dueño', async () => {
+  it("pide el subtotal público mientras no hay dueño", async () => {
     post.mockResolvedValue({
       items: [],
       subtotal: 74.5,
@@ -297,25 +301,25 @@ describe('carrito · importe sin sesión (HU-11)', () => {
         sinCashback: false,
       },
       avisos: [],
-    })
+    });
 
-    const carrito = useCarritoStore()
-    carrito.agregar('p1')
-    await carrito.refrescarImporte()
+    const carrito = useCarritoStore();
+    carrito.agregar("p1");
+    await carrito.refrescarImporte();
 
-    expect(post).toHaveBeenCalledWith('/carrito/subtotal', {
-      items: [{ productoId: 'p1', cantidad: 1 }],
-    })
-    expect(carrito.subtotal).toBe(74.5)
-    expect(carrito.cashbackEstimado).toBe(0)
-    expect(carrito.metas?.faltaEnvioGratis).toBe(525.49)
-  })
+    expect(post).toHaveBeenCalledWith("/carrito/subtotal", {
+      items: [{ productoId: "p1", cantidad: 1 }],
+    });
+    expect(carrito.subtotal).toBe(74.5);
+    expect(carrito.cashbackEstimado).toBe(0);
+    expect(carrito.metas?.faltaEnvioGratis).toBe(525.49);
+  });
 
-  it('solo da el precio escalonado de la cantidad que hay ahora', async () => {
+  it("solo da el precio escalonado de la cantidad que hay ahora", async () => {
     post.mockResolvedValue({
       items: [
         {
-          productoId: 'p1',
+          productoId: "p1",
           precioUnitario: 18.5,
           cantidad: 5,
           importe: 92.5,
@@ -329,343 +333,414 @@ describe('carrito · importe sin sesión (HU-11)', () => {
       cashbackEstimado: 0,
       metas: null,
       avisos: [],
-    })
+    });
 
-    const carrito = useCarritoStore()
-    carrito.fijarCantidad('p1', 5)
-    await carrito.refrescarImporte()
-    expect(carrito.lineaCalculada('p1')?.precioUnitario).toBe(18.5)
+    const carrito = useCarritoStore();
+    carrito.fijarCantidad("p1", 5);
+    await carrito.refrescarImporte();
+    expect(carrito.lineaCalculada("p1")?.precioUnitario).toBe(18.5);
 
     // La respuesta ya no corresponde: la tarjeta vuelve al precio de venta
     // hasta que llegue la nueva, en vez de enseñar la oferta de antes.
-    carrito.agregar('p1')
-    expect(carrito.lineaCalculada('p1')).toBeNull()
-  })
+    carrito.agregar("p1");
+    expect(carrito.lineaCalculada("p1")).toBeNull();
+  });
 
-  it('pide el desglose completo en cuanto hay sesión', async () => {
-    get.mockResolvedValue({ items: [], actualizadoEn: null })
-    post.mockResolvedValue(previsualizacion({ subtotal: 300, cashbackEstimado: 6 }))
+  it("pide el desglose completo en cuanto hay sesión", async () => {
+    get.mockResolvedValue({ items: [], actualizadoEn: null });
+    post.mockResolvedValue(
+      previsualizacion({ subtotal: 300, cashbackEstimado: 6 }),
+    );
 
-    const carrito = useCarritoStore()
-    carrito.agregar('p1')
-    await carrito.adoptar('cliente-1')
-    await carrito.refrescarImporte()
+    const carrito = useCarritoStore();
+    carrito.agregar("p1");
+    await carrito.adoptar("cliente-1");
+    await carrito.refrescarImporte();
 
-    expect(post).toHaveBeenCalledWith('/carrito/previsualizar', {
-      items: [{ productoId: 'p1', cantidad: 1 }],
+    expect(post).toHaveBeenCalledWith("/carrito/previsualizar", {
+      items: [{ productoId: "p1", cantidad: 1 }],
       codigoCupon: undefined,
-      metodoEntrega: 'DOMICILIO',
-    })
-    expect(carrito.subtotal).toBe(300)
-    expect(carrito.cashbackEstimado).toBe(6)
-  })
-})
+      metodoEntrega: "DOMICILIO",
+    });
+    expect(carrito.subtotal).toBe(300);
+    expect(carrito.cashbackEstimado).toBe(6);
+  });
+});
 
-describe('carrito · previsualización', () => {
-  it('pide el desglose a la API y no calcula nada por su cuenta', async () => {
-    post.mockResolvedValue(previsualizacion({ subtotal: 250, envio: 40, total: 290 }))
+describe("carrito · previsualización", () => {
+  it("pide el desglose a la API y no calcula nada por su cuenta", async () => {
+    post.mockResolvedValue(
+      previsualizacion({ subtotal: 250, envio: 40, total: 290 }),
+    );
 
-    const carrito = useCarritoStore()
-    carrito.agregar('p1')
-    await carrito.recalcular()
+    const carrito = useCarritoStore();
+    carrito.agregar("p1");
+    await carrito.recalcular();
 
-    expect(post).toHaveBeenCalledWith('/carrito/previsualizar', {
-      items: [{ productoId: 'p1', cantidad: 1 }],
+    expect(post).toHaveBeenCalledWith("/carrito/previsualizar", {
+      items: [{ productoId: "p1", cantidad: 1 }],
       codigoCupon: undefined,
-      metodoEntrega: 'DOMICILIO',
-    })
-    expect(carrito.previsualizacion?.total).toBe(290)
-  })
+      metodoEntrega: "DOMICILIO",
+    });
+    expect(carrito.previsualizacion?.total).toBe(290);
+  });
 
-  it('limpia el desglose cuando el carrito se queda vacío', async () => {
-    post.mockResolvedValue(previsualizacion())
+  it("limpia el desglose cuando el carrito se queda vacío", async () => {
+    post.mockResolvedValue(previsualizacion());
 
-    const carrito = useCarritoStore()
-    carrito.agregar('p1')
-    await carrito.recalcular()
-    expect(carrito.previsualizacion).not.toBeNull()
+    const carrito = useCarritoStore();
+    carrito.agregar("p1");
+    await carrito.recalcular();
+    expect(carrito.previsualizacion).not.toBeNull();
 
-    carrito.quitar('p1')
-    await carrito.recalcular()
+    carrito.quitar("p1");
+    await carrito.recalcular();
 
-    expect(carrito.previsualizacion).toBeNull()
-    expect(post).toHaveBeenCalledTimes(1)
-  })
+    expect(carrito.previsualizacion).toBeNull();
+    expect(post).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * La API ya no devuelve un producto borrado. Si siguiera aquí, el contador lo
+   * sumaría y el cupón y el pedido responderían «ya no existen».
+   */
+  it("quita del carrito los productos que la API ya no encuentra", async () => {
+    post.mockResolvedValue(
+      previsualizacion({
+        items: [
+          { productoId: "p1", cantidad: 5 },
+          { productoId: "p3", cantidad: 1, agotado: true },
+        ],
+      }),
+    );
+
+    const carrito = useCarritoStore();
+    carrito.fijarCantidad("p1", 5);
+    carrito.fijarCantidad("p2", 17);
+    carrito.fijarCantidad("p3", 1);
+    await carrito.recalcular();
+
+    // El agotado se queda: sigue existiendo y se pinta marcado.
+    expect(carrito.lineas).toEqual([
+      { productoId: "p1", cantidad: 5 },
+      { productoId: "p3", cantidad: 1 },
+    ]);
+    expect(carrito.totalPiezas).toBe(6);
+    expect(JSON.parse(localStorage.getItem(CLAVE)!).lineas).toHaveLength(2);
+  });
+
+  it("no quita lo que se añadió mientras la API respondía", async () => {
+    let responder: (valor: unknown) => void = () => {};
+    post.mockReturnValue(new Promise((resolver) => (responder = resolver)));
+
+    const carrito = useCarritoStore();
+    carrito.agregar("p1");
+    const pendiente = carrito.recalcular();
+    carrito.agregar("p9");
+    responder(previsualizacion({ items: [{ productoId: "p1", cantidad: 1 }] }));
+    await pendiente;
+
+    expect(carrito.cantidadDe("p9")).toBe(1);
+  });
+
+  it("el visitante también se queda sin los productos borrados", async () => {
+    post.mockResolvedValue({
+      items: [],
+      subtotal: 0,
+      cashbackEstimado: 0,
+      metas: null,
+      avisos: [],
+    });
+
+    const carrito = useCarritoStore();
+    carrito.agregar("p2");
+    await carrito.refrescarImporte();
+
+    expect(carrito.vacio).toBe(true);
+  });
 
   /**
    * Pulsar "+" varias veces lanza varias peticiones: si vuelven desordenadas,
    * solo la última puede mandar sobre el total que se enseña.
    */
-  it('descarta la respuesta de una petición vieja', async () => {
-    const carrito = useCarritoStore()
-    carrito.agregar('p1')
+  it("descarta la respuesta de una petición vieja", async () => {
+    const carrito = useCarritoStore();
+    carrito.agregar("p1");
 
-    let resolverPrimera: (valor: unknown) => void = () => {}
+    let resolverPrimera: (valor: unknown) => void = () => {};
     post
       .mockImplementationOnce(
         () =>
           new Promise((resolver) => {
-            resolverPrimera = resolver
+            resolverPrimera = resolver;
           }),
       )
-      .mockResolvedValueOnce(previsualizacion({ total: 999 }))
+      .mockResolvedValueOnce(previsualizacion({ total: 999 }));
 
-    const primera = carrito.recalcular()
-    const segunda = carrito.recalcular()
+    const primera = carrito.recalcular();
+    const segunda = carrito.recalcular();
 
-    await segunda
-    resolverPrimera(previsualizacion({ total: 111 }))
-    await primera
+    await segunda;
+    resolverPrimera(previsualizacion({ total: 111 }));
+    await primera;
 
-    expect(carrito.previsualizacion?.total).toBe(999)
-  })
+    expect(carrito.previsualizacion?.total).toBe(999);
+  });
 
-  it('quita el cupón con aviso si la API lo devuelve sin cupón', async () => {
+  it("quita el cupón con aviso si la API lo devuelve sin cupón", async () => {
     post.mockResolvedValue(
       previsualizacion({
         cupon: null,
-        avisos: ['Te faltan $50.00 para llegar al mínimo'],
+        avisos: ["Te faltan $50.00 para llegar al mínimo"],
       }),
-    )
+    );
 
-    const carrito = useCarritoStore()
-    carrito.agregar('p1')
-    carrito.codigoCupon = 'BIENV'
-    await carrito.recalcular()
+    const carrito = useCarritoStore();
+    carrito.agregar("p1");
+    carrito.codigoCupon = "BIENV";
+    await carrito.recalcular();
 
     expect(carrito.errorCupon).toBe(
-      'Quitamos el cupón BIENV: Te faltan $50.00 para llegar al mínimo',
-    )
-    expect(carrito.codigoCupon).toBeNull()
-    expect(JSON.parse(localStorage.getItem(CLAVE) as string).codigoCupon).toBeNull()
-  })
+      "Quitamos el cupón BIENV: Te faltan $50.00 para llegar al mínimo",
+    );
+    expect(carrito.codigoCupon).toBeNull();
+    expect(
+      JSON.parse(localStorage.getItem(CLAVE) as string).codigoCupon,
+    ).toBeNull();
+  });
 
-  it('manda el pago y la entrega elegidos para que la API calcule envío, cambio y billetera', async () => {
-    post.mockResolvedValue(previsualizacion())
+  it("manda el pago y la entrega elegidos para que la API calcule envío, cambio y billetera", async () => {
+    post.mockResolvedValue(previsualizacion());
 
-    const carrito = useCarritoStore()
-    carrito.agregar('p1')
-    carrito.metodoPago = 'EFECTIVO'
-    carrito.pagoCon = 200
-    carrito.usarBilletera = 15
-    carrito.metodoEntrega = 'TIENDA'
-    await carrito.recalcular()
+    const carrito = useCarritoStore();
+    carrito.agregar("p1");
+    carrito.metodoPago = "EFECTIVO";
+    carrito.pagoCon = 200;
+    carrito.usarBilletera = 15;
+    carrito.metodoEntrega = "TIENDA";
+    await carrito.recalcular();
 
-    expect(post).toHaveBeenCalledWith('/carrito/previsualizar', {
-      items: [{ productoId: 'p1', cantidad: 1 }],
-      metodoPago: 'EFECTIVO',
+    expect(post).toHaveBeenCalledWith("/carrito/previsualizar", {
+      items: [{ productoId: "p1", cantidad: 1 }],
+      metodoPago: "EFECTIVO",
       pagoCon: 200,
       usarBilletera: 15,
-      metodoEntrega: 'TIENDA',
-    })
-  })
+      metodoEntrega: "TIENDA",
+    });
+  });
 
-  it('el pago no está listo mientras la API marque un error', async () => {
+  it("el pago no está listo mientras la API marque un error", async () => {
     const pago = {
       saldoBilletera: 0,
-      metodo: 'EFECTIVO',
+      metodo: "EFECTIVO",
       pagoCon: 50,
       cambio: null,
       errorBilletera: null,
-    }
+    };
+    const items = [{ productoId: "p1", cantidad: 1 }];
     post
       .mockResolvedValueOnce(
         previsualizacion({
+          items,
           pago: {
             ...pago,
-            errorPago: { codigo: 'PAGO_INSUFICIENTE', mensaje: 'x' },
+            errorPago: { codigo: "PAGO_INSUFICIENTE", mensaje: "x" },
           },
         }),
       )
-      .mockResolvedValueOnce(previsualizacion({ pago: { ...pago, errorPago: null } }))
+      .mockResolvedValueOnce(
+        previsualizacion({ items, pago: { ...pago, errorPago: null } }),
+      );
 
-    const carrito = useCarritoStore()
-    carrito.agregar('p1')
-    await carrito.recalcular()
-    expect(carrito.pagoListo).toBe(false)
+    const carrito = useCarritoStore();
+    carrito.agregar("p1");
+    await carrito.recalcular();
+    expect(carrito.pagoListo).toBe(false);
 
-    await carrito.recalcular()
-    expect(carrito.pagoListo).toBe(true)
-  })
-})
+    await carrito.recalcular();
+    expect(carrito.pagoListo).toBe(true);
+  });
+});
 
-describe('carrito · cupón', () => {
-  it('normaliza el código a mayúsculas y sin espacios', async () => {
+describe("carrito · cupón", () => {
+  it("normaliza el código a mayúsculas y sin espacios", async () => {
     post
       .mockResolvedValueOnce({
         valido: true,
-        cuponId: 'c1',
-        codigo: 'BIENV',
-        titulo: 'Bienvenida',
+        cuponId: "c1",
+        codigo: "BIENV",
+        titulo: "Bienvenida",
         subtotal: 100,
         descuento: 10,
       })
       .mockResolvedValueOnce(
         previsualizacion({
-          cupon: { codigo: 'BIENV', descripcion: 'Bienvenida' },
+          cupon: { codigo: "BIENV", descripcion: "Bienvenida" },
         }),
-      )
+      );
 
-    const carrito = useCarritoStore()
-    carrito.agregar('p1')
-    const aplicado = await carrito.aplicarCupon('  bienv  ')
+    const carrito = useCarritoStore();
+    carrito.agregar("p1");
+    const aplicado = await carrito.aplicarCupon("  bienv  ");
 
-    expect(aplicado).toBe(true)
-    expect(carrito.codigoCupon).toBe('BIENV')
-    expect(post).toHaveBeenCalledWith('/carrito/validar-cupon', {
-      codigo: 'BIENV',
-      items: [{ productoId: 'p1', cantidad: 1 }],
-    })
-  })
+    expect(aplicado).toBe(true);
+    expect(carrito.codigoCupon).toBe("BIENV");
+    expect(post).toHaveBeenCalledWith("/carrito/validar-cupon", {
+      codigo: "BIENV",
+      items: [{ productoId: "p1", cantidad: 1 }],
+    });
+  });
 
   /** Un cupón rechazado no es un error de red: su motivo va bajo el campo. */
-  it('guarda el motivo del rechazo en vez de lanzar', async () => {
+  it("guarda el motivo del rechazo en vez de lanzar", async () => {
     post.mockResolvedValue({
       valido: false,
-      motivo: 'MINIMO_NO_ALCANZADO',
-      mensaje: 'Te faltan $50.00 para llegar al mínimo',
+      motivo: "MINIMO_NO_ALCANZADO",
+      mensaje: "Te faltan $50.00 para llegar al mínimo",
       subtotal: 100,
-    })
+    });
 
-    const carrito = useCarritoStore()
-    carrito.agregar('p1')
-    const aplicado = await carrito.aplicarCupon('BIENV')
+    const carrito = useCarritoStore();
+    carrito.agregar("p1");
+    const aplicado = await carrito.aplicarCupon("BIENV");
 
-    expect(aplicado).toBe(false)
-    expect(carrito.codigoCupon).toBeNull()
-    expect(carrito.errorCupon).toBe('Te faltan $50.00 para llegar al mínimo')
-  })
+    expect(aplicado).toBe(false);
+    expect(carrito.codigoCupon).toBeNull();
+    expect(carrito.errorCupon).toBe("Te faltan $50.00 para llegar al mínimo");
+  });
 
-  it('ignora un código vacío sin llamar a la API', async () => {
-    const carrito = useCarritoStore()
-    expect(await carrito.aplicarCupon('   ')).toBe(false)
-    expect(post).not.toHaveBeenCalled()
-  })
-})
+  it("ignora un código vacío sin llamar a la API", async () => {
+    const carrito = useCarritoStore();
+    expect(await carrito.aplicarCupon("   ")).toBe(false);
+    expect(post).not.toHaveBeenCalled();
+  });
+});
 
-describe('carrito · confirmar pedido', () => {
-  it('vacía el carrito solo después de que la API cree el pedido', async () => {
-    post.mockResolvedValue({ id: 'o1', folio: 'ORD-000001', total: 290 })
+describe("carrito · confirmar pedido", () => {
+  it("vacía el carrito solo después de que la API cree el pedido", async () => {
+    post.mockResolvedValue({ id: "o1", folio: "ORD-000001", total: 290 });
 
-    const carrito = useCarritoStore()
-    carrito.agregar('p1')
-    carrito.metodoPago = 'TRANSFERENCIA'
-    carrito.pagoCon = 500
-    const pedido = await carrito.confirmar(true, DIRECCION)
+    const carrito = useCarritoStore();
+    carrito.agregar("p1");
+    carrito.metodoPago = "TRANSFERENCIA";
+    carrito.pagoCon = 500;
+    const pedido = await carrito.confirmar(true, DIRECCION);
 
     // En transferencia no viaja el monto de efectivo que quedó escrito.
-    expect(post).toHaveBeenCalledWith('/pedidos', {
-      items: [{ productoId: 'p1', cantidad: 1 }],
-      metodoPago: 'TRANSFERENCIA',
-      metodoEntrega: 'DOMICILIO',
+    expect(post).toHaveBeenCalledWith("/pedidos", {
+      items: [{ productoId: "p1", cantidad: 1 }],
+      metodoPago: "TRANSFERENCIA",
+      metodoEntrega: "DOMICILIO",
       direccion: DIRECCION,
       aceptaTerminos: true,
-    })
-    expect(pedido.folio).toBe('ORD-000001')
-    expect(carrito.vacio).toBe(true)
-    expect(carrito.metodoPago).toBeNull()
-    expect(carrito.codigoCupon).toBeNull()
-    expect(carrito.previsualizacion).toBeNull()
-    expect(JSON.parse(localStorage.getItem(CLAVE) as string).lineas).toEqual([])
-  })
+    });
+    expect(pedido.folio).toBe("ORD-000001");
+    expect(carrito.vacio).toBe(true);
+    expect(carrito.metodoPago).toBeNull();
+    expect(carrito.codigoCupon).toBeNull();
+    expect(carrito.previsualizacion).toBeNull();
+    expect(JSON.parse(localStorage.getItem(CLAVE) as string).lineas).toEqual(
+      [],
+    );
+  });
 
   /** Si la API rechaza, el cliente conserva lo que había armado. */
-  it('conserva el carrito si la confirmación falla', async () => {
-    post.mockRejectedValue(new Error('409'))
+  it("conserva el carrito si la confirmación falla", async () => {
+    post.mockRejectedValue(new Error("409"));
 
-    const carrito = useCarritoStore()
-    carrito.agregar('p1')
-    carrito.agregar('p2')
+    const carrito = useCarritoStore();
+    carrito.agregar("p1");
+    carrito.agregar("p2");
 
-    await expect(carrito.confirmar(true, DIRECCION)).rejects.toThrow()
+    await expect(carrito.confirmar(true, DIRECCION)).rejects.toThrow();
 
-    expect(carrito.vacio).toBe(false)
-    expect(carrito.totalPiezas).toBe(2)
-  })
-})
+    expect(carrito.vacio).toBe(false);
+    expect(carrito.totalPiezas).toBe(2);
+  });
+});
 
-describe('carrito · entrega', () => {
-  it('recuerda el método de entrega y el borrador de dirección al recargar', () => {
-    const carrito = useCarritoStore()
-    carrito.fijarEntrega('TIENDA')
-    carrito.fijarDireccion(DIRECCION)
+describe("carrito · entrega", () => {
+  it("recuerda el método de entrega y el borrador de dirección al recargar", () => {
+    const carrito = useCarritoStore();
+    carrito.fijarEntrega("TIENDA");
+    carrito.fijarDireccion(DIRECCION);
 
-    setActivePinia(createPinia())
-    const recargado = useCarritoStore()
-    expect(recargado.metodoEntrega).toBe('TIENDA')
-    expect(recargado.direccion).toEqual(DIRECCION)
-  })
+    setActivePinia(createPinia());
+    const recargado = useCarritoStore();
+    expect(recargado.metodoEntrega).toBe("TIENDA");
+    expect(recargado.direccion).toEqual(DIRECCION);
+  });
 
-  it('descarta lo que no cuadre de un borrador guardado', () => {
+  it("descarta lo que no cuadre de un borrador guardado", () => {
     localStorage.setItem(
       CLAVE,
       JSON.stringify({
         lineas: [],
-        metodoEntrega: 'DRON',
-        direccion: { cp: 86000, calle: 'X' },
+        metodoEntrega: "DRON",
+        direccion: { cp: 86000, calle: "X" },
       }),
-    )
-    const carrito = useCarritoStore()
-    expect(carrito.metodoEntrega).toBe('DOMICILIO')
-    expect(carrito.direccion?.calle).toBe('X')
-    expect(carrito.direccion?.cp).toBe('')
-  })
+    );
+    const carrito = useCarritoStore();
+    expect(carrito.metodoEntrega).toBe("DOMICILIO");
+    expect(carrito.direccion?.calle).toBe("X");
+    expect(carrito.direccion?.cp).toBe("");
+  });
 
-  it('respalda el borrador en el servidor junto con las líneas', async () => {
-    vi.useFakeTimers()
+  it("respalda el borrador en el servidor junto con las líneas", async () => {
+    vi.useFakeTimers();
     try {
-      const carrito = useCarritoStore()
-      carrito.duenio = 'c1'
-      carrito.agregar('p1')
-      carrito.fijarDireccion(DIRECCION)
-      await vi.runAllTimersAsync()
+      const carrito = useCarritoStore();
+      carrito.duenio = "c1";
+      carrito.agregar("p1");
+      carrito.fijarDireccion(DIRECCION);
+      await vi.runAllTimersAsync();
 
-      expect(put).toHaveBeenCalledTimes(1)
-      expect(put).toHaveBeenCalledWith('/perfil/carrito', {
-        items: [{ productoId: 'p1', cantidad: 1 }],
-        entrega: { metodoEntrega: 'DOMICILIO', direccion: DIRECCION },
-      })
+      expect(put).toHaveBeenCalledTimes(1);
+      expect(put).toHaveBeenCalledWith("/perfil/carrito", {
+        items: [{ productoId: "p1", cantidad: 1 }],
+        entrega: { metodoEntrega: "DOMICILIO", direccion: DIRECCION },
+      });
     } finally {
-      vi.useRealTimers()
+      vi.useRealTimers();
     }
-  })
+  });
 
-  it('recoger en tienda no manda dirección', async () => {
-    post.mockResolvedValue({ id: 'o1', folio: 'ORD-000002', total: 90 })
-    const carrito = useCarritoStore()
-    carrito.agregar('p1')
-    carrito.metodoPago = 'EFECTIVO'
-    carrito.fijarEntrega('TIENDA')
+  it("recoger en tienda no manda dirección", async () => {
+    post.mockResolvedValue({ id: "o1", folio: "ORD-000002", total: 90 });
+    const carrito = useCarritoStore();
+    carrito.agregar("p1");
+    carrito.metodoPago = "EFECTIVO";
+    carrito.fijarEntrega("TIENDA");
 
-    await carrito.confirmar(true, DIRECCION)
+    await carrito.confirmar(true, DIRECCION);
 
-    expect(post.mock.calls[0][1].direccion).toBeUndefined()
-  })
+    expect(post.mock.calls[0][1].direccion).toBeUndefined();
+  });
 
-  it('tras confirmar olvida la dirección pero conserva el método de entrega', async () => {
-    post.mockResolvedValue({ id: 'o1', folio: 'ORD-000003', total: 90 })
-    const carrito = useCarritoStore()
-    carrito.agregar('p1')
-    carrito.metodoPago = 'EFECTIVO'
-    carrito.fijarEntrega('TIENDA')
-    carrito.fijarDireccion(DIRECCION)
+  it("tras confirmar olvida la dirección pero conserva el método de entrega", async () => {
+    post.mockResolvedValue({ id: "o1", folio: "ORD-000003", total: 90 });
+    const carrito = useCarritoStore();
+    carrito.agregar("p1");
+    carrito.metodoPago = "EFECTIVO";
+    carrito.fijarEntrega("TIENDA");
+    carrito.fijarDireccion(DIRECCION);
 
-    await carrito.confirmar(true, DIRECCION)
+    await carrito.confirmar(true, DIRECCION);
 
-    expect(carrito.direccion).toBeNull()
-    expect(carrito.metodoEntrega).toBe('TIENDA')
-  })
+    expect(carrito.direccion).toBeNull();
+    expect(carrito.metodoEntrega).toBe("TIENDA");
+  });
 
-  it('el borrador de otro dueño se descarta al abrir sesión', async () => {
-    get.mockResolvedValue({ items: [], actualizadoEn: null, entrega: null })
-    const carrito = useCarritoStore()
-    carrito.duenio = 'otra'
-    carrito.fijarEntrega('TIENDA')
-    carrito.fijarDireccion(DIRECCION)
+  it("el borrador de otro dueño se descarta al abrir sesión", async () => {
+    get.mockResolvedValue({ items: [], actualizadoEn: null, entrega: null });
+    const carrito = useCarritoStore();
+    carrito.duenio = "otra";
+    carrito.fijarEntrega("TIENDA");
+    carrito.fijarDireccion(DIRECCION);
 
-    await carrito.adoptar('c1')
+    await carrito.adoptar("c1");
 
-    expect(carrito.direccion).toBeNull()
-    expect(carrito.metodoEntrega).toBe('DOMICILIO')
-  })
-})
+    expect(carrito.direccion).toBeNull();
+    expect(carrito.metodoEntrega).toBe("DOMICILIO");
+  });
+});

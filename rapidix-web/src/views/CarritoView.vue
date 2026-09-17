@@ -108,7 +108,9 @@ async function cargarPerfil(): Promise<void> {
     // Sin perfil se captura a mano: el checkout no se bloquea por esto.
     perfil.value = null
   }
-  if (!direccion.value) direccion.value = direccionInicial(carrito.direccion, perfil.value)
+  // Siempre, aunque ya hubiera borrador: si no trae domicilio, lo guardado en
+  // Mi Perfil lo completa. `carrito.direccion` va al día con lo tecleado mientras tanto.
+  direccion.value = direccionInicial(carrito.direccion, perfil.value)
 }
 
 /** Cada cambio va al borrador del pedido, nunca al perfil (HU-04). */
@@ -478,9 +480,16 @@ async function confirmar(): Promise<void> {
       </p>
     </div>
 
-    <!-- Productos en tabla: el importe de cada línea también lo trae la API. -->
-    <div class="lista">
-      <table v-if="previsualizacion && previsualizacion.items.length > 0" class="tabla-carrito">
+    <div v-if="!previsualizacion && carrito.calculando" class="cargando-lista">Calculando…</div>
+
+    <!--
+      Productos y resumen en UNA tarjeta: desglose, envío, pago y cashback van
+      debajo de la tabla. Las secciones se separan con subtítulos en mayúsculas
+      y divisores finos, no con cajas.
+    -->
+    <div v-if="previsualizacion" class="res-card">
+      <!-- Productos en tabla: el importe de cada línea también lo trae la API. -->
+      <table v-if="previsualizacion.items.length > 0" class="tabla-carrito">
         <thead>
           <tr>
             <th class="col-producto">Producto</th>
@@ -503,8 +512,26 @@ async function confirmar(): Promise<void> {
               </span>
             </td>
             <td class="col-num">
-              <div class="celda-precio">
-                <span class="precio">{{ dinero(item.precioUnitario) }}</span>
+              <span class="precio">{{ dinero(item.precioUnitario) }}</span>
+            </td>
+            <td class="col-cant">
+              <div class="qty-control">
+                <button
+                  type="button"
+                  aria-label="Quitar uno"
+                  @click="carrito.quitar(item.productoId)"
+                >
+                  −
+                </button>
+                <span class="qn">{{ item.cantidad }}</span>
+                <button
+                  type="button"
+                  :disabled="item.agotado"
+                  aria-label="Añadir uno"
+                  @click="carrito.agregar(item.productoId)"
+                >
+                  +
+                </button>
                 <!-- Quita la línea entera, no una pieza: para eso está el «−». -->
                 <button
                   type="button"
@@ -529,39 +556,11 @@ async function confirmar(): Promise<void> {
                 </button>
               </div>
             </td>
-            <td class="col-cant">
-              <div class="qty-control">
-                <button
-                  type="button"
-                  aria-label="Quitar uno"
-                  @click="carrito.quitar(item.productoId)"
-                >
-                  −
-                </button>
-                <span class="qn">{{ item.cantidad }}</span>
-                <button
-                  type="button"
-                  :disabled="item.agotado"
-                  aria-label="Añadir uno"
-                  @click="carrito.agregar(item.productoId)"
-                >
-                  +
-                </button>
-              </div>
-            </td>
             <td class="col-num importe">{{ dinero(item.importe) }}</td>
           </tr>
         </tbody>
       </table>
 
-      <div v-if="!previsualizacion && carrito.calculando" class="cargando-lista">Calculando…</div>
-    </div>
-
-    <!--
-      Resumen: desglose, envío, pago y cashback en UNA tarjeta. Las secciones
-      se separan con subtítulos en mayúsculas y divisores finos, no con cajas.
-    -->
-    <div v-if="previsualizacion" class="res-card">
       <h2 class="res-titulo">Resumen del pedido</h2>
 
       <!--
@@ -932,17 +931,14 @@ async function confirmar(): Promise<void> {
   margin-bottom: 0;
 }
 
-/* ---- Tabla de productos: misma tarjeta blanca que el resumen ---- */
+/* ---- Tabla de productos: vive dentro de la tarjeta del resumen, sin caja propia ---- */
 
 .tabla-carrito {
   width: 100%;
   border-collapse: collapse;
-  background: var(--white);
-  border-radius: 14px;
-  overflow: hidden;
-  box-shadow: var(--shadow);
   font-size: 12px;
   color: var(--ink);
+  margin-bottom: 16px;
 }
 
 .tabla-carrito th {
@@ -962,14 +958,23 @@ async function confirmar(): Promise<void> {
   vertical-align: middle;
 }
 
+/* La tarjeta ya da el margen lateral: la franja de encabezado solo redondea sus puntas. */
 .tabla-carrito th:first-child,
 .tabla-carrito td:first-child {
-  padding-left: 12px;
+  padding-left: 8px;
 }
 
 .tabla-carrito th:last-child,
 .tabla-carrito td:last-child {
-  padding-right: 12px;
+  padding-right: 8px;
+}
+
+.tabla-carrito th:first-child {
+  border-radius: 8px 0 0 8px;
+}
+
+.tabla-carrito th:last-child {
+  border-radius: 0 8px 8px 0;
 }
 
 .tabla-carrito tr.is-agotado td {
@@ -1011,17 +1016,15 @@ async function confirmar(): Promise<void> {
   font-weight: 700;
 }
 
-.celda-precio {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-}
-
-/* Rojo claro de fondo y trazo terracota: se ve como acción destructiva sin gritar. */
-.boton-borrar {
+/*
+ * Rojo claro de fondo y trazo terracota: se ve como acción destructiva sin gritar.
+ * Va tras el «+» y algo separado para no pulsarlo por error; el selector doble le gana
+ * a `.qty-control button`.
+ */
+.qty-control .boton-borrar {
   width: 26px;
   height: 26px;
+  margin-left: 4px;
   padding: 0;
   display: flex;
   align-items: center;
