@@ -127,11 +127,8 @@ function alSalirDelCampo(): void {
     </div>
 
     <div class="media" :class="{ 'sin-foto': !producto.imagenUrl }">
+      <!-- Sin foto el recuadro queda vacío: ni emoji ni icono de reserva. -->
       <img v-if="producto.imagenUrl" :src="producto.imagenUrl" :alt="producto.nombre" />
-      <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
-        <path d="M4 8h16v11a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V8Z" stroke-linejoin="round" />
-        <path d="m7 8 5-4 5 4" stroke-linecap="round" stroke-linejoin="round" />
-      </svg>
     </div>
 
     <p class="nombre">{{ producto.nombre }}</p>
@@ -368,11 +365,6 @@ function alSalirDelCampo(): void {
 /* Sin foto el recuadro sí va en crema, para que el hueco se lea como imagen pendiente. */
 .media.sin-foto {
   background: var(--cream-2);
-}
-
-.media svg {
-  width: 30px;
-  height: 30px;
 }
 
 .nombre {

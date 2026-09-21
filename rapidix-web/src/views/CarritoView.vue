@@ -156,7 +156,7 @@ async function cargarPerfil(): Promise<void> {
   direccion.value = direccionInicial(carrito.direccion, perfil.value)
 }
 
-/** Cada cambio va al borrador del pedido, nunca al perfil (HU-04). */
+/** Cada cambio va al borrador del pedido; el perfil se actualiza al confirmarlo. */
 function cambiarDireccion(nueva: DireccionEntrega): void {
   const cambioCp = nueva.cp !== direccion.value?.cp
   direccion.value = nueva
@@ -280,10 +280,9 @@ async function cargarBancarios(): Promise<void> {
   }
 }
 
+// El número de cuenta no se muestra al cliente: basta con tarjeta o CLABE para transferir.
 const hayBancarios = computed(
-  () =>
-    !!bancarios.value &&
-    !!(bancarios.value.numeroCuenta || bancarios.value.clabe || bancarios.value.numeroTarjeta),
+  () => !!bancarios.value && !!(bancarios.value.clabe || bancarios.value.numeroTarjeta),
 )
 
 /**
@@ -457,20 +456,6 @@ async function confirmar(): Promise<void> {
             </button>
           </dd>
         </div>
-        <div v-if="bancarios.numeroCuenta">
-          <dt>Cuenta</dt>
-          <dd class="dato-copiable">
-            <span class="dato-fuerte">{{ bancarios.numeroCuenta }}</span>
-            <button
-              type="button"
-              class="boton-copiar"
-              aria-label="Copiar número de cuenta"
-              @click="copiar(bancarios.numeroCuenta, 'Cuenta copiada')"
-            >
-              Copiar
-            </button>
-          </dd>
-        </div>
         <div v-if="bancarios.numeroTarjeta">
           <dt>Tarjeta</dt>
           <dd class="dato-copiable">
@@ -616,6 +601,11 @@ async function confirmar(): Promise<void> {
                 >
                   +
                 </button>
+              </div>
+            </td>
+            <td class="col-num">
+              <div class="celda-importe">
+                <span class="importe">{{ dinero(item.importe) }}</span>
                 <!-- Quita la línea entera, no una pieza: para eso está el «−». -->
                 <button
                   type="button"
@@ -640,7 +630,6 @@ async function confirmar(): Promise<void> {
                 </button>
               </div>
             </td>
-            <td class="col-num importe">{{ dinero(item.importe) }}</td>
           </tr>
         </tbody>
       </table>
@@ -796,7 +785,8 @@ async function confirmar(): Promise<void> {
       solo se recogen las elecciones y se pinta su respuesta.
     -->
       <section v-if="pago" class="seccion-pago res-seccion" aria-labelledby="titulo-pago">
-        <h3 id="titulo-pago" class="res-subtitulo">Método de pago</h3>
+        <!-- La pregunta encabeza la sección: cubre billetera y método a la vez. -->
+        <p id="titulo-pago" class="form-label">¿Cómo vas a pagar?</p>
 
         <!-- Billetera (HU-12): solo con saldo. Se combina con cualquier método. -->
         <div v-if="pago.saldoBilletera > 0" class="bloque">
@@ -829,7 +819,6 @@ async function confirmar(): Promise<void> {
 
         <!-- Cómo se paga lo que queda. -->
         <div v-else class="bloque">
-          <p class="form-label">¿Cómo vas a pagar?</p>
           <!-- Uno debajo del otro; el detalle de cada método se abre bajo su opción. -->
           <div class="metodos" role="radiogroup" aria-label="Método de pago">
             <template v-for="m in METODOS" :key="m.valor">
@@ -1056,13 +1045,11 @@ async function confirmar(): Promise<void> {
 
 /*
  * Rojo claro de fondo y trazo terracota: se ve como acción destructiva sin gritar.
- * Va tras el «+» y algo separado para no pulsarlo por error; el selector doble le gana
- * a `.qty-control button`.
+ * Va a la derecha del importe, lejos del «+» para no pulsarlo por error.
  */
-.qty-control .boton-borrar {
+.tabla-carrito .boton-borrar {
   width: 26px;
   height: 26px;
-  margin-left: 4px;
   padding: 0;
   display: flex;
   align-items: center;
@@ -1078,6 +1065,13 @@ async function confirmar(): Promise<void> {
 .boton-borrar svg {
   width: 15px;
   height: 15px;
+}
+
+.celda-importe {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .tabla-carrito .importe {

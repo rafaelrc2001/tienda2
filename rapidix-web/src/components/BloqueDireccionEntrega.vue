@@ -3,8 +3,9 @@
  * «Datos de entrega» del checkout (épica «Dirección de entrega», HU-02 a HU-09).
  *
  * Edita la dirección de ESTE pedido: cada cambio sube con `update:modelValue`
- * y la vista lo guarda en el borrador del carrito. El perfil solo se toca con
- * el botón «Guardar en mi perfil». El mapa y la geocodificación son ayudas: si
+ * y la vista lo guarda en el borrador del carrito. Al confirmar el pedido, la
+ * API copia esta dirección al perfil; «Guardar en mi perfil» lo adelanta sin
+ * tener que comprar. El mapa y la geocodificación son ayudas: si
  * no cargan o no responden, el formulario sigue igual.
  */
 import { computed, defineAsyncComponent, onBeforeUnmount, ref, watch } from 'vue'
@@ -191,7 +192,12 @@ async function guardarEnPerfil(): Promise<void> {
       @click="alternar"
     >
       <span class="titulo">Datos de entrega</span>
-      <span class="flecha" :class="{ girada: abierto }" aria-hidden="true">▾</span>
+      <!-- El mismo trazo que «Regresar» en la barra superior, volteado con CSS según el estado. -->
+      <span class="flecha" :class="{ girada: abierto }" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4">
+          <path d="M15 5l-7 7 7 7" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+      </span>
     </button>
 
     <p
@@ -380,14 +386,20 @@ async function guardarEnPerfil(): Promise<void> {
   flex-shrink: 0;
   width: 36px;
   height: 36px;
-  font-size: 26px;
-  line-height: 1;
   color: var(--ink);
+  /* El trazo es el de «Regresar» (izquierda); cerrado se voltea para apuntar a la derecha. */
+  transform: rotate(180deg);
   transition: transform 0.15s ease;
 }
 
+.flecha svg {
+  width: 22px;
+  height: 22px;
+}
+
+/* Abierto gira hacia abajo; 270° (y no -90°) para que el giro sea de un cuarto de vuelta. */
 .flecha.girada {
-  transform: rotate(180deg);
+  transform: rotate(270deg);
 }
 
 .resumen {

@@ -618,7 +618,7 @@ describe("carrito · cupón", () => {
 
 describe("carrito · confirmar pedido", () => {
   it("vacía el carrito solo después de que la API cree el pedido", async () => {
-    post.mockResolvedValue({ id: "o1", folio: "ORD-000001", total: 290 });
+    post.mockResolvedValue({ id: "o1", folio: "ORD000001", total: 290 });
 
     const carrito = useCarritoStore();
     carrito.agregar("p1");
@@ -634,7 +634,7 @@ describe("carrito · confirmar pedido", () => {
       direccion: DIRECCION,
       aceptaTerminos: true,
     });
-    expect(pedido.folio).toBe("ORD-000001");
+    expect(pedido.folio).toBe("ORD000001");
     expect(carrito.vacio).toBe(true);
     expect(carrito.metodoPago).toBeNull();
     expect(carrito.codigoCupon).toBeNull();
@@ -706,7 +706,7 @@ describe("carrito · entrega", () => {
   });
 
   it("recoger en tienda no manda dirección", async () => {
-    post.mockResolvedValue({ id: "o1", folio: "ORD-000002", total: 90 });
+    post.mockResolvedValue({ id: "o1", folio: "ORD000002", total: 90 });
     const carrito = useCarritoStore();
     carrito.agregar("p1");
     carrito.metodoPago = "EFECTIVO";
@@ -718,7 +718,7 @@ describe("carrito · entrega", () => {
   });
 
   it("tras confirmar olvida la dirección pero conserva el método de entrega", async () => {
-    post.mockResolvedValue({ id: "o1", folio: "ORD-000003", total: 90 });
+    post.mockResolvedValue({ id: "o1", folio: "ORD000003", total: 90 });
     const carrito = useCarritoStore();
     carrito.agregar("p1");
     carrito.metodoPago = "EFECTIVO";

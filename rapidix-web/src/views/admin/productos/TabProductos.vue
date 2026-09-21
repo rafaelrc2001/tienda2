@@ -238,7 +238,9 @@ function cuerpo(): Record<string, unknown> {
   }
   if (formulario.value.unidad.trim()) datos.unidad = formulario.value.unidad.trim()
   if (formulario.value.precioCosto !== null) datos.precioCosto = formulario.value.precioCosto
-  if (formulario.value.imagenUrl.trim()) datos.imagenUrl = formulario.value.imagenUrl.trim()
+  // También viaja vacía: omitirla en el PATCH deja la imagen anterior, y así es
+  // como se le quita la foto a un producto.
+  datos.imagenUrl = formulario.value.imagenUrl.trim()
   return datos
 }
 
@@ -402,7 +404,6 @@ const filasConError = computed(() => resumen.value?.filas.filter((f) => f.estado
         <article v-for="producto in grupo.productos" :key="producto.id" class="fila-producto">
           <div class="media">
             <img v-if="producto.imagenUrl" :src="producto.imagenUrl" :alt="producto.nombre" />
-            <template v-else>📦</template>
           </div>
 
           <div class="info">

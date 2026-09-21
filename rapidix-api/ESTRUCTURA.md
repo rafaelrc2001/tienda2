@@ -108,7 +108,7 @@ Nueve migraciones, en orden cronológico:
 | --- | --- |
 | `20260904000000_init` | Esquema base: usuarios, clientes, catálogo. |
 | `20260904000100_catalogo_recetario_pedidos_cupones_config` | El grueso del modelo: recetario, pedidos, motor de cupones y configuración. |
-| `20260904000200_folio_pedidos` | La secuencia `pedidos_folio_seq` de Postgres que sirve los folios `ORD-000001`. |
+| `20260904000200_folio_pedidos` | La secuencia `pedidos_folio_seq` de Postgres que sirve los folios `ORD000001`. |
 | `20260908204416_cliente_sucursal` | Campo `sucursal` en cliente (se usa para segmentar campañas). |
 | `20260908232426_prospectos` | La tabla `prospectos` y la columna `prospectoId` en cupones. |
 | `20260908233158_prospecto_perfil` | Los campos de perfil y dirección del prospecto. |

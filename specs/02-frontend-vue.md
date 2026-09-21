@@ -277,7 +277,7 @@ Cada paso deja el sistema arrancable y verificable.
 
 **Pedido de punta a punta**
 
-- [ ] Añadir tres productos, aplicar un cupón válido y confirmar crea un pedido con folio `ORD-` y el carrito queda vacío.
+- [ ] Añadir tres productos, aplicar un cupón válido y confirmar crea un pedido con folio `ORD` y el carrito queda vacío.
 - [ ] El total que muestra el carrito antes de confirmar coincide, al céntimo, con el del pedido creado.
 - [ ] Un cupón vencido o que no alcanza la compra mínima muestra el motivo que da la API en el campo del cupón, no un toast genérico.
 - [ ] Fuera del horario de servicio con `atenderFuera` activo, el carrito muestra el recargo como línea propia; con `atenderFuera` apagado, el botón de confirmar está deshabilitado y explica por qué.
