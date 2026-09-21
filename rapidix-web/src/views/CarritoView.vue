@@ -21,7 +21,7 @@ import type {
   Perfil,
 } from '@/api/tipos'
 import BloqueDireccionEntrega from '@/components/BloqueDireccionEntrega.vue'
-import { direccionInicial, erroresDireccion, faltantesDireccion } from '@/utils/direccion'
+import { direccionInicial, erroresDireccion } from '@/utils/direccion'
 
 const carrito = useCarritoStore()
 const ui = useUiStore()
@@ -71,21 +71,6 @@ const ENTREGAS: { valor: MetodoEntrega; titulo: string }[] = [
   { valor: 'TIENDA', titulo: 'Recoger en tienda' },
   { valor: 'DOMICILIO', titulo: 'Envío a domicilio' },
 ]
-
-/** Fuera de horario con `atenderFuera` apagado no se puede confirmar. */
-const motivoBloqueo = computed(() => {
-  const p = previsualizacion.value
-  if (!p || p.puedePedir) return ''
-  if (!p.dentroDeHorario) {
-    return (
-      p.avisos.find((a) => a.includes('horario')) ?? 'Ahora mismo no estamos recibiendo pedidos.'
-    )
-  }
-  if (p.items.some((i) => i.agotado)) {
-    return 'Quita los productos agotados para poder confirmar tu pedido.'
-  }
-  return 'Tu carrito no se puede pedir todavía.'
-})
 
 // ---- Nivel de cashback (HU-17) ----
 
@@ -140,9 +125,6 @@ const perfil = ref<Perfil | null>(null)
 const direccion = ref<DireccionEntrega | null>(
   carrito.direccion ? direccionInicial(carrito.direccion, null) : null,
 )
-const bloqueDireccion = ref<InstanceType<typeof BloqueDireccionEntrega> | null>(null)
-/** Tras tocar el aviso de «faltan datos», todo lo que falte se marca en rojo. */
-const marcarErroresDireccion = ref(false)
 
 const aDomicilio = computed(() => carrito.metodoEntrega === 'DOMICILIO')
 
@@ -173,28 +155,6 @@ const direccionValida = computed(
     !aDomicilio.value ||
     (!!direccion.value && Object.keys(erroresDireccion(direccion.value)).length === 0),
 )
-
-const motivoDireccion = computed(() => {
-  if (motivoBloqueo.value || direccionValida.value) return ''
-  if (!direccion.value) return 'Cargando tu dirección…'
-  return `Completa tus datos de entrega: falta ${faltantesDireccion(direccion.value).join(', ')}.`
-})
-
-function revisarDireccion(): void {
-  marcarErroresDireccion.value = true
-  bloqueDireccion.value?.abrir()
-}
-
-/** Lo que falta para poder confirmar, en el orden en que el cliente lo resuelve. */
-const motivoPago = computed(() => {
-  if (motivoBloqueo.value || motivoDireccion.value || !pago.value) return ''
-  const error = pago.value.errorBilletera ?? pago.value.errorPago
-  // «Indica con cuánto vas a pagar» no se repite aquí a petición del negocio: el campo
-  // «¿Con cuánto pagas?» está justo arriba y ya dice lo que falta.
-  if (error && error.codigo !== 'PAGO_CON_REQUERIDO') return error.mensaje
-  if (!aceptaTerminos.value) return 'Acepta el aviso de privacidad y los términos para continuar.'
-  return ''
-})
 
 const puedeConfirmar = computed(
   () =>
@@ -757,10 +717,8 @@ async function confirmar(): Promise<void> {
       <div v-if="aDomicilio" class="res-seccion">
         <BloqueDireccionEntrega
           v-if="direccion"
-          ref="bloqueDireccion"
           :model-value="direccion"
           :perfil="perfil"
-          :marcar-errores="marcarErroresDireccion"
           @update:model-value="cambiarDireccion"
           @perfil-guardado="perfil = $event"
         />
@@ -926,8 +884,10 @@ async function confirmar(): Promise<void> {
     </label>
 
     <div class="confirmar-wrap">
-      <!-- El primario va arriba, con el motivo de bloqueo pegado debajo; la salida sin comprar
-      cierra la pantalla. -->
+      <!--
+        El primario va arriba y la salida sin comprar cierra la pantalla. Entre los dos no
+        va ningún aviso de lo que falta, a petición del negocio: cada sección lo marca.
+      -->
       <button
         type="button"
         class="btn-primary ancho"
@@ -936,17 +896,6 @@ async function confirmar(): Promise<void> {
       >
         {{ confirmando ? 'Confirmando…' : 'Confirmar pedido' }}
       </button>
-      <button
-        v-if="motivoDireccion && direccion"
-        type="button"
-        class="motivo-bloqueo motivo-enlace"
-        @click="revisarDireccion"
-      >
-        {{ motivoDireccion }}
-      </button>
-      <p v-else-if="motivoBloqueo || motivoDireccion || motivoPago" class="motivo-bloqueo">
-        {{ motivoBloqueo || motivoDireccion || motivoPago }}
-      </p>
       <RouterLink to="/tienda" class="btn-cancel ancho">Seguir comprando</RouterLink>
     </div>
   </div>
@@ -1643,27 +1592,6 @@ async function confirmar(): Promise<void> {
   display: block;
   text-align: center;
   text-decoration: none;
-}
-
-/* Letra de cabecera en verde, centrada bajo el botón. */
-.motivo-bloqueo {
-  font-family: var(--font-heading);
-  font-weight: 700;
-  font-size: 13px;
-  color: var(--sage);
-  text-align: center;
-  line-height: 1.45;
-  margin: 10px 0 0;
-}
-
-.motivo-enlace {
-  display: block;
-  width: 100%;
-  background: none;
-  border: none;
-  padding: 0;
-  text-decoration: underline;
-  cursor: pointer;
 }
 
 .cargando-direccion {
