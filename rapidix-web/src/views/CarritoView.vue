@@ -929,6 +929,9 @@ async function confirmar(): Promise<void> {
 /* ---- Tabla de productos: vive dentro de la tarjeta del resumen, sin caja propia ---- */
 
 .tabla-carrito {
+  /* Compartidas por el botón de borrar y el título «Importe» para que no se descuadren. */
+  --ancho-borrar: 26px;
+  --hueco-importe: 8px;
   width: 100%;
   border-collapse: collapse;
   font-size: 12px;
@@ -962,6 +965,14 @@ async function confirmar(): Promise<void> {
 .tabla-carrito th:last-child,
 .tabla-carrito td:last-child {
   padding-right: 8px;
+}
+
+/*
+ * La celda del importe lleva el botón de borrar a su derecha: el título se corre ese
+ * ancho (botón + hueco) para quedar encima de la cifra y no del botón.
+ */
+.tabla-carrito th:last-child {
+  padding-right: calc(8px + var(--ancho-borrar) + var(--hueco-importe));
 }
 
 .tabla-carrito th:first-child {
@@ -1016,8 +1027,8 @@ async function confirmar(): Promise<void> {
  * Va a la derecha del importe, lejos del «+» para no pulsarlo por error.
  */
 .tabla-carrito .boton-borrar {
-  width: 26px;
-  height: 26px;
+  width: var(--ancho-borrar);
+  height: var(--ancho-borrar);
   padding: 0;
   display: flex;
   align-items: center;
@@ -1039,7 +1050,7 @@ async function confirmar(): Promise<void> {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--hueco-importe);
 }
 
 .tabla-carrito .importe {
