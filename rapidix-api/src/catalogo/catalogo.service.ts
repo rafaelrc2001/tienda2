@@ -150,7 +150,7 @@ export class CatalogoService {
         precioCosto: dto.precioCosto ?? 0,
         precioVenta: dto.precioVenta,
         ...escalonesAColumnas(escalones),
-        imagenUrl: dto.imagenUrl ?? null,
+        imagenUrl: dto.imagenUrl?.trim() || null,
         agotado: dto.agotado ?? false,
         ...(dto.rol !== undefined && { rol: dto.rol }),
         ...(dto.aplicaCashback !== undefined && { aplicaCashback: dto.aplicaCashback }),
@@ -184,7 +184,8 @@ export class CatalogoService {
         ...(dto.precioCosto !== undefined && { precioCosto: dto.precioCosto }),
         ...(dto.precioVenta !== undefined && { precioVenta: dto.precioVenta }),
         ...(dto.escalones !== undefined && escalonesAColumnas(dto.escalones)),
-        ...(dto.imagenUrl !== undefined && { imagenUrl: dto.imagenUrl }),
+        // Cadena vacia = quitar la foto; se guarda null y la Tienda deja el recuadro vacio.
+        ...(dto.imagenUrl !== undefined && { imagenUrl: dto.imagenUrl.trim() || null }),
         ...(dto.rol !== undefined && { rol: dto.rol }),
         ...(dto.aplicaCashback !== undefined && { aplicaCashback: dto.aplicaCashback }),
       },

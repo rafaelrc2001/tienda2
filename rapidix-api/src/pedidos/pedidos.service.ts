@@ -354,10 +354,10 @@ export class PedidosService {
           // compro.
           carrito: Prisma.DbNull,
           carritoEn: null,
-          // La direccion de este pedido ya quedo copiada en el: el siguiente
-          // checkout vuelve a partir del perfil.
+          // La direccion de este pedido ya quedo copiada en el y en el perfil:
+          // el siguiente checkout vuelve a partir del perfil.
           borradorEntrega: Prisma.DbNull,
-          ...PedidosService.direccionParaPerfil(comprador, metodoEntrega, dto.direccion),
+          ...PedidosService.direccionParaPerfil(metodoEntrega, dto.direccion),
         },
       });
 
@@ -486,24 +486,21 @@ export class PedidosService {
   }
 
   /**
-   * La primera direccion a domicilio llena el perfil vacio.
+   * La direccion de cada pedido a domicilio pasa a ser la del perfil.
    *
-   * Sin esto, quien compra sin haber guardado nada abre Mi Perfil y no ve la
-   * direccion que acaba de usar. Solo si el perfil no tiene calle: una
-   * direccion ya guardada es decision del cliente y la de un pedido no la pisa
-   * (para eso esta «Guardar en mi perfil», HU-05). El telefono no se copia: el
-   * del perfil es el de login.
+   * El checkout parte de la del perfil; si el cliente la cambia para comprar,
+   * esa es donde vive ahora y es la que tiene que ver en Mi Perfil y en el
+   * siguiente pedido. Por eso se pisa aunque ya hubiera una guardada. El
+   * telefono no se copia: el del perfil es el de login.
    */
   private static direccionParaPerfil(
-    comprador: Cliente,
     metodoEntrega: MetodoEntrega,
     direccion: DireccionEntregaDto | undefined,
   ): Prisma.ClienteUpdateInput {
     if (metodoEntrega !== MetodoEntrega.DOMICILIO || !direccion) return {};
-    if (comprador.calle?.trim()) return {};
     const texto = (valor: string | null | undefined): string | null => valor?.trim() || null;
     return {
-      quienRecibe: comprador.quienRecibe?.trim() ? undefined : direccion.quienRecibe.trim(),
+      quienRecibe: direccion.quienRecibe.trim(),
       calle: direccion.calle.trim(),
       colonia: direccion.colonia.trim(),
       cp: direccion.cp,
@@ -515,10 +512,13 @@ export class PedidosService {
     };
   }
 
-  /** Folio legible y sin colisiones, servido por una secuencia de Postgres. */
+  /**
+   * Folio legible y sin colisiones, servido por una secuencia de Postgres. Va sin guion
+   * porque es la referencia de la transferencia y algunos bancos no aceptan guiones.
+   */
   private static async siguienteFolio(tx: Prisma.TransactionClient): Promise<string> {
     const filas = await tx.$queryRaw<{ nextval: bigint }[]>`SELECT nextval('pedidos_folio_seq')`;
-    return `ORD-${String(filas[0].nextval).padStart(6, '0')}`;
+    return `ORD${String(filas[0].nextval).padStart(6, '0')}`;
   }
 
   // ----------------------------------------------------------------

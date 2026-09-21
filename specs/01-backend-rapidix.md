@@ -170,7 +170,7 @@ enum EstadoPedido { CONFIRMADO EN_RUTA ENTREGADO CANCELADO }
 
 model Pedido {
   id               String  @id @default(uuid())
-  folio            String  @unique          // ORD-000123
+  folio            String  @unique          // ORD000123
   clienteId        String
   subtotal         Decimal
   envio            Decimal

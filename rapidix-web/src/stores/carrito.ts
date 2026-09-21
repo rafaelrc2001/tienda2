@@ -349,8 +349,9 @@ export const useCarritoStore = defineStore('carrito', () => {
   /**
    * Guarda la dirección que el cliente va escribiendo para este pedido.
    *
-   * Va al borrador local y a su respaldo en el servidor, **nunca al perfil**:
-   * el perfil solo cambia con el botón explícito del checkout (HU-05).
+   * Va al borrador local y a su respaldo en el servidor, no al perfil: el
+   * perfil cambia al confirmar el pedido (la API copia la dirección) o con el
+   * botón «Guardar en mi perfil» (HU-05). Un borrador abandonado no lo toca.
    */
   function fijarDireccion(nueva: DireccionEntrega): void {
     direccion.value = { ...nueva }

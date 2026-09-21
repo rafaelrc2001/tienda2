@@ -276,8 +276,8 @@ onBeforeUnmount(() => {
 
 /*
  * «Regresar» sí lleva caja: es la única acción de la barra que se pulsa para
- * irse, y una pastilla blanca sobre el naranja la separa del título. El texto
- * va en tinta, no en blanco, porque el fondo ya es blanco.
+ * irse. Va en naranja con texto blanco, como la barra; el borde blanco es lo
+ * que dibuja la pastilla, que si no se fundiría con el fondo.
  */
 .volver-btn {
   display: flex;
@@ -286,9 +286,10 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
   height: 34px;
   padding: 0 12px 0 8px;
+  border: 1.5px solid var(--white);
   border-radius: 999px;
-  background: var(--white);
-  color: var(--ink);
+  background: var(--orange);
+  color: var(--white);
   font-family: var(--font-heading);
   font-weight: 700;
   font-size: 12.5px;
