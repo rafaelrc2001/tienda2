@@ -908,8 +908,8 @@ async function confirmar(): Promise<void> {
     </label>
 
     <div class="confirmar-wrap">
-      <!-- La salida sin comprar va antes del primario: el verde cierra la pantalla. -->
-      <RouterLink to="/tienda" class="btn-cancel ancho">Seguir comprando</RouterLink>
+      <!-- El primario va arriba, con el motivo de bloqueo pegado debajo; la salida sin comprar
+      cierra la pantalla. -->
       <button
         type="button"
         class="btn-primary ancho"
@@ -929,6 +929,7 @@ async function confirmar(): Promise<void> {
       <p v-else-if="motivoBloqueo || motivoDireccion || motivoPago" class="motivo-bloqueo">
         {{ motivoBloqueo || motivoDireccion || motivoPago }}
       </p>
+      <RouterLink to="/tienda" class="btn-cancel ancho">Seguir comprando</RouterLink>
     </div>
   </div>
 </template>
