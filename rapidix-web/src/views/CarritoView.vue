@@ -30,6 +30,8 @@ const cupon = ref(carrito.codigoCupon ?? '')
 const aplicandoCupon = ref(false)
 const confirmando = ref(false)
 const pedidoHecho = ref<Pedido | null>(null)
+/** «Valen $X en tu billetera» del pedido hecho; null si no cuadra con lo previsualizado. */
+const cashbackBilleteraHecho = ref<number | null>(null)
 // Nace marcado a petición del negocio; el cliente puede desmarcarlo y entonces no confirma.
 const aceptaTerminos = ref(true)
 /** Datos para la transferencia, pedidos la primera vez que se elige ese método. */
@@ -187,7 +189,9 @@ function revisarDireccion(): void {
 const motivoPago = computed(() => {
   if (motivoBloqueo.value || motivoDireccion.value || !pago.value) return ''
   const error = pago.value.errorBilletera ?? pago.value.errorPago
-  if (error) return error.mensaje
+  // «Indica con cuánto vas a pagar» no se repite aquí a petición del negocio: el campo
+  // «¿Con cuánto pagas?» está justo arriba y ya dice lo que falta.
+  if (error && error.codigo !== 'PAGO_CON_REQUERIDO') return error.mensaje
   if (!aceptaTerminos.value) return 'Acepta el aviso de privacidad y los términos para continuar.'
   return ''
 })
@@ -360,8 +364,15 @@ async function confirmar(): Promise<void> {
   // el repintado: la bandera se comprueba y se pone en el mismo tick.
   if (!puedeConfirmar.value) return
   confirmando.value = true
+  // El pedido no trae el valor en billetera (×2) y la previsualización se
+  // vacía con el carrito: se guarda antes, junto al cashback que la respalda.
+  const previa = previsualizacion.value
   try {
     const pedido = await carrito.confirmar(aceptaTerminos.value, direccion.value)
+    cashbackBilleteraHecho.value =
+      previa && previa.cashbackEstimado === pedido.cashbackGenerado
+        ? previa.cashbackBilletera
+        : null
     pedidoHecho.value = pedido
     if (pedido.pago.metodo === 'TRANSFERENCIA' && pedido.pago.aPagar > 0) {
       // Si fallan, el pedido sigue hecho: la pantalla de éxito lo dice sin toast.
@@ -523,9 +534,16 @@ async function confirmar(): Promise<void> {
       </p>
     </div>
 
-    <p v-if="pedidoHecho.cashbackGenerado > 0" class="exito-cashback">
-      Ganaste {{ dinero(pedidoHecho.cashbackGenerado) }} de cashback
-    </p>
+    <!-- Misma caja dorada que el cashback estimado del carrito. -->
+    <div v-if="pedidoHecho.cashbackGenerado > 0" class="recompensas exito-cashback">
+      <p class="recompensas-titulo">Programa de recompensas</p>
+      <p class="recompensas-linea">
+        Ganaste <strong>{{ dinero(pedidoHecho.cashbackGenerado) }}</strong> de cashback
+      </p>
+      <p v-if="cashbackBilleteraHecho" class="recompensas-nota">
+        Valen {{ dinero(cashbackBilleteraHecho) }} en tu billetera.
+      </p>
+    </div>
 
     <div class="exito-acciones">
       <RouterLink to="/perfil/pedidos" class="btn-primary ancho">Ver mis pedidos</RouterLink>
@@ -1627,9 +1645,12 @@ async function confirmar(): Promise<void> {
   text-decoration: none;
 }
 
+/* Letra de cabecera en verde, centrada bajo el botón. */
 .motivo-bloqueo {
-  font-size: 11.5px;
-  color: var(--terracotta-dark);
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--sage);
   text-align: center;
   line-height: 1.45;
   margin: 10px 0 0;
@@ -1641,7 +1662,6 @@ async function confirmar(): Promise<void> {
   background: none;
   border: none;
   padding: 0;
-  font-family: inherit;
   text-decoration: underline;
   cursor: pointer;
 }
@@ -1769,12 +1789,10 @@ async function confirmar(): Promise<void> {
   user-select: all;
 }
 
+/* La caja de .recompensas; aquí solo cambia su hueco y alineación en la pantalla de éxito. */
 .exito-cashback {
-  font-family: var(--font-heading);
-  font-weight: 700;
-  font-size: 13px;
-  color: var(--sage);
   margin: 0 0 18px;
+  text-align: left;
 }
 
 .exito-acciones {
