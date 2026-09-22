@@ -32,3 +32,4 @@ export class AdminCategoriasController {
     return this.categorias.fijarPrioridad(id, dto.prioridad);
   }
 }
+

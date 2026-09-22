@@ -498,10 +498,15 @@ async function confirmar(): Promise<void> {
     <div v-if="pedidoHecho.cashbackGenerado > 0" class="recompensas exito-cashback">
       <p class="recompensas-titulo">Programa de recompensas</p>
       <p class="recompensas-linea">
-        Ganaste <strong>{{ dinero(pedidoHecho.cashbackGenerado) }}</strong> de cashback
+        {{ pedidoHecho.cashbackAcreditado ? 'Ganaste' : 'Ganarás' }}
+        <strong>{{ dinero(pedidoHecho.cashbackGenerado) }}</strong> de cashback
       </p>
       <p v-if="cashbackBilleteraHecho" class="recompensas-nota">
         Valen {{ dinero(cashbackBilleteraHecho) }} en tu billetera.
+      </p>
+      <!-- Entra a la billetera al pagarse: un pedido cancelado no deja saldo. -->
+      <p v-if="!pedidoHecho.cashbackAcreditado" class="recompensas-nota">
+        Se abona a tu billetera cuando tu pedido quede pagado.
       </p>
     </div>
 
@@ -929,6 +934,9 @@ async function confirmar(): Promise<void> {
 /* ---- Tabla de productos: vive dentro de la tarjeta del resumen, sin caja propia ---- */
 
 .tabla-carrito {
+  /* Compartidas por el botón de borrar y el título «Importe» para que no se descuadren. */
+  --ancho-borrar: 26px;
+  --hueco-importe: 8px;
   width: 100%;
   border-collapse: collapse;
   font-size: 12px;
@@ -962,6 +970,14 @@ async function confirmar(): Promise<void> {
 .tabla-carrito th:last-child,
 .tabla-carrito td:last-child {
   padding-right: 8px;
+}
+
+/*
+ * La celda del importe lleva el botón de borrar a su derecha: el título se corre ese
+ * ancho (botón + hueco) para quedar encima de la cifra y no del botón.
+ */
+.tabla-carrito th:last-child {
+  padding-right: calc(8px + var(--ancho-borrar) + var(--hueco-importe));
 }
 
 .tabla-carrito th:first-child {
@@ -1016,8 +1032,8 @@ async function confirmar(): Promise<void> {
  * Va a la derecha del importe, lejos del «+» para no pulsarlo por error.
  */
 .tabla-carrito .boton-borrar {
-  width: 26px;
-  height: 26px;
+  width: var(--ancho-borrar);
+  height: var(--ancho-borrar);
   padding: 0;
   display: flex;
   align-items: center;
@@ -1039,7 +1055,7 @@ async function confirmar(): Promise<void> {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--hueco-importe);
 }
 
 .tabla-carrito .importe {

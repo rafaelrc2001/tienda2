@@ -523,11 +523,21 @@ model RecetaCalificacion {
 // Pedidos
 // ============================================================
 
+/// Donde esta fisicamente la mercancia. Avanza de un paso en un paso: lo mueven
+/// Operaciones (hasta LISTO_PARA_ENTREGA, o ENTREGADO si se recoge en tienda) y
+/// Rutas (RECOLECTADO, EN_RUTA, ENTREGADO a domicilio).
+///
+/// No hay CANCELADO: cancelar es una decision sobre el dinero y vive en
+/// `EstadoPago`. Aqui se conserva donde se quedo la caja, que es lo que decide
+/// que inventario regresa.
 enum EstadoPedido {
   CONFIRMADO
+  EN_PREPARACION
+  PREPARADO
+  LISTO_PARA_ENTREGA
+  RECOLECTADO
   EN_RUTA
   ENTREGADO
-  CANCELADO
 }
 
 /// Como se cobra lo que queda despues del cupon y de la billetera. La
@@ -537,14 +547,38 @@ enum MetodoPago {
   TRANSFERENCIA
 }
 
-/// Estado del cobro, independiente del de la entrega.
+/// Lo que Finanzas decidio sobre el dinero, independiente del avance fisico.
+///
+/// "Liberado" no es un valor sino una condicion: todo lo que no es
+/// PAGO_PENDIENTE ni RETENER deja entregar.
 enum EstadoPago {
-  /// Efectivo: lo cobra el repartidor al entregar.
-  CONTRA_ENTREGA
-  /// Transferencia: espera a que Finanzas valide el deposito (HU-11).
-  PENDIENTE
-  /// Validado, o cubierto entero con la billetera.
+  /// Estado inicial de todo pedido con algo por cobrar. Deja preparar, no entregar.
+  PAGO_PENDIENTE
+  /// Finanzas autoriza entregar sin haber cobrado (tipico: efectivo contra entrega).
+  LIBERAR
+  /// Congela todo el avance fisico, incluso la preparacion.
+  RETENER
+  /// El cliente paga despues. Solo etiqueta.
+  CREDITO
+  /// Solo etiqueta: no mueve dinero por si mismo.
+  REEMBOLSADO
+  /// Dinero confirmado, o pedido cubierto entero con la billetera. Acredita el cashback.
   PAGADO
+  /// Terminal. Devuelve inventario y el saldo de billetera usado.
+  CANCELADO
+}
+
+/// Que eje cambio en un renglon de la bitacora.
+enum EjeBitacora {
+  PEDIDO
+  PAGO
+}
+
+/// Quien provoco el cambio.
+enum ActorBitacora {
+  CLIENTE
+  PERSONAL
+  SISTEMA
 }
 
 /// Como llega el pedido al cliente. Recoger en tienda no paga envio.
@@ -569,7 +603,7 @@ model Pedido {
   // Pago (HU-09 a HU-12). `total` es lo que vale el pedido; lo que cobra el
   // repartidor o la transferencia es `total - pagadoConBilletera`.
   metodoPago         MetodoPago @default(EFECTIVO)
-  estadoPago         EstadoPago @default(CONTRA_ENTREGA)
+  estadoPago         EstadoPago @default(PAGO_PENDIENTE)
   /// Saldo de billetera aplicado. Sale de `clientes.saldoCashback` con su
   /// movimiento negativo dentro de la misma transaccion.
   pagadoConBilletera Decimal    @default(0) @db.Decimal(12, 2)
@@ -581,7 +615,15 @@ model Pedido {
   /// A domicilio paga envio; recogido en tienda no.
   metodoEntrega MetodoEntrega @default(DOMICILIO)
 
-  cashbackGenerado Decimal      @default(0) @db.Decimal(12, 2)
+  /// Cashback que gana el pedido, ya con el multiplicador de la billetera. Se
+  /// calcula y congela al crearlo, pero no entra a la billetera hasta que el
+  /// pago queda PAGADO (`cashbackAcreditadoEn`): un pedido que se cancela antes
+  /// no deja saldo regalado.
+  cashbackGenerado     Decimal   @default(0) @db.Decimal(12, 2)
+  /// % con el que se calculo (nivel + bono), congelado para poder recalcular el
+  /// cashback si la entrega es parcial.
+  porcentajeCashback   Decimal   @default(0) @db.Decimal(5, 2)
+  cashbackAcreditadoEn DateTime?
   estado           EstadoPedido @default(CONFIRMADO)
   /// Snapshot de la direccion de envio al momento del pedido.
   direccion        Json
@@ -593,9 +635,41 @@ model Pedido {
   /// la garantiza el @unique de CuponEmitido.usedPedidoId.
   cupon       CuponEmitido?
   movimientos MovimientoCashback[]
+  bitacora    BitacoraPedido[]
 
   @@index([clienteId, creadoEn])
   @@map("pedidos")
+}
+
+/// Cada cambio de estado de un pedido, en cualquiera de sus dos ejes: quien,
+/// cuando, de que a que y por que. Solo se escribe, nunca se edita.
+///
+/// Los estados van como texto porque la misma columna guarda valores de
+/// `EstadoPedido` y de `EstadoPago`; `eje` dice de cual. `estadoAnterior` es
+/// null en el renglon con el que nace el pedido.
+///
+/// El actor se congela con su nombre y sin llave foranea, igual que en
+/// `movimientos_inventario`: puede ser un cliente, un usuario del personal o el
+/// sistema, y la bitacora tiene que seguir legible aunque se borre la cuenta.
+model BitacoraPedido {
+  id       String @id @default(uuid())
+  pedidoId String
+  pedido   Pedido @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+
+  eje            EjeBitacora
+  estadoAnterior String?
+  estadoNuevo    String
+  /// Motivo de una cancelacion, de una retencion o cualquier aclaracion.
+  nota           String?
+
+  actor       ActorBitacora
+  actorId     String?
+  actorNombre String
+
+  creadoEn DateTime @default(now())
+
+  @@index([pedidoId, creadoEn])
+  @@map("bitacora_pedidos")
 }
 
 model PedidoItem {

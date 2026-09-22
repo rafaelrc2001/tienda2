@@ -8,29 +8,25 @@ import { computed, onMounted, ref } from 'vue'
 import { http } from '@/api/http'
 import { useAuthStore } from '@/stores/auth'
 import { useUiStore } from '@/stores/ui'
-import { dinero, fechaHora, nombreEstadoPago, nombreMetodoPago } from '@/utils/formato'
+import {
+  dinero,
+  fechaHora,
+  nombreEstadoPago,
+  nombreEstadoPedido,
+  nombreMetodoPago,
+} from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
 import type { Pedido } from '@/api/tipos'
 
 const ui = useUiStore()
 const auth = useAuthStore()
 
-/** Validar transferencias es de Finanzas: la API lo exige con esa sección (HU-11). */
-const puedeValidarPagos = computed(() => auth.puedeVer('finanzas'))
-const validando = ref<string | null>(null)
-
-async function validarPago(pedido: Pedido): Promise<void> {
-  validando.value = pedido.id
-  try {
-    const actualizado = await http.patch<Pedido>(`/admin/pedidos/${pedido.id}/pago`)
-    pedidos.value = pedidos.value.map((p) => (p.id === actualizado.id ? actualizado : p))
-    ui.exito(`Pago de ${pedido.folio} validado`)
-  } catch (fallo) {
-    ui.errorDeApi(fallo)
-  } finally {
-    validando.value = null
-  }
-}
+/**
+ * Este historial no mueve nada: el eje del dinero se decide en Finanzas, que
+ * es el único sitio con las reglas y los efectos de cada estatus. Aquí solo se
+ * ofrece el atajo a quien tiene esa sección.
+ */
+const puedeVerFinanzas = computed(() => auth.puedeVer('finanzas'))
 
 const pedidos = ref<Pedido[]>([])
 const cargando = ref(true)
@@ -45,7 +41,7 @@ const visibles = computed(() => {
     (p) =>
       p.folio.toLowerCase().includes(termino) ||
       (p.clienteNombre ?? '').toLowerCase().includes(termino) ||
-      p.estado.toLowerCase().includes(termino),
+      nombreEstadoPedido(p.estado, p.pago.estado).toLowerCase().includes(termino),
   )
 })
 
@@ -109,21 +105,23 @@ async function verMas(): Promise<void> {
                 <span class="fecha">{{ fechaHora(pedido.creadoEn) }}</span>
               </td>
               <td>{{ pedido.clienteNombre ?? '—' }}</td>
-              <td><span class="mini-tag">{{ pedido.estado }}</span></td>
+              <td>
+                <span class="mini-tag">
+                  {{ nombreEstadoPedido(pedido.estado, pedido.pago.estado) }}
+                </span>
+              </td>
               <td>
                 <span class="pago-metodo">{{ nombreMetodoPago(pedido.pago.metodo) }}</span>
-                <span class="fecha" :class="{ pendiente: pedido.pago.estado === 'PENDIENTE' }">
+                <span class="fecha" :class="{ pendiente: pedido.pago.estado === 'PAGO_PENDIENTE' }">
                   {{ nombreEstadoPago(pedido.pago.estado) }}
                 </span>
-                <button
-                  v-if="puedeValidarPagos && pedido.pago.estado === 'PENDIENTE'"
-                  type="button"
+                <RouterLink
+                  v-if="puedeVerFinanzas && pedido.pago.estado === 'PAGO_PENDIENTE'"
+                  to="/admin/finanzas"
                   class="btn-secondary validar"
-                  :disabled="validando === pedido.id"
-                  @click="validarPago(pedido)"
                 >
-                  {{ validando === pedido.id ? '…' : 'Validar' }}
-                </button>
+                  Finanzas
+                </RouterLink>
               </td>
               <td class="num">{{ dinero(pedido.total) }}</td>
             </tr>

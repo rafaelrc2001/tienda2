@@ -275,9 +275,8 @@ onBeforeUnmount(() => {
 }
 
 /*
- * «Regresar» sí lleva caja: es la única acción de la barra que se pulsa para
- * irse. Va en naranja con texto blanco, como la barra; el borde blanco es lo
- * que dibuja la pastilla, que si no se fundiría con el fondo.
+ * «Regresar» va sin caja: solo la flecha y la palabra en blanco sobre la barra
+ * naranja. La altura se conserva para que el área de toque siga siendo cómoda.
  */
 .volver-btn {
   display: flex;
@@ -285,16 +284,27 @@ onBeforeUnmount(() => {
   gap: 4px;
   flex-shrink: 0;
   height: 34px;
-  padding: 0 12px 0 8px;
-  border: 1.5px solid var(--white);
-  border-radius: 999px;
-  background: var(--orange);
+  padding: 0;
+  border: none;
+  background: transparent;
   color: var(--white);
   font-family: var(--font-heading);
   font-weight: 700;
   font-size: 12.5px;
   text-decoration: none;
   cursor: pointer;
+}
+
+/* Sin caja no hay nada que marque el foco: el contorno solo aparece al navegar con teclado. */
+.volver-btn:focus-visible {
+  outline: 2px solid var(--white);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* En el celular no hay hover: atenuarlo al tocar confirma que se pulsó. */
+.volver-btn:active {
+  opacity: 0.6;
 }
 
 .volver-btn svg {

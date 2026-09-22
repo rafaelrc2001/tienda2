@@ -180,17 +180,51 @@ invariantes que la base garantiza, no comprobaciones que se puedan olvidar.
 efectivo o transferencia, no puede pasar del saldo ni del total ya con el cupón,
 y sale de `saldoCashback` con un `MovimientoCashback` negativo dentro de la
 transacción del pedido (con la fila del cliente bloqueada, igual que el cupón).
-Efectivo exige `pagoCon ≥ lo que se cobra` y guarda el cambio; transferencia
-deja el pedido en `estadoPago = PENDIENTE` hasta que Finanzas lo valida con
-`PATCH /admin/pedidos/:id/pago`. Si la billetera cubre todo, nace `PAGADO`. La
-aritmética vive en `CarritoService.calcularCarrito`, `validarBilletera` y
-`evaluarPago`, compartidos por la previsualización y el checkout.
+Efectivo exige `pagoCon ≥ lo que se cobra` y guarda el cambio. Sea cual sea el
+método, el pedido nace en `estadoPago = PAGO_PENDIENTE` y Finanzas decide
+(`PATCH /admin/finanzas/pedidos/:id/pago`); si la billetera cubre todo, nace
+`PAGADO`. La aritmética vive en `CarritoService.calcularCarrito`,
+`validarBilletera` y `evaluarPago`, compartidos por la previsualización y el
+checkout.
+
+**Dos ejes de estatus.** `estado` dice dónde está la mercancía (`CONFIRMADO →
+EN_PREPARACION → PREPARADO → LISTO_PARA_ENTREGA → RECOLECTADO → EN_RUTA →
+ENTREGADO`) y `estadoPago` qué decidió Finanzas (`PAGO_PENDIENTE`, `LIBERAR`,
+`RETENER`, `CREDITO`, `REEMBOLSADO`, `PAGADO`, `CANCELADO`). Cancelar vive solo
+en el eje de pago. Cada cambio de cualquiera de los dos deja un renglón en
+`bitacora_pedidos` (quién, cuándo, de qué a qué y la nota), escrito dentro de
+la misma transacción.
+
+Los dos ejes se mueven distinto y a propósito. El **físico** solo avanza, un
+paso a la vez, y cada paso pertenece a una sección (`flujo.ts`); el **del
+dinero** no tiene secuencia: Finanzas va de cualquier estatus a cualquier otro
+(`flujo-pago.ts`). El eje de pago manda sobre el físico —`RETENER` congela
+hasta la preparación, y sin liberar no se entrega— pero nunca al revés, salvo
+por un candado: **una vez que la mercancía salió de bodega (`RECOLECTADO` en
+adelante) el pedido ya no se puede cancelar**, porque cancelar devuelve
+inventario y esa caja ya no está. Eso se registra como devolución, no como
+cancelación.
+
+**Cancelar deshace el pedido.** `CANCELADO` es terminal y arrastra, en la misma
+transacción: la mercancía **que de verdad salió** vuelve a bodega (se lee de
+sus movimientos de `VENTA`, no de sus líneas: con el control de inventario
+apagado no salió nada y sumar las líneas inflaría el saldo), el saldo de
+billetera que gastó vuelve a su billetera, el cashback que ya se le acreditó se
+retira —**hasta donde alcance su saldo**, nunca dejándolo negativo: cobrarle en
+su siguiente compra un premio que ya gastó sería castigarlo por una
+cancelación— y el pedido deja de contar como gasto, con su nivel recalculado.
+El **cupón no se devuelve**: sigue en `USED`, porque devolverlo abriría la
+puerta a pedir y cancelar para reciclarlo. Si el cliente lo merece, Cupones
+puede emitirle otro.
 
 **Ni el cupón ni la billetera bajan la base del cashback.** La base son los
 productos con `aplicaCashback` a precio escalonado. El cupón ya es un premio
-aparte, y pagar con saldo no hace la compra más pequeña. El cashback de un
-pedido se acredita después de descontar la billetera, así que no se puede gastar
-en ese mismo pedido.
+aparte, y pagar con saldo no hace la compra más pequeña. El cashback se calcula
+y congela en el pedido al crearlo (`cashbackGenerado`, `porcentajeCashback`),
+pero **entra a la billetera cuando el pago queda `PAGADO`**
+(`CashbackService.acreditarPedido`, idempotente con `cashbackAcreditadoEn`):
+un pedido cancelado antes de pagarse no deja saldo. Por lo mismo no se puede
+gastar en ese mismo pedido.
 
 ---
 
@@ -221,4 +255,5 @@ Ninguna de las dos fuentes los define. Están aislados para poder cambiarlos.
 Conectar el mockup HTML a la API · WhatsApp Business API real · pasarela de
 pagos en línea · notificaciones push · generación de QR · programa de
 referidos · CAC por canal · auditoría de cambios administrativos · lógica de
-negocio de Rutas, Operaciones y Finanzas (salvo validar transferencias).
+negocio de Rutas, que llega en su propia etapa (Operaciones y Finanzas ya
+están: `admin/operaciones` y `admin/finanzas`).

@@ -215,6 +215,48 @@ export class InventarioService {
   }
 
   /**
+   * Regresa a bodega lo que un pedido se llevo, al cancelarlo.
+   *
+   * No se reconstruye desde las lineas del pedido sino desde **lo que de
+   * verdad salio**: sus movimientos de VENTA. Un pedido hecho con el control
+   * de inventario apagado no tiene ninguno, y entonces no hay nada que
+   * devolver; sumar sus lineas "por si acaso" inflaria el saldo con mercancia
+   * que nunca se descontó.
+   *
+   * Devuelve cuantas piezas volvieron, para el mensaje de quien cancela.
+   */
+  async devolverPedido(
+    tx: Prisma.TransactionClient,
+    pedidoId: string,
+    folio: string,
+    quien: { usuarioId: string | null; usuarioNombre: string },
+  ): Promise<number> {
+    const ventas = await tx.movimientoInventario.findMany({
+      where: { pedidoId, motivo: MotivoMovimiento.VENTA, tipo: TipoMovimiento.SALIDA },
+      select: { productoId: true, cantidad: true, afecta: true },
+    });
+
+    let piezas = 0;
+    for (const venta of ventas) {
+      await this.aplicar(tx, {
+        productoId: venta.productoId,
+        cantidad: venta.cantidad,
+        tipo: TipoMovimiento.ENTRADA,
+        // Se deshace exactamente lo que se hizo, con el mismo alcance.
+        afecta: venta.afecta,
+        motivo: MotivoMovimiento.DEVOLUCION,
+        empleado: quien.usuarioNombre,
+        observaciones: `Cancelación del pedido ${folio}`,
+        usuarioId: quien.usuarioId,
+        usuarioNombre: quien.usuarioNombre,
+        pedidoId,
+      });
+      piezas += venta.cantidad;
+    }
+    return piezas;
+  }
+
+  /**
    * Aplica **un** movimiento y deja su renglon. Es el unico sitio donde
    * cambian `inventario` y `aptInventario`.
    *

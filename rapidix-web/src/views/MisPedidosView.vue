@@ -8,7 +8,13 @@
 import { onMounted, ref } from 'vue'
 import { http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
-import { dinero, fechaHora, nombreEstadoPago, nombreMetodoPago } from '@/utils/formato'
+import {
+  dinero,
+  fechaHora,
+  nombreEstadoPago,
+  nombreEstadoPedido,
+  nombreMetodoPago,
+} from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
 import type { Pedido } from '@/api/tipos'
 
@@ -45,7 +51,7 @@ function alternar(id: string): void {
             <p class="fecha">{{ fechaHora(pedido.creadoEn) }}</p>
           </div>
           <div class="pedido-derecha">
-            <span class="mini-tag">{{ pedido.estado }}</span>
+            <span class="mini-tag">{{ nombreEstadoPedido(pedido.estado, pedido.pago.estado) }}</span>
             <span class="total">{{ dinero(pedido.total) }}</span>
           </div>
           <span class="chev" :class="{ abierto: abierto === pedido.id }">›</span>
@@ -90,8 +96,15 @@ function alternar(id: string): void {
               <span>Pagas con {{ dinero(pedido.pago.pagoCon) }}</span>
               <span>Cambio {{ dinero(pedido.pago.cambio) }}</span>
             </div>
-            <p v-if="pedido.cashbackGenerado > 0" class="cashback">
+            <!-- Un cancelado ya no lo va a recibir: no se promete. -->
+            <p v-if="pedido.cashbackGenerado > 0 && pedido.cashbackAcreditado" class="cashback">
               Cashback generado: {{ dinero(pedido.cashbackGenerado) }}
+            </p>
+            <p
+              v-else-if="pedido.cashbackGenerado > 0 && pedido.pago.estado !== 'CANCELADO'"
+              class="cashback"
+            >
+              Cashback por acreditar: {{ dinero(pedido.cashbackGenerado) }} al quedar pagado
             </p>
           </div>
         </div>

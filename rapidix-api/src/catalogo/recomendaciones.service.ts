@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { EstadoPedido, RolProducto } from '@prisma/client';
+import { EstadoPago, RolProducto } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConfiguracionService } from '../configuracion/configuracion.service';
 import { CatalogoService, ProductoDto } from './catalogo.service';
@@ -171,7 +171,7 @@ export class RecomendacionesService {
    * sale sin personalizar, que es lo correcto.
    */
   private async historialDe(clienteId: string): Promise<HistorialCliente> {
-    const noCancelado = { clienteId, estado: { not: EstadoPedido.CANCELADO } };
+    const noCancelado = { clienteId, estadoPago: { not: EstadoPago.CANCELADO } };
 
     const [ultimo, frecuencias] = await Promise.all([
       this.prisma.pedido.findFirst({

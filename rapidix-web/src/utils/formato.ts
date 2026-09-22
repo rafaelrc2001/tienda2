@@ -5,6 +5,8 @@
  * bailen de pantalla en pantalla. La app es solo en español de México.
  */
 
+import type { EstadoPago, EstadoPedido } from '@/api/tipos'
+
 const MONEDA = new Intl.NumberFormat('es-MX', {
   style: 'currency',
   currency: 'MXN',
@@ -65,11 +67,38 @@ export function nombreMetodoPago(metodo: string): string {
   return metodo === 'TRANSFERENCIA' ? 'Transferencia' : 'Efectivo'
 }
 
-/** `CONTRA_ENTREGA` → `Contra entrega`. */
-export function nombreEstadoPago(estado: string): string {
-  if (estado === 'PENDIENTE') return 'Pago pendiente'
-  if (estado === 'PAGADO') return 'Pagado'
-  return 'Contra entrega'
+const NOMBRES_ESTADO_PAGO: Record<EstadoPago, string> = {
+  PAGO_PENDIENTE: 'Pago pendiente',
+  LIBERAR: 'Liberado',
+  RETENER: 'Retenido',
+  CREDITO: 'Crédito',
+  REEMBOLSADO: 'Reembolsado',
+  PAGADO: 'Pagado',
+  CANCELADO: 'Cancelado',
+}
+
+/** `PAGO_PENDIENTE` → `Pago pendiente`. */
+export function nombreEstadoPago(estado: EstadoPago): string {
+  return NOMBRES_ESTADO_PAGO[estado] ?? estado
+}
+
+const NOMBRES_ESTADO_PEDIDO: Record<EstadoPedido, string> = {
+  CONFIRMADO: 'Confirmado',
+  EN_PREPARACION: 'En preparación',
+  PREPARADO: 'Preparado',
+  LISTO_PARA_ENTREGA: 'Listo para entrega',
+  RECOLECTADO: 'Recolectado',
+  EN_RUTA: 'En ruta',
+  ENTREGADO: 'Entregado',
+}
+
+/**
+ * Lo que se le enseña a quien mira el pedido. Un cancelado dice «Cancelado»
+ * aunque la caja se haya quedado en otro paso: cancelar vive en el eje de pago.
+ */
+export function nombreEstadoPedido(estado: EstadoPedido, estadoPago?: EstadoPago): string {
+  if (estadoPago === 'CANCELADO') return 'Cancelado'
+  return NOMBRES_ESTADO_PEDIDO[estado] ?? estado
 }
 
 /** Días que faltan para una fecha. Negativo si ya pasó. */
