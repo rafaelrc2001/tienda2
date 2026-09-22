@@ -1,11 +1,8 @@
-import { Controller, Get, Param, ParseIntPipe, ParseUUIDPipe, Patch, Query } from '@nestjs/common';
+import { Controller, Get, Param, ParseIntPipe, ParseUUIDPipe, Query } from '@nestjs/common';
 import { PedidoDto, PedidosService } from './pedidos.service';
 import { BitacoraDto, FlujoPedidosService } from './flujo-pedidos.service';
 import { RequiereSeccion } from '../auth/seccion.decorator';
 import { SoloPersonal } from '../auth/solo-personal.decorator';
-import { UsuarioActual } from '../auth/usuario-actual.decorator';
-import { UsuarioAutenticado } from '../auth/jwt-payload';
-import { actorDe } from './bitacora';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 
 /**
@@ -42,18 +39,5 @@ export class AdminPedidosController {
   @RequiereSeccion('mis-pedidos', 'operaciones', 'rutas', 'finanzas')
   bitacora(@Param('id', ParseUUIDPipe) id: string): Promise<BitacoraDto[]> {
     return this.flujo.bitacora(id);
-  }
-
-  /**
-   * Validar una transferencia (HU-11). Es trabajo de Finanzas, no de quien
-   * solo consulta pedidos: la seccion del metodo pisa la de la clase.
-   */
-  @Patch(':id/pago')
-  @RequiereSeccion('finanzas')
-  validarPago(
-    @Param('id', ParseUUIDPipe) id: string,
-    @UsuarioActual() usuario: UsuarioAutenticado,
-  ): Promise<PedidoDto> {
-    return this.pedidos.validarPago(id, actorDe(usuario));
   }
 }

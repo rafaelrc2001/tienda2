@@ -26,7 +26,7 @@ import { precioUnitario } from '../catalogo/precios';
 import { CarritoService } from './carrito.service';
 import { InventarioService } from '../inventario/inventario.service';
 import { CrearPedidoDto, DireccionEntregaDto } from './dto/carrito.dto';
-import { ActorDeBitacora, registrarEnBitacora } from './bitacora';
+import { registrarEnBitacora } from './bitacora';
 
 const Decimal = Prisma.Decimal;
 type Decimal = Prisma.Decimal;
@@ -634,47 +634,6 @@ export class PedidosService {
       subtotal: subtotal.toNumber(),
       avisos,
     };
-  }
-
-  /**
-   * Finanzas confirma que el dinero llego (HU-11): PAGO_PENDIENTE -> PAGADO.
-   *
-   * Condicional en el propio UPDATE para que dos clics simultaneos no pisen la
-   * fecha del primero ni acrediten el cashback dos veces. En la misma
-   * transaccion quedan el renglon de la bitacora y el cashback en la billetera.
-   */
-  async validarPago(id: string, quien: ActorDeBitacora): Promise<PedidoDto> {
-    const pedido = await this.prisma.$transaction(async (tx) => {
-      const { count } = await tx.pedido.updateMany({
-        where: { id, estadoPago: EstadoPago.PAGO_PENDIENTE },
-        data: { estadoPago: EstadoPago.PAGADO, pagoValidadoEn: new Date() },
-      });
-      if (count === 0) {
-        const existente = await tx.pedido.findUnique({ where: { id }, select: { folio: true } });
-        if (!existente) throw new NotFoundException('Pedido no encontrado');
-        throw new ConflictException({
-          statusCode: 409,
-          code: 'PAGO_NO_PENDIENTE',
-          message: `El pedido ${existente.folio} no tiene un pago pendiente de validar.`,
-        });
-      }
-      await registrarEnBitacora(
-        tx,
-        id,
-        {
-          eje: EjeBitacora.PAGO,
-          estadoAnterior: EstadoPago.PAGO_PENDIENTE,
-          estadoNuevo: EstadoPago.PAGADO,
-        },
-        quien,
-      );
-      await this.cashback.acreditarPedido(tx, id);
-      return tx.pedido.findUniqueOrThrow({
-        where: { id },
-        include: { items: true, cupon: true, cliente: { select: { nombre: true } } },
-      });
-    });
-    return { ...this.aDto(pedido), clienteNombre: pedido.cliente.nombre };
   }
 
   /** Un pedido con el nombre del cliente, como lo ve el personal. */

@@ -183,14 +183,19 @@ export class FlujoPedidosService {
    * se escribe, y el pedido avanzaria con un pago que ya no estaba liberado.
    * Con el, el cambio de pago espera a que este termine (o al reves).
    */
-  static async bloquear(
-    tx: Prisma.TransactionClient,
-    id: string,
-  ): Promise<PedidoEnFlujo & { id: string; folio: string }> {
+  static async bloquearFila(tx: Prisma.TransactionClient, id: string): Promise<void> {
     const filas = await tx.$queryRaw<{ id: string }[]>`
       SELECT id FROM pedidos WHERE id = ${id} FOR UPDATE
     `;
     if (filas.length === 0) throw new NotFoundException('Pedido no encontrado');
+  }
+
+  /** El bloqueo mas lo que necesita el eje fisico. Finanzas lee otras columnas. */
+  static async bloquear(
+    tx: Prisma.TransactionClient,
+    id: string,
+  ): Promise<PedidoEnFlujo & { id: string; folio: string }> {
+    await FlujoPedidosService.bloquearFila(tx, id);
     return tx.pedido.findUniqueOrThrow({
       where: { id },
       select: { id: true, folio: true, estado: true, estadoPago: true, metodoEntrega: true },

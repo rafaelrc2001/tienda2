@@ -472,6 +472,34 @@ export interface ListadoOperaciones {
   conteos: Record<FiltroOperaciones, number>
 }
 
+/** Por qué Finanzas no puede dejar el pedido en ese estatus. */
+export interface BloqueoPago {
+  codigo: 'PAGO_TERMINAL' | 'MERCANCIA_FUERA' | 'MISMO_ESTADO'
+  mensaje: string
+}
+
+/** Uno de los siete botones de Finanzas, con su candado ya resuelto por la API. */
+export interface BotonPago {
+  estado: EstadoPago
+  titulo: string
+  /** El que tiene ahora: se pinta apagado, pero no es un error. */
+  actual: boolean
+  bloqueo: BloqueoPago | null
+}
+
+/** Pedido de la pantalla de Finanzas. */
+export interface PedidoEnFinanzas extends Pedido {
+  botones: BotonPago[]
+}
+
+export type FiltroFinanzas = 'por-decidir' | 'liberados' | 'pagados' | 'cancelados'
+
+/** Respuesta de `GET /admin/finanzas/pedidos`. */
+export interface ListadoFinanzas {
+  pedidos: PedidoEnFinanzas[]
+  conteos: Record<FiltroFinanzas, number>
+}
+
 /** Un renglón de `GET /admin/pedidos/:id/bitacora`. */
 export interface RenglonBitacora {
   id: string

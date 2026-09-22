@@ -224,18 +224,18 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/admin/OperacionesView.vue'),
     meta: { seccion: 'operaciones', titulo: 'Operaciones' },
   },
-  // Rutas y Finanzas todavía comparten vista: la API devuelve 501.
+  {
+    path: '/admin/finanzas',
+    name: 'admin-finanzas',
+    component: () => import('@/views/admin/FinanzasView.vue'),
+    meta: { seccion: 'finanzas', titulo: 'Finanzas' },
+  },
+  // Rutas es la sección que falta: su API todavía devuelve 501.
   {
     path: '/admin/rutas',
     name: 'admin-rutas',
     component: () => import('@/views/admin/SeccionPendienteView.vue'),
     meta: { seccion: 'rutas', titulo: 'Rutas' },
-  },
-  {
-    path: '/admin/finanzas',
-    name: 'admin-finanzas',
-    component: () => import('@/views/admin/SeccionPendienteView.vue'),
-    meta: { seccion: 'finanzas', titulo: 'Finanzas' },
   },
   {
     // Se abren desde la casilla de términos del carrito, en otra pestaña.
