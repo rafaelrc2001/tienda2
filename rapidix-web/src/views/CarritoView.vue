@@ -498,10 +498,15 @@ async function confirmar(): Promise<void> {
     <div v-if="pedidoHecho.cashbackGenerado > 0" class="recompensas exito-cashback">
       <p class="recompensas-titulo">Programa de recompensas</p>
       <p class="recompensas-linea">
-        Ganaste <strong>{{ dinero(pedidoHecho.cashbackGenerado) }}</strong> de cashback
+        {{ pedidoHecho.cashbackAcreditado ? 'Ganaste' : 'Ganarás' }}
+        <strong>{{ dinero(pedidoHecho.cashbackGenerado) }}</strong> de cashback
       </p>
       <p v-if="cashbackBilleteraHecho" class="recompensas-nota">
         Valen {{ dinero(cashbackBilleteraHecho) }} en tu billetera.
+      </p>
+      <!-- Entra a la billetera al pagarse: un pedido cancelado no deja saldo. -->
+      <p v-if="!pedidoHecho.cashbackAcreditado" class="recompensas-nota">
+        Se abona a tu billetera cuando tu pedido quede pagado.
       </p>
     </div>
 

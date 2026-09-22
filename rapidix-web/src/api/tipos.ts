@@ -245,7 +245,25 @@ export type MetodoPago = 'EFECTIVO' | 'TRANSFERENCIA'
 /** Recoger en tienda no paga envío. */
 export type MetodoEntrega = 'DOMICILIO' | 'TIENDA'
 
-export type EstadoPago = 'CONTRA_ENTREGA' | 'PENDIENTE' | 'PAGADO'
+/** Lo que decidió Finanzas sobre el dinero. Nace en `PAGO_PENDIENTE`. */
+export type EstadoPago =
+  | 'PAGO_PENDIENTE'
+  | 'LIBERAR'
+  | 'RETENER'
+  | 'CREDITO'
+  | 'REEMBOLSADO'
+  | 'PAGADO'
+  | 'CANCELADO'
+
+/** Dónde está físicamente la mercancía. Cancelar vive en el eje de pago. */
+export type EstadoPedido =
+  | 'CONFIRMADO'
+  | 'EN_PREPARACION'
+  | 'PREPARADO'
+  | 'LISTO_PARA_ENTREGA'
+  | 'RECOLECTADO'
+  | 'EN_RUTA'
+  | 'ENTREGADO'
 
 /** Por qué el pago elegido no deja confirmar. */
 export interface ErrorPago {
@@ -399,7 +417,9 @@ export interface Pedido {
   descuento: number
   total: number
   cashbackGenerado: number
-  estado: string
+  /** `false` hasta que el pago queda `PAGADO`: todavía no está en la billetera. */
+  cashbackAcreditado: boolean
+  estado: EstadoPedido
   pago: {
     metodo: MetodoPago
     estado: EstadoPago
@@ -411,8 +431,57 @@ export interface Pedido {
     referencia: string
   }
   metodoEntrega: MetodoEntrega
+  /** Copia de la dirección del pedido; `null` si se recoge en tienda. */
+  direccion: Record<string, unknown> | null
   cupon: { code: string; titulo: string } | null
   items: ItemPedido[]
+  creadoEn: string
+}
+
+/** Por qué no se puede dar el siguiente paso. El `codigo` es el mismo del 409. */
+export interface BloqueoPaso {
+  codigo:
+    | 'TRANSICION_INVALIDA'
+    | 'SOLO_A_DOMICILIO'
+    | 'SOLO_EN_TIENDA'
+    | 'PEDIDO_CANCELADO'
+    | 'PAGO_RETENIDO'
+    | 'PAGO_NO_LIBERADO'
+  mensaje: string
+}
+
+/** Lo calcula la API: la pantalla solo enciende el botón o enseña el bloqueo. */
+export interface PasoPendiente {
+  /** `null` cuando ya no le queda ningún paso. */
+  siguiente: EstadoPedido | null
+  /** A quién le toca darlo. */
+  seccion: 'operaciones' | 'rutas' | null
+  bloqueo: BloqueoPaso | null
+}
+
+/** Pedido de una pantalla de trabajo (Operaciones, Rutas…). */
+export interface PedidoEnPantalla extends Pedido {
+  paso: PasoPendiente
+}
+
+export type FiltroOperaciones = 'activos' | 'en-ruta' | 'entregados' | 'cancelados'
+
+/** Respuesta de `GET /admin/operaciones/pedidos`. */
+export interface ListadoOperaciones {
+  pedidos: PedidoEnPantalla[]
+  conteos: Record<FiltroOperaciones, number>
+}
+
+/** Un renglón de `GET /admin/pedidos/:id/bitacora`. */
+export interface RenglonBitacora {
+  id: string
+  eje: 'PEDIDO' | 'PAGO'
+  /** `null` en el renglón con el que nace el pedido. */
+  estadoAnterior: string | null
+  estadoNuevo: string
+  nota: string | null
+  actor: 'CLIENTE' | 'PERSONAL' | 'SISTEMA'
+  actorNombre: string
   creadoEn: string
 }
 

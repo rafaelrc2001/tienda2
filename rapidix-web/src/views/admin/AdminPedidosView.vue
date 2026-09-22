@@ -8,7 +8,13 @@ import { computed, onMounted, ref } from 'vue'
 import { http } from '@/api/http'
 import { useAuthStore } from '@/stores/auth'
 import { useUiStore } from '@/stores/ui'
-import { dinero, fechaHora, nombreEstadoPago, nombreMetodoPago } from '@/utils/formato'
+import {
+  dinero,
+  fechaHora,
+  nombreEstadoPago,
+  nombreEstadoPedido,
+  nombreMetodoPago,
+} from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
 import type { Pedido } from '@/api/tipos'
 
@@ -45,7 +51,7 @@ const visibles = computed(() => {
     (p) =>
       p.folio.toLowerCase().includes(termino) ||
       (p.clienteNombre ?? '').toLowerCase().includes(termino) ||
-      p.estado.toLowerCase().includes(termino),
+      nombreEstadoPedido(p.estado, p.pago.estado).toLowerCase().includes(termino),
   )
 })
 
@@ -109,14 +115,18 @@ async function verMas(): Promise<void> {
                 <span class="fecha">{{ fechaHora(pedido.creadoEn) }}</span>
               </td>
               <td>{{ pedido.clienteNombre ?? '—' }}</td>
-              <td><span class="mini-tag">{{ pedido.estado }}</span></td>
+              <td>
+                <span class="mini-tag">
+                  {{ nombreEstadoPedido(pedido.estado, pedido.pago.estado) }}
+                </span>
+              </td>
               <td>
                 <span class="pago-metodo">{{ nombreMetodoPago(pedido.pago.metodo) }}</span>
-                <span class="fecha" :class="{ pendiente: pedido.pago.estado === 'PENDIENTE' }">
+                <span class="fecha" :class="{ pendiente: pedido.pago.estado === 'PAGO_PENDIENTE' }">
                   {{ nombreEstadoPago(pedido.pago.estado) }}
                 </span>
                 <button
-                  v-if="puedeValidarPagos && pedido.pago.estado === 'PENDIENTE'"
+                  v-if="puedeValidarPagos && pedido.pago.estado === 'PAGO_PENDIENTE'"
                   type="button"
                   class="btn-secondary validar"
                   :disabled="validando === pedido.id"

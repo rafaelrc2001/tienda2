@@ -6,7 +6,9 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  ActorBitacora,
   Cliente,
+  EjeBitacora,
   EstadoCupon,
   EstadoPago,
   EstadoPedido,
@@ -24,6 +26,7 @@ import { precioUnitario } from '../catalogo/precios';
 import { CarritoService } from './carrito.service';
 import { InventarioService } from '../inventario/inventario.service';
 import { CrearPedidoDto, DireccionEntregaDto } from './dto/carrito.dto';
+import { ActorDeBitacora, registrarEnBitacora } from './bitacora';
 
 const Decimal = Prisma.Decimal;
 type Decimal = Prisma.Decimal;
@@ -39,7 +42,9 @@ export interface PedidoDto {
   descuento: number;
   total: number;
   cashbackGenerado: number;
-  estado: string;
+  /** false mientras el pago no quede PAGADO: el cashback aun no esta en la billetera. */
+  cashbackAcreditado: boolean;
+  estado: EstadoPedido;
   pago: {
     metodo: MetodoPago;
     estado: EstadoPago;
@@ -52,6 +57,8 @@ export interface PedidoDto {
     referencia: string;
   };
   metodoEntrega: MetodoEntrega;
+  /** Snapshot de la direccion del pedido; `null` si se recoge en tienda. */
+  direccion: Record<string, unknown> | null;
   cupon: { code: string; titulo: string } | null;
   items: {
     productoId: string;
@@ -126,6 +133,8 @@ export class PedidosService {
    *     encendido.
    *  9. Actualizar los contadores del cliente.
    * 10. Emitir el cupon de segunda compra si corresponde.
+   * 11. Recalcular el nivel y abrir la bitacora del pedido.
+   * 12. Acreditar el cashback, solo si ya nace pagado.
    */
   async crear(duenioId: string, dto: CrearPedidoDto): Promise<PedidoDto> {
     // `duenioId` puede ser un cliente o un prospecto: este es el pedido que lo
@@ -235,13 +244,10 @@ export class PedidosService {
         });
       }
 
-      // Cubierto entero con la billetera no hay nada que cobrar. Si no, la
-      // transferencia espera a Finanzas y el efectivo lo cobra el repartidor.
-      const estadoPago = !aPagar.greaterThan(0)
-        ? EstadoPago.PAGADO
-        : dto.metodoPago === MetodoPago.TRANSFERENCIA
-          ? EstadoPago.PENDIENTE
-          : EstadoPago.CONTRA_ENTREGA;
+      // Cubierto entero con la billetera no hay nada que cobrar. Si no, nace en
+      // PAGO_PENDIENTE sea cual sea el metodo: Finanzas decide si lo libera
+      // para entregar (efectivo) o lo marca pagado (transferencia validada).
+      const estadoPago = aPagar.greaterThan(0) ? EstadoPago.PAGO_PENDIENTE : EstadoPago.PAGADO;
       const enEfectivo = dto.metodoPago === MetodoPago.EFECTIVO && aPagar.greaterThan(0);
 
       const folio = await PedidosService.siguienteFolio(tx);
@@ -269,7 +275,11 @@ export class PedidosService {
           cambio: enEfectivo ? pago.cambio : null,
           pagoValidadoEn: estadoPago === EstadoPago.PAGADO ? new Date() : null,
           metodoEntrega,
-          estado: 'CONFIRMADO',
+          // Se congela aqui y no al acreditarse: es el que vio el cliente al
+          // confirmar, aunque su nivel cambie antes de que se le pague.
+          cashbackGenerado: desglose.cashbackBilletera,
+          porcentajeCashback,
+          estado: EstadoPedido.CONFIRMADO,
           direccion: PedidosService.copiaDireccion(metodoEntrega, dto.direccion),
           items: {
             create: carrito.lineas.map((l) => ({
@@ -378,18 +388,32 @@ export class PedidosService {
         }
       }
 
-      // Cashback y nivel, dentro de la misma transaccion: si el pedido no se
-      // guarda, tampoco se acredita saldo. Hoy todo va a la billetera (HU-19),
-      // asi que se acredita con el multiplicador ya aplicado.
-      const cashbackGenerado = desglose.cashbackBilletera;
-      await this.cashback.acreditarPorPedido(
+      await this.cashback.recalcularNivel(tx, clienteId, clienteActualizado.totalGastado);
+
+      // Nace con sus dos renglones: quien lo creo y cuando, en cada eje.
+      const creador = {
+        actor: ActorBitacora.CLIENTE,
+        actorId: clienteId,
+        actorNombre: comprador.nombre,
+      };
+      await registrarEnBitacora(
         tx,
-        clienteId,
         pedido.id,
-        folio,
-        cashbackGenerado,
-        clienteActualizado.totalGastado,
+        { eje: EjeBitacora.PEDIDO, estadoAnterior: null, estadoNuevo: EstadoPedido.CONFIRMADO },
+        creador,
       );
+      await registrarEnBitacora(
+        tx,
+        pedido.id,
+        { eje: EjeBitacora.PAGO, estadoAnterior: null, estadoNuevo: estadoPago },
+        creador,
+      );
+
+      // El cashback queda congelado en el pedido y entra a la billetera cuando
+      // se paga. Cubierto con la billetera ya nace pagado: se acredita ahora.
+      if (estadoPago === EstadoPago.PAGADO) {
+        await this.cashback.acreditarPedido(tx, pedido.id);
+      }
 
       return this.aDto(
         await tx.pedido.findUniqueOrThrow({
@@ -546,7 +570,7 @@ export class PedidosService {
    */
   async ultimoPedido(clienteId: string): Promise<UltimoPedidoDto | null> {
     const pedido = await this.prisma.pedido.findFirst({
-      where: { clienteId, estado: { not: EstadoPedido.CANCELADO } },
+      where: { clienteId, estadoPago: { not: EstadoPago.CANCELADO } },
       orderBy: { creadoEn: 'desc' },
       include: { items: true },
     });
@@ -605,13 +629,7 @@ export class PedidosService {
     return {
       folio: pedido.folio,
       creadoEn: pedido.creadoEn.toISOString(),
-      // Recogido en tienda se guarda `{}`: para quien lo lee es "sin direccion".
-      direccion:
-        pedido.direccion &&
-        typeof pedido.direccion === 'object' &&
-        Object.keys(pedido.direccion).length > 0
-          ? (pedido.direccion as Record<string, unknown>)
-          : null,
+      direccion: PedidosService.direccionLeida(pedido.direccion),
       items,
       subtotal: subtotal.toNumber(),
       avisos,
@@ -619,30 +637,79 @@ export class PedidosService {
   }
 
   /**
-   * Finanzas confirma que la transferencia llego (HU-11).
+   * Finanzas confirma que el dinero llego (HU-11): PAGO_PENDIENTE -> PAGADO.
    *
-   * Solo pasa de PENDIENTE a PAGADO: el efectivo lo cobra el repartidor y lo
-   * ya pagado no se vuelve a validar. Condicional en el propio UPDATE para que
-   * dos clics simultaneos no pisen la fecha del primero.
+   * Condicional en el propio UPDATE para que dos clics simultaneos no pisen la
+   * fecha del primero ni acrediten el cashback dos veces. En la misma
+   * transaccion quedan el renglon de la bitacora y el cashback en la billetera.
    */
-  async validarPago(id: string): Promise<PedidoDto> {
-    const { count } = await this.prisma.pedido.updateMany({
-      where: { id, estadoPago: EstadoPago.PENDIENTE },
-      data: { estadoPago: EstadoPago.PAGADO, pagoValidadoEn: new Date() },
+  async validarPago(id: string, quien: ActorDeBitacora): Promise<PedidoDto> {
+    const pedido = await this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.pedido.updateMany({
+        where: { id, estadoPago: EstadoPago.PAGO_PENDIENTE },
+        data: { estadoPago: EstadoPago.PAGADO, pagoValidadoEn: new Date() },
+      });
+      if (count === 0) {
+        const existente = await tx.pedido.findUnique({ where: { id }, select: { folio: true } });
+        if (!existente) throw new NotFoundException('Pedido no encontrado');
+        throw new ConflictException({
+          statusCode: 409,
+          code: 'PAGO_NO_PENDIENTE',
+          message: `El pedido ${existente.folio} no tiene un pago pendiente de validar.`,
+        });
+      }
+      await registrarEnBitacora(
+        tx,
+        id,
+        {
+          eje: EjeBitacora.PAGO,
+          estadoAnterior: EstadoPago.PAGO_PENDIENTE,
+          estadoNuevo: EstadoPago.PAGADO,
+        },
+        quien,
+      );
+      await this.cashback.acreditarPedido(tx, id);
+      return tx.pedido.findUniqueOrThrow({
+        where: { id },
+        include: { items: true, cupon: true, cliente: { select: { nombre: true } } },
+      });
     });
+    return { ...this.aDto(pedido), clienteNombre: pedido.cliente.nombre };
+  }
+
+  /** Un pedido con el nombre del cliente, como lo ve el personal. */
+  async detalle(id: string): Promise<PedidoDto> {
     const pedido = await this.prisma.pedido.findUnique({
       where: { id },
       include: { items: true, cupon: true, cliente: { select: { nombre: true } } },
     });
     if (!pedido) throw new NotFoundException('Pedido no encontrado');
-    if (count === 0) {
-      throw new ConflictException({
-        statusCode: 409,
-        code: 'PAGO_NO_PENDIENTE',
-        message: `El pedido ${pedido.folio} no tiene un pago pendiente de validar.`,
-      });
-    }
     return { ...this.aDto(pedido), clienteNombre: pedido.cliente.nombre };
+  }
+
+  /** Recogido en tienda se guarda `{}`: para quien lo lee es "sin direccion". */
+  private static direccionLeida(direccion: Prisma.JsonValue): Record<string, unknown> | null {
+    return direccion && typeof direccion === 'object' && Object.keys(direccion).length > 0
+      ? (direccion as Record<string, unknown>)
+      : null;
+  }
+
+  /**
+   * Pedidos con el nombre del cliente, para las pantallas del personal. Cada
+   * seccion pone su filtro y su orden; el formato es el mismo para todas.
+   */
+  async buscar(
+    where: Prisma.PedidoWhereInput,
+    orderBy: Prisma.PedidoOrderByWithRelationInput,
+    limite: number,
+  ): Promise<PedidoDto[]> {
+    const pedidos = await this.prisma.pedido.findMany({
+      where,
+      orderBy,
+      take: limite,
+      include: { items: true, cupon: true, cliente: { select: { nombre: true } } },
+    });
+    return pedidos.map((p) => ({ ...this.aDto(p), clienteNombre: p.cliente.nombre }));
   }
 
   /** Historial completo para Administracion. */
@@ -678,6 +745,7 @@ export class PedidosService {
       descuento: pedido.descuento.toNumber(),
       total: pedido.total.toNumber(),
       cashbackGenerado: pedido.cashbackGenerado.toNumber(),
+      cashbackAcreditado: pedido.cashbackAcreditadoEn !== null,
       estado: pedido.estado,
       pago: {
         metodo: pedido.metodoPago,
@@ -689,6 +757,7 @@ export class PedidosService {
         referencia: pedido.folio,
       },
       metodoEntrega: pedido.metodoEntrega,
+      direccion: PedidosService.direccionLeida(pedido.direccion),
       cupon: pedido.cupon ? { code: pedido.cupon.code, titulo: pedido.cupon.title } : null,
       items: pedido.items.map((i) => ({
         productoId: i.productoId,

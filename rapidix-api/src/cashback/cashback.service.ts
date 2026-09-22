@@ -79,28 +79,49 @@ export class CashbackService {
   }
 
   /**
-   * Acredita el cashback de un pedido y recalcula el nivel del cliente.
-   * Se llama dentro de la transaccion del pedido: o pasa todo, o nada.
+   * Pasa a la billetera el cashback que el pedido tenia congelado.
+   *
+   * Se llama dentro de la transaccion que deja el pago en PAGADO, y solo
+   * entonces: un pedido que se cancela antes no deja saldo regalado. Es
+   * idempotente —la marca `cashbackAcreditadoEn` se pone con un UPDATE
+   * condicional—, asi que volver a pagar un pedido no acredita dos veces.
    */
-  async acreditarPorPedido(
+  async acreditarPedido(tx: Prisma.TransactionClient, pedidoId: string): Promise<void> {
+    const { count } = await tx.pedido.updateMany({
+      where: { id: pedidoId, cashbackAcreditadoEn: null },
+      data: { cashbackAcreditadoEn: new Date() },
+    });
+    if (count === 0) return;
+
+    const pedido = await tx.pedido.findUniqueOrThrow({
+      where: { id: pedidoId },
+      select: { clienteId: true, folio: true, cashbackGenerado: true },
+    });
+    if (!pedido.cashbackGenerado.greaterThan(0)) return;
+
+    await tx.movimientoCashback.create({
+      data: {
+        clienteId: pedido.clienteId,
+        pedidoId,
+        monto: pedido.cashbackGenerado,
+        concepto: `Cashback del pedido ${pedido.folio}`,
+      },
+    });
+    await tx.cliente.update({
+      where: { id: pedido.clienteId },
+      data: { saldoCashback: { increment: pedido.cashbackGenerado } },
+    });
+  }
+
+  /**
+   * Recalcula el nivel del cliente con su gasto acumulado. Se llama dentro de
+   * la transaccion del pedido, que es la que mueve `totalGastado`.
+   */
+  async recalcularNivel(
     tx: Prisma.TransactionClient,
     clienteId: string,
-    pedidoId: string,
-    folio: string,
-    monto: Decimal,
     totalGastadoTrasPedido: Decimal,
   ): Promise<void> {
-    if (monto.greaterThan(0)) {
-      await tx.movimientoCashback.create({
-        data: { clienteId, pedidoId, monto, concepto: `Cashback del pedido ${folio}` },
-      });
-      await tx.cliente.update({
-        where: { id: clienteId },
-        data: { saldoCashback: { increment: monto } },
-      });
-      await tx.pedido.update({ where: { id: pedidoId }, data: { cashbackGenerado: monto } });
-    }
-
     const niveles = await tx.nivelFidelidad.findMany({ orderBy: { orden: 'asc' } });
     const alcanzado = CashbackService.nivelPara(niveles, totalGastadoTrasPedido);
     await tx.cliente.update({

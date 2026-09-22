@@ -82,9 +82,11 @@ negocio, el [README](README.md); esto es el *dónde está cada cosa*.
 - `enum OrigenReceta` — RECETARIO (oficial) / PROPIA (del cliente).
 
 **Pedidos**
-- `Pedido` — folio, cliente, `subtotal`/`envio`/`recargoFuera`/`descuento`/`total`/`cashbackGenerado` (todos Decimal), estado, dirección congelada en JSON.
+- `Pedido` — folio, cliente, `subtotal`/`envio`/`recargoFuera`/`descuento`/`total`/`cashbackGenerado` (todos Decimal), dos ejes de estatus (`estado` y `estadoPago`), dirección congelada en JSON. El cashback se congela al crearlo (`cashbackGenerado`, `porcentajeCashback`) y se acredita al pagarse (`cashbackAcreditadoEn`).
 - `PedidoItem` — nombre, categoría, unidad y precio **copiados** al momento de la compra, para que editar el producto no reescriba el historial.
-- `enum EstadoPedido`.
+- `enum EstadoPedido` — eje físico: `CONFIRMADO → EN_PREPARACION → PREPARADO → LISTO_PARA_ENTREGA → RECOLECTADO → EN_RUTA → ENTREGADO`. No tiene cancelado.
+- `enum EstadoPago` — eje de pago: `PAGO_PENDIENTE`, `LIBERAR`, `RETENER`, `CREDITO`, `REEMBOLSADO`, `PAGADO`, `CANCELADO` (terminal).
+- `BitacoraPedido` — un renglón por cambio de estado en cualquiera de los dos ejes (`eje`, `estadoAnterior`, `estadoNuevo`, `nota`, actor congelado con su nombre). Solo se escribe; `src/pedidos/bitacora.ts` es el único sitio que la escribe.
 
 **Cupones**
 - `TipoCuponCicloVida` — los 5 tipos automáticos, con `code` como clave natural.
@@ -160,9 +162,10 @@ Registra los 14 módulos y —lo importante— los dos guards globales:
 | [jwt-payload.ts](src/auth/jwt-payload.ts) | Forma del token: `sub`, `rol`, `nombre` y `tipo` (CLIENTE/PROSPECTO). Define `ROL_CLIENTE` y `RolToken` (los 4 roles de staff + cliente). |
 | [permisos.ts](src/auth/permisos.ts) | **La matriz.** Las 9 secciones del panel y qué rol entra a cada una, portada literal de la tabla del Word 2.4. Cambiar aquí cambia el acceso en toda la API. |
 | [jwt-auth.guard.ts](src/auth/jwt-auth.guard.ts) | Extrae el `Bearer`, lo verifica y lo deja en `request.user`. Deja pasar lo marcado con `@Public()`. |
-| [roles.guard.ts](src/auth/roles.guard.ts) | Lee `@RequiereSeccion()` o `@Roles()` del handler o la clase y consulta la matriz. Sin ninguno de los dos, basta con estar autenticado. |
+| [roles.guard.ts](src/auth/roles.guard.ts) | Lee `@RequiereSeccion()`, `@Roles()` o `@SoloPersonal()` del handler o la clase y consulta la matriz. Sin ninguno de los tres, basta con estar autenticado. |
 | [public.decorator.ts](src/auth/public.decorator.ts) | `@Public()` — ruta accesible sin token. |
-| [seccion.decorator.ts](src/auth/seccion.decorator.ts) | `@RequiereSeccion('productos')` — ata la ruta a una sección del panel. |
+| [seccion.decorator.ts](src/auth/seccion.decorator.ts) | `@RequiereSeccion('productos')` — ata la ruta a una sección del panel. Acepta varias (`@RequiereSeccion('operaciones', 'rutas')`): basta con tener una. |
+| [solo-personal.decorator.ts](src/auth/solo-personal.decorator.ts) | `@SoloPersonal()` — cierra la ruta o el controlador a los tokens de cliente aunque la matriz le dé la sección. Existe por `mis-pedidos`, que es a la vez el historial del cliente y el listado de toda la plataforma. |
 | [roles.decorator.ts](src/auth/roles.decorator.ts) | `@Roles(...)` — restricción a mano, para rutas que no corresponden a ninguna sección. |
 | [usuario-actual.decorator.ts](src/auth/usuario-actual.decorator.ts) | `@UsuarioActual()` — inyecta el payload del token en el handler. |
 | [identidad.ts](src/auth/identidad.ts) | `resolverIdentidad()` y `esProspectoEnBase()`: buscan un id en las dos tablas. **Manda la base, no el `tipo` del token**, porque al convertirse un prospecto conserva su id y el token viejo sigue valiendo con el tipo obsoleto. |
@@ -196,7 +199,7 @@ Registra los 14 módulos y —lo importante— los dos guards globales:
 | Archivo | Qué contiene |
 | --- | --- |
 | [admin-menu.controller.ts](src/admin/admin-menu.controller.ts) | `GET /admin/menu`: devuelve las tarjetas (icono, título, descripción) que le tocan al rol del token. El frontend no decide qué mostrar, lo pregunta. |
-| [secciones-pendientes.controller.ts](src/admin/secciones-pendientes.controller.ts) | `GET /admin/rutas`, `/operaciones`, `/finanzas`. Existen para que el control de acceso sea verificable de punta a punta: sin permiso da 403, y con permiso un **501 explícito** en vez de un 404 confuso. |
+| [secciones-pendientes.controller.ts](src/admin/secciones-pendientes.controller.ts) | `GET /admin/rutas` y `/finanzas`, las secciones que todavía no se construyen (Operaciones ya salió de aquí). Existen para que el control de acceso sea verificable de punta a punta: sin permiso da 403, y con permiso un **501 explícito** en vez de un 404 confuso. |
 | [admin.module.ts](src/admin/admin.module.ts) | Registra los dos. |
 
 ---
@@ -252,10 +255,14 @@ registra el movimiento que falta, con motivo `AJUSTE`, y queda escrito.
 
 | Archivo | Qué contiene |
 | --- | --- |
-| [pedidos.module.ts](src/pedidos/pedidos.module.ts) | Tres controladores, dos servicios. |
+| [pedidos.module.ts](src/pedidos/pedidos.module.ts) | Cuatro controladores, tres servicios. |
 | [carrito.controller.ts](src/pedidos/carrito.controller.ts) | `POST /carrito/previsualizar`, `POST /carrito/subtotal` (público: la barra de la Tienda, con cashback al % del nivel de entrada) y `POST /carrito/validar-cupon`. **Los dos responden 200 aunque el carrito no se pueda pedir o el cupón no valga**: el motivo viaja en el cuerpo, porque un cupón rechazado no es un error de la petición sino información que el cliente necesita ver. |
 | [pedidos.controller.ts](src/pedidos/pedidos.controller.ts) | `POST /pedidos` (confirmar) y `GET /pedidos/mios`. |
-| [admin-pedidos.controller.ts](src/pedidos/admin-pedidos.controller.ts) | `GET /admin/pedidos` — historial completo, tope de 500. |
+| [admin-pedidos.controller.ts](src/pedidos/admin-pedidos.controller.ts) | `GET /admin/pedidos` — historial completo, tope de 500. `GET /admin/pedidos/:id/bitacora` (Operaciones, Rutas, Finanzas o admin). `PATCH /admin/pedidos/:id/pago` — Finanzas lo pasa a `PAGADO`. **El cliente también tiene la sección `mis-pedidos`**, así que la clase entera lleva `@SoloPersonal()`. |
+| [operaciones.controller.ts](src/pedidos/operaciones.controller.ts) | `GET /admin/operaciones/pedidos` — la pantalla de surtido, con sus cuatro pestañas (`activos`, `en-ruta`, `entregados`, `cancelados`) y el contador de cada una. `PATCH /admin/operaciones/pedidos/:id/estado` — el siguiente paso físico; los candados de Finanzas responden 409 con su `code`. |
+| [flujo.ts](src/pedidos/flujo.ts) | Reglas puras del eje físico: `TRANSICIONES` (de, a, sección, modo de entrega, si exige pago liberado), `esLiberado()`, `evaluarAvance()` —devuelve la transición o el bloqueo con su `code`: `TRANSICION_INVALIDA`, `SOLO_A_DOMICILIO`, `SOLO_EN_TIENDA`, `PEDIDO_CANCELADO`, `PAGO_RETENIDO`, `PAGO_NO_LIBERADO`— y `siguientePaso()`. Probadas en `flujo.spec.ts`. |
+| [flujo-pedidos.service.ts](src/pedidos/flujo-pedidos.service.ts) | Aplica un paso: bloquea la fila (`FOR UPDATE`, para que Finanzas no retenga el pago a media transición), valida con `flujo.ts`, comprueba la sección del paso y escribe estado + bitácora en la misma transacción. Los pasos de Rutas no entran por `avanzarEnOperaciones()`: su servicio usará `bloquear()`/`aplicar()` con sus propios efectos. |
+| [bitacora.ts](src/pedidos/bitacora.ts) | `registrarEnBitacora()`, único sitio que escribe `bitacora_pedidos`, y `actorDe()` para firmar con el usuario del token. |
 | [carrito.service.ts](src/pedidos/carrito.service.ts) | Toda la aritmética del dinero. `resolver()` reconstruye el carrito contra la base (**el cliente manda `productoId` y `cantidad`, nunca importes**) y lanza si hay agotados; `resolverTolerante()` hace lo mismo sin lanzar, para previsualizar. `validarCupon()` aplica las validaciones en el orden del prototipo, con la base recortada a las categorías del cupón cuando las tiene. `calcularCarrito()` es el **único sitio** donde se calculan envío, recargo, total y cashback: lo llaman tanto la previsualización como el checkout, así que no pueden divergir. Cada línea se valora a precio escalonado (`precios.ts`) y lleva su tachado, ahorro y upsell; la base del cashback son solo las líneas con `aplicaCashback`. `metas()` dice lo que falta para el envío gratis (`>=`) y para el cashback (`>` estricto, aviso desde el 80 % del mínimo). |
 | [pedidos.service.ts](src/pedidos/pedidos.service.ts) | `crear()` — los 10 pasos del checkout, **todos dentro de una transacción**: resolver el carrito, calcular, bloquear la fila del cupón con `SELECT ... FOR UPDATE`, convertir al prospecto, crear el pedido, marcar el cupón USED, cancelar el WELCOME sobrante, **descontar de bodega si `controlInventario` está encendido**, actualizar contadores, emitir SECOND_PURCHASE. `convertir()` es el único sitio donde nace un cliente nuevo: **conserva el id del prospecto**, mueve sus cupones y borra su fila. `siguienteFolio()` usa la secuencia de Postgres. |
 | [dto/carrito.dto.ts](src/pedidos/dto/carrito.dto.ts) | `LineaCarritoDto` (solo id y cantidad), `ValidarCuponDto`, `PrevisualizarCarritoDto`, `CrearPedidoDto` (con `DireccionEntregaDto`, obligatoria a domicilio y copiada en el pedido), `GuardarCarritoDto` (lineas + borrador de entrega). |
@@ -293,7 +300,7 @@ El módulo más grande. Es `@Global` porque el login y el checkout disparan emis
 | [cashback.module.ts](src/cashback/cashback.module.ts) | Dos controladores, un servicio. |
 | [cashback.controller.ts](src/cashback/cashback.controller.ts) | `GET /perfil/cashback` (saldo, nivel, progreso) y `GET /perfil/cashback/movimientos`. |
 | [admin-niveles.controller.ts](src/cashback/admin-niveles.controller.ts) | CRUD de niveles bajo `@RequiereSeccion('configuracion')`. Existe porque los umbrales no están en el Word: mejor configurables que escritos a mano. |
-| [cashback.service.ts](src/cashback/cashback.service.ts) | `calcular()` — `floor(base × % / 100)`, solo si la base **supera** el mínimo; la base es lo que suman los productos con `aplicaCashback`, no el subtotal. `porcentajePara()` da el % del nivel (calculado en vivo con los umbrales vigentes; sin nivel, el de entrada) más `pctExtra`. `aBilletera()` aplica `multiplicadorCashback` (×2): es lo que se acredita, mientras la Tienda y el carrito enseñan la base. Cada acreditación queda en `MovimientoCashback` para recalcular. `acreditarPorPedido()` corre dentro de la transacción del pedido. Al borrar un nivel, sus clientes quedan sin nivel hasta el siguiente pedido; nadie pierde saldo. |
+| [cashback.service.ts](src/cashback/cashback.service.ts) | `calcular()` — `floor(base × % / 100)`, solo si la base **supera** el mínimo; la base es lo que suman los productos con `aplicaCashback`, no el subtotal. `porcentajePara()` da el % del nivel (calculado en vivo con los umbrales vigentes; sin nivel, el de entrada) más `pctExtra`. `aBilletera()` aplica `multiplicadorCashback` (×2): es lo que se acredita, mientras la Tienda y el carrito enseñan la base. Cada acreditación queda en `MovimientoCashback` para recalcular. `recalcularNivel()` corre dentro de la transacción del pedido; `acreditarPedido()` pasa a la billetera el cashback congelado en el pedido, dentro de la transacción que lo deja `PAGADO`, y es idempotente gracias a `cashbackAcreditadoEn`. Al borrar un nivel, sus clientes quedan sin nivel hasta el siguiente pedido; nadie pierde saldo. |
 | [dto/nivel.dto.ts](src/cashback/dto/nivel.dto.ts) | Nombre, `umbralGasto`, `orden` y `porcentaje`. |
 
 ---
