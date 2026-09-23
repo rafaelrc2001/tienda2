@@ -500,6 +500,133 @@ export interface ListadoFinanzas {
   conteos: Record<FiltroFinanzas, number>
 }
 
+// ------------------------------------------------------------------
+// Rutas: la jornada del repartidor, el camión y el corte
+// ------------------------------------------------------------------
+
+/** Por qué el cliente no se quedó con la mercancía. Catálogo cerrado de la API. */
+export type MotivoDevolucion =
+  | 'NO_LO_QUISO'
+  | 'DANADO'
+  | 'SIN_QUIEN_RECIBA'
+  | 'PRECIO_EQUIVOCADO'
+
+/** La jornada del repartidor. `null` mientras no haya pulsado «Inicio de entregas». */
+export interface Jornada {
+  id: string
+  iniciadaEn: string
+  /** Sellada al «Finalizar entregas»; vuelve a `null` si la reabre. */
+  finalizadaEn: string | null
+  /** Piezas que siguen arriba del camión. Cero no significa que ya pueda liquidar. */
+  piezasEnCamion: number
+}
+
+/**
+ * Un renglón del camión. No es el renglón del pedido: el pedido dice lo que se
+ * compró y esto lo que subió, con el id que hay que mandar al entregar.
+ */
+export interface RenglonDeCarga {
+  pedidoItemId: string
+  productoId: string
+  nombre: string
+  unidad: string
+  cantidadCargada: number
+  cantidadEntregada: number
+  cantidadDevuelta: number
+  precioUnitario: number
+  /** Re-cotizado al volumen que aceptó el cliente; `null` si manda el de arriba. */
+  precioEntregado: number | null
+  motivoDevolucion: MotivoDevolucion | null
+  /** `false` cuando el corte ya lo descargó: es un intento anterior. */
+  enCamion: boolean
+}
+
+/** El pedido con lo que de él va —o fue— en el camión. */
+export interface PedidoEnRuta extends PedidoEnPantalla {
+  carga: RenglonDeCarga[]
+}
+
+export type FiltroRutas = 'disponibles' | 'en-camion' | 'entregados'
+
+/** Respuesta de `GET /admin/rutas`: la jornada y los pedidos, de un viaje. */
+export interface TableroRutas {
+  jornada: Jornada | null
+  pedidos: PedidoEnRuta[]
+  conteos: Record<FiltroRutas, number>
+}
+
+/** Cómo acabó el intento de entrega, según lo contó la API. */
+export interface ResumenEntrega {
+  piezasEntregadas: number
+  /** Lo que el cliente no aceptó. Sigue en el camión hasta el corte. */
+  piezasDevueltas: number
+  /** Lo que se cobra por lo que quedó en casa del cliente. **No es el total.** */
+  importeEntregado: number
+  parcial: boolean
+}
+
+/** Respuesta de `POST pedidos/:id/entregar` y de `no-entregar`. */
+export interface ResultadoEntrega {
+  pedido: PedidoEnRuta
+  entrega: ResumenEntrega
+}
+
+/** Un pedido dentro del corte: lo que trae de él y lo que regresa. */
+export interface PedidoDelCorte {
+  id: string
+  folio: string
+  clienteNombre: string
+  estado: EstadoPedido
+  /** Efectivo que trae por este pedido. Cero en transferencia o crédito. */
+  efectivo: number
+  devueltas: number
+}
+
+/** Respuesta de `GET /admin/rutas/corte`: lo que el sistema dice que trae. */
+export interface ResumenCorte {
+  montoCalculado: number
+  pedidos: PedidoDelCorte[]
+  piezasQueRegresan: number
+  /** Pedidos que no se entregaron y vuelven a bodega para salir otro día. */
+  pedidosQueRegresan: number
+}
+
+export type EstadoCorte = 'CERRADO' | 'RECIBIDO'
+
+export interface Corte {
+  id: string
+  repartidorId: string
+  repartidorNombre: string
+  cerradoEn: string
+  montoCalculado: number
+  montoDeclarado: number
+  montoRecibido: number | null
+  /** Declarado menos calculado: negativo es faltante. */
+  diferencia: number
+  /** Lo que falta por entregar tras contar el dinero y sus abonos. */
+  saldoPendiente: number
+  recibidoEn: string | null
+  recibidoPorNombre: string | null
+  estado: EstadoCorte
+  notas: string | null
+  abonos: {
+    id: string
+    monto: number
+    registradoPorNombre: string
+    nota: string | null
+    creadoEn: string
+  }[]
+  pedidos: number
+}
+
+export type FiltroCortes = 'por-recibir' | 'recibidos'
+
+/** Respuesta de `GET /admin/finanzas/cortes`. */
+export interface ListadoCortes {
+  cortes: Corte[]
+  conteos: Record<FiltroCortes, number>
+}
+
 /** Un renglón de `GET /admin/pedidos/:id/bitacora`. */
 export interface RenglonBitacora {
   id: string

@@ -43,73 +43,120 @@ function alternar(id: string): void {
   <div class="pedidos">
     <SkeletonList v-if="cargando" :cantidad="3" />
 
-    <template v-else-if="pedidos.length > 0">
-      <article v-for="pedido in pedidos" :key="pedido.id" class="pedido-card">
-        <button type="button" class="pedido-cabecera" @click="alternar(pedido.id)">
-          <div class="pedido-info">
-            <p class="folio">{{ pedido.folio }}</p>
-            <p class="fecha">{{ fechaHora(pedido.creadoEn) }}</p>
-          </div>
-          <div class="pedido-derecha">
-            <span class="mini-tag">{{ nombreEstadoPedido(pedido.estado, pedido.pago.estado) }}</span>
-            <span class="total">{{ dinero(pedido.total) }}</span>
-          </div>
-          <span class="chev" :class="{ abierto: abierto === pedido.id }">›</span>
-        </button>
-
-        <div v-if="abierto === pedido.id" class="pedido-detalle">
-          <ul class="lineas">
-            <li v-for="item in pedido.items" :key="item.productoId">
-              <span class="cantidad">{{ item.cantidad }}×</span>
-              <span class="nombre">{{ item.nombre }}</span>
-              <span class="importe">{{ dinero(item.importe) }}</span>
-            </li>
-          </ul>
-
-          <div class="resumen">
-            <div class="fila"><span>Productos</span><span>{{ dinero(pedido.subtotal) }}</span></div>
-            <div class="fila">
-              <span>Envío</span>
-              <span>{{ pedido.envio === 0 ? 'Gratis' : dinero(pedido.envio) }}</span>
-            </div>
-            <div v-if="pedido.recargoFuera > 0" class="fila">
-              <span>Recargo fuera de horario</span><span>{{ dinero(pedido.recargoFuera) }}</span>
-            </div>
-            <div v-if="pedido.descuento > 0" class="fila descuento">
-              <span>{{ pedido.cupon ? `Cupón ${pedido.cupon.code}` : 'Descuento' }}</span>
-              <span>−{{ dinero(pedido.descuento) }}</span>
-            </div>
-            <div class="fila total-fila">
-              <span>Total</span><span>{{ dinero(pedido.total) }}</span>
-            </div>
-            <div v-if="pedido.pago.billetera > 0" class="fila descuento">
-              <span>Pagado con billetera</span><span>−{{ dinero(pedido.pago.billetera) }}</span>
-            </div>
-            <div class="fila">
-              <span>
-                {{ pedido.pago.aPagar > 0 ? nombreMetodoPago(pedido.pago.metodo) : 'Billetera' }}
-                · {{ nombreEstadoPago(pedido.pago.estado) }}
-              </span>
-              <span>{{ dinero(pedido.pago.aPagar) }}</span>
-            </div>
-            <div v-if="pedido.pago.cambio !== null && pedido.pago.pagoCon !== null" class="fila">
-              <span>Pagas con {{ dinero(pedido.pago.pagoCon) }}</span>
-              <span>Cambio {{ dinero(pedido.pago.cambio) }}</span>
-            </div>
-            <!-- Un cancelado ya no lo va a recibir: no se promete. -->
-            <p v-if="pedido.cashbackGenerado > 0 && pedido.cashbackAcreditado" class="cashback">
-              Cashback generado: {{ dinero(pedido.cashbackGenerado) }}
-            </p>
-            <p
-              v-else-if="pedido.cashbackGenerado > 0 && pedido.pago.estado !== 'CANCELADO'"
-              class="cashback"
+    <div v-else-if="pedidos.length > 0" class="tabla-envoltorio">
+      <table class="tabla">
+        <thead>
+          <tr>
+            <th>Pedido</th>
+            <th>Estado</th>
+            <th class="num">Total</th>
+            <th aria-hidden="true"></th>
+          </tr>
+        </thead>
+        <tbody>
+          <template v-for="pedido in pedidos" :key="pedido.id">
+            <!-- Toda la fila abre el detalle; el teclado entra con Enter o espacio. -->
+            <tr
+              class="fila-pedido"
+              :class="{ 'con-detalle': abierto === pedido.id }"
+              tabindex="0"
+              :aria-expanded="abierto === pedido.id"
+              @click="alternar(pedido.id)"
+              @keydown.enter.prevent="alternar(pedido.id)"
+              @keydown.space.prevent="alternar(pedido.id)"
             >
-              Cashback por acreditar: {{ dinero(pedido.cashbackGenerado) }} al quedar pagado
-            </p>
-          </div>
-        </div>
-      </article>
-    </template>
+              <td>
+                <span class="folio">{{ pedido.folio }}</span>
+                <span class="sub">{{ fechaHora(pedido.creadoEn) }}</span>
+              </td>
+              <td>
+                <span class="mini-tag">
+                  {{ nombreEstadoPedido(pedido.estado, pedido.pago.estado) }}
+                </span>
+              </td>
+              <td class="num importe">{{ dinero(pedido.total) }}</td>
+              <td class="chev-celda">
+                <span class="chev" :class="{ abierto: abierto === pedido.id }">›</span>
+              </td>
+            </tr>
+
+            <tr v-if="abierto === pedido.id" class="fila-detalle">
+              <td colspan="4">
+                <table class="tabla-lineas">
+                  <thead>
+                    <tr>
+                      <th class="num">Cant.</th>
+                      <th>Producto</th>
+                      <th class="num">Importe</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="item in pedido.items" :key="item.productoId">
+                      <td class="num cantidad">{{ item.cantidad }}×</td>
+                      <td>{{ item.nombre }}</td>
+                      <td class="num">{{ dinero(item.importe) }}</td>
+                    </tr>
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td colspan="2">Productos</td>
+                      <td class="num">{{ dinero(pedido.subtotal) }}</td>
+                    </tr>
+                    <tr>
+                      <td colspan="2">Envío</td>
+                      <td class="num">
+                        {{ pedido.envio === 0 ? 'Gratis' : dinero(pedido.envio) }}
+                      </td>
+                    </tr>
+                    <tr v-if="pedido.recargoFuera > 0">
+                      <td colspan="2">Recargo fuera de horario</td>
+                      <td class="num">{{ dinero(pedido.recargoFuera) }}</td>
+                    </tr>
+                    <tr v-if="pedido.descuento > 0" class="descuento">
+                      <td colspan="2">
+                        {{ pedido.cupon ? `Cupón ${pedido.cupon.code}` : 'Descuento' }}
+                      </td>
+                      <td class="num">−{{ dinero(pedido.descuento) }}</td>
+                    </tr>
+                    <tr class="total-fila">
+                      <td colspan="2">Total</td>
+                      <td class="num">{{ dinero(pedido.total) }}</td>
+                    </tr>
+                    <tr v-if="pedido.pago.billetera > 0" class="descuento">
+                      <td colspan="2">Pagado con billetera</td>
+                      <td class="num">−{{ dinero(pedido.pago.billetera) }}</td>
+                    </tr>
+                    <tr>
+                      <td colspan="2">
+                        {{
+                          pedido.pago.aPagar > 0 ? nombreMetodoPago(pedido.pago.metodo) : 'Billetera'
+                        }}
+                        · {{ nombreEstadoPago(pedido.pago.estado) }}
+                      </td>
+                      <td class="num">{{ dinero(pedido.pago.aPagar) }}</td>
+                    </tr>
+                    <tr v-if="pedido.pago.cambio !== null && pedido.pago.pagoCon !== null">
+                      <td colspan="2">Pagas con {{ dinero(pedido.pago.pagoCon) }}</td>
+                      <td class="num">Cambio {{ dinero(pedido.pago.cambio) }}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+                <!-- Un cancelado ya no lo va a recibir: no se promete. -->
+                <p v-if="pedido.cashbackGenerado > 0 && pedido.cashbackAcreditado" class="cashback">
+                  Cashback generado: {{ dinero(pedido.cashbackGenerado) }}
+                </p>
+                <p
+                  v-else-if="pedido.cashbackGenerado > 0 && pedido.pago.estado !== 'CANCELADO'"
+                  class="cashback"
+                >
+                  Cashback por acreditar: {{ dinero(pedido.cashbackGenerado) }} al quedar pagado
+                </p>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
 
     <p v-else class="empty-block">Todavía no has hecho ningún pedido.</p>
   </div>
@@ -117,69 +164,35 @@ function alternar(id: string): void {
 
 <style scoped>
 .pedidos {
-  padding: 12px 18px 24px;
+  padding: 12px 18px 0;
 }
 
-.pedido-card {
-  background: var(--white);
-  border-radius: 16px;
-  box-shadow: var(--shadow);
-  margin-bottom: 12px;
-  overflow: hidden;
+.tabla > tbody > tr > td {
+  vertical-align: middle;
 }
 
-.pedido-cabecera {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  background: none;
-  border: none;
-  padding: 14px;
+.fila-pedido {
   cursor: pointer;
-  text-align: left;
-  font-family: inherit;
 }
 
-.pedido-info {
-  flex: 1;
-  min-width: 0;
+.fila-pedido:focus-visible {
+  outline: 2px solid var(--terracotta);
+  outline-offset: -2px;
 }
 
-.folio {
-  font-family: var(--font-heading);
-  font-weight: 800;
-  font-size: 13px;
-  color: var(--terracotta-dark);
-  letter-spacing: 0.04em;
-  margin: 0;
+.importe {
+  font-size: 13.5px;
 }
 
-.fecha {
-  font-size: 11px;
-  color: var(--muted);
-  margin: 3px 0 0;
-}
-
-.pedido-derecha {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 4px;
-  flex-shrink: 0;
-}
-
-.total {
-  font-family: var(--font-heading);
-  font-weight: 800;
-  font-size: 14px;
-  color: var(--ink);
+.tabla > tbody > tr > td.chev-celda {
+  width: 1%;
+  padding-left: 0;
 }
 
 .chev {
+  display: inline-block;
   font-size: 20px;
   color: var(--muted);
-  flex-shrink: 0;
   transition: transform 0.15s ease;
 }
 
@@ -187,69 +200,25 @@ function alternar(id: string): void {
   transform: rotate(90deg);
 }
 
-.pedido-detalle {
-  border-top: 1px solid var(--line);
-  padding: 12px 14px 14px;
-}
-
-.lineas {
-  list-style: none;
-  margin: 0 0 12px;
-  padding: 0;
-}
-
-.lineas li {
-  display: flex;
-  gap: 8px;
-  font-size: 12.5px;
-  color: var(--ink);
-  padding: 4px 0;
-}
-
-.lineas .cantidad {
+.tabla-lineas .cantidad {
   font-family: var(--font-heading);
   font-weight: 700;
   color: var(--muted);
-  flex-shrink: 0;
+  width: 1%;
 }
 
-.lineas .nombre {
-  flex: 1;
-  min-width: 0;
-}
-
-.lineas .importe {
-  flex-shrink: 0;
-  font-weight: 600;
-}
-
-.resumen {
-  border-top: 1px solid var(--line);
-  padding-top: 10px;
-}
-
-.fila {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  font-size: 12.5px;
-  color: var(--ink);
-  padding: 4px 0;
-}
-
-.fila.descuento {
+.tabla-lineas tr.descuento td {
   color: var(--sage);
   font-weight: 700;
 }
 
-.fila.total-fila {
+.tabla-lineas tr.total-fila td {
   font-family: var(--font-heading);
   font-weight: 800;
-  font-size: 14.5px;
+  font-size: 14px;
   color: var(--terracotta-dark);
   border-top: 1px solid var(--line);
-  margin-top: 4px;
-  padding-top: 8px;
+  padding-top: 7px;
 }
 
 .cashback {

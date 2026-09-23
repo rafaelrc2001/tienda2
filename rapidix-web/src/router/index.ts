@@ -230,12 +230,18 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/admin/FinanzasView.vue'),
     meta: { seccion: 'finanzas', titulo: 'Finanzas' },
   },
-  // Rutas es la sección que falta. Su API ya responde, así que la vista de
-  // pendiente dice justo eso: existe el backend, no la interfaz.
+  {
+    // El corte es de Rutas, pero quien cuenta el dinero es Finanzas: la
+    // pantalla cuelga de su sección, igual que su endpoint.
+    path: '/admin/finanzas/cortes',
+    name: 'finanzas-cortes',
+    component: () => import('@/views/admin/FinanzasCortesView.vue'),
+    meta: { seccion: 'finanzas', titulo: 'Finanzas · Cortes' },
+  },
   {
     path: '/admin/rutas',
     name: 'admin-rutas',
-    component: () => import('@/views/admin/SeccionPendienteView.vue'),
+    component: () => import('@/views/admin/RutasView.vue'),
     meta: { seccion: 'rutas', titulo: 'Rutas' },
   },
   {

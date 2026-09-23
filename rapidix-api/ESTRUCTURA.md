@@ -287,25 +287,34 @@ y leer un pedido.
 
 | Archivo | Qué contiene |
 | --- | --- |
-| [rutas.controller.ts](src/rutas/rutas.controller.ts) | `GET /admin/rutas` — el tablero: la jornada **y** los pedidos de la pestaña en una sola respuesta, porque todo lo que el repartidor puede pulsar depende de su jornada y son dos datos de la misma pantalla de teléfono. Pestañas: `disponibles` (lo que espera en bodega, de todos), `en-camion` y `entregados` (lo suyo, sin liquidar). Más `POST jornada`, `POST jornada/finalizar`, `POST pedidos/:id/recolectar`, `POST pedidos/:id/en-ruta`, `POST pedidos/:id/entregar` y `POST pedidos/:id/no-entregar`. |
+| [rutas.controller.ts](src/rutas/rutas.controller.ts) | `GET /admin/rutas` — el tablero: la jornada **y** los pedidos de la pestaña en una sola respuesta, porque todo lo que el repartidor puede pulsar depende de su jornada y son dos datos de la misma pantalla de teléfono. Pestañas: `disponibles` (lo que espera en bodega, de todos), `en-camion` y `entregados` (lo suyo, sin liquidar). Más `POST jornada`, `POST jornada/finalizar`, `POST pedidos/:id/recolectar`, `POST pedidos/:id/en-ruta`, `POST pedidos/:id/entregar`, `POST pedidos/:id/no-entregar`, `GET corte` (lo que dice el sistema que trae, sin cambiar nada), `POST corte` y `PATCH cortes/:id`. |
 | [rutas.service.ts](src/rutas/rutas.service.ts) | `abrirJornada()` **reabre la que estaba finalizada** en lugar de crear otra: mientras no haya corte es el mismo día y el mismo camión, y dos jornadas partirían en dos lo que debe liquidarse junto; abrir teniendo una viva es 409 `JORNADA_ABIERTA`, y el índice parcial es quien de verdad lo impide (el P2002 se traduce al mismo código). `recolectar()` hace tres cosas en una transacción además del paso: el pedido **se queda con su repartidor**, cada renglón abre su fila de `CargaRepartidor` con el precio congelado, y el paso con su bitácora por el camino de siempre. `entregar()` cierra el pedido con lo que el cliente aceptó; `noEntregar()` anota el intento **sin mover el estado**. `exigirPropio()` es un candado de dónde está la mercancía, no de permisos: tampoco el administrador marca "En ruta" un camión en el que no va. |
 | | `conCarga()` le pega a cada pedido sus renglones de camión: el `PedidoDto` no expone el id de sus líneas, así que sin esto la pantalla no tendría qué mandar al entregar. `emparejar()` exige el recuento **completo** —todos los renglones y ninguno de más—, porque dar por entregado en silencio lo que no viene convertiría un olvido de la interfaz en mercancía cobrada. `recotizar()` devuelve el precio del volumen que de verdad se lleva: quien pide 10 al precio de 10 y acepta 6 no compró 10. Se usan las listas **vigentes** del producto porque el pedido guarda el unitario que se cobró, no las listas con que se calculó. |
 | [dto/nota-ruta.dto.ts](src/rutas/dto/nota-ruta.dto.ts) | Los botones de Rutas no eligen destino —cada uno es un solo paso—, así que lo único que viaja es la aclaración para la bitácora. |
 | [dto/entregar-pedido.dto.ts](src/rutas/dto/entregar-pedido.dto.ts) | `EntregarPedidoDto` (lo **aceptado** de cada renglón, no lo devuelto: es lo que se cuenta delante del cliente; más foto, firma y coordenadas, todas opcionales) y `NoEntregadoDto` (un motivo para el pedido entero, obligatorio). |
-| [rutas.module.ts](src/rutas/rutas.module.ts) | Importa `PedidosModule`. |
+| [dinero-del-corte.ts](src/rutas/dinero-del-corte.ts) | Reglas puras de cuánto efectivo trae el repartidor. `traeEfectivo()` filtra lo que pasa por sus manos —solo efectivo sin cobrar: una transferencia no la trae él y `CREDITO` es Finanzas autorizando entregar sin cobrar—, y `efectivoDelPedido()` parte de lo que el pedido iba a cobrar y descuenta lo que el cliente no aceptó, a los precios que correspondan. Envío y descuento no se tocan (el viaje se hizo, el cupón se usó) y el resultado nunca baja de cero. Probadas en `dinero-del-corte.spec.ts`. |
+| [cortes.service.ts](src/rutas/cortes.service.ts) | `cerrar()` — el cierre del día en una transacción: nace el corte con lo calculado y lo declarado **uno al lado del otro** (para que Finanzas vea la diferencia en vez de descubrirla contando), los pedidos entregados quedan liquidados, **se descarga el camión** y la jornada muere atada a su corte. `descargarCamion()` escribe lo devuelto en cada renglón, lo cierra, lo reingresa a bodega y devuelve a la cola los pedidos que no se entregaron: **el único retroceso del eje físico**, que no pasa por `TRANSICIONES` porque no es un paso adelante sino la constatación de que la mercancía volvió. `recibir()` comprueba que quien cuenta no sea quien cerró; `abonar()` deja lo que se entregue después en su propia fila, sin reescribir los montos del día. |
+| [dto/corte.dto.ts](src/rutas/dto/corte.dto.ts) | `CerrarCorteDto` (lo declarado), `RecibirCorteDto` (lo contado) y `RegistrarAbonoDto`. |
+| [finanzas-cortes.controller.ts](src/rutas/finanzas-cortes.controller.ts) | `GET /admin/finanzas/cortes` (`por-recibir`, `recibidos`), `GET :id`, `POST :id/recibir` y `POST :id/abonos`. Vive en Rutas aunque lo use Finanzas, igual que `pedidos/finanzas.controller.ts`: el dominio manda sobre la audiencia. |
+| [rutas.module.ts](src/rutas/rutas.module.ts) | Importa `PedidosModule`, `InventarioModule` y `ConfiguracionModule`: del corte cuelga la vuelta a bodega, y con `controlInventario` apagado no se toca el saldo. |
 
-**Lo que Rutas no toca:** ni el total del pedido ni el inventario. Una entrega
-parcial no reescribe el pedido —es el recibo de lo que se compró—; lo cobrado
-de verdad vive en `CargaRepartidor.precioEntregado` y lo suma el corte. Y la
-mercancía devuelta sigue físicamente en el camión hasta que el corte la
-descargue (`cantidadDevuelta`, `cerradoEn`) y la reingrese a bodega.
+**El total del pedido no se reescribe nunca**, ni siquiera en una entrega
+parcial: es el recibo de lo que se compró. Lo cobrado de verdad vive en
+`CargaRepartidor.precioEntregado` y lo suma el corte.
+
+**La mercancía baja del camión en un solo sitio: el corte.** Entregar solo
+apunta lo que el cliente no aceptó; hasta que se liquida, esas piezas siguen
+físicamente arriba y por eso ni vuelven a bodega ni pueden salir en otro
+camión. Esto es lo que hace que el conteo de la jornada (`cantidadCargada -
+cantidadEntregada`) diga siempre lo que hay en el vehículo.
 
 Códigos de error que interpreta la interfaz: `SIN_JORNADA`, `JORNADA_ABIERTA`,
 `JORNADA_FINALIZADA`, `PEDIDO_DE_OTRO`, `ITEM_EN_CAMION`, `SIN_CARGA`,
 `RENGLON_DESCONOCIDO`, `RENGLONES_INCOMPLETOS`, `CANTIDAD_DE_MAS`,
 `FALTA_MOTIVO`, `MOTIVO_DE_MAS`, `NADA_ENTREGADO`, `NO_ESTA_EN_RUTA`,
-`IMAGEN_NO_ENCONTRADA`, más los del flujo (`PAGO_NO_LIBERADO`,
-`TRANSICION_INVALIDA`…).
+`IMAGEN_NO_ENCONTRADA`, `CORTE_DE_OTRO`, `CORTE_RECIBIDO`,
+`CORTE_SIN_RECIBIR`, `RECIBE_EL_MISMO`, más los del flujo
+(`PAGO_NO_LIBERADO`, `TRANSICION_INVALIDA`…).
 
 ---
 

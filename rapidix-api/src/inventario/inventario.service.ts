@@ -257,6 +257,70 @@ export class InventarioService {
   }
 
   /**
+   * Regresa a bodega lo que el camion no entrego, al cerrar el corte.
+   *
+   * A diferencia de `devolverPedido()`, aqui la devolucion es **parcial**: el
+   * cliente pudo quedarse con parte del renglon. Por eso las cantidades llegan
+   * contadas desde la carga del repartidor en vez de deducirse del pedido.
+   *
+   * Lo que si se conserva es el principio: nunca entra mas de lo que salio. Se
+   * comprueba contra los movimientos de VENTA del pedido, asi que un pedido
+   * hecho con el control de inventario apagado —que no tiene ninguno— no
+   * devuelve nada, y devolver dos veces el mismo renglon tampoco infla el
+   * saldo.
+   *
+   * Devuelve cuantas piezas volvieron, para el resumen del corte.
+   */
+  async devolverDeRuta(
+    tx: Prisma.TransactionClient,
+    pedidoId: string,
+    folio: string,
+    lineas: { productoId: string; cantidad: number }[],
+    quien: { usuarioId: string | null; usuarioNombre: string },
+  ): Promise<number> {
+    const movimientos = await tx.movimientoInventario.findMany({
+      where: { pedidoId, motivo: { in: [MotivoMovimiento.VENTA, MotivoMovimiento.DEVOLUCION] } },
+      select: { productoId: true, cantidad: true, afecta: true, tipo: true },
+    });
+
+    // Lo que sigue fuera de bodega por este pedido: lo que salio menos lo que
+    // ya volvio.
+    const fuera = new Map<string, { piezas: number; afecta: AfectaInventario }>();
+    for (const m of movimientos) {
+      const signo = m.tipo === TipoMovimiento.SALIDA ? 1 : -1;
+      const actual = fuera.get(m.productoId);
+      fuera.set(m.productoId, {
+        piezas: (actual?.piezas ?? 0) + signo * m.cantidad,
+        afecta: actual?.afecta ?? m.afecta,
+      });
+    }
+
+    let piezas = 0;
+    for (const linea of lineas) {
+      const pendiente = fuera.get(linea.productoId);
+      const cantidad = Math.min(linea.cantidad, pendiente?.piezas ?? 0);
+      if (cantidad <= 0) continue;
+
+      await this.aplicar(tx, {
+        productoId: linea.productoId,
+        cantidad,
+        tipo: TipoMovimiento.ENTRADA,
+        // Se deshace con el mismo alcance con el que se hizo la venta.
+        afecta: pendiente!.afecta,
+        motivo: MotivoMovimiento.DEVOLUCION,
+        empleado: quien.usuarioNombre,
+        observaciones: `Regresó del reparto del pedido ${folio}`,
+        usuarioId: quien.usuarioId,
+        usuarioNombre: quien.usuarioNombre,
+        pedidoId,
+      });
+      fuera.set(linea.productoId, { ...pendiente!, piezas: pendiente!.piezas - cantidad });
+      piezas += cantidad;
+    }
+    return piezas;
+  }
+
+  /**
    * Aplica **un** movimiento y deja su renglon. Es el unico sitio donde
    * cambian `inventario` y `aptInventario`.
    *

@@ -434,7 +434,160 @@ input:checked + .switch-danger-slider {
 }
 
 /* ------------------------------------------------------------------
- * Placeholder de las secciones que la API devuelve como 501
+ * Tablas de datos: toda lista de pedidos, cortes o renglones va en tabla.
+ * La tabla se desplaza dentro de su caja; la página nunca en horizontal.
+ * Cada vista pone su `min-width` si necesita más columnas de las que caben.
+ * ------------------------------------------------------------------ */
+
+.tabla-envoltorio {
+  overflow-x: auto;
+  background: var(--white);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow);
+}
+
+.tabla {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.tabla > thead > tr > th {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 9.5px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.tabla > tbody > tr > td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  vertical-align: top;
+}
+
+.tabla > tbody > tr:last-child > td,
+.tabla > tbody > tr.con-detalle > td {
+  border-bottom: none;
+}
+
+.tabla .num,
+.tabla-lineas .num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.tabla .mini-tag {
+  white-space: nowrap;
+}
+
+/* Folio o nombre principal de la fila, con su dato secundario debajo. */
+.tabla .folio {
+  display: block;
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 12px;
+  color: var(--terracotta-dark);
+  letter-spacing: 0.03em;
+}
+
+.tabla .sub {
+  display: block;
+  font-size: 10.5px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.tabla .importe {
+  font-family: var(--font-heading);
+  font-weight: 800;
+}
+
+/* El detalle de una fila se abre como otra fila debajo, sobre fondo crema. */
+.tabla > tbody > tr.fila-detalle > td {
+  background: var(--cream);
+  padding: 10px 12px 12px;
+}
+
+/* Renglones dentro del detalle: productos, abonos, lo devuelto… */
+.tabla-lineas {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.tabla-lineas th {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 9.5px;
+  color: var(--muted);
+  text-transform: uppercase;
+  text-align: left;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--line);
+}
+
+.tabla-lineas td {
+  padding: 4px 6px;
+  color: var(--ink);
+}
+
+.tabla-lineas tbody td {
+  border-bottom: 1px solid var(--line);
+}
+
+.tabla-lineas th:first-child,
+.tabla-lineas td:first-child {
+  padding-left: 0;
+}
+
+.tabla-lineas th:last-child,
+.tabla-lineas td:last-child {
+  padding-right: 0;
+}
+
+.tabla-lineas tfoot tr:first-child td {
+  padding-top: 8px;
+}
+
+.tabla-lineas tr.fuerte td {
+  font-family: var(--font-heading);
+  font-weight: 800;
+  border-top: 1px solid var(--line);
+  padding-top: 7px;
+}
+
+.tabla-lineas + .tabla-lineas {
+  margin-top: 10px;
+}
+
+/* Enlaces de texto dentro de una fila: «Ver detalle», «Bitácora». */
+.tabla .enlaces {
+  display: flex;
+  gap: 14px;
+  margin-top: 6px;
+}
+
+.tabla .enlace {
+  background: none;
+  border: none;
+  padding: 2px 0;
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--terracotta-dark);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------
+ * Pantalla de un solo mensaje centrado: la ruta que no existe y los legales
  * ------------------------------------------------------------------ */
 
 .admin-placeholder {
@@ -461,17 +614,4 @@ input:checked + .switch-danger-slider {
   line-height: 1.5;
   max-width: 260px;
   margin: 0 auto 16px;
-}
-
-.admin-placeholder .badge-soon {
-  display: inline-block;
-  background: var(--cream-2);
-  color: var(--terracotta-dark);
-  font-family: var(--font-heading);
-  font-weight: 700;
-  font-size: 10.5px;
-  padding: 5px 12px;
-  border-radius: 20px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
 }
