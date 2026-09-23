@@ -149,7 +149,7 @@ El bootstrap. Cuatro cosas:
 
 ### [app.module.ts](src/app.module.ts)
 
-Registra los 14 módulos y —lo importante— los dos guards globales:
+Registra los 15 módulos y —lo importante— los dos guards globales:
 
 ```ts
 { provide: APP_GUARD, useClass: JwtAuthGuard }   // todo cerrado por defecto
@@ -207,8 +207,7 @@ Registra los 14 módulos y —lo importante— los dos guards globales:
 | Archivo | Qué contiene |
 | --- | --- |
 | [admin-menu.controller.ts](src/admin/admin-menu.controller.ts) | `GET /admin/menu`: devuelve las tarjetas (icono, título, descripción) que le tocan al rol del token. El frontend no decide qué mostrar, lo pregunta. |
-| [secciones-pendientes.controller.ts](src/admin/secciones-pendientes.controller.ts) | `GET /admin/rutas` y `/finanzas`, las secciones que todavía no se construyen (Operaciones ya salió de aquí). Existen para que el control de acceso sea verificable de punta a punta: sin permiso da 403, y con permiso un **501 explícito** en vez de un 404 confuso. |
-| [admin.module.ts](src/admin/admin.module.ts) | Registra los dos. |
+| [admin.module.ts](src/admin/admin.module.ts) | Registra el único que queda. Aquí vivían los 501 de las secciones sin construir; ya no hay ninguna: Operaciones, Finanzas y Rutas tienen su módulo. |
 
 ---
 
@@ -270,13 +269,32 @@ registra el movimiento que falta, con motivo `AJUSTE`, y queda escrito.
 | [operaciones.controller.ts](src/pedidos/operaciones.controller.ts) | `GET /admin/operaciones/pedidos` — la pantalla de surtido, con sus cuatro pestañas (`activos`, `en-ruta`, `entregados`, `cancelados`) y el contador de cada una. `PATCH /admin/operaciones/pedidos/:id/estado` — el siguiente paso físico; los candados de Finanzas responden 409 con su `code`. |
 | [finanzas.controller.ts](src/pedidos/finanzas.controller.ts) | `GET /admin/finanzas/pedidos` con sus cuatro pestañas (`por-decidir`, `liberados`, `pagados`, `cancelados`) y `PATCH /admin/finanzas/pedidos/:id/pago`. **El único sitio por el que se escribe `estadoPago`**, para que las reglas y los efectos de cada estatus no se repitan en dos caminos. |
 | [flujo.ts](src/pedidos/flujo.ts) | Reglas puras del eje físico: `TRANSICIONES` (de, a, sección, modo de entrega, si exige pago liberado), `esLiberado()`, `evaluarAvance()` —devuelve la transición o el bloqueo con su `code`: `TRANSICION_INVALIDA`, `SOLO_A_DOMICILIO`, `SOLO_EN_TIENDA`, `PEDIDO_CANCELADO`, `PAGO_RETENIDO`, `PAGO_NO_LIBERADO`— y `siguientePaso()`. Probadas en `flujo.spec.ts`. |
-| [flujo-pedidos.service.ts](src/pedidos/flujo-pedidos.service.ts) | Aplica un paso: bloquea la fila (`FOR UPDATE`, para que Finanzas no retenga el pago a media transición), valida con `flujo.ts`, comprueba la sección del paso y escribe estado + bitácora en la misma transacción. Los pasos de Rutas no entran por `avanzarEnOperaciones()`: su servicio usará `bloquear()`/`aplicar()` con sus propios efectos. |
+| [flujo-pedidos.service.ts](src/pedidos/flujo-pedidos.service.ts) | Aplica un paso: bloquea la fila (`FOR UPDATE`, para que Finanzas no retenga el pago a media transición), valida con `flujo.ts`, comprueba la sección del paso y escribe estado + bitácora en la misma transacción. Los pasos de Rutas no entran por `avanzarEnOperaciones()`: `RutasService` usa `bloquearFila()`/`exigirAvance()`/`aplicar()` y añade sus propios efectos. |
 | [flujo-pago.ts](src/pedidos/flujo-pago.ts) | Reglas puras del eje del dinero. Aquí **no hay secuencia**: se va de cualquier estatus a cualquier otro. Lo único que frena lo dicen `evaluarCambioPago()` y sus tres códigos: `PAGO_TERMINAL` (de cancelado no se sale), `MERCANCIA_FUERA` (ya salió de bodega) y `MISMO_ESTADO`. `botonesDePago()` devuelve los siete con su candado resuelto. Probadas en `flujo-pago.spec.ts`. |
 | [finanzas.service.ts](src/pedidos/finanzas.service.ts) | Aplica el cambio con la fila bloqueada y encadena lo que cada estatus arrastra: `PAGADO` acredita el cashback congelado; `CANCELADO` **deshace el pedido** (`deshacer()`) — la mercancía que de verdad salió vuelve a bodega, el saldo de billetera gastado se devuelve, el cashback acreditado se retira hasta donde alcance el saldo y el pedido deja de contar como gasto. El cupón **no** se devuelve: sigue en USED. |
 | [bitacora.ts](src/pedidos/bitacora.ts) | `registrarEnBitacora()`, único sitio que escribe `bitacora_pedidos`, y `actorDe()` para firmar con el usuario del token. |
 | [carrito.service.ts](src/pedidos/carrito.service.ts) | Toda la aritmética del dinero. `resolver()` reconstruye el carrito contra la base (**el cliente manda `productoId` y `cantidad`, nunca importes**) y lanza si hay agotados; `resolverTolerante()` hace lo mismo sin lanzar, para previsualizar. `validarCupon()` aplica las validaciones en el orden del prototipo, con la base recortada a las categorías del cupón cuando las tiene. `calcularCarrito()` es el **único sitio** donde se calculan envío, recargo, total y cashback: lo llaman tanto la previsualización como el checkout, así que no pueden divergir. Cada línea se valora a precio escalonado (`precios.ts`) y lleva su tachado, ahorro y upsell; la base del cashback son solo las líneas con `aplicaCashback`. `metas()` dice lo que falta para el envío gratis (`>=`) y para el cashback (`>` estricto, aviso desde el 80 % del mínimo). |
 | [pedidos.service.ts](src/pedidos/pedidos.service.ts) | `crear()` — los 10 pasos del checkout, **todos dentro de una transacción**: resolver el carrito, calcular, bloquear la fila del cupón con `SELECT ... FOR UPDATE`, convertir al prospecto, crear el pedido, marcar el cupón USED, cancelar el WELCOME sobrante, **descontar de bodega si `controlInventario` está encendido**, actualizar contadores, emitir SECOND_PURCHASE. `convertir()` es el único sitio donde nace un cliente nuevo: **conserva el id del prospecto**, mueve sus cupones y borra su fila. `siguienteFolio()` usa la secuencia de Postgres. |
 | [dto/carrito.dto.ts](src/pedidos/dto/carrito.dto.ts) | `LineaCarritoDto` (solo id y cantidad), `ValidarCuponDto`, `PrevisualizarCarritoDto`, `CrearPedidoDto` (con `DireccionEntregaDto`, obligatoria a domicilio y copiada en el pedido), `GuardarCarritoDto` (lineas + borrador de entrega). |
+
+---
+
+## `src/rutas/` — la jornada del repartidor
+
+Mueve pedidos, pero vive aparte de `pedidos/`: lo suyo es la jornada, el camión
+y el corte. Toma prestado de `PedidosModule` lo que ya sabe mover el eje físico
+y leer un pedido.
+
+| Archivo | Qué contiene |
+| --- | --- |
+| [rutas.controller.ts](src/rutas/rutas.controller.ts) | `GET /admin/rutas` — el tablero: la jornada **y** los pedidos de la pestaña en una sola respuesta, porque todo lo que el repartidor puede pulsar depende de su jornada y son dos datos de la misma pantalla de teléfono. Pestañas: `disponibles` (lo que espera en bodega, de todos), `en-camion` y `entregados` (lo suyo, sin liquidar). Más `POST jornada`, `POST jornada/finalizar`, `POST pedidos/:id/recolectar` y `POST pedidos/:id/en-ruta`. |
+| [rutas.service.ts](src/rutas/rutas.service.ts) | `abrirJornada()` **reabre la que estaba finalizada** en lugar de crear otra: mientras no haya corte es el mismo día y el mismo camión, y dos jornadas partirían en dos lo que debe liquidarse junto; abrir teniendo una viva es 409 `JORNADA_ABIERTA`, y el índice parcial es quien de verdad lo impide (el P2002 se traduce al mismo código). `recolectar()` hace tres cosas en una transacción además del paso: el pedido **se queda con su repartidor**, cada renglón abre su fila de `CargaRepartidor` con el precio congelado, y el paso con su bitácora por el camino de siempre. `exigirPropio()` es un candado de dónde está la mercancía, no de permisos: tampoco el administrador marca "En ruta" un camión en el que no va. |
+| [dto/nota-ruta.dto.ts](src/rutas/dto/nota-ruta.dto.ts) | Los botones de Rutas no eligen destino —cada uno es un solo paso—, así que lo único que viaja es la aclaración para la bitácora. |
+| [rutas.module.ts](src/rutas/rutas.module.ts) | Importa `PedidosModule`. |
+
+Códigos de error que interpreta la interfaz: `SIN_JORNADA`, `JORNADA_ABIERTA`,
+`JORNADA_FINALIZADA`, `PEDIDO_DE_OTRO`, `ITEM_EN_CAMION`, más los del flujo
+(`PAGO_NO_LIBERADO`, `TRANSICION_INVALIDA`…).
 
 ---
 
