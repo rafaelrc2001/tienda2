@@ -7,6 +7,7 @@ import {
   ParseEnumPipe,
   ParseIntPipe,
   ParseUUIDPipe,
+  Patch,
   Post,
   Query,
 } from '@nestjs/common';
@@ -21,6 +22,8 @@ import {
 } from './rutas.service';
 import { NotaRutaDto } from './dto/nota-ruta.dto';
 import { EntregarPedidoDto, NoEntregadoDto } from './dto/entregar-pedido.dto';
+import { CerrarCorteDto } from './dto/corte.dto';
+import { CorteDto, CortesService, ResumenCorteDto } from './cortes.service';
 import { RequiereSeccion } from '../auth/seccion.decorator';
 import { SoloPersonal } from '../auth/solo-personal.decorator';
 import { UsuarioActual } from '../auth/usuario-actual.decorator';
@@ -39,7 +42,10 @@ import { UsuarioAutenticado } from '../auth/jwt-payload';
 @RequiereSeccion('rutas')
 @SoloPersonal()
 export class RutasController {
-  constructor(private readonly rutas: RutasService) {}
+  constructor(
+    private readonly rutas: RutasService,
+    private readonly cortes: CortesService,
+  ) {}
 
   @Get()
   tablero(
@@ -109,5 +115,36 @@ export class RutasController {
     @UsuarioActual() usuario: UsuarioAutenticado,
   ): Promise<ResultadoEntregaDto> {
     return this.rutas.noEntregar(id, dto, usuario);
+  }
+
+  /**
+   * Lo que el sistema dice que trae, para que cuente contra un número. No
+   * cambia nada: se puede pedir las veces que haga falta.
+   */
+  @Get('corte')
+  previsualizarCorte(@UsuarioActual() usuario: UsuarioAutenticado): Promise<ResumenCorteDto> {
+    return this.cortes.previsualizar(usuario);
+  }
+
+  /**
+   * Cierra la jornada: liquida lo entregado y **descarga el camión**, que es
+   * donde la mercancía devuelta vuelve por fin a bodega.
+   */
+  @Post('corte')
+  cerrarCorte(
+    @Body() dto: CerrarCorteDto,
+    @UsuarioActual() usuario: UsuarioAutenticado,
+  ): Promise<CorteDto> {
+    return this.cortes.cerrar(usuario, dto);
+  }
+
+  /** Corrige lo declarado, mientras Finanzas no lo haya recibido. */
+  @Patch('cortes/:id')
+  corregirCorte(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CerrarCorteDto,
+    @UsuarioActual() usuario: UsuarioAutenticado,
+  ): Promise<CorteDto> {
+    return this.cortes.corregirDeclarado(id, usuario, dto);
   }
 }
