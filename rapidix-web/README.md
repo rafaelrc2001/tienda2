@@ -82,6 +82,7 @@ src/
   utils/        Formato de dinero y fechas, reglas del constructor de segmentos
   views/        Pantallas de cliente
   views/admin/  Pantallas del panel de administración
+  views/admin/rutas/  Las hojas del repartidor: contar la entrega y el corte
 ```
 
 ### Decisiones que conviene conocer
@@ -97,6 +98,14 @@ src/
 - **El Excel no se abre en el navegador.** El `.xlsx` se sube tal cual a
   `POST /admin/productos/importar`. No hay SheetJS.
 - **Leaflet entra por npm**, no por CDN.
+- **En Rutas, la jornada manda.** Va fija arriba de la pantalla porque nada se
+  puede pulsar sin ella: mientras no esté abierta, los botones lo dicen en vez
+  de esperar al 409. Entregar es contar delante del cliente —lo que **acepta**,
+  renglón por renglón— y lo que sobra sigue en el camión hasta el corte, que es
+  el único sitio que lo devuelve a bodega.
+- **La evidencia de la entrega no la frena.** La foto y la ubicación son
+  opcionales: si la cámara falla o el cliente niega el permiso, se entrega
+  igual.
 - Sin las variables `S3_*` en la API, la subida de imágenes avisa de que no
   está configurada y el formulario **se sigue guardando** con emoji.
 
@@ -118,6 +127,10 @@ Cubren lo que no puede romperse en silencio:
   el reparto por campo y el cupón que viaja dentro del 423.
 - **`router/guard`** — quién entra a cada sección, contra la matriz de roles.
 - **`utils/segmentos`** — que `contiene` solo se ofrezca sobre Ciudad y Estado.
+- **`views/admin/rutas/recuento`** — las reglas de lo que baja del camión: el
+  motivo obligatorio en cuanto sobra una pieza, la cantidad que no puede
+  superar lo cargado y el pedido que no dejó nada, que es «No entregado» y no
+  una entrega.
 
 ---
 
@@ -150,12 +163,15 @@ redesplegar, no basta con reiniciar el servicio.
 
 Fuera de alcance del SPEC 02, por decisión explícita:
 
-- La pantalla de Rutas. Operaciones y Finanzas ya están; la API de Rutas
-  también responde (`GET /admin/rutas`), pero su interfaz todavía no existe y
-  la sección sigue enseñando el aviso de en construcción.
 - PWA: manifest, service worker e instalación en pantalla de inicio.
 - Pruebas end-to-end con Playwright.
 - Internacionalización. La aplicación es solo en español.
 - Ficha de detalle de un cliente en administración: se lista y se filtra.
 - Gastar el saldo de cashback en un pedido. La API no lo implementa; aquí solo
   se muestran saldo, nivel y movimientos.
+- Enlazar la foto de una entrega **cuando la API guarda en un bucket S3**. La
+  entrega referencia la imagen por el id de su fila, y esa fila solo existe
+  cuando la API almacena la imagen ella misma; con bucket, la clave es
+  `entregas/algo.jpg` y la API la rechaza. La foto se sube igual, pero no se
+  manda una referencia que no va a poder resolver. Se cierra desde la API,
+  aceptando también la clave del objeto.

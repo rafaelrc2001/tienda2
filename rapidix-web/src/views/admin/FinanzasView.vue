@@ -146,7 +146,13 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
 
 <template>
   <div class="pantalla">
-    <RouterLink to="/admin" class="admin-back-inline">← Volver al menú</RouterLink>
+    <div class="encabezado">
+      <RouterLink to="/admin" class="admin-back-inline">← Volver al menú</RouterLink>
+      <!-- El otro eje del dinero: lo que traen los repartidores al cerrar. -->
+      <RouterLink to="/admin/finanzas/cortes" class="admin-back-inline">
+        Cortes de ruta →
+      </RouterLink>
+    </div>
 
     <div class="subtab-row" role="tablist">
       <button
@@ -338,6 +344,12 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
 <style scoped>
 .pantalla {
   padding: 12px 18px 0;
+}
+
+.encabezado {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .admin-back-inline {

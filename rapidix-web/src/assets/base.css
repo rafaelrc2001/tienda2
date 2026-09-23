@@ -434,7 +434,7 @@ input:checked + .switch-danger-slider {
 }
 
 /* ------------------------------------------------------------------
- * Placeholder de las secciones que la API devuelve como 501
+ * Pantalla de un solo mensaje centrado: la ruta que no existe y los legales
  * ------------------------------------------------------------------ */
 
 .admin-placeholder {
@@ -461,17 +461,4 @@ input:checked + .switch-danger-slider {
   line-height: 1.5;
   max-width: 260px;
   margin: 0 auto 16px;
-}
-
-.admin-placeholder .badge-soon {
-  display: inline-block;
-  background: var(--cream-2);
-  color: var(--terracotta-dark);
-  font-family: var(--font-heading);
-  font-weight: 700;
-  font-size: 10.5px;
-  padding: 5px 12px;
-  border-radius: 20px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
 }
