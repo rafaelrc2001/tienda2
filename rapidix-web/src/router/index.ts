@@ -230,7 +230,8 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/admin/FinanzasView.vue'),
     meta: { seccion: 'finanzas', titulo: 'Finanzas' },
   },
-  // Rutas es la sección que falta: su API todavía devuelve 501.
+  // Rutas es la sección que falta. Su API ya responde, así que la vista de
+  // pendiente dice justo eso: existe el backend, no la interfaz.
   {
     path: '/admin/rutas',
     name: 'admin-rutas',

@@ -1,10 +1,12 @@
 <script setup lang="ts">
 /**
- * Rutas, Operaciones y Finanzas: una sola vista para las tres.
+ * La sección que todavía no tiene interfaz. Hoy solo Rutas: Operaciones y
+ * Finanzas ya tienen la suya.
  *
- * Llama al endpoint, recibe el 501 y **muestra el mensaje que da la API**. No
- * se inventa interfaz para lo que no está definido, ni se escribe aquí una
- * copia del texto: si el backend cambia la explicación, esto la sigue.
+ * Llama al endpoint y **muestra el mensaje que da la API**. No se inventa
+ * interfaz para lo que no está definido, ni se escribe aquí una copia del
+ * texto: si el backend cambia la explicación, esto la sigue. Desde que Rutas
+ * responde 200, lo que se enseña es que el backend ya está y falta la pantalla.
  */
 import { onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'

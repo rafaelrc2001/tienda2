@@ -254,6 +254,6 @@ Ninguna de las dos fuentes los define. Están aislados para poder cambiarlos.
 
 Conectar el mockup HTML a la API · WhatsApp Business API real · pasarela de
 pagos en línea · notificaciones push · generación de QR · programa de
-referidos · CAC por canal · auditoría de cambios administrativos · lógica de
-negocio de Rutas, que llega en su propia etapa (Operaciones y Finanzas ya
-están: `admin/operaciones` y `admin/finanzas`).
+referidos · CAC por canal · auditoría de cambios administrativos · la entrega
+con evidencia y el corte de caja de Rutas, que llegan en la siguiente etapa (la
+jornada y la carga del camión ya están: `admin/rutas`).

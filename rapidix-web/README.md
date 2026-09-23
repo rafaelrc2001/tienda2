@@ -150,8 +150,9 @@ redesplegar, no basta con reiniciar el servicio.
 
 Fuera de alcance del SPEC 02, por decisión explícita:
 
-- Pantallas de negocio de Rutas, Operaciones y Finanzas. Sus endpoints
-  devuelven 501 y la interfaz muestra el mensaje que da la API.
+- La pantalla de Rutas. Operaciones y Finanzas ya están; la API de Rutas
+  también responde (`GET /admin/rutas`), pero su interfaz todavía no existe y
+  la sección sigue enseñando el aviso de en construcción.
 - PWA: manifest, service worker e instalación en pantalla de inicio.
 - Pruebas end-to-end con Playwright.
 - Internacionalización. La aplicación es solo en español.
