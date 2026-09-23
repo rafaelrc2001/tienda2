@@ -88,6 +88,14 @@ negocio, el [README](README.md); esto es el *dónde está cada cosa*.
 - `enum EstadoPago` — eje de pago: `PAGO_PENDIENTE`, `LIBERAR`, `RETENER`, `CREDITO`, `REEMBOLSADO`, `PAGADO`, `CANCELADO` (terminal).
 - `BitacoraPedido` — un renglón por cambio de estado en cualquiera de los dos ejes (`eje`, `estadoAnterior`, `estadoNuevo`, `nota`, actor congelado con su nombre). Solo se escribe; `src/pedidos/bitacora.ts` es el único sitio que la escribe.
 
+**Rutas** — la jornada del repartidor, el camión y el dinero que trae de vuelta. Cuatro columnas de `Pedido` cuelgan de aquí: `repartidorId` (se lo queda el primero que lo recolecta), `liquidado`/`liquidadoEn` y `corteId`.
+- `SesionEntrega` — de «Inicio de entregas» a la liquidación. **Un repartidor solo puede tener una sin liquidar**, garantizado por un índice único parcial (`repartidorId WHERE corteId IS NULL`) escrito en la migración, porque Prisma no sabe expresarlo.
+- `CargaRepartidor` — qué va en el camión: cuánto subió, cuánto aceptó el cliente y cuánto regresa, con su precio congelado y el re-cotizado de las entregas parciales. Está aparte de `PedidoItem` porque un mismo renglón puede salir a la calle varias veces; ahí se lee el historial de intentos. Otro índice parcial (`pedidoItemId WHERE cerradoEn IS NULL`) impide que un item vaya en dos camiones a la vez, y un `CHECK` que salga del camión más de lo que subió.
+- `EntregaPedido` — la evidencia que cierra una entrega a domicilio: foto, firma y coordenadas. Las imágenes van al almacén `imagenes` (carpeta `entregas`) y aquí solo se apunta, para que la pantalla de Rutas no las arrastre en cada consulta.
+- `Corte` — el cierre de caja: calculado, declarado y contado. Dos `CHECK` lo cuidan: los tres datos de la recepción van juntos o no van, y **quien recibe no puede ser quien cerró**.
+- `CorteAbono` — lo que el repartidor entrega después si al recibir faltó dinero. En filas aparte para no reescribir los montos del corte.
+- Enums: `MotivoDevolucion` (catálogo cerrado: de ahí salen los reportes), `EstadoCorte` (CERRADO/RECIBIDO).
+
 **Cupones**
 - `TipoCuponCicloVida` — los 5 tipos automáticos, con `code` como clave natural.
 - `Campania` — campañas manuales con audiencia, `segmentRules` (JSON), `categorias[]`, límites de uso.
