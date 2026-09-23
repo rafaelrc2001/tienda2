@@ -11,9 +11,16 @@ import {
   Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { FiltroRutas, JornadaDto, RutasService, TableroRutasDto } from './rutas.service';
+import {
+  FiltroRutas,
+  JornadaDto,
+  PedidoEnRutaDto,
+  ResultadoEntregaDto,
+  RutasService,
+  TableroRutasDto,
+} from './rutas.service';
 import { NotaRutaDto } from './dto/nota-ruta.dto';
-import { PedidoEnPantallaDto } from '../pedidos/flujo-pedidos.service';
+import { EntregarPedidoDto, NoEntregadoDto } from './dto/entregar-pedido.dto';
 import { RequiereSeccion } from '../auth/seccion.decorator';
 import { SoloPersonal } from '../auth/solo-personal.decorator';
 import { UsuarioActual } from '../auth/usuario-actual.decorator';
@@ -65,7 +72,7 @@ export class RutasController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: NotaRutaDto,
     @UsuarioActual() usuario: UsuarioAutenticado,
-  ): Promise<PedidoEnPantallaDto> {
+  ): Promise<PedidoEnRutaDto> {
     return this.rutas.recolectar(id, usuario, dto.nota);
   }
 
@@ -74,7 +81,33 @@ export class RutasController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: NotaRutaDto,
     @UsuarioActual() usuario: UsuarioAutenticado,
-  ): Promise<PedidoEnPantallaDto> {
+  ): Promise<PedidoEnRutaDto> {
     return this.rutas.marcarEnRuta(id, usuario, dto.nota);
+  }
+
+  /**
+   * Cierra el pedido con lo que el cliente aceptó. Viaja el recuento completo
+   * del camión, no solo lo que falló: entregar es contar todo lo que baja.
+   */
+  @Post('pedidos/:id/entregar')
+  entregar(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: EntregarPedidoDto,
+    @UsuarioActual() usuario: UsuarioAutenticado,
+  ): Promise<ResultadoEntregaDto> {
+    return this.rutas.entregar(id, dto, usuario);
+  }
+
+  /**
+   * El intento que no llegó a entrega. **No cierra el pedido**: la mercancía
+   * sigue en el camión y vuelve a bodega en el corte.
+   */
+  @Post('pedidos/:id/no-entregar')
+  noEntregar(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: NoEntregadoDto,
+    @UsuarioActual() usuario: UsuarioAutenticado,
+  ): Promise<ResultadoEntregaDto> {
+    return this.rutas.noEntregar(id, dto, usuario);
   }
 }

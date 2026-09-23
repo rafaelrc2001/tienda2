@@ -34,9 +34,10 @@ export class UploadsController {
    * Devuelve una URL firmada para subir una imagen.
    *
    * Abierto a cualquier usuario autenticado: el administrador sube fotos de
-   * producto y el cliente la foto de sus propias recetas (HU-C06). La carpeta
-   * esta restringida por el DTO, asi que nadie puede escribir fuera de
-   * `productos/` ni `recetas/`.
+   * producto, el cliente la foto de sus propias recetas (HU-C06) y el
+   * repartidor la evidencia de sus entregas. La carpeta esta restringida por el
+   * DTO, asi que nadie puede escribir fuera de `productos/`, `recetas/` ni
+   * `entregas/`.
    *
    * Segun el entorno la URL apunta al bucket S3 o a esta misma API; quien sube
    * hace lo mismo en los dos casos.

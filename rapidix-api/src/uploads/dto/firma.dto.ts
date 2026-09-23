@@ -1,8 +1,11 @@
 import { IsIn, IsInt, IsOptional, Max, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 
-/** Solo hay dos sitios donde el negocio sube imagenes: productos y recetas. */
-export const CARPETAS = ['productos', 'recetas'] as const;
+/**
+ * Los sitios donde se suben imagenes: el catalogo, las recetas y la evidencia
+ * con la que el repartidor cierra una entrega (foto y firma de quien recibe).
+ */
+export const CARPETAS = ['productos', 'recetas', 'entregas'] as const;
 export type Carpeta = (typeof CARPETAS)[number];
 
 /** Formatos aceptados. Se valida el tipo declarado y se fija en el objeto. */

@@ -287,14 +287,25 @@ y leer un pedido.
 
 | Archivo | Qué contiene |
 | --- | --- |
-| [rutas.controller.ts](src/rutas/rutas.controller.ts) | `GET /admin/rutas` — el tablero: la jornada **y** los pedidos de la pestaña en una sola respuesta, porque todo lo que el repartidor puede pulsar depende de su jornada y son dos datos de la misma pantalla de teléfono. Pestañas: `disponibles` (lo que espera en bodega, de todos), `en-camion` y `entregados` (lo suyo, sin liquidar). Más `POST jornada`, `POST jornada/finalizar`, `POST pedidos/:id/recolectar` y `POST pedidos/:id/en-ruta`. |
-| [rutas.service.ts](src/rutas/rutas.service.ts) | `abrirJornada()` **reabre la que estaba finalizada** en lugar de crear otra: mientras no haya corte es el mismo día y el mismo camión, y dos jornadas partirían en dos lo que debe liquidarse junto; abrir teniendo una viva es 409 `JORNADA_ABIERTA`, y el índice parcial es quien de verdad lo impide (el P2002 se traduce al mismo código). `recolectar()` hace tres cosas en una transacción además del paso: el pedido **se queda con su repartidor**, cada renglón abre su fila de `CargaRepartidor` con el precio congelado, y el paso con su bitácora por el camino de siempre. `exigirPropio()` es un candado de dónde está la mercancía, no de permisos: tampoco el administrador marca "En ruta" un camión en el que no va. |
+| [rutas.controller.ts](src/rutas/rutas.controller.ts) | `GET /admin/rutas` — el tablero: la jornada **y** los pedidos de la pestaña en una sola respuesta, porque todo lo que el repartidor puede pulsar depende de su jornada y son dos datos de la misma pantalla de teléfono. Pestañas: `disponibles` (lo que espera en bodega, de todos), `en-camion` y `entregados` (lo suyo, sin liquidar). Más `POST jornada`, `POST jornada/finalizar`, `POST pedidos/:id/recolectar`, `POST pedidos/:id/en-ruta`, `POST pedidos/:id/entregar` y `POST pedidos/:id/no-entregar`. |
+| [rutas.service.ts](src/rutas/rutas.service.ts) | `abrirJornada()` **reabre la que estaba finalizada** en lugar de crear otra: mientras no haya corte es el mismo día y el mismo camión, y dos jornadas partirían en dos lo que debe liquidarse junto; abrir teniendo una viva es 409 `JORNADA_ABIERTA`, y el índice parcial es quien de verdad lo impide (el P2002 se traduce al mismo código). `recolectar()` hace tres cosas en una transacción además del paso: el pedido **se queda con su repartidor**, cada renglón abre su fila de `CargaRepartidor` con el precio congelado, y el paso con su bitácora por el camino de siempre. `entregar()` cierra el pedido con lo que el cliente aceptó; `noEntregar()` anota el intento **sin mover el estado**. `exigirPropio()` es un candado de dónde está la mercancía, no de permisos: tampoco el administrador marca "En ruta" un camión en el que no va. |
+| | `conCarga()` le pega a cada pedido sus renglones de camión: el `PedidoDto` no expone el id de sus líneas, así que sin esto la pantalla no tendría qué mandar al entregar. `emparejar()` exige el recuento **completo** —todos los renglones y ninguno de más—, porque dar por entregado en silencio lo que no viene convertiría un olvido de la interfaz en mercancía cobrada. `recotizar()` devuelve el precio del volumen que de verdad se lleva: quien pide 10 al precio de 10 y acepta 6 no compró 10. Se usan las listas **vigentes** del producto porque el pedido guarda el unitario que se cobró, no las listas con que se calculó. |
 | [dto/nota-ruta.dto.ts](src/rutas/dto/nota-ruta.dto.ts) | Los botones de Rutas no eligen destino —cada uno es un solo paso—, así que lo único que viaja es la aclaración para la bitácora. |
+| [dto/entregar-pedido.dto.ts](src/rutas/dto/entregar-pedido.dto.ts) | `EntregarPedidoDto` (lo **aceptado** de cada renglón, no lo devuelto: es lo que se cuenta delante del cliente; más foto, firma y coordenadas, todas opcionales) y `NoEntregadoDto` (un motivo para el pedido entero, obligatorio). |
 | [rutas.module.ts](src/rutas/rutas.module.ts) | Importa `PedidosModule`. |
 
+**Lo que Rutas no toca:** ni el total del pedido ni el inventario. Una entrega
+parcial no reescribe el pedido —es el recibo de lo que se compró—; lo cobrado
+de verdad vive en `CargaRepartidor.precioEntregado` y lo suma el corte. Y la
+mercancía devuelta sigue físicamente en el camión hasta que el corte la
+descargue (`cantidadDevuelta`, `cerradoEn`) y la reingrese a bodega.
+
 Códigos de error que interpreta la interfaz: `SIN_JORNADA`, `JORNADA_ABIERTA`,
-`JORNADA_FINALIZADA`, `PEDIDO_DE_OTRO`, `ITEM_EN_CAMION`, más los del flujo
-(`PAGO_NO_LIBERADO`, `TRANSICION_INVALIDA`…).
+`JORNADA_FINALIZADA`, `PEDIDO_DE_OTRO`, `ITEM_EN_CAMION`, `SIN_CARGA`,
+`RENGLON_DESCONOCIDO`, `RENGLONES_INCOMPLETOS`, `CANTIDAD_DE_MAS`,
+`FALTA_MOTIVO`, `MOTIVO_DE_MAS`, `NADA_ENTREGADO`, `NO_ESTA_EN_RUTA`,
+`IMAGEN_NO_ENCONTRADA`, más los del flujo (`PAGO_NO_LIBERADO`,
+`TRANSICION_INVALIDA`…).
 
 ---
 
@@ -380,7 +391,7 @@ pantalla no tiene que enterarse.
 | Archivo | Qué contiene |
 | --- | --- |
 | [uploads.module.ts](src/uploads/uploads.module.ts) | Controlador, servicio, y el middleware que deja la imagen cruda en `req.body` para el `PUT` local (ningún parser de serie recoge un `image/png`). Solo en esa ruta: el resto de la API sigue hablando JSON. Traduce el 413 de body-parser. |
-| [uploads.controller.ts](src/uploads/uploads.controller.ts) | `POST /uploads/firma`, abierto a cualquier autenticado: el admin sube fotos de producto y el cliente las de sus recetas; la carpeta la restringe el DTO. Y las dos rutas locales, **públicas**: el `PUT` porque su permiso es la firma de la query —como una URL firmada de S3—, y el `GET` porque es el `src` de un `<img>`, que no puede mandar Bearer. La base de las URL se deduce de la petición (`x-forwarded-proto` detrás de proxy), así que funciona en local y en Railway sin configurar nada; `API_PUBLIC_URL` manda si está. |
+| [uploads.controller.ts](src/uploads/uploads.controller.ts) | `POST /uploads/firma`, abierto a cualquier autenticado: el admin sube fotos de producto, el cliente las de sus recetas y el repartidor la evidencia de sus entregas; la carpeta la restringe el DTO (`productos`, `recetas`, `entregas`). Y las dos rutas locales, **públicas**: el `PUT` porque su permiso es la firma de la query —como una URL firmada de S3—, y el `GET` porque es el `src` de un `<img>`, que no puede mandar Bearer. La base de las URL se deduce de la petición (`x-forwarded-proto` detrás de proxy), así que funciona en local y en Railway sin configurar nada; `API_PUBLIC_URL` manda si está. |
 | [uploads.service.ts](src/uploads/uploads.service.ts) | Elige almacén y firma (5 min de vigencia). En local la fila no se crea al firmar sino al recibir el `PUT`, para no dejar filas vacías si el usuario cancela; el id va dentro del token, así que una firma no sirve para sobreescribir otra imagen. Escribe con `upsert` para que un reintento no falle por clave repetida. La config S3 se lee en cada llamada, no al arrancar; `forcePathStyle` para R2. |
 | [dto/firma.dto.ts](src/uploads/dto/firma.dto.ts) | Carpeta (`productos` \| `recetas`), tipo (jpeg/png/webp) y tamaño máximo de 5 MB. |
 
