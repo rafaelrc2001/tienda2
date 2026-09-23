@@ -171,110 +171,162 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
 
     <SkeletonList v-if="cargando" :cantidad="4" />
 
-    <template v-else-if="pedidos.length > 0">
-      <article v-for="pedido in pedidos" :key="pedido.id" class="pedido">
-        <header class="cabecera">
-          <div>
-            <p class="folio">{{ pedido.folio }}</p>
-            <p class="fecha">{{ fechaHora(pedido.creadoEn) }}</p>
-          </div>
-          <span class="total">{{ dinero(pedido.total) }}</span>
-        </header>
+    <div v-else-if="pedidos.length > 0" class="tabla-envoltorio">
+      <table class="tabla">
+        <thead>
+          <tr>
+            <th>Folio</th>
+            <th>Cliente</th>
+            <th>Pedido</th>
+            <th class="num">Total</th>
+            <th>Estatus de pago</th>
+          </tr>
+        </thead>
+        <tbody>
+          <template v-for="pedido in pedidos" :key="pedido.id">
+            <tr :class="{ 'con-detalle': abierto === pedido.id }">
+              <td>
+                <span class="folio">{{ pedido.folio }}</span>
+                <span class="sub">{{ fechaHora(pedido.creadoEn) }}</span>
+                <div class="enlaces">
+                  <button type="button" class="enlace" @click="alternar(pedido.id)">
+                    {{ abierto === pedido.id ? 'Ocultar' : 'Detalle' }}
+                  </button>
+                  <button type="button" class="enlace" @click="bitacoraDe = pedido">
+                    Bitácora
+                  </button>
+                </div>
+              </td>
+              <td>
+                {{ pedido.clienteNombre ?? '—' }}
+                <span class="sub">{{ nombreMetodoPago(pedido.pago.metodo) }}</span>
+              </td>
+              <td>
+                <div class="etiquetas">
+                  <span class="mini-tag">{{ nombreEstadoPedido(pedido.estado) }}</span>
+                  <span v-if="pedido.pago.billetera > 0" class="mini-tag billetera">
+                    Billetera {{ dinero(pedido.pago.billetera) }}
+                  </span>
+                  <span v-if="pedido.cashbackGenerado > 0" class="mini-tag cashback">
+                    Cashback {{ dinero(pedido.cashbackGenerado) }}
+                    {{ pedido.cashbackAcreditado ? '✓' : 'al pagarse' }}
+                  </span>
+                </div>
+              </td>
+              <td class="num">
+                <span class="importe">{{ dinero(pedido.total) }}</span>
+                <span v-if="pedido.pago.aPagar > 0" class="sub">
+                  cobrar {{ dinero(pedido.pago.aPagar) }}
+                </span>
+              </td>
+              <td class="estatus">
+                <!-- Los siete estatus. El actual se pinta hundido; los bloqueados,
+                     con su candado y el motivo debajo. -->
+                <div class="botonera">
+                  <button
+                    v-for="boton in pedido.botones"
+                    :key="boton.estado"
+                    type="button"
+                    class="btn-pago"
+                    :class="{
+                      actual: boton.actual,
+                      verde: VERDES.includes(boton.estado),
+                      rojo: boton.estado === 'CANCELADO',
+                    }"
+                    :disabled="boton.actual || boton.bloqueo !== null || cambiando === pedido.id"
+                    :title="boton.bloqueo?.mensaje"
+                    @click="pulsar(pedido, boton)"
+                  >
+                    {{ boton.bloqueo ? '🔒 ' : '' }}{{ boton.titulo }}
+                  </button>
+                </div>
 
-        <p class="cliente">
-          {{ pedido.clienteNombre ?? '—' }} · {{ nombreMetodoPago(pedido.pago.metodo) }}
-          <template v-if="pedido.pago.aPagar > 0">
-            · cobrar {{ dinero(pedido.pago.aPagar) }}
+                <p
+                  v-if="pedido.botones.some((b) => b.bloqueo?.codigo === 'MERCANCIA_FUERA')"
+                  class="bloqueo"
+                >
+                  La mercancía ya salió de bodega: el pedido ya no se puede cancelar.
+                </p>
+                <p v-else-if="pedido.pago.estado === 'CANCELADO'" class="bloqueo">
+                  Pedido cancelado: su inventario regresó a bodega. Si el cliente retoma la
+                  compra, levanta un pedido nuevo.
+                </p>
+              </td>
+            </tr>
+
+            <tr v-if="abierto === pedido.id" class="fila-detalle">
+              <td colspan="5">
+                <table class="tabla-lineas angosta">
+                  <thead>
+                    <tr>
+                      <th class="num">Cantidad</th>
+                      <th>Producto</th>
+                      <th class="num">Importe</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="item in pedido.items" :key="item.productoId">
+                      <td class="num">{{ item.cantidad }} {{ item.unidad }}</td>
+                      <td>{{ item.nombre }}</td>
+                      <td class="num">{{ dinero(item.importe) }}</td>
+                    </tr>
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td colspan="2">Productos</td>
+                      <td class="num">{{ dinero(pedido.subtotal) }}</td>
+                    </tr>
+                    <tr v-if="pedido.metodoEntrega === 'DOMICILIO'">
+                      <td colspan="2">Envío</td>
+                      <td class="num">
+                        {{ pedido.envio === 0 ? 'Gratis' : dinero(pedido.envio) }}
+                      </td>
+                    </tr>
+                    <tr v-if="pedido.recargoFuera > 0">
+                      <td colspan="2">Recargo fuera de horario</td>
+                      <td class="num">{{ dinero(pedido.recargoFuera) }}</td>
+                    </tr>
+                    <tr v-if="pedido.descuento > 0">
+                      <td colspan="2">
+                        {{ pedido.cupon ? `Cupón ${pedido.cupon.code}` : 'Descuento' }}
+                      </td>
+                      <td class="num">−{{ dinero(pedido.descuento) }}</td>
+                    </tr>
+                    <tr v-if="pedido.pago.billetera > 0">
+                      <td colspan="2">Pagó con su billetera</td>
+                      <td class="num">−{{ dinero(pedido.pago.billetera) }}</td>
+                    </tr>
+                    <tr class="fuerte">
+                      <td colspan="2">
+                        {{
+                          pedido.pago.aPagar > 0
+                            ? `A cobrar · ${nombreMetodoPago(pedido.pago.metodo)}`
+                            : 'Cubierto'
+                        }}
+                      </td>
+                      <td class="num">{{ dinero(pedido.pago.aPagar) }}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+                <p
+                  v-if="pedido.pago.pagoCon !== null && pedido.pago.cambio !== null"
+                  class="nota-pago"
+                >
+                  💵 Paga con {{ dinero(pedido.pago.pagoCon) }} · Cambio
+                  {{ dinero(pedido.pago.cambio) }}
+                </p>
+                <p class="nota-pago">
+                  🧾 Referencia de transferencia: {{ pedido.pago.referencia }}
+                </p>
+                <p v-if="direccionCorta(pedido)" class="nota-pago">
+                  📍 {{ direccionCorta(pedido) }}
+                </p>
+              </td>
+            </tr>
           </template>
-        </p>
-
-        <div class="etiquetas">
-          <span class="mini-tag">{{ nombreEstadoPedido(pedido.estado) }}</span>
-          <span v-if="pedido.pago.billetera > 0" class="mini-tag billetera">
-            Billetera {{ dinero(pedido.pago.billetera) }}
-          </span>
-          <span v-if="pedido.cashbackGenerado > 0" class="mini-tag cashback">
-            Cashback {{ dinero(pedido.cashbackGenerado) }}
-            {{ pedido.cashbackAcreditado ? '✓' : 'al pagarse' }}
-          </span>
-        </div>
-
-        <!-- Los siete estatus. El actual se pinta hundido; los bloqueados, con
-             su candado y el motivo debajo. -->
-        <div class="botonera">
-          <button
-            v-for="boton in pedido.botones"
-            :key="boton.estado"
-            type="button"
-            class="btn-pago"
-            :class="{
-              actual: boton.actual,
-              verde: VERDES.includes(boton.estado),
-              rojo: boton.estado === 'CANCELADO',
-            }"
-            :disabled="boton.actual || boton.bloqueo !== null || cambiando === pedido.id"
-            :title="boton.bloqueo?.mensaje"
-            @click="pulsar(pedido, boton)"
-          >
-            {{ boton.bloqueo ? '🔒 ' : '' }}{{ boton.titulo }}
-          </button>
-        </div>
-
-        <p v-if="pedido.botones.some((b) => b.bloqueo?.codigo === 'MERCANCIA_FUERA')" class="bloqueo">
-          La mercancía ya salió de bodega: el pedido ya no se puede cancelar.
-        </p>
-        <p v-else-if="pedido.pago.estado === 'CANCELADO'" class="bloqueo">
-          Pedido cancelado: su inventario regresó a bodega. Si el cliente retoma la compra, levanta
-          un pedido nuevo.
-        </p>
-
-        <div class="enlaces">
-          <button type="button" class="enlace" @click="alternar(pedido.id)">
-            {{ abierto === pedido.id ? 'Ocultar detalle' : 'Ver detalle' }}
-          </button>
-          <button type="button" class="enlace" @click="bitacoraDe = pedido">Bitácora</button>
-        </div>
-
-        <div v-if="abierto === pedido.id" class="detalle">
-          <ul class="lineas">
-            <li v-for="item in pedido.items" :key="item.productoId">
-              <span class="cantidad">{{ item.cantidad }} {{ item.unidad }}</span>
-              <span class="nombre">{{ item.nombre }}</span>
-              <span class="importe">{{ dinero(item.importe) }}</span>
-            </li>
-          </ul>
-
-          <div class="fila"><span>Productos</span><span>{{ dinero(pedido.subtotal) }}</span></div>
-          <div v-if="pedido.metodoEntrega === 'DOMICILIO'" class="fila">
-            <span>Envío</span>
-            <span>{{ pedido.envio === 0 ? 'Gratis' : dinero(pedido.envio) }}</span>
-          </div>
-          <div v-if="pedido.recargoFuera > 0" class="fila">
-            <span>Recargo fuera de horario</span><span>{{ dinero(pedido.recargoFuera) }}</span>
-          </div>
-          <div v-if="pedido.descuento > 0" class="fila">
-            <span>{{ pedido.cupon ? `Cupón ${pedido.cupon.code}` : 'Descuento' }}</span>
-            <span>−{{ dinero(pedido.descuento) }}</span>
-          </div>
-          <div v-if="pedido.pago.billetera > 0" class="fila">
-            <span>Pagó con su billetera</span><span>−{{ dinero(pedido.pago.billetera) }}</span>
-          </div>
-          <div class="fila fuerte">
-            <span>
-              {{
-                pedido.pago.aPagar > 0 ? `A cobrar · ${nombreMetodoPago(pedido.pago.metodo)}` : 'Cubierto'
-              }}
-            </span>
-            <span>{{ dinero(pedido.pago.aPagar) }}</span>
-          </div>
-          <p v-if="pedido.pago.pagoCon !== null && pedido.pago.cambio !== null" class="nota-pago">
-            💵 Paga con {{ dinero(pedido.pago.pagoCon) }} · Cambio {{ dinero(pedido.pago.cambio) }}
-          </p>
-          <p class="nota-pago">🧾 Referencia de transferencia: {{ pedido.pago.referencia }}</p>
-          <p v-if="direccionCorta(pedido)" class="nota-pago">📍 {{ direccionCorta(pedido) }}</p>
-        </div>
-      </article>
-    </template>
+        </tbody>
+      </table>
+    </div>
 
     <p v-else class="empty-block">
       {{
@@ -366,55 +418,14 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
   margin: 0 0 12px;
 }
 
-.pedido {
-  background: var(--white);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow);
-  padding: 14px;
-  margin-bottom: 12px;
-}
-
-.cabecera {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 10px;
-}
-
-.folio {
-  margin: 0;
-  font-family: var(--font-heading);
-  font-weight: 800;
-  font-size: 13px;
-  color: var(--terracotta-dark);
-  letter-spacing: 0.04em;
-}
-
-.fecha {
-  margin: 2px 0 0;
-  font-size: 11px;
-  color: var(--muted);
-}
-
-.total {
-  font-family: var(--font-heading);
-  font-weight: 800;
-  font-size: 15px;
-  color: var(--ink);
-  white-space: nowrap;
-}
-
-.cliente {
-  margin: 8px 0 0;
-  font-size: 12.5px;
-  color: var(--ink);
+.tabla {
+  min-width: 800px;
 }
 
 .etiquetas {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 8px;
+  gap: 4px;
 }
 
 .mini-tag.billetera {
@@ -431,15 +442,18 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
 .botonera {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 6px;
-  margin-top: 12px;
+  gap: 4px;
+}
+
+.estatus {
+  width: 250px;
 }
 
 .btn-pago {
   font-family: var(--font-heading);
   font-weight: 700;
-  font-size: 12px;
-  padding: 9px 6px;
+  font-size: 11px;
+  padding: 6px 4px;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   background: var(--cream);
@@ -476,81 +490,14 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
 }
 
 .bloqueo {
-  margin: 8px 0 0;
+  margin: 6px 0 0;
   font-size: 11.5px;
   font-weight: 600;
   color: var(--orange-dark);
 }
 
-.enlaces {
-  display: flex;
-  gap: 16px;
-  margin-top: 10px;
-}
-
-.enlace {
-  background: none;
-  border: none;
-  padding: 4px 0;
-  font-family: var(--font-heading);
-  font-weight: 700;
-  font-size: 12px;
-  color: var(--terracotta-dark);
-  cursor: pointer;
-}
-
-.detalle {
-  border-top: 1px solid var(--line);
-  margin-top: 10px;
-  padding-top: 10px;
-}
-
-.lineas {
-  list-style: none;
-  margin: 0 0 10px;
-  padding: 0;
-}
-
-.lineas li {
-  display: flex;
-  gap: 8px;
-  font-size: 12.5px;
-  color: var(--ink);
-  padding: 3px 0;
-}
-
-.lineas .cantidad {
-  flex-shrink: 0;
-  font-family: var(--font-heading);
-  font-weight: 700;
-  color: var(--muted);
-}
-
-.lineas .nombre {
-  flex: 1;
-  min-width: 0;
-}
-
-.lineas .importe {
-  flex-shrink: 0;
-  font-weight: 600;
-}
-
-.fila {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  font-size: 12.5px;
-  color: var(--ink);
-  padding: 3px 0;
-}
-
-.fila.fuerte {
-  font-family: var(--font-heading);
-  font-weight: 800;
-  border-top: 1px solid var(--line);
-  margin-top: 4px;
-  padding-top: 7px;
+.tabla-lineas.angosta {
+  max-width: 520px;
 }
 
 .nota-pago {

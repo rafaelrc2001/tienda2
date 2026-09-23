@@ -305,127 +305,193 @@ function cobraEnEfectivo(pedido: PedidoEnRuta): boolean {
 
     <SkeletonList v-if="cargando" :cantidad="3" />
 
-    <template v-else-if="pedidos.length > 0">
-      <article v-for="pedido in pedidos" :key="pedido.id" class="pedido">
-        <header class="cabecera">
-          <div>
-            <p class="folio">{{ pedido.folio }}</p>
-            <p class="fecha">{{ fechaHora(pedido.creadoEn) }}</p>
-          </div>
-          <span class="total">{{ dinero(pedido.total) }}</span>
-        </header>
-
-        <p class="cliente">{{ pedido.clienteNombre ?? '—' }}</p>
-        <p v-if="direccionCorta(pedido)" class="direccion">📍 {{ direccionCorta(pedido) }}</p>
-
-        <div class="etiquetas">
-          <span class="mini-tag">{{ nombreEstadoPedido(pedido.estado, pedido.pago.estado) }}</span>
-          <span v-if="cobraEnEfectivo(pedido)" class="mini-tag cobrar">
-            Cobrar {{ dinero(pedido.pago.aPagar) }}
-          </span>
-          <span v-else class="mini-tag pagado">
-            {{ nombreMetodoPago(pedido.pago.metodo) }} · no cobras
-          </span>
-          <span v-if="piezasArriba(pedido) > 0" class="mini-tag camion">
-            {{ piezasArriba(pedido) }} pieza(s) arriba
-          </span>
-        </div>
-
-        <p v-if="pedido.pago.pagoCon !== null && pedido.pago.cambio !== null" class="nota-pago">
-          💵 Paga con {{ dinero(pedido.pago.pagoCon) }} · Cambio {{ dinero(pedido.pago.cambio) }}
-        </p>
-
-        <!-- El paso que le toca a Rutas, o por qué no se puede dar. -->
-        <div v-if="pedido.paso.siguiente && pedido.paso.seccion === 'rutas'" class="botonera">
-          <button
-            type="button"
-            class="btn-primary"
-            :disabled="!trabajando || pedido.paso.bloqueo !== null || moviendo === pedido.id"
-            @click="avanzar(pedido)"
-          >
-            <template v-if="moviendo === pedido.id">…</template>
-            <template v-else>
-              {{ pedido.paso.bloqueo ? '🔒 ' : '' }}{{ TITULO_PASO[pedido.paso.siguiente] }}
-            </template>
-          </button>
-          <button
-            v-if="pedido.estado === 'EN_RUTA'"
-            type="button"
-            class="btn-cancel"
-            :disabled="!trabajando || moviendo === pedido.id"
-            @click="abrirNoEntregado(pedido)"
-          >
-            No entregado
-          </button>
-        </div>
-        <p v-else-if="pedido.paso.siguiente" class="aviso">🏭 Lo está surtiendo Operaciones.</p>
-        <p v-else class="aviso hecho">✓ Entregado · entra en tu corte</p>
-
-        <p v-if="pedido.paso.bloqueo" class="bloqueo">{{ pedido.paso.bloqueo.mensaje }}</p>
-        <p
-          v-else-if="!trabajando && pedido.paso.siguiente && pedido.paso.seccion === 'rutas'"
-          class="bloqueo"
-        >
-          {{
-            jornada
-              ? 'Finalizaste las entregas de hoy: reanúdalas o haz tu corte.'
-              : 'Inicia tu jornada para mover pedidos.'
-          }}
-        </p>
-
-        <button type="button" class="enlace" @click="alternar(pedido.id)">
-          {{ abierto === pedido.id ? 'Ocultar detalle' : 'Ver detalle' }}
-        </button>
-
-        <div v-if="abierto === pedido.id" class="detalle">
-          <!-- Lo comprado: es el recibo del pedido y no cambia nunca, ni con
-               una entrega parcial. -->
-          <ul class="lineas">
-            <li v-for="item in pedido.items" :key="item.productoId">
-              <span class="cantidad">{{ item.cantidad }} {{ item.unidad }}</span>
-              <span class="nombre">{{ item.nombre }}</span>
-              <span class="importe">{{ dinero(item.importe) }}</span>
-            </li>
-          </ul>
-
-          <!-- Y aparte lo que el cliente no aceptó, que es cosa del camión. -->
-          <ul v-if="sinAceptar(pedido).length > 0" class="lineas devueltos">
-            <li v-for="renglon in sinAceptar(pedido)" :key="renglon.pedidoItemId">
-              <span class="cantidad">
-                {{ renglon.cantidadCargada - renglon.cantidadEntregada }} {{ renglon.unidad }}
-              </span>
-              <span class="nombre">
-                {{ renglon.nombre }}
-                <span class="sub">
-                  {{
-                    renglon.motivoDevolucion
-                      ? nombreMotivo(renglon.motivoDevolucion)
-                      : 'Sin aceptar'
-                  }}
-                  · {{ renglon.enCamion ? 'sigue en tu camión' : 'regresó a bodega' }}
+    <div v-else-if="pedidos.length > 0" class="tabla-envoltorio">
+      <table class="tabla">
+        <thead>
+          <tr>
+            <th>Folio</th>
+            <th>Cliente</th>
+            <th>Estado</th>
+            <th>Cobro</th>
+            <th class="num">Total</th>
+            <th>Acción</th>
+          </tr>
+        </thead>
+        <tbody>
+          <template v-for="pedido in pedidos" :key="pedido.id">
+            <tr :class="{ 'con-detalle': abierto === pedido.id }">
+              <td>
+                <span class="folio">{{ pedido.folio }}</span>
+                <span class="sub">{{ fechaHora(pedido.creadoEn) }}</span>
+              </td>
+              <td class="cliente">
+                {{ pedido.clienteNombre ?? '—' }}
+                <span v-if="direccionCorta(pedido)" class="sub">
+                  📍 {{ direccionCorta(pedido) }}
                 </span>
-              </span>
-            </li>
-          </ul>
+              </td>
+              <td>
+                <div class="etiquetas">
+                  <span class="mini-tag">
+                    {{ nombreEstadoPedido(pedido.estado, pedido.pago.estado) }}
+                  </span>
+                  <span v-if="piezasArriba(pedido) > 0" class="mini-tag camion">
+                    {{ piezasArriba(pedido) }} pieza(s) arriba
+                  </span>
+                </div>
+              </td>
+              <td>
+                <span v-if="cobraEnEfectivo(pedido)" class="mini-tag cobrar">
+                  Cobrar {{ dinero(pedido.pago.aPagar) }}
+                </span>
+                <span v-else class="mini-tag pagado">
+                  {{ nombreMetodoPago(pedido.pago.metodo) }} · no cobras
+                </span>
+                <span
+                  v-if="pedido.pago.pagoCon !== null && pedido.pago.cambio !== null"
+                  class="sub"
+                >
+                  💵 Paga con {{ dinero(pedido.pago.pagoCon) }} · Cambio
+                  {{ dinero(pedido.pago.cambio) }}
+                </span>
+              </td>
+              <td class="num importe">{{ dinero(pedido.total) }}</td>
+              <td class="accion">
+                <!-- El paso que le toca a Rutas, o por qué no se puede dar. -->
+                <div
+                  v-if="pedido.paso.siguiente && pedido.paso.seccion === 'rutas'"
+                  class="botonera"
+                >
+                  <button
+                    type="button"
+                    class="btn-primary"
+                    :disabled="
+                      !trabajando || pedido.paso.bloqueo !== null || moviendo === pedido.id
+                    "
+                    @click="avanzar(pedido)"
+                  >
+                    <template v-if="moviendo === pedido.id">…</template>
+                    <template v-else>
+                      {{ pedido.paso.bloqueo ? '🔒 ' : '' }}{{ TITULO_PASO[pedido.paso.siguiente] }}
+                    </template>
+                  </button>
+                  <button
+                    v-if="pedido.estado === 'EN_RUTA'"
+                    type="button"
+                    class="btn-cancel"
+                    :disabled="!trabajando || moviendo === pedido.id"
+                    @click="abrirNoEntregado(pedido)"
+                  >
+                    No entregado
+                  </button>
+                </div>
+                <p v-else-if="pedido.paso.siguiente" class="aviso">
+                  🏭 Lo está surtiendo Operaciones.
+                </p>
+                <p v-else class="aviso hecho">✓ Entregado · entra en tu corte</p>
 
-          <div class="fila"><span>Productos</span><span>{{ dinero(pedido.subtotal) }}</span></div>
-          <div v-if="pedido.envio > 0" class="fila">
-            <span>Envío</span><span>{{ dinero(pedido.envio) }}</span>
-          </div>
-          <div v-if="pedido.descuento > 0" class="fila">
-            <span>{{ pedido.cupon ? `Cupón ${pedido.cupon.code}` : 'Descuento' }}</span>
-            <span>−{{ dinero(pedido.descuento) }}</span>
-          </div>
-          <div v-if="pedido.pago.billetera > 0" class="fila">
-            <span>Pagó con su billetera</span><span>−{{ dinero(pedido.pago.billetera) }}</span>
-          </div>
-          <div class="fila fuerte">
-            <span>{{ pedido.pago.aPagar > 0 ? 'A cobrar' : 'Cubierto' }}</span>
-            <span>{{ dinero(pedido.pago.aPagar) }}</span>
-          </div>
-        </div>
-      </article>
-    </template>
+                <p v-if="pedido.paso.bloqueo" class="bloqueo">{{ pedido.paso.bloqueo.mensaje }}</p>
+                <p
+                  v-else-if="!trabajando && pedido.paso.siguiente && pedido.paso.seccion === 'rutas'"
+                  class="bloqueo"
+                >
+                  {{
+                    jornada
+                      ? 'Finalizaste las entregas de hoy: reanúdalas o haz tu corte.'
+                      : 'Inicia tu jornada para mover pedidos.'
+                  }}
+                </p>
+
+                <div class="enlaces">
+                  <button type="button" class="enlace" @click="alternar(pedido.id)">
+                    {{ abierto === pedido.id ? 'Ocultar detalle' : 'Ver detalle' }}
+                  </button>
+                </div>
+              </td>
+            </tr>
+
+            <tr v-if="abierto === pedido.id" class="fila-detalle">
+              <td colspan="6">
+                <!-- Lo comprado: es el recibo del pedido y no cambia nunca, ni con
+                     una entrega parcial. -->
+                <table class="tabla-lineas angosta">
+                  <thead>
+                    <tr>
+                      <th class="num">Cantidad</th>
+                      <th>Producto</th>
+                      <th class="num">Importe</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="item in pedido.items" :key="item.productoId">
+                      <td class="num">{{ item.cantidad }} {{ item.unidad }}</td>
+                      <td>{{ item.nombre }}</td>
+                      <td class="num">{{ dinero(item.importe) }}</td>
+                    </tr>
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td colspan="2">Productos</td>
+                      <td class="num">{{ dinero(pedido.subtotal) }}</td>
+                    </tr>
+                    <tr v-if="pedido.envio > 0">
+                      <td colspan="2">Envío</td>
+                      <td class="num">{{ dinero(pedido.envio) }}</td>
+                    </tr>
+                    <tr v-if="pedido.descuento > 0">
+                      <td colspan="2">
+                        {{ pedido.cupon ? `Cupón ${pedido.cupon.code}` : 'Descuento' }}
+                      </td>
+                      <td class="num">−{{ dinero(pedido.descuento) }}</td>
+                    </tr>
+                    <tr v-if="pedido.pago.billetera > 0">
+                      <td colspan="2">Pagó con su billetera</td>
+                      <td class="num">−{{ dinero(pedido.pago.billetera) }}</td>
+                    </tr>
+                    <tr class="fuerte">
+                      <td colspan="2">{{ pedido.pago.aPagar > 0 ? 'A cobrar' : 'Cubierto' }}</td>
+                      <td class="num">{{ dinero(pedido.pago.aPagar) }}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+
+                <!-- Y aparte lo que el cliente no aceptó, que es cosa del camión. -->
+                <table
+                  v-if="sinAceptar(pedido).length > 0"
+                  class="tabla-lineas angosta devueltos"
+                >
+                  <thead>
+                    <tr>
+                      <th class="num">Sin aceptar</th>
+                      <th>Producto</th>
+                      <th>Motivo</th>
+                      <th>Dónde está</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="renglon in sinAceptar(pedido)" :key="renglon.pedidoItemId">
+                      <td class="num">
+                        {{ renglon.cantidadCargada - renglon.cantidadEntregada }}
+                        {{ renglon.unidad }}
+                      </td>
+                      <td>{{ renglon.nombre }}</td>
+                      <td class="motivo">
+                        {{
+                          renglon.motivoDevolucion
+                            ? nombreMotivo(renglon.motivoDevolucion)
+                            : 'Sin aceptar'
+                        }}
+                      </td>
+                      <td>{{ renglon.enCamion ? 'Sigue en tu camión' : 'Regresó a bodega' }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
 
     <p v-else class="empty-block">
       {{
@@ -545,62 +611,22 @@ function cobraEnEfectivo(pedido: PedidoEnRuta): boolean {
   margin: 0 0 12px;
 }
 
-.pedido {
-  background: var(--white);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow);
-  padding: 14px;
-  margin-bottom: 12px;
-}
-
-.cabecera {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 10px;
-}
-
-.folio {
-  margin: 0;
-  font-family: var(--font-heading);
-  font-weight: 800;
-  font-size: 13px;
-  color: var(--terracotta-dark);
-  letter-spacing: 0.04em;
-}
-
-.fecha {
-  margin: 2px 0 0;
-  font-size: 11px;
-  color: var(--muted);
-}
-
-.total {
-  font-family: var(--font-heading);
-  font-weight: 800;
-  font-size: 15px;
-  color: var(--ink);
-  white-space: nowrap;
+.tabla {
+  min-width: 820px;
 }
 
 .cliente {
-  margin: 8px 0 0;
-  font-size: 12.5px;
-  color: var(--ink);
+  max-width: 220px;
 }
 
-.direccion {
-  margin: 3px 0 0;
-  font-size: 12px;
-  color: var(--muted);
+.cliente .sub {
   line-height: 1.4;
 }
 
 .etiquetas {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 8px;
+  gap: 4px;
 }
 
 .mini-tag.cobrar {
@@ -618,26 +644,23 @@ function cobraEnEfectivo(pedido: PedidoEnRuta): boolean {
   color: var(--white);
 }
 
-.nota-pago {
-  margin: 6px 0 0;
-  font-size: 12px;
-  color: var(--ink);
+.accion {
+  width: 200px;
 }
 
 .botonera {
   display: flex;
-  gap: 8px;
-  margin-top: 12px;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .botonera button {
-  flex: 1;
-  padding: 10px 8px;
-  font-size: 12.5px;
+  padding: 8px 10px;
+  font-size: 12px;
 }
 
 .aviso {
-  margin: 12px 0 0;
+  margin: 0;
   font-size: 12px;
   font-weight: 600;
   color: var(--muted);
@@ -648,87 +671,20 @@ function cobraEnEfectivo(pedido: PedidoEnRuta): boolean {
 }
 
 .bloqueo {
-  margin: 8px 0 0;
+  margin: 6px 0 0;
   font-size: 11.5px;
   font-weight: 600;
   color: var(--orange-dark);
 }
 
-.enlace {
-  background: none;
-  border: none;
-  padding: 8px 0 0;
-  font-family: var(--font-heading);
-  font-weight: 700;
-  font-size: 12px;
-  color: var(--terracotta-dark);
-  cursor: pointer;
-}
-
-.detalle {
-  border-top: 1px solid var(--line);
-  margin-top: 8px;
-  padding-top: 10px;
-}
-
-.lineas {
-  list-style: none;
-  margin: 0 0 10px;
-  padding: 0;
-}
-
-.lineas li {
-  display: flex;
-  gap: 8px;
-  font-size: 12.5px;
-  color: var(--ink);
-  padding: 3px 0;
+.tabla-lineas.angosta {
+  max-width: 620px;
 }
 
 /* Lo que vuelve del camión, separado de lo que se compró. */
-.lineas.devueltos {
-  border-top: 1px dashed var(--line);
-  padding-top: 8px;
-}
-
-.lineas .cantidad {
-  flex-shrink: 0;
-  font-family: var(--font-heading);
-  font-weight: 700;
-  color: var(--muted);
-}
-
-.lineas .nombre {
-  flex: 1;
-  min-width: 0;
-}
-
-.lineas .sub {
-  display: block;
-  font-size: 10.5px;
+.tabla-lineas.devueltos .motivo {
   color: var(--orange-dark);
-}
-
-.lineas .importe {
-  flex-shrink: 0;
   font-weight: 600;
-}
-
-.fila {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  font-size: 12.5px;
-  color: var(--ink);
-  padding: 3px 0;
-}
-
-.fila.fuerte {
-  font-family: var(--font-heading);
-  font-weight: 800;
-  border-top: 1px solid var(--line);
-  margin-top: 4px;
-  padding-top: 7px;
 }
 
 .modal-texto {

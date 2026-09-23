@@ -96,27 +96,41 @@ async function corregir(): Promise<void> {
 
       <!-- Capturar: lo que dice el sistema, y aparte lo que dice él. -->
       <template v-else-if="!corte && resumen">
-        <div class="bloque">
+        <div v-if="resumen.pedidos.length > 0" class="tabla-envoltorio bloque">
+          <table class="tabla">
+            <thead>
+              <tr>
+                <th>Pedido</th>
+                <th class="num">Regresan</th>
+                <th class="num">Efectivo</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="pedido in resumen.pedidos" :key="pedido.id">
+                <td>
+                  <span class="folio">{{ pedido.folio }}</span>
+                  <span class="sub">
+                    {{ pedido.clienteNombre }} · {{ nombreEstadoPedido(pedido.estado) }}
+                  </span>
+                </td>
+                <td class="num">{{ pedido.devueltas > 0 ? pedido.devueltas : '—' }}</td>
+                <td class="num importe">{{ dinero(pedido.efectivo) }}</td>
+              </tr>
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colspan="2">Efectivo que dice el sistema</td>
+                <td class="num">{{ dinero(resumen.montoCalculado) }}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        <div v-else class="bloque">
           <div class="fila fuerte">
             <span>Efectivo que dice el sistema</span>
             <span>{{ dinero(resumen.montoCalculado) }}</span>
           </div>
-          <ul v-if="resumen.pedidos.length > 0" class="pedidos">
-            <li v-for="pedido in resumen.pedidos" :key="pedido.id">
-              <span class="folio">{{ pedido.folio }}</span>
-              <span class="cliente">
-                {{ pedido.clienteNombre }}
-                <span class="sub">
-                  {{ nombreEstadoPedido(pedido.estado) }}
-                  <template v-if="pedido.devueltas > 0">
-                    · {{ pedido.devueltas }} regresa(n)
-                  </template>
-                </span>
-              </span>
-              <span class="importe">{{ dinero(pedido.efectivo) }}</span>
-            </li>
-          </ul>
-          <p v-else class="aviso">No entregaste nada en esta jornada.</p>
+          <p class="aviso">No entregaste nada en esta jornada.</p>
         </div>
 
         <p class="regresan">
@@ -244,46 +258,22 @@ async function corregir(): Promise<void> {
   color: var(--rojo);
 }
 
-.pedidos {
-  list-style: none;
-  margin: 8px 0 0;
-  padding: 8px 0 0;
+/* El total va al pie de la tabla, en la misma columna que los importes. */
+.tabla tfoot td {
+  padding: 10px 12px;
   border-top: 1px solid var(--line);
-}
-
-.pedidos li {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 4px 0;
-  font-size: 12px;
-}
-
-.pedidos .folio {
   font-family: var(--font-heading);
   font-weight: 800;
-  font-size: 11px;
-  color: var(--terracotta-dark);
-  letter-spacing: 0.03em;
-  flex-shrink: 0;
-}
-
-.pedidos .cliente {
-  flex: 1;
-  min-width: 0;
+  font-size: 13px;
   color: var(--ink);
 }
 
-.pedidos .sub {
-  display: block;
-  font-size: 10.5px;
-  color: var(--muted);
+.bloque.tabla-envoltorio {
+  padding: 0;
 }
 
-.pedidos .importe {
-  flex-shrink: 0;
-  font-family: var(--font-heading);
-  font-weight: 700;
+.bloque .aviso {
+  margin: 6px 0 0;
 }
 
 .regresan {

@@ -31,6 +31,7 @@ const cortes = ref<Corte[]>([])
 const conteos = ref<Record<FiltroCortes, number> | null>(null)
 const cargando = ref(true)
 const guardando = ref(false)
+const abierto = ref<string | null>(null)
 
 /** La hoja abierta: contar el dinero de un corte, o abonar sobre lo que faltó. */
 const recibiendo = ref<Corte | null>(null)
@@ -63,7 +64,17 @@ onMounted(() => cargar())
 function elegir(nuevo: FiltroCortes): void {
   if (nuevo === filtro.value) return
   filtro.value = nuevo
+  abierto.value = null
   void cargar()
+}
+
+function alternar(id: string): void {
+  abierto.value = abierto.value === id ? null : id
+}
+
+/** Solo se ofrece abrir el detalle si hay algo que enseñar en él. */
+function tieneDetalle(corte: Corte): boolean {
+  return corte.abonos.length > 0 || Boolean(corte.notas)
 }
 
 function abrirRecibir(corte: Corte): void {
@@ -151,65 +162,94 @@ async function abonar(): Promise<void> {
 
     <SkeletonList v-if="cargando" :cantidad="3" />
 
-    <template v-else-if="cortes.length > 0">
-      <article v-for="corte in cortes" :key="corte.id" class="corte">
-        <header class="cabecera">
-          <div>
-            <p class="repartidor">🛵 {{ corte.repartidorNombre }}</p>
-            <p class="fecha">
-              Cerrado {{ fechaHora(corte.cerradoEn) }} · {{ corte.pedidos }} pedido(s)
-            </p>
-          </div>
-          <span class="total">{{ dinero(corte.montoCalculado) }}</span>
-        </header>
+    <div v-else-if="cortes.length > 0" class="tabla-envoltorio">
+      <table class="tabla">
+        <thead>
+          <tr>
+            <th>Repartidor</th>
+            <th class="num">Pedidos</th>
+            <th class="num">Dice el sistema</th>
+            <th class="num">Declaró</th>
+            <th class="num">Diferencia</th>
+            <th class="num">Contado</th>
+            <th class="num">Saldo</th>
+            <th>Acción</th>
+          </tr>
+        </thead>
+        <tbody>
+          <template v-for="corte in cortes" :key="corte.id">
+            <tr :class="{ 'con-detalle': abierto === corte.id }">
+              <td>
+                <span class="nombre">🛵 {{ corte.repartidorNombre }}</span>
+                <span class="sub">Cerrado {{ fechaHora(corte.cerradoEn) }}</span>
+                <div v-if="tieneDetalle(corte)" class="enlaces">
+                  <button type="button" class="enlace" @click="alternar(corte.id)">
+                    {{ abierto === corte.id ? 'Ocultar detalle' : 'Ver detalle' }}
+                  </button>
+                </div>
+              </td>
+              <td class="num">{{ corte.pedidos }}</td>
+              <td class="num importe">{{ dinero(corte.montoCalculado) }}</td>
+              <td class="num">{{ dinero(corte.montoDeclarado) }}</td>
+              <td class="num" :class="{ falta: corte.diferencia < 0 }">
+                {{ dinero(corte.diferencia) }}
+              </td>
+              <td class="num">
+                <template v-if="corte.montoRecibido !== null">
+                  {{ dinero(corte.montoRecibido) }}
+                  <span class="sub">{{ corte.recibidoPorNombre ?? '—' }}</span>
+                </template>
+                <template v-else>—</template>
+              </td>
+              <td class="num importe" :class="{ falta: corte.saldoPendiente > 0 }">
+                <template v-if="corte.montoRecibido !== null">
+                  {{ corte.saldoPendiente > 0 ? dinero(corte.saldoPendiente) : 'Saldado' }}
+                </template>
+                <template v-else>—</template>
+              </td>
+              <td class="accion">
+                <button
+                  v-if="corte.estado === 'CERRADO'"
+                  type="button"
+                  class="btn-primary"
+                  @click="abrirRecibir(corte)"
+                >
+                  Contar y recibir
+                </button>
+                <button v-else type="button" class="btn-secondary" @click="abrirAbono(corte)">
+                  Registrar abono
+                </button>
+              </td>
+            </tr>
 
-        <div class="fila">
-          <span>Dice el sistema</span><span>{{ dinero(corte.montoCalculado) }}</span>
-        </div>
-        <div class="fila"><span>Declaró</span><span>{{ dinero(corte.montoDeclarado) }}</span></div>
-        <div class="fila" :class="{ falta: corte.diferencia < 0 }">
-          <span>{{ corte.diferencia < 0 ? 'Dice traer de menos' : 'Diferencia declarada' }}</span>
-          <span>{{ dinero(corte.diferencia) }}</span>
-        </div>
-
-        <template v-if="corte.montoRecibido !== null">
-          <div class="fila">
-            <span>Contado por {{ corte.recibidoPorNombre ?? '—' }}</span>
-            <span>{{ dinero(corte.montoRecibido) }}</span>
-          </div>
-          <div class="fila fuerte" :class="{ falta: corte.saldoPendiente > 0 }">
-            <span>{{ corte.saldoPendiente > 0 ? 'Le falta entregar' : 'Saldado' }}</span>
-            <span>{{ dinero(corte.saldoPendiente) }}</span>
-          </div>
-        </template>
-
-        <ul v-if="corte.abonos.length > 0" class="abonos">
-          <li v-for="abono in corte.abonos" :key="abono.id">
-            <span class="importe">{{ dinero(abono.monto) }}</span>
-            <span class="detalle">
-              {{ fechaHora(abono.creadoEn) }} · {{ abono.registradoPorNombre }}
-              <span v-if="abono.nota" class="sub">{{ abono.nota }}</span>
-            </span>
-          </li>
-        </ul>
-
-        <p v-if="corte.notas" class="notas">📝 {{ corte.notas }}</p>
-
-        <div class="botonera">
-          <button
-            v-if="corte.estado === 'CERRADO'"
-            type="button"
-            class="btn-primary"
-            @click="abrirRecibir(corte)"
-          >
-            Contar y recibir
-          </button>
-          <button v-else type="button" class="btn-secondary" @click="abrirAbono(corte)">
-            Registrar abono
-          </button>
-        </div>
-      </article>
-    </template>
+            <!-- Los abonos que llegaron después del conteo y las notas del corte. -->
+            <tr v-if="abierto === corte.id" class="fila-detalle">
+              <td colspan="8">
+                <table v-if="corte.abonos.length > 0" class="tabla-lineas angosta">
+                  <thead>
+                    <tr>
+                      <th>Abono</th>
+                      <th>Registró</th>
+                      <th>Nota</th>
+                      <th class="num">Monto</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="abono in corte.abonos" :key="abono.id">
+                      <td class="fecha">{{ fechaHora(abono.creadoEn) }}</td>
+                      <td>{{ abono.registradoPorNombre }}</td>
+                      <td>{{ abono.nota ?? '—' }}</td>
+                      <td class="num abono">{{ dinero(abono.monto) }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <p v-if="corte.notas" class="notas">📝 {{ corte.notas }}</p>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
 
     <p v-else class="empty-block">
       {{
@@ -331,95 +371,47 @@ async function abonar(): Promise<void> {
   margin: 0 0 12px;
 }
 
-.corte {
-  background: var(--white);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow);
-  padding: 14px;
-  margin-bottom: 12px;
+.tabla {
+  min-width: 820px;
 }
 
-.cabecera {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 10px;
-  margin-bottom: 8px;
-}
-
-.repartidor {
-  margin: 0;
+.nombre {
+  display: block;
   font-family: var(--font-heading);
   font-weight: 800;
-  font-size: 13px;
-  color: var(--ink);
-}
-
-.fecha {
-  margin: 2px 0 0;
-  font-size: 11px;
-  color: var(--muted);
-}
-
-.total {
-  font-family: var(--font-heading);
-  font-weight: 800;
-  font-size: 15px;
+  font-size: 12.5px;
   color: var(--ink);
   white-space: nowrap;
 }
 
-.fila {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  font-size: 12.5px;
-  color: var(--ink);
-  padding: 3px 0;
-}
-
-.fila.fuerte {
-  font-family: var(--font-heading);
-  font-weight: 800;
-  border-top: 1px solid var(--line);
-  margin-top: 4px;
-  padding-top: 7px;
-}
-
-.fila.falta span {
+.tabla > tbody > tr > td.falta {
   color: var(--rojo);
 }
 
-.abonos {
-  list-style: none;
-  margin: 8px 0 0;
-  padding: 8px 0 0;
-  border-top: 1px solid var(--line);
+.accion {
+  width: 150px;
 }
 
-.abonos li {
-  display: flex;
-  gap: 10px;
-  padding: 3px 0;
+.accion button {
+  width: 100%;
+  padding: 8px 10px;
   font-size: 12px;
+  white-space: nowrap;
 }
 
-.abonos .importe {
-  flex-shrink: 0;
-  font-family: var(--font-heading);
-  font-weight: 700;
-  color: var(--verde-dark);
+.tabla-lineas.angosta {
+  max-width: 620px;
 }
 
-.abonos .detalle {
-  flex: 1;
-  min-width: 0;
+.tabla-lineas .fecha {
+  white-space: nowrap;
   color: var(--muted);
 }
 
-.abonos .sub {
-  display: block;
-  color: var(--ink);
+.tabla-lineas .abono {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  color: var(--verde-dark);
 }
 
 .notas {
@@ -427,16 +419,6 @@ async function abonar(): Promise<void> {
   font-size: 12px;
   color: var(--ink);
   line-height: 1.45;
-}
-
-.botonera {
-  margin-top: 12px;
-}
-
-.botonera button {
-  width: 100%;
-  padding: 10px 8px;
-  font-size: 12.5px;
 }
 
 .modal-texto {
