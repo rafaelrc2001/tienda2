@@ -150,7 +150,7 @@ const TITULO_PASO: Partial<Record<EstadoPedido, string>> = {
     <SkeletonList v-if="cargando" :cantidad="4" />
 
     <div v-else-if="pedidos.length > 0" class="tabla-envoltorio">
-      <table class="tabla">
+      <table class="tabla lineal">
         <thead>
           <tr>
             <th>Folio</th>
@@ -174,7 +174,9 @@ const TITULO_PASO: Partial<Record<EstadoPedido, string>> = {
                   {{ pedido.metodoEntrega === 'TIENDA' ? '🏪 Recoge en tienda' : '🛵 A domicilio' }}
                 </span>
               </td>
-              <td><span class="mini-tag">{{ etiquetaEstado(pedido) }}</span></td>
+              <td>
+                <span class="mini-tag">{{ etiquetaEstado(pedido) }}</span>
+              </td>
               <td>
                 <span class="mini-tag" :class="clasePago(pedido.pago.estado)">
                   {{ nombreEstadoPago(pedido.pago.estado) }}
@@ -183,9 +185,10 @@ const TITULO_PASO: Partial<Record<EstadoPedido, string>> = {
               <td class="num importe">{{ dinero(pedido.total) }}</td>
               <td class="accion">
                 <!-- El botón del paso, o por qué no se puede dar. -->
-                <template v-if="pedido.pago.estado !== 'CANCELADO'">
-                  <template v-if="pedido.paso.siguiente && pedido.paso.seccion === 'operaciones'">
+                <div class="en-linea">
+                  <template v-if="pedido.pago.estado !== 'CANCELADO'">
                     <button
+                      v-if="pedido.paso.siguiente && pedido.paso.seccion === 'operaciones'"
                       type="button"
                       class="btn-primary"
                       :disabled="pedido.paso.bloqueo !== null || avanzando === pedido.id"
@@ -200,24 +203,33 @@ const TITULO_PASO: Partial<Record<EstadoPedido, string>> = {
                         }}
                       </template>
                     </button>
-                    <p v-if="pedido.paso.bloqueo" class="bloqueo">
-                      {{ pedido.paso.bloqueo.mensaje }}
+                    <p v-else-if="pedido.paso.siguiente" class="aviso">
+                      🛵 Listo en bodega: lo recoge Rutas.
                     </p>
+                    <p v-else class="aviso hecho">✓ Entregado</p>
                   </template>
-                  <p v-else-if="pedido.paso.siguiente" class="aviso">
-                    🛵 Listo en bodega: lo recoge Rutas.
-                  </p>
-                  <p v-else class="aviso hecho">✓ Entregado</p>
-                </template>
 
-                <div class="enlaces">
-                  <button type="button" class="enlace" @click="alternar(pedido.id)">
-                    {{ abierto === pedido.id ? 'Ocultar detalle' : 'Ver detalle' }}
-                  </button>
-                  <button type="button" class="enlace" @click="bitacoraDe = pedido">
-                    Bitácora
-                  </button>
+                  <div class="enlaces">
+                    <button type="button" class="enlace" @click="alternar(pedido.id)">
+                      {{ abierto === pedido.id ? 'Ocultar detalle' : 'Ver detalle' }}
+                    </button>
+                    <button type="button" class="enlace" @click="bitacoraDe = pedido">
+                      Bitácora
+                    </button>
+                  </div>
                 </div>
+
+                <p
+                  v-if="
+                    pedido.pago.estado !== 'CANCELADO' &&
+                    pedido.paso.siguiente &&
+                    pedido.paso.seccion === 'operaciones' &&
+                    pedido.paso.bloqueo
+                  "
+                  class="bloqueo"
+                >
+                  {{ pedido.paso.bloqueo.mensaje }}
+                </p>
               </td>
             </tr>
 
@@ -348,16 +360,6 @@ const TITULO_PASO: Partial<Record<EstadoPedido, string>> = {
 .mini-tag.pago-cancelado {
   background: var(--rojo);
   color: var(--white);
-}
-
-.accion {
-  width: 190px;
-}
-
-.accion .btn-primary {
-  width: 100%;
-  padding: 8px 10px;
-  font-size: 12px;
 }
 
 .bloqueo {

@@ -1,30 +1,42 @@
 <script setup lang="ts">
 /**
  * Bitácora de un pedido en hoja modal: quién lo movió, cuándo y de qué a qué,
- * en sus dos ejes (pedido y pago). La usan Operaciones, Rutas y Finanzas.
+ * en sus dos ejes (pedido y pago). La usan Operaciones y Finanzas.
+ *
+ * Arriba va la prueba de entrega, si la hay: es lo que se busca aquí cuando un
+ * cliente dice que no le llegó.
  */
 import { onMounted, ref } from 'vue'
 import { http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
 import { fechaHora, nombreEstadoPago, nombreEstadoPedido } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
-import type { EstadoPago, EstadoPedido, RenglonBitacora } from '@/api/tipos'
+import EvidenciaEntrega from '@/components/EvidenciaEntrega.vue'
+import type {
+  EstadoPago,
+  EstadoPedido,
+  EvidenciaEntrega as Evidencia,
+  RenglonBitacora,
+} from '@/api/tipos'
 
 const props = defineProps<{ pedidoId: string; folio: string }>()
 const emit = defineEmits<{ cerrar: [] }>()
 
 const ui = useUiStore()
 const renglones = ref<RenglonBitacora[]>([])
+const evidencia = ref<Evidencia | null>(null)
 const cargando = ref(true)
 
 onMounted(async () => {
-  try {
-    renglones.value = await http.get<RenglonBitacora[]>(`/admin/pedidos/${props.pedidoId}/bitacora`)
-  } catch (fallo) {
-    ui.errorDeApi(fallo)
-  } finally {
-    cargando.value = false
-  }
+  const [bitacora, prueba] = await Promise.allSettled([
+    http.get<RenglonBitacora[]>(`/admin/pedidos/${props.pedidoId}/bitacora`),
+    http.get<Evidencia | null>(`/admin/pedidos/${props.pedidoId}/evidencia`),
+  ])
+  if (bitacora.status === 'fulfilled') renglones.value = bitacora.value
+  else ui.errorDeApi(bitacora.reason)
+  // La prueba de entrega es un añadido: si no llega, la bitácora se lee igual.
+  if (prueba.status === 'fulfilled') evidencia.value = prueba.value
+  cargando.value = false
 })
 
 /** Los estados llegan como texto porque la columna mezcla los dos ejes. */
@@ -48,6 +60,11 @@ const QUIEN: Record<RenglonBitacora['actor'], string> = {
       <p class="modal-title">Bitácora · {{ folio }}</p>
 
       <SkeletonList v-if="cargando" :cantidad="3" />
+
+      <section v-if="!cargando && evidencia" class="prueba">
+        <p class="prueba-titulo">Prueba de entrega</p>
+        <EvidenciaEntrega :evidencia="evidencia" />
+      </section>
 
       <!-- De la más reciente a la más antigua: lo último es lo que se busca. -->
       <ol v-else-if="renglones.length > 0" class="renglones">
@@ -81,6 +98,23 @@ const QUIEN: Record<RenglonBitacora['actor'], string> = {
 </template>
 
 <style scoped>
+.prueba {
+  background: var(--white);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+
+.prueba-titulo {
+  margin: 0 0 8px;
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--verde-dark);
+}
+
 .renglones {
   list-style: none;
   margin: 0 0 12px;

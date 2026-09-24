@@ -586,6 +586,80 @@ input:checked + .switch-danger-slider {
   white-space: nowrap;
 }
 
+/* Variante lineal (Operaciones, Finanzas, Rutas): cada fila cabe en una sola
+   línea y sus datos van uno al costado del otro, no apilados. Se recorre con la
+   vista como una lista; lo largo se abre en el detalle. */
+.tabla.lineal > thead > tr > th {
+  background: var(--cream-2);
+  padding: 5px 14px;
+}
+
+/* Poco aire arriba y abajo: la fila mide lo que su contenido. */
+.tabla.lineal > tbody > tr > td {
+  padding: 4px 14px;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.tabla.lineal > tbody > tr:not(.fila-detalle):hover > td {
+  background: var(--cream-2);
+}
+
+.tabla.lineal > tbody > tr.fila-detalle > td {
+  white-space: normal;
+}
+
+.tabla.lineal .folio,
+.tabla.lineal .sub {
+  display: inline;
+}
+
+.tabla.lineal .sub {
+  margin: 0 0 0 6px;
+}
+
+.tabla.lineal .sub::before {
+  content: '·';
+  margin-right: 6px;
+}
+
+.tabla.lineal .enlaces {
+  display: inline-flex;
+  vertical-align: middle;
+  gap: 12px;
+  margin: 0 0 0 12px;
+}
+
+/* Contenido de una celda puesto en fila: etiquetas, botones y enlaces. */
+.tabla.lineal .en-linea {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 6px;
+}
+
+.tabla.lineal .en-linea .enlaces {
+  margin-left: 6px;
+}
+
+/* Botones de fila compactos, a su ancho y sin repartirse la celda. */
+.tabla.lineal .en-linea > button:not(.enlace),
+.tabla.lineal td > button:not(.enlace) {
+  flex: none;
+  width: auto;
+  padding: 3px 12px;
+  border-radius: var(--radius-sm);
+  box-shadow: none;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* Los avisos largos sí se parten, para no estirar la fila sin fin. */
+.tabla.lineal .bloqueo {
+  white-space: normal;
+  max-width: 320px;
+}
+
 /* ------------------------------------------------------------------
  * Pantalla de un solo mensaje centrado: la ruta que no existe y los legales
  * ------------------------------------------------------------------ */

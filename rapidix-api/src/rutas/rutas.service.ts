@@ -1,4 +1,10 @@
-import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import {
   EjeBitacora,
   EstadoPago,
@@ -72,6 +78,8 @@ export interface EvidenciaEntregaDto {
   lat: number | null;
   lng: number | null;
   creadoEn: string;
+  /** Quien lo entrego. */
+  repartidorNombre: string;
 }
 
 /** El pedido con lo que de el va —o fue— en el camion. */
@@ -638,21 +646,7 @@ export class RutasService {
     if (pedidos.length === 0) return [];
 
     const ids = pedidos.map((p) => p.id);
-    const entregas = await this.prisma.entregaPedido.findMany({
-      where: { pedidoId: { in: ids } },
-      select: { pedidoId: true, fotoId: true, lat: true, lng: true, creadoEn: true },
-    });
-    const evidencias = new Map<string, EvidenciaEntregaDto>(
-      entregas.map((e) => [
-        e.pedidoId,
-        {
-          fotoId: e.fotoId,
-          lat: e.lat?.toNumber() ?? null,
-          lng: e.lng?.toNumber() ?? null,
-          creadoEn: e.creadoEn.toISOString(),
-        },
-      ]),
-    );
+    const evidencias = await this.evidencias(ids);
 
     const cargas = await this.prisma.cargaRepartidor.findMany({
       where: { pedidoId: { in: ids } },
@@ -696,6 +690,44 @@ export class RutasService {
       carga: porPedido.get(pedido.id) ?? [],
       evidencia: evidencias.get(pedido.id) ?? null,
     }));
+  }
+
+  /**
+   * La evidencia de la entrega de un pedido, o `null` si no se ha entregado.
+   *
+   * Aparte del tablero para que la consulten Operaciones y Finanzas —un
+   * cliente que dice que no le llego— sin pasar por la pantalla del repartidor.
+   */
+  async evidencia(pedidoId: string): Promise<EvidenciaEntregaDto | null> {
+    const existe = await this.prisma.pedido.count({ where: { id: pedidoId } });
+    if (!existe) throw new NotFoundException('Pedido no encontrado');
+    return (await this.evidencias([pedidoId])).get(pedidoId) ?? null;
+  }
+
+  private async evidencias(ids: string[]): Promise<Map<string, EvidenciaEntregaDto>> {
+    const entregas = await this.prisma.entregaPedido.findMany({
+      where: { pedidoId: { in: ids } },
+      select: {
+        pedidoId: true,
+        fotoId: true,
+        lat: true,
+        lng: true,
+        creadoEn: true,
+        repartidor: { select: { nombre: true } },
+      },
+    });
+    return new Map(
+      entregas.map((e) => [
+        e.pedidoId,
+        {
+          fotoId: e.fotoId,
+          lat: e.lat?.toNumber() ?? null,
+          lng: e.lng?.toNumber() ?? null,
+          creadoEn: e.creadoEn.toISOString(),
+          repartidorNombre: e.repartidor.nombre,
+        },
+      ]),
+    );
   }
 
   /** El pedido que acaba de moverse, tal y como lo espera la pantalla. */

@@ -163,7 +163,7 @@ async function abonar(): Promise<void> {
     <SkeletonList v-if="cargando" :cantidad="3" />
 
     <div v-else-if="cortes.length > 0" class="tabla-envoltorio">
-      <table class="tabla">
+      <table class="tabla lineal">
         <thead>
           <tr>
             <th>Repartidor</th>
@@ -376,7 +376,6 @@ async function abonar(): Promise<void> {
 }
 
 .nombre {
-  display: block;
   font-family: var(--font-heading);
   font-weight: 800;
   font-size: 12.5px;
@@ -386,17 +385,6 @@ async function abonar(): Promise<void> {
 
 .tabla > tbody > tr > td.falta {
   color: var(--rojo);
-}
-
-.accion {
-  width: 150px;
-}
-
-.accion button {
-  width: 100%;
-  padding: 8px 10px;
-  font-size: 12px;
-  white-space: nowrap;
 }
 
 .tabla-lineas.angosta {

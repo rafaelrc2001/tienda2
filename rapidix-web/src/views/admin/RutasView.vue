@@ -12,10 +12,11 @@
  * que se cuenta en la puerta del cliente.
  */
 import { computed, onMounted, ref } from 'vue'
-import { ErrorApi, http, urlDeImagen } from '@/api/http'
+import { ErrorApi, http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
 import { dinero, fechaHora, nombreEstadoPedido, nombreMetodoPago } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
+import EvidenciaEntrega from '@/components/EvidenciaEntrega.vue'
 import EntregaModal from './rutas/EntregaModal.vue'
 import CorteModal from './rutas/CorteModal.vue'
 import { MOTIVOS, nombreMotivo } from './rutas/etiquetas'
@@ -306,7 +307,7 @@ function cobraEnEfectivo(pedido: PedidoEnRuta): boolean {
     <SkeletonList v-if="cargando" :cantidad="3" />
 
     <div v-else-if="pedidos.length > 0" class="tabla-envoltorio">
-      <table class="tabla">
+      <table class="tabla lineal">
         <thead>
           <tr>
             <th>Folio</th>
@@ -331,7 +332,7 @@ function cobraEnEfectivo(pedido: PedidoEnRuta): boolean {
                 </span>
               </td>
               <td>
-                <div class="etiquetas">
+                <div class="en-linea">
                   <span class="mini-tag">
                     {{ nombreEstadoPedido(pedido.estado, pedido.pago.estado) }}
                   </span>
@@ -358,41 +359,51 @@ function cobraEnEfectivo(pedido: PedidoEnRuta): boolean {
               <td class="num importe">{{ dinero(pedido.total) }}</td>
               <td class="accion">
                 <!-- El paso que le toca a Rutas, o por qué no se puede dar. -->
-                <div
-                  v-if="pedido.paso.siguiente && pedido.paso.seccion === 'rutas'"
-                  class="botonera"
-                >
-                  <button
-                    type="button"
-                    class="btn-primary"
-                    :disabled="
-                      !trabajando || pedido.paso.bloqueo !== null || moviendo === pedido.id
-                    "
-                    @click="avanzar(pedido)"
-                  >
-                    <template v-if="moviendo === pedido.id">…</template>
-                    <template v-else>
-                      {{ pedido.paso.bloqueo ? '🔒 ' : '' }}{{ TITULO_PASO[pedido.paso.siguiente] }}
-                    </template>
-                  </button>
-                  <button
-                    v-if="pedido.estado === 'EN_RUTA'"
-                    type="button"
-                    class="btn-cancel"
-                    :disabled="!trabajando || moviendo === pedido.id"
-                    @click="abrirNoEntregado(pedido)"
-                  >
-                    No entregado
-                  </button>
-                </div>
-                <p v-else-if="pedido.paso.siguiente" class="aviso">
-                  🏭 Lo está surtiendo Operaciones.
-                </p>
-                <p v-else class="aviso hecho">✓ Entregado · entra en tu corte</p>
+                <div class="en-linea">
+                  <template v-if="pedido.paso.siguiente && pedido.paso.seccion === 'rutas'">
+                    <button
+                      type="button"
+                      class="btn-primary"
+                      :disabled="
+                        !trabajando || pedido.paso.bloqueo !== null || moviendo === pedido.id
+                      "
+                      @click="avanzar(pedido)"
+                    >
+                      <template v-if="moviendo === pedido.id">…</template>
+                      <template v-else>
+                        {{ pedido.paso.bloqueo ? '🔒 ' : ''
+                        }}{{ TITULO_PASO[pedido.paso.siguiente] }}
+                      </template>
+                    </button>
+                    <button
+                      v-if="pedido.estado === 'EN_RUTA'"
+                      type="button"
+                      class="btn-cancel"
+                      :disabled="!trabajando || moviendo === pedido.id"
+                      @click="abrirNoEntregado(pedido)"
+                    >
+                      No entregado
+                    </button>
+                  </template>
+                  <p v-else-if="pedido.paso.siguiente" class="aviso">
+                    🏭 Lo está surtiendo Operaciones.
+                  </p>
+                  <p v-else class="aviso hecho">✓ Entregado · entra en tu corte</p>
 
-                <p v-if="pedido.paso.bloqueo" class="bloqueo">{{ pedido.paso.bloqueo.mensaje }}</p>
+                  <div class="enlaces">
+                    <button type="button" class="enlace" @click="alternar(pedido.id)">
+                      {{ abierto === pedido.id ? 'Ocultar detalle' : 'Ver detalle' }}
+                    </button>
+                  </div>
+                </div>
+
+                <p v-if="pedido.paso.bloqueo" class="bloqueo">
+                  {{ pedido.paso.bloqueo.mensaje }}
+                </p>
                 <p
-                  v-else-if="!trabajando && pedido.paso.siguiente && pedido.paso.seccion === 'rutas'"
+                  v-else-if="
+                    !trabajando && pedido.paso.siguiente && pedido.paso.seccion === 'rutas'
+                  "
                   class="bloqueo"
                 >
                   {{
@@ -401,12 +412,6 @@ function cobraEnEfectivo(pedido: PedidoEnRuta): boolean {
                       : 'Inicia tu jornada para mover pedidos.'
                   }}
                 </p>
-
-                <div class="enlaces">
-                  <button type="button" class="enlace" @click="alternar(pedido.id)">
-                    {{ abierto === pedido.id ? 'Ocultar detalle' : 'Ver detalle' }}
-                  </button>
-                </div>
               </td>
             </tr>
 
@@ -449,17 +454,16 @@ function cobraEnEfectivo(pedido: PedidoEnRuta): boolean {
                       <td class="num">−{{ dinero(pedido.pago.billetera) }}</td>
                     </tr>
                     <tr class="fuerte">
-                      <td colspan="2">{{ pedido.pago.aPagar > 0 ? 'A cobrar' : 'Cubierto' }}</td>
+                      <td colspan="2">
+                        {{ pedido.pago.aPagar > 0 ? 'A cobrar' : 'Cubierto' }}
+                      </td>
                       <td class="num">{{ dinero(pedido.pago.aPagar) }}</td>
                     </tr>
                   </tfoot>
                 </table>
 
                 <!-- Y aparte lo que el cliente no aceptó, que es cosa del camión. -->
-                <table
-                  v-if="sinAceptar(pedido).length > 0"
-                  class="tabla-lineas angosta devueltos"
-                >
+                <table v-if="sinAceptar(pedido).length > 0" class="tabla-lineas angosta devueltos">
                   <thead>
                     <tr>
                       <th class="num">Sin aceptar</th>
@@ -482,41 +486,19 @@ function cobraEnEfectivo(pedido: PedidoEnRuta): boolean {
                             : 'Sin aceptar'
                         }}
                       </td>
-                      <td>{{ renglon.enCamion ? 'Sigue en tu camión' : 'Regresó a bodega' }}</td>
+                      <td>
+                        {{ renglon.enCamion ? 'Sigue en tu camión' : 'Regresó a bodega' }}
+                      </td>
                     </tr>
                   </tbody>
                 </table>
 
                 <!-- La evidencia con la que se cerró: la foto se carga solo al abrir. -->
-                <div v-if="pedido.evidencia" class="evidencia">
-                  <a
-                    v-if="pedido.evidencia.fotoId"
-                    :href="urlDeImagen(pedido.evidencia.fotoId)"
-                    target="_blank"
-                    rel="noopener"
-                  >
-                    <img
-                      :src="urlDeImagen(pedido.evidencia.fotoId)"
-                      class="foto-entrega"
-                      alt="Foto de la entrega"
-                      loading="lazy"
-                    />
-                  </a>
-                  <div class="datos-entrega">
-                    <span>Entregado {{ fechaHora(pedido.evidencia.creadoEn) }}</span>
-                    <span v-if="!pedido.evidencia.fotoId">📷 Sin foto</span>
-                    <a
-                      v-if="pedido.evidencia.lat !== null && pedido.evidencia.lng !== null"
-                      :href="`https://www.google.com/maps?q=${pedido.evidencia.lat},${pedido.evidencia.lng}`"
-                      target="_blank"
-                      rel="noopener"
-                      class="enlace-mapa"
-                    >
-                      📍 Ver ubicación en el mapa
-                    </a>
-                    <span v-else>📍 Sin ubicación</span>
-                  </div>
-                </div>
+                <EvidenciaEntrega
+                  v-if="pedido.evidencia"
+                  :evidencia="pedido.evidencia"
+                  class="evidencia"
+                />
               </td>
             </tr>
           </template>
@@ -553,7 +535,9 @@ function cobraEnEfectivo(pedido: PedidoEnRuta): boolean {
 
         <select v-model="motivo" class="select-input">
           <option :value="null">¿Por qué no se pudo entregar?</option>
-          <option v-for="m in MOTIVOS" :key="m.valor" :value="m.valor">{{ m.etiqueta }}</option>
+          <option v-for="m in MOTIVOS" :key="m.valor" :value="m.valor">
+            {{ m.etiqueta }}
+          </option>
         </select>
 
         <textarea
@@ -646,20 +630,6 @@ function cobraEnEfectivo(pedido: PedidoEnRuta): boolean {
   min-width: 820px;
 }
 
-.cliente {
-  max-width: 220px;
-}
-
-.cliente .sub {
-  line-height: 1.4;
-}
-
-.etiquetas {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
 .mini-tag.cobrar {
   background: var(--amarillo);
   color: var(--ink);
@@ -673,21 +643,6 @@ function cobraEnEfectivo(pedido: PedidoEnRuta): boolean {
 .mini-tag.camion {
   background: var(--verde);
   color: var(--white);
-}
-
-.accion {
-  width: 200px;
-}
-
-.botonera {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.botonera button {
-  padding: 8px 10px;
-  font-size: 12px;
 }
 
 .aviso {
@@ -713,34 +668,7 @@ function cobraEnEfectivo(pedido: PedidoEnRuta): boolean {
 }
 
 .evidencia {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
   margin-top: 10px;
-}
-
-.foto-entrega {
-  display: block;
-  width: 96px;
-  height: 96px;
-  object-fit: cover;
-  border-radius: var(--radius-sm);
-  background: var(--white);
-}
-
-.datos-entrega {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.enlace-mapa {
-  font-family: var(--font-heading);
-  font-weight: 700;
-  color: var(--terracotta-dark);
-  text-decoration: none;
 }
 
 /* Lo que vuelve del camión, separado de lo que se compró. */
