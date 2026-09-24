@@ -12,7 +12,7 @@
  * que se cuenta en la puerta del cliente.
  */
 import { computed, onMounted, ref } from 'vue'
-import { ErrorApi, http } from '@/api/http'
+import { ErrorApi, http, urlDeImagen } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
 import { dinero, fechaHora, nombreEstadoPedido, nombreMetodoPago } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
@@ -486,6 +486,37 @@ function cobraEnEfectivo(pedido: PedidoEnRuta): boolean {
                     </tr>
                   </tbody>
                 </table>
+
+                <!-- La evidencia con la que se cerró: la foto se carga solo al abrir. -->
+                <div v-if="pedido.evidencia" class="evidencia">
+                  <a
+                    v-if="pedido.evidencia.fotoId"
+                    :href="urlDeImagen(pedido.evidencia.fotoId)"
+                    target="_blank"
+                    rel="noopener"
+                  >
+                    <img
+                      :src="urlDeImagen(pedido.evidencia.fotoId)"
+                      class="foto-entrega"
+                      alt="Foto de la entrega"
+                      loading="lazy"
+                    />
+                  </a>
+                  <div class="datos-entrega">
+                    <span>Entregado {{ fechaHora(pedido.evidencia.creadoEn) }}</span>
+                    <span v-if="!pedido.evidencia.fotoId">📷 Sin foto</span>
+                    <a
+                      v-if="pedido.evidencia.lat !== null && pedido.evidencia.lng !== null"
+                      :href="`https://www.google.com/maps?q=${pedido.evidencia.lat},${pedido.evidencia.lng}`"
+                      target="_blank"
+                      rel="noopener"
+                      class="enlace-mapa"
+                    >
+                      📍 Ver ubicación en el mapa
+                    </a>
+                    <span v-else>📍 Sin ubicación</span>
+                  </div>
+                </div>
               </td>
             </tr>
           </template>
@@ -679,6 +710,37 @@ function cobraEnEfectivo(pedido: PedidoEnRuta): boolean {
 
 .tabla-lineas.angosta {
   max-width: 620px;
+}
+
+.evidencia {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.foto-entrega {
+  display: block;
+  width: 96px;
+  height: 96px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  background: var(--white);
+}
+
+.datos-entrega {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.enlace-mapa {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  color: var(--terracotta-dark);
+  text-decoration: none;
 }
 
 /* Lo que vuelve del camión, separado de lo que se compró. */

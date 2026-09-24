@@ -306,6 +306,16 @@ export async function descargarArchivo(ruta: string, nombreSugerido: string): Pr
 }
 
 /**
+ * La dirección de una imagen guardada por la propia API, a partir de su id.
+ *
+ * Es la misma `urlPublica` que devuelve la firma en modo local; se arma aquí
+ * porque la evidencia de una entrega solo guarda el id.
+ */
+export function urlDeImagen(id: string): string {
+  return `${BASE}/uploads/local/${encodeURIComponent(id)}`
+}
+
+/**
  * Sube un fichero a una URL firmada de S3.
  *
  * Va fuera de `http` a propósito: no lleva Bearer ni URL base, y la respuesta

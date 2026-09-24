@@ -541,9 +541,19 @@ export interface RenglonDeCarga {
   enCamion: boolean
 }
 
+/** La evidencia de la entrega que cerró el pedido. La foto se pide aparte, por su id. */
+export interface EvidenciaEntrega {
+  fotoId: string | null
+  lat: number | null
+  lng: number | null
+  creadoEn: string
+}
+
 /** El pedido con lo que de él va —o fue— en el camión. */
 export interface PedidoEnRuta extends PedidoEnPantalla {
   carga: RenglonDeCarga[]
+  /** `null` mientras no se haya entregado. */
+  evidencia: EvidenciaEntrega | null
 }
 
 export type FiltroRutas = 'disponibles' | 'en-camion' | 'entregados'

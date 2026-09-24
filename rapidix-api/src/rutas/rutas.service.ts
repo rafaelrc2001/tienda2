@@ -61,8 +61,25 @@ export interface RenglonDeCargaDto {
   enCamion: boolean;
 }
 
+/**
+ * La evidencia de la entrega que cerro el pedido.
+ *
+ * Solo el id de la foto y no la imagen: la pantalla la pide aparte, cuando
+ * alguien abre el detalle, en vez de arrastrarla en cada consulta del tablero.
+ */
+export interface EvidenciaEntregaDto {
+  fotoId: string | null;
+  lat: number | null;
+  lng: number | null;
+  creadoEn: string;
+}
+
 /** El pedido con lo que de el va —o fue— en el camion. */
-export type PedidoEnRutaDto = PedidoEnPantallaDto & { carga: RenglonDeCargaDto[] };
+export type PedidoEnRutaDto = PedidoEnPantallaDto & {
+  carga: RenglonDeCargaDto[];
+  /** `null` mientras no se haya entregado. */
+  evidencia: EvidenciaEntregaDto | null;
+};
 
 /** Como acabo el intento de entrega. Es lo que la pantalla le resume al repartidor. */
 export interface ResumenEntregaDto {
@@ -620,8 +637,25 @@ export class RutasService {
   private async conCarga(pedidos: PedidoDto[]): Promise<PedidoEnRutaDto[]> {
     if (pedidos.length === 0) return [];
 
+    const ids = pedidos.map((p) => p.id);
+    const entregas = await this.prisma.entregaPedido.findMany({
+      where: { pedidoId: { in: ids } },
+      select: { pedidoId: true, fotoId: true, lat: true, lng: true, creadoEn: true },
+    });
+    const evidencias = new Map<string, EvidenciaEntregaDto>(
+      entregas.map((e) => [
+        e.pedidoId,
+        {
+          fotoId: e.fotoId,
+          lat: e.lat?.toNumber() ?? null,
+          lng: e.lng?.toNumber() ?? null,
+          creadoEn: e.creadoEn.toISOString(),
+        },
+      ]),
+    );
+
     const cargas = await this.prisma.cargaRepartidor.findMany({
-      where: { pedidoId: { in: pedidos.map((p) => p.id) } },
+      where: { pedidoId: { in: ids } },
       select: {
         pedidoId: true,
         pedidoItemId: true,
@@ -660,6 +694,7 @@ export class RutasService {
     return pedidos.map((pedido) => ({
       ...FlujoPedidosService.enPantalla(pedido),
       carga: porPedido.get(pedido.id) ?? [],
+      evidencia: evidencias.get(pedido.id) ?? null,
     }));
   }
 
