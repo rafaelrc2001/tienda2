@@ -466,7 +466,9 @@ function iconoMetodo(metodo: string): string {
   color: var(--ink);
 }
 
-.btn-paso.siguiente:not(:disabled) {
+/* Mismo selector que el botón base: si no, su fondo blanco gana y el texto
+   blanco del paso que toca desaparece. */
+.tabla.lineal .en-linea > .btn-paso.siguiente:not(:disabled) {
   border-color: var(--verde-compra);
   background: var(--verde-compra);
   color: var(--white);
