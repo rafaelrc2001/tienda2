@@ -1,5 +1,5 @@
 import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { EjeBitacora, EstadoCorte, EstadoPedido, Prisma } from '@prisma/client';
+import { EjeBitacora, EstadoCorte, EstadoPedido, Prisma, RolUsuario } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConfiguracionService } from '../configuracion/configuracion.service';
 import { InventarioService } from '../inventario/inventario.service';
@@ -416,9 +416,11 @@ export class CortesService {
   /**
    * Finanzas cuenta el dinero y cierra el corte.
    *
-   * **Quien recibe no puede ser quien cerro.** Se comprueba aqui para dar el
-   * mensaje bueno, pero quien de verdad lo impide es el `CHECK` de la base: el
-   * que trae el dinero no se lo cuenta a si mismo.
+   * **Quien recibe no puede ser quien cerro**, salvo el administrador: el que
+   * trae el dinero no se lo cuenta a si mismo, pero un negocio con un solo
+   * usuario (el administrador, que reparte y cuenta) no podria recibir nunca un corte.
+   * Por eso la regla vive solo aqui: la base no sabe de roles y se quito su
+   * `CHECK` (migracion `admin_recibe_su_corte`).
    *
    * Contar de menos no bloquea nada: el corte queda recibido con su faltante a
    * la vista, y lo que el repartidor entregue despues entra como abono. Lo que
@@ -435,7 +437,7 @@ export class CortesService {
         message: 'Ese corte ya se recibió.',
       });
     }
-    if (corte.repartidorId === usuario.sub) {
+    if (corte.repartidorId === usuario.sub && usuario.rol !== RolUsuario.ADMINISTRADOR) {
       throw new ConflictException({
         statusCode: 409,
         code: 'RECIBE_EL_MISMO',

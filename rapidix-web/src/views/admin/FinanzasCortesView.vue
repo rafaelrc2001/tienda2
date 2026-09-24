@@ -9,8 +9,8 @@
  * después de contar es el saldo que se reclama, y lo que entregue más tarde
  * entra como abono en vez de reescribir los montos del día.
  *
- * Quien recibe no puede ser quien cerró: eso lo impide la API (409
- * `RECIBE_EL_MISMO`) y aquí solo se enseña su mensaje.
+ * Quien recibe no puede ser quien cerró, salvo el administrador: eso lo impide
+ * la API (409 `RECIBE_EL_MISMO`) y aquí solo se enseña su mensaje.
  */
 import { onMounted, ref } from 'vue'
 import { http } from '@/api/http'
