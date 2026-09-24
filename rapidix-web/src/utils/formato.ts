@@ -62,6 +62,29 @@ export function fechaHora(iso: string | null | undefined): string {
   return Number.isNaN(valor.getTime()) ? '' : FECHA_HORA.format(valor)
 }
 
+const FECHA_NUMERICA = new Intl.DateTimeFormat('es-MX', {
+  day: '2-digit',
+  month: '2-digit',
+  year: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+})
+
+/**
+ * ISO → `21/09/26 14:30`. Para columnas de tabla, donde la fecha larga no cabe.
+ * Se arma con las partes y no con el texto de `format` para que ningún
+ * navegador cuele comas o «p.m.» entre la fecha y la hora.
+ */
+export function fechaNumerica(iso: string | null | undefined): string {
+  if (!iso) return ''
+  const valor = new Date(iso)
+  if (Number.isNaN(valor.getTime())) return ''
+  const partes: Record<string, string> = {}
+  for (const parte of FECHA_NUMERICA.formatToParts(valor)) partes[parte.type] = parte.value
+  return `${partes.day}/${partes.month}/${partes.year} ${partes.hour}:${partes.minute}`
+}
+
 /** `TRANSFERENCIA` → `Transferencia`. Lo que llega del enum de la API, legible. */
 export function nombreMetodoPago(metodo: string): string {
   return metodo === 'TRANSFERENCIA' ? 'Transferencia' : 'Efectivo'
