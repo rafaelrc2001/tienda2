@@ -151,7 +151,7 @@ function iconoMetodo(metodo: string): string {
 </script>
 
 <template>
-  <div class="pantalla">
+  <div class="pantalla sin-colchon">
     <RouterLink to="/admin" class="admin-back-inline">← Volver al menú</RouterLink>
 
     <SkeletonList v-if="cargando" :cantidad="4" />
@@ -341,11 +341,17 @@ function iconoMetodo(metodo: string): string {
 </template>
 
 <style scoped>
+/* La pantalla ocupa justo el alto de `.app-screen` para que la tabla se quede
+   con el resto y desplace dentro de su caja (ver `.tabla-envoltorio`). */
 .pantalla {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
   padding: 12px 18px 0;
 }
 
 .admin-back-inline {
+  align-self: flex-start;
   display: inline-block;
   color: var(--terracotta-dark);
   font-family: var(--font-heading);
@@ -368,16 +374,42 @@ function iconoMetodo(metodo: string): string {
   font-size: 13px;
 }
 
-/* Con la acción en botones, la tabla es más ancha que la pantalla: la barra
-   se queda siempre a la vista para moverla de lado. */
+/* Con la acción en botones, la tabla es más ancha que la pantalla. Si la caja
+   creciera con las filas, su barra horizontal quedaría bajo el último pedido,
+   fuera de la vista; por eso la caja llena el alto que queda y desplaza en los
+   dos sentidos: la barra se queda siempre al pie de la pantalla. */
 .tabla-envoltorio {
-  overflow-x: scroll;
-  scrollbar-width: thin;
-  scrollbar-color: var(--gris) var(--cream-2);
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+/* Al desplazar dentro de la caja, los títulos de columna no se van. */
+.tabla.lineal > thead > tr > th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+/* Chrome ignora `::-webkit-scrollbar` si hay `scrollbar-width`/`scrollbar-color`,
+   y en Android es lo que la deja fija en lugar de desvanecerse: las
+   propiedades estándar quedan solo para Firefox. */
+@supports not selector(::-webkit-scrollbar) {
+  .tabla-envoltorio {
+    scrollbar-width: thin;
+    scrollbar-color: var(--gris) var(--cream-2);
+  }
 }
 
 .tabla-envoltorio::-webkit-scrollbar {
+  width: 10px;
   height: 10px;
+}
+
+.tabla-envoltorio::-webkit-scrollbar-corner {
+  background: var(--cream-2);
 }
 
 .tabla-envoltorio::-webkit-scrollbar-track {
