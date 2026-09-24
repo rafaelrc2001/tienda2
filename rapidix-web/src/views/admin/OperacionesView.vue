@@ -94,10 +94,9 @@ function etiquetaEstado(pedido: PedidoEnPantalla): string {
   return nombreEstadoPedido(pedido.estado, pedido.pago.estado)
 }
 
-/** Color del estado de pago: lo que frena va en ámbar o gris, lo cancelado en rojo. */
+/** Color del estado de pago: lo retenido en gris, lo cancelado en rojo. */
 function clasePago(estado: EstadoPago): string {
   if (estado === 'CANCELADO') return 'pago-cancelado'
-  if (estado === 'PAGO_PENDIENTE') return 'pago-pendiente'
   if (estado === 'RETENER') return 'pago-retenido'
   return 'pago-liberado'
 }
@@ -202,7 +201,12 @@ function iconoMetodo(metodo: string): string {
                 <span class="pastilla estado">{{ etiquetaEstado(pedido) }}</span>
               </td>
               <td>
-                <span class="pastilla" :class="clasePago(pedido.pago.estado)">
+                <!-- Pago pendiente es lo normal al surtir: va como texto llano, sin
+                     pastilla. Los demás estados sí se marcan. -->
+                <template v-if="pedido.pago.estado === 'PAGO_PENDIENTE'">
+                  {{ nombreEstadoPago(pedido.pago.estado) }}
+                </template>
+                <span v-else class="pastilla" :class="clasePago(pedido.pago.estado)">
                   {{ nombreEstadoPago(pedido.pago.estado) }}
                 </span>
               </td>
@@ -416,14 +420,6 @@ function iconoMetodo(metodo: string): string {
 
 .pastilla.estado {
   background: color-mix(in srgb, var(--gris) 18%, var(--white));
-  color: var(--ink);
-}
-
-/* Pago pendiente es lo normal al surtir: va como texto, sin pastilla. */
-.pastilla.pago-pendiente {
-  background: none;
-  padding-left: 0;
-  padding-right: 0;
   color: var(--ink);
 }
 
