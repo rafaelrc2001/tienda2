@@ -547,6 +547,8 @@ export interface EvidenciaEntrega {
   lat: number | null
   lng: number | null
   creadoEn: string
+  /** Quién lo entregó. */
+  repartidorNombre: string
 }
 
 /** El pedido con lo que de él va —o fue— en el camión. */

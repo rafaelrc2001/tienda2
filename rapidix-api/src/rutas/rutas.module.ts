@@ -6,6 +6,7 @@ import { RutasService } from './rutas.service';
 import { CortesService } from './cortes.service';
 import { RutasController } from './rutas.controller';
 import { FinanzasCortesController } from './finanzas-cortes.controller';
+import { EvidenciaController } from './evidencia.controller';
 
 /**
  * Rutas vive aparte de Pedidos aunque mueva pedidos: lo suyo es la jornada, el
@@ -18,7 +19,7 @@ import { FinanzasCortesController } from './finanzas-cortes.controller';
  */
 @Module({
   imports: [PedidosModule, InventarioModule, ConfiguracionModule],
-  controllers: [RutasController, FinanzasCortesController],
+  controllers: [RutasController, FinanzasCortesController, EvidenciaController],
   providers: [RutasService, CortesService],
   exports: [RutasService, CortesService],
 })
