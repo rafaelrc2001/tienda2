@@ -172,7 +172,7 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
     <SkeletonList v-if="cargando" :cantidad="4" />
 
     <div v-else-if="pedidos.length > 0" class="tabla-envoltorio">
-      <table class="tabla">
+      <table class="tabla lineal">
         <thead>
           <tr>
             <th>Folio</th>
@@ -202,7 +202,7 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
                 <span class="sub">{{ nombreMetodoPago(pedido.pago.metodo) }}</span>
               </td>
               <td>
-                <div class="etiquetas">
+                <div class="en-linea">
                   <span class="mini-tag">{{ nombreEstadoPedido(pedido.estado) }}</span>
                   <span v-if="pedido.pago.billetera > 0" class="mini-tag billetera">
                     Billetera {{ dinero(pedido.pago.billetera) }}
@@ -248,8 +248,8 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
                   La mercancía ya salió de bodega: el pedido ya no se puede cancelar.
                 </p>
                 <p v-else-if="pedido.pago.estado === 'CANCELADO'" class="bloqueo">
-                  Pedido cancelado: su inventario regresó a bodega. Si el cliente retoma la
-                  compra, levanta un pedido nuevo.
+                  Pedido cancelado: su inventario regresó a bodega. Si el cliente retoma la compra,
+                  levanta un pedido nuevo.
                 </p>
               </td>
             </tr>
@@ -422,12 +422,6 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
   min-width: 800px;
 }
 
-.etiquetas {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
 .mini-tag.billetera {
   background: var(--cream-2);
   color: var(--terracotta-dark);
@@ -438,22 +432,18 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
   color: var(--ink);
 }
 
-/* Dos columnas: los siete estatus caben sin que el texto se parta. */
+/* Los siete estatus uno al costado del otro, como una sola tira. */
 .botonera {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  display: flex;
   gap: 4px;
-}
-
-.estatus {
-  width: 250px;
 }
 
 .btn-pago {
   font-family: var(--font-heading);
   font-weight: 700;
   font-size: 11px;
-  padding: 6px 4px;
+  white-space: nowrap;
+  padding: 3px 10px;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   background: var(--cream);
