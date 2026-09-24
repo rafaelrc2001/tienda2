@@ -13,6 +13,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { ErrorApi, http, subirAUrlFirmada } from '@/api/http'
 import { dinero } from '@/utils/formato'
+import { reducirImagen } from '@/utils/reducirImagen'
 import { itemsDeLaEntrega, piezasDelRecuento, problemaDelRecuento } from './recuento'
 import { MOTIVOS } from './etiquetas'
 import type { RenglonContado } from './recuento'
@@ -99,22 +100,26 @@ function limpiarMotivo(renglon: RenglonContado): void {
 
 async function adjuntarFoto(evento: Event): Promise<void> {
   const entrada = evento.target as HTMLInputElement
-  const archivo = entrada.files?.[0]
+  const original = entrada.files?.[0]
   entrada.value = ''
-  if (!archivo) return
+  if (!original) return
 
   error.value = ''
-  if (!TIPOS_PERMITIDOS.includes(archivo.type)) {
+  if (!TIPOS_PERMITIDOS.includes(original.type)) {
     error.value = 'Usa una foto JPG, PNG o WebP.'
-    return
-  }
-  if (archivo.size > TAMANO_MAXIMO_BYTES) {
-    error.value = 'La foto no puede pesar más de 5 MB.'
     return
   }
 
   subiendo.value = true
   try {
+    // La foto de la cámara se achica antes de viajar: pesa una fracción y deja
+    // de chocar con el tope de 5 MB.
+    const archivo = await reducirImagen(original)
+    if (archivo.size > TAMANO_MAXIMO_BYTES) {
+      error.value = 'La foto no puede pesar más de 5 MB.'
+      return
+    }
+
     const firma = await http.post<FirmaSubida>('/uploads/firma', {
       carpeta: 'entregas',
       contentType: archivo.type,
@@ -144,6 +149,8 @@ function quitarFoto(): void {
 }
 
 async function entregar(): Promise<void> {
+  // Confirmar a media subida mandaría la entrega sin su foto: se espera.
+  if (subiendo.value) return
   const problema = problemaDelRecuento(renglones)
   if (problema) {
     error.value = problema
@@ -280,8 +287,15 @@ async function entregar(): Promise<void> {
         <button type="button" class="btn-cancel" :disabled="enviando" @click="emit('cerrar')">
           Volver
         </button>
-        <button type="button" class="btn-primary" :disabled="enviando" @click="entregar">
-          {{ enviando ? 'Cerrando…' : 'Confirmar entrega' }}
+        <button
+          type="button"
+          class="btn-primary"
+          :disabled="enviando || subiendo"
+          @click="entregar"
+        >
+          {{
+            enviando ? 'Cerrando…' : subiendo ? 'Esperando la foto…' : 'Confirmar entrega'
+          }}
         </button>
       </div>
     </div>
