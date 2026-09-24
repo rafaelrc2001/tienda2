@@ -12,7 +12,7 @@ import { ErrorApi, http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
 import {
   dinero,
-  fechaHora,
+  fechaNumerica,
   nombreEstadoPago,
   nombreEstadoPedido,
   nombreMetodoPago,
@@ -29,22 +29,19 @@ import type {
 
 const ui = useUiStore()
 
-const PESTANAS: { filtro: FiltroOperaciones; titulo: string }[] = [
-  { filtro: 'activos', titulo: 'Por surtir' },
-  { filtro: 'en-ruta', titulo: 'En ruta' },
-  { filtro: 'entregados', titulo: 'Entregados' },
-  { filtro: 'cancelados', titulo: 'Cancelados' },
-]
-
-const filtro = ref<FiltroOperaciones>('activos')
+/**
+ * Por ahora la pantalla solo enseña lo que hay por surtir: las pestañas (En
+ * ruta, Entregados, Cancelados) se quitaron para limpiar la interfaz. La API
+ * sigue aceptando los otros filtros.
+ */
+const filtro: FiltroOperaciones = 'activos'
 const pedidos = ref<PedidoEnPantalla[]>([])
-const conteos = ref<Record<FiltroOperaciones, number> | null>(null)
 const cargando = ref(true)
 const abierto = ref<string | null>(null)
 const avanzando = ref<string | null>(null)
 const bitacoraDe = ref<PedidoEnPantalla | null>(null)
 
-/** Cambiar de pestaña rápido deja respuestas viejas en el aire: gana la última. */
+/** Recargar mientras otra carga sigue en el aire deja respuestas viejas: gana la última. */
 let peticion = 0
 
 async function cargar(conEsqueleto = true): Promise<void> {
@@ -52,11 +49,10 @@ async function cargar(conEsqueleto = true): Promise<void> {
   if (conEsqueleto) cargando.value = true
   try {
     const respuesta = await http.get<ListadoOperaciones>('/admin/operaciones/pedidos', {
-      query: { filtro: filtro.value },
+      query: { filtro },
     })
     if (numero !== peticion) return
     pedidos.value = respuesta.pedidos
-    conteos.value = respuesta.conteos
   } catch (fallo) {
     if (numero === peticion) ui.errorDeApi(fallo)
   } finally {
@@ -65,13 +61,6 @@ async function cargar(conEsqueleto = true): Promise<void> {
 }
 
 onMounted(() => cargar())
-
-function elegir(nuevo: FiltroOperaciones): void {
-  if (nuevo === filtro.value) return
-  filtro.value = nuevo
-  abierto.value = null
-  void cargar()
-}
 
 async function avanzar(pedido: PedidoEnPantalla): Promise<void> {
   const destino = pedido.paso.siguiente
@@ -92,8 +81,7 @@ async function avanzar(pedido: PedidoEnPantalla): Promise<void> {
   } finally {
     avanzando.value = null
   }
-  // Lo que ya salió de la pestaña (p. ej. entregado en tienda) se va de la
-  // lista, y los contadores se ponen al día.
+  // Lo que ya no está por surtir (p. ej. entregado en tienda) se va de la lista.
   await cargar(false)
 }
 
@@ -120,11 +108,46 @@ function direccionCorta(pedido: PedidoEnPantalla): string {
   return [d.calle, d.colonia, d.ciudad].filter(Boolean).join(' · ')
 }
 
-const TITULO_PASO: Partial<Record<EstadoPedido, string>> = {
-  EN_PREPARACION: 'Empezar a preparar',
-  PREPARADO: 'Marcar preparado',
-  LISTO_PARA_ENTREGA: 'Listo para entrega',
-  ENTREGADO: 'Entregar en tienda',
+/**
+ * Los estados del pedido, en orden, pintados como una fila de botones: cada
+ * uno se enciende cuando se dio el anterior. «Entregado» solo lo da aquí un
+ * pedido de tienda; el de domicilio lo sigue Rutas y se ve apagado.
+ */
+const PASOS: EstadoPedido[] = ['EN_PREPARACION', 'PREPARADO', 'LISTO_PARA_ENTREGA', 'ENTREGADO']
+
+const ORDEN_ESTADO: EstadoPedido[] = [
+  'CONFIRMADO',
+  'EN_PREPARACION',
+  'PREPARADO',
+  'LISTO_PARA_ENTREGA',
+  'RECOLECTADO',
+  'EN_RUTA',
+  'ENTREGADO',
+]
+
+/** El pedido ya pasó por ese estado: el botón queda marcado como hecho. */
+function pasoDado(pedido: PedidoEnPantalla, estado: EstadoPedido): boolean {
+  return ORDEN_ESTADO.indexOf(pedido.estado) >= ORDEN_ESTADO.indexOf(estado)
+}
+
+/** Solo se enciende el paso que la API dice que toca a Operaciones. */
+function esPasoSiguiente(pedido: PedidoEnPantalla, estado: EstadoPedido): boolean {
+  return (
+    pedido.pago.estado !== 'CANCELADO' &&
+    pedido.paso.seccion === 'operaciones' &&
+    pedido.paso.siguiente === estado
+  )
+}
+
+/** El bloqueo del paso que toca, para enseñarlo bajo los botones. */
+function bloqueoDe(pedido: PedidoEnPantalla): string | null {
+  const siguiente = pedido.paso.siguiente
+  if (!siguiente || !esPasoSiguiente(pedido, siguiente)) return null
+  return pedido.paso.bloqueo?.mensaje ?? null
+}
+
+function iconoMetodo(metodo: string): string {
+  return metodo === 'TRANSFERENCIA' ? '🏦' : '💵'
 }
 </script>
 
@@ -132,171 +155,169 @@ const TITULO_PASO: Partial<Record<EstadoPedido, string>> = {
   <div class="pantalla">
     <RouterLink to="/admin" class="admin-back-inline">← Volver al menú</RouterLink>
 
-    <div class="subtab-row" role="tablist">
-      <button
-        v-for="p in PESTANAS"
-        :key="p.filtro"
-        type="button"
-        role="tab"
-        class="subtab"
-        :class="{ active: filtro === p.filtro }"
-        :aria-selected="filtro === p.filtro"
-        @click="elegir(p.filtro)"
-      >
-        {{ p.titulo }}<template v-if="conteos"> · {{ conteos[p.filtro] }}</template>
-      </button>
-    </div>
-
     <SkeletonList v-if="cargando" :cantidad="4" />
 
     <div v-else-if="pedidos.length > 0" class="tabla-envoltorio">
       <table class="tabla lineal">
         <thead>
           <tr>
-            <th>Folio</th>
+            <th>Pedido</th>
             <th>Cliente</th>
-            <th>Estado</th>
-            <th>Pago</th>
+            <th>Fecha</th>
+            <th>Estado del pedido</th>
+            <th>Estado de pago</th>
             <th class="num">Total</th>
-            <th>Acción</th>
+            <th>Acciones</th>
           </tr>
         </thead>
         <tbody>
           <template v-for="pedido in pedidos" :key="pedido.id">
             <tr :class="{ 'con-detalle': abierto === pedido.id }">
               <td>
+                <button
+                  type="button"
+                  class="chevron"
+                  :class="{ abierto: abierto === pedido.id }"
+                  :aria-expanded="abierto === pedido.id"
+                  :aria-label="`Detalle de ${pedido.folio}`"
+                  @click="alternar(pedido.id)"
+                >
+                  <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                    <path
+                      d="M4 6l4 4 4-4"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
+                  </svg>
+                </button>
                 <span class="folio">{{ pedido.folio }}</span>
-                <span class="sub">{{ fechaHora(pedido.creadoEn) }}</span>
+              </td>
+              <!-- Solo el nombre: cómo se entrega va en el detalle. -->
+              <td>{{ pedido.clienteNombre ?? '—' }}</td>
+              <td>{{ fechaNumerica(pedido.creadoEn) }}</td>
+              <td>
+                <span class="pastilla estado">{{ etiquetaEstado(pedido) }}</span>
               </td>
               <td>
-                {{ pedido.clienteNombre ?? '—' }}
-                <span class="sub">
-                  {{ pedido.metodoEntrega === 'TIENDA' ? '🏪 Recoge en tienda' : '🛵 A domicilio' }}
-                </span>
-              </td>
-              <td>
-                <span class="mini-tag">{{ etiquetaEstado(pedido) }}</span>
-              </td>
-              <td>
-                <span class="mini-tag" :class="clasePago(pedido.pago.estado)">
+                <span class="pastilla" :class="clasePago(pedido.pago.estado)">
                   {{ nombreEstadoPago(pedido.pago.estado) }}
                 </span>
               </td>
               <td class="num importe">{{ dinero(pedido.total) }}</td>
               <td class="accion">
-                <!-- El botón del paso, o por qué no se puede dar. -->
+                <!-- «Ver» abre el detalle; después, los estados en orden. Solo se
+                     enciende el que toca; los ya dados quedan marcados. -->
                 <div class="en-linea">
-                  <template v-if="pedido.pago.estado !== 'CANCELADO'">
-                    <button
-                      v-if="pedido.paso.siguiente && pedido.paso.seccion === 'operaciones'"
-                      type="button"
-                      class="btn-primary"
-                      :disabled="pedido.paso.bloqueo !== null || avanzando === pedido.id"
-                      @click="avanzar(pedido)"
-                    >
-                      <template v-if="avanzando === pedido.id">…</template>
-                      <template v-else>
-                        {{ pedido.paso.bloqueo ? '🔒 ' : ''
-                        }}{{
-                          TITULO_PASO[pedido.paso.siguiente] ??
-                          nombreEstadoPedido(pedido.paso.siguiente)
-                        }}
-                      </template>
-                    </button>
-                    <p v-else-if="pedido.paso.siguiente" class="aviso">
-                      🛵 Listo en bodega: lo recoge Rutas.
-                    </p>
-                    <p v-else class="aviso hecho">✓ Entregado</p>
-                  </template>
-
-                  <div class="enlaces">
-                    <button type="button" class="enlace" @click="alternar(pedido.id)">
-                      {{ abierto === pedido.id ? 'Ocultar detalle' : 'Ver detalle' }}
-                    </button>
-                    <button type="button" class="enlace" @click="bitacoraDe = pedido">
-                      Bitácora
-                    </button>
-                  </div>
+                  <button type="button" class="btn-ver" @click="alternar(pedido.id)">Ver</button>
+                  <span class="separador" aria-hidden="true"></span>
+                  <button
+                    v-for="estado in PASOS"
+                    :key="estado"
+                    type="button"
+                    class="btn-paso"
+                    :class="{
+                      siguiente: esPasoSiguiente(pedido, estado),
+                      hecho: pasoDado(pedido, estado),
+                    }"
+                    :disabled="
+                      !esPasoSiguiente(pedido, estado) ||
+                      pedido.paso.bloqueo !== null ||
+                      avanzando === pedido.id
+                    "
+                    @click="avanzar(pedido)"
+                  >
+                    <template v-if="avanzando === pedido.id && esPasoSiguiente(pedido, estado)">
+                      …
+                    </template>
+                    <template v-else>
+                      {{ pasoDado(pedido, estado) ? '✓ ' : ''
+                      }}{{ esPasoSiguiente(pedido, estado) && pedido.paso.bloqueo ? '🔒 ' : ''
+                      }}{{ nombreEstadoPedido(estado) }}
+                    </template>
+                  </button>
                 </div>
 
-                <p
-                  v-if="
-                    pedido.pago.estado !== 'CANCELADO' &&
-                    pedido.paso.siguiente &&
-                    pedido.paso.seccion === 'operaciones' &&
-                    pedido.paso.bloqueo
-                  "
-                  class="bloqueo"
-                >
-                  {{ pedido.paso.bloqueo.mensaje }}
+                <p v-if="bloqueoDe(pedido)" class="bloqueo">
+                  {{ bloqueoDe(pedido) }}
                 </p>
               </td>
             </tr>
 
             <tr v-if="abierto === pedido.id" class="fila-detalle">
-              <td colspan="6">
-                <table class="tabla-lineas angosta">
-                  <thead>
-                    <tr>
-                      <th class="num">Cantidad</th>
-                      <th>Producto</th>
-                      <th class="num">Importe</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="item in pedido.items" :key="item.productoId">
-                      <td class="num">{{ item.cantidad }} {{ item.unidad }}</td>
-                      <td>{{ item.nombre }}</td>
-                      <td class="num">{{ dinero(item.importe) }}</td>
-                    </tr>
-                  </tbody>
-                  <tfoot>
-                    <tr>
-                      <td colspan="2">Productos</td>
-                      <td class="num">{{ dinero(pedido.subtotal) }}</td>
-                    </tr>
-                    <tr v-if="pedido.metodoEntrega === 'DOMICILIO'">
-                      <td colspan="2">Envío</td>
-                      <td class="num">
+              <td colspan="7">
+                <div class="detalle">
+                  <ul class="renglones">
+                    <li v-for="item in pedido.items" :key="item.productoId">
+                      <strong>{{ item.cantidad }}-</strong>{{ item.nombre }}
+                    </li>
+                  </ul>
+
+                  <dl class="cuentas">
+                    <div>
+                      <dt>Subtotal</dt>
+                      <dd>{{ dinero(pedido.subtotal) }}</dd>
+                    </div>
+                    <div v-if="pedido.metodoEntrega === 'DOMICILIO'">
+                      <dt>Envío a domicilio</dt>
+                      <dd>
                         {{ pedido.envio === 0 ? 'Gratis' : dinero(pedido.envio) }}
-                      </td>
-                    </tr>
-                    <tr v-if="pedido.recargoFuera > 0">
-                      <td colspan="2">Recargo fuera de horario</td>
-                      <td class="num">{{ dinero(pedido.recargoFuera) }}</td>
-                    </tr>
-                    <tr v-if="pedido.descuento > 0">
-                      <td colspan="2">
+                      </dd>
+                    </div>
+                    <div v-if="pedido.recargoFuera > 0">
+                      <dt>Recargo fuera de horario</dt>
+                      <dd>{{ dinero(pedido.recargoFuera) }}</dd>
+                    </div>
+                    <div v-if="pedido.descuento > 0">
+                      <dt>
                         {{ pedido.cupon ? `Cupón ${pedido.cupon.code}` : 'Descuento' }}
-                      </td>
-                      <td class="num">−{{ dinero(pedido.descuento) }}</td>
-                    </tr>
-                    <tr v-if="pedido.pago.billetera > 0">
-                      <td colspan="2">Pagó con su billetera</td>
-                      <td class="num">−{{ dinero(pedido.pago.billetera) }}</td>
-                    </tr>
-                    <tr class="fuerte">
-                      <td colspan="2">
-                        {{
-                          pedido.pago.aPagar > 0
-                            ? `A cobrar · ${nombreMetodoPago(pedido.pago.metodo)}`
-                            : 'Cubierto'
-                        }}
-                      </td>
-                      <td class="num">{{ dinero(pedido.pago.aPagar) }}</td>
-                    </tr>
-                  </tfoot>
-                </table>
-                <p
-                  v-if="pedido.pago.pagoCon !== null && pedido.pago.cambio !== null"
-                  class="nota-pago"
-                >
-                  💵 Paga con {{ dinero(pedido.pago.pagoCon) }} · Cambio
-                  {{ dinero(pedido.pago.cambio) }}
-                </p>
-                <p v-if="direccionCorta(pedido)" class="nota-pago">
-                  📍 {{ direccionCorta(pedido) }}
-                </p>
+                      </dt>
+                      <dd>−{{ dinero(pedido.descuento) }}</dd>
+                    </div>
+                    <div class="total">
+                      <dt>Total</dt>
+                      <dd>{{ dinero(pedido.total) }}</dd>
+                    </div>
+                    <div v-if="pedido.pago.billetera > 0">
+                      <dt>Pagó con su billetera</dt>
+                      <dd>−{{ dinero(pedido.pago.billetera) }}</dd>
+                    </div>
+                    <div v-if="pedido.pago.billetera > 0">
+                      <dt>A cobrar</dt>
+                      <dd>{{ dinero(pedido.pago.aPagar) }}</dd>
+                    </div>
+                    <div>
+                      <dt>Método de pago</dt>
+                      <dd>
+                        {{ iconoMetodo(pedido.pago.metodo) }}
+                        {{ nombreMetodoPago(pedido.pago.metodo) }}
+                      </dd>
+                    </div>
+                  </dl>
+
+                  <template v-if="pedido.pago.metodo !== 'TRANSFERENCIA' && pedido.pago.aPagar > 0">
+                    <p
+                      v-if="pedido.pago.pagoCon !== null && pedido.pago.cambio !== null"
+                      class="nota"
+                    >
+                      💵 Paga con {{ dinero(pedido.pago.pagoCon) }} · Cambio
+                      {{ dinero(pedido.pago.cambio) }}
+                    </p>
+                    <p v-else class="nota">💵 No especificó con cuánto paga</p>
+                  </template>
+                  <p class="nota">
+                    {{
+                      pedido.metodoEntrega === 'TIENDA' ? '🏪 Recoge en tienda' : '🛵 A domicilio'
+                    }}
+                  </p>
+                  <p v-if="direccionCorta(pedido)" class="nota">📍 {{ direccionCorta(pedido) }}</p>
+
+                  <button type="button" class="enlace" @click="bitacoraDe = pedido">
+                    Ver bitácora
+                  </button>
+                </div>
               </td>
             </tr>
           </template>
@@ -304,11 +325,7 @@ const TITULO_PASO: Partial<Record<EstadoPedido, string>> = {
       </table>
     </div>
 
-    <p v-else class="empty-block">
-      {{
-        filtro === 'activos' ? 'No hay pedidos por surtir. 🎉' : 'No hay pedidos en esta pestaña.'
-      }}
-    </p>
+    <p v-else class="empty-block">No hay pedidos por surtir. 🎉</p>
 
     <BitacoraPedido
       v-if="bitacoraDe"
@@ -334,32 +351,140 @@ const TITULO_PASO: Partial<Record<EstadoPedido, string>> = {
   text-decoration: none;
 }
 
-.subtab-row {
-  margin: 0 0 12px;
-}
-
 .tabla {
-  min-width: 720px;
+  min-width: 860px;
 }
 
-.mini-tag.pago-pendiente {
-  background: var(--amarillo);
+/* Filas con aire, como en la referencia: la acción va en botones, no en enlaces. */
+.tabla.lineal > tbody > tr:not(.fila-detalle) > td {
+  padding: 10px 14px;
+}
+
+.tabla.lineal .folio {
+  font-size: 13px;
+}
+
+/* Con la acción en botones, la tabla es más ancha que la pantalla: la barra
+   se queda siempre a la vista para moverla de lado. */
+.tabla-envoltorio {
+  overflow-x: scroll;
+  scrollbar-width: thin;
+  scrollbar-color: var(--gris) var(--cream-2);
+}
+
+.tabla-envoltorio::-webkit-scrollbar {
+  height: 10px;
+}
+
+.tabla-envoltorio::-webkit-scrollbar-track {
+  background: var(--cream-2);
+}
+
+.tabla-envoltorio::-webkit-scrollbar-thumb {
+  background: var(--gris);
+  border-radius: 999px;
+}
+
+/* Flecha abajo: abre el detalle. Abierto, apunta arriba para cerrarlo. */
+.chevron {
+  background: none;
+  border: none;
+  padding: 0;
+  margin-right: 8px;
+  color: var(--muted);
+  cursor: pointer;
+  display: inline-flex;
+  vertical-align: middle;
+  transition: transform 0.15s;
+}
+
+.chevron.abierto {
+  transform: rotate(180deg);
   color: var(--ink);
 }
 
-.mini-tag.pago-retenido {
-  background: var(--gris-oscuro);
+/* Estados en pastilla suave, en minúsculas como se leen. */
+.pastilla {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-family: var(--font-heading);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.pastilla.estado {
+  background: color-mix(in srgb, var(--gris) 18%, var(--white));
+  color: var(--ink);
+}
+
+/* Pago pendiente es lo normal al surtir: va como texto, sin pastilla. */
+.pastilla.pago-pendiente {
+  background: none;
+  padding-left: 0;
+  padding-right: 0;
+  color: var(--ink);
+}
+
+.pastilla.pago-retenido {
+  background: color-mix(in srgb, var(--gris-oscuro) 20%, var(--white));
+  color: var(--gris-oscuro);
+}
+
+.pastilla.pago-liberado {
+  background: color-mix(in srgb, var(--verde) 18%, var(--white));
+  color: var(--verde-compra);
+}
+
+.pastilla.pago-cancelado {
+  background: color-mix(in srgb, var(--rojo) 15%, var(--white));
+  color: var(--rojo);
+}
+
+.separador {
+  width: 1px;
+  align-self: stretch;
+  background: var(--line);
+  margin: 0 4px;
+}
+
+.tabla.lineal .en-linea > .btn-ver,
+.tabla.lineal .en-linea > .btn-paso {
+  padding: 5px 12px;
+  border-radius: 8px;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 500;
+  background: var(--white);
+  cursor: pointer;
+}
+
+.btn-ver {
+  border: 1px solid var(--line);
+  color: var(--ink);
+}
+
+.btn-paso {
+  border: 1px solid var(--line);
+  color: var(--ink);
+}
+
+.btn-paso.siguiente:not(:disabled) {
+  border-color: var(--verde-compra);
+  background: var(--verde-compra);
   color: var(--white);
 }
 
-.mini-tag.pago-liberado {
-  background: var(--verde);
-  color: var(--white);
+.btn-paso:disabled {
+  color: var(--muted);
+  cursor: default;
+  opacity: 0.7;
 }
 
-.mini-tag.pago-cancelado {
-  background: var(--rojo);
-  color: var(--white);
+.btn-paso.hecho {
+  color: var(--verde-compra);
+  opacity: 1;
 }
 
 .bloqueo {
@@ -369,24 +494,70 @@ const TITULO_PASO: Partial<Record<EstadoPedido, string>> = {
   color: var(--orange-dark);
 }
 
-.aviso {
+/* Detalle: renglones y cuenta, en una columna angosta a la izquierda. Se
+   queda fijo aunque la tabla se desplace de lado. */
+.detalle {
+  position: sticky;
+  left: 14px;
+  max-width: 480px;
+  font-size: 12.5px;
+  color: var(--ink);
+}
+
+.renglones {
+  list-style: none;
   margin: 0;
-  font-size: 12px;
-  font-weight: 600;
+  padding: 0 0 8px;
+  border-bottom: 1px dashed var(--line);
+}
+
+.renglones li {
+  padding: 2px 0;
+}
+
+.cuentas {
+  margin: 8px 0 0;
+  border-top: 1px solid var(--line);
+  padding-top: 6px;
+}
+
+.cuentas > div {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 0;
+}
+
+.cuentas dt {
   color: var(--muted);
 }
 
-.aviso.hecho {
-  color: var(--verde-dark);
+.cuentas dd {
+  margin: 0;
+  font-weight: 700;
 }
 
-.tabla-lineas.angosta {
-  max-width: 520px;
+.cuentas > .total {
+  border-top: 1px solid var(--line);
+  margin-top: 4px;
+  padding-top: 6px;
 }
 
-.nota-pago {
+.cuentas > .total dt {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.cuentas > .total dd {
+  color: var(--verde-compra);
+}
+
+.nota {
   margin: 6px 0 0;
   font-size: 12px;
-  color: var(--ink);
+  color: var(--muted);
+}
+
+.detalle .enlace {
+  margin-top: 8px;
 }
 </style>

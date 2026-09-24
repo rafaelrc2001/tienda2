@@ -483,8 +483,10 @@ input:checked + .switch-danger-slider {
   white-space: nowrap;
 }
 
+/* En tabla el estado va en negro: el naranja se reserva para lo accionable. */
 .tabla .mini-tag {
   white-space: nowrap;
+  color: var(--ink);
 }
 
 /* Folio o nombre principal de la fila, con su dato secundario debajo. */
@@ -493,7 +495,7 @@ input:checked + .switch-danger-slider {
   font-family: var(--font-heading);
   font-weight: 800;
   font-size: 12px;
-  color: var(--terracotta-dark);
+  color: var(--ink);
   letter-spacing: 0.03em;
 }
 
