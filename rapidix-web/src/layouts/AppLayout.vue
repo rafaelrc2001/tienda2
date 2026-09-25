@@ -144,22 +144,25 @@ onBeforeUnmount(() => {
         </button>
         <!-- Ocupa el sitio de la hamburguesa para que el título siga centrado. -->
         <span v-else class="hueco-hamburguesa" aria-hidden="true" />
-        <div class="topbar-centro">
-          <h1 class="topbar-title">{{ titulo }}</h1>
-          <!--
-            Acciones de la pantalla, a la derecha del título. La pantalla las
-            manda con `<Teleport defer to="#topbar-acciones">`; así el layout no
-            sabe nada de cada pantalla y, vacío, no ocupa sitio.
-          -->
-          <span id="topbar-acciones" class="topbar-acciones" />
-        </div>
+        <h1 class="topbar-title">{{ titulo }}</h1>
 
         <!--
-          Arriba a la derecha va el carrito, que se abre desde cualquier
-          pantalla. Mi Perfil vive dentro del menú de la hamburguesa.
+          El extremo derecho, frente a la hamburguesa. Tiene el mismo ancho
+          mínimo que ella para que el título siga centrado aunque esté vacío.
         -->
-        <CarritoWidget v-if="conCarrito" />
-        <span v-else class="hueco-hamburguesa" aria-hidden="true" />
+        <div class="topbar-derecha">
+          <!--
+            Acciones de la pantalla. La pantalla las manda con
+            `<Teleport defer to="#topbar-acciones">`; así el layout no sabe nada
+            de cada pantalla y, vacío, no ocupa sitio.
+          -->
+          <span id="topbar-acciones" class="topbar-acciones" />
+          <!--
+            El carrito, que se abre desde cualquier pantalla. Mi Perfil vive
+            dentro del menú de la hamburguesa.
+          -->
+          <CarritoWidget v-if="conCarrito" />
+        </div>
       </header>
 
       <main ref="pantalla" class="app-screen">
@@ -327,6 +330,7 @@ onBeforeUnmount(() => {
 }
 
 .topbar-title {
+  flex: 1;
   font-family: var(--font-heading);
   font-weight: 700;
   font-size: 16px;
@@ -340,14 +344,14 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
-/* Título y sus acciones, centrados juntos entre la hamburguesa y el carrito. */
-.topbar-centro {
-  flex: 1;
-  min-width: 0;
+/* Pegado al borde derecho, como la hamburguesa al izquierdo. */
+.topbar-derecha {
+  min-width: 34px;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-end;
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .topbar-acciones {
