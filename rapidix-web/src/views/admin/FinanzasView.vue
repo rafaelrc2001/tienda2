@@ -224,10 +224,6 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
                   <span v-if="pedido.pago.billetera > 0" class="mini-tag billetera">
                     Billetera {{ dinero(pedido.pago.billetera) }}
                   </span>
-                  <span v-if="pedido.cashbackGenerado > 0" class="mini-tag cashback">
-                    Cashback {{ dinero(pedido.cashbackGenerado) }}
-                    {{ pedido.cashbackAcreditado ? '✓' : 'al pagarse' }}
-                  </span>
                 </div>
               </td>
               <td class="num">
@@ -273,71 +269,73 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
 
             <tr v-if="abierto === pedido.id" class="fila-detalle">
               <td colspan="5">
-                <table class="tabla-lineas angosta">
-                  <thead>
-                    <tr>
-                      <th class="num">Cantidad</th>
-                      <th>Producto</th>
-                      <th class="num">Importe</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="item in pedido.items" :key="item.productoId">
-                      <td class="num">{{ item.cantidad }} {{ item.unidad }}</td>
-                      <td>{{ item.nombre }}</td>
-                      <td class="num">{{ dinero(item.importe) }}</td>
-                    </tr>
-                  </tbody>
-                  <tfoot>
-                    <tr>
-                      <td colspan="2">Productos</td>
-                      <td class="num">{{ dinero(pedido.subtotal) }}</td>
-                    </tr>
-                    <tr v-if="pedido.metodoEntrega === 'DOMICILIO'">
-                      <td colspan="2">Envío</td>
-                      <td class="num">
-                        {{ pedido.envio === 0 ? 'Gratis' : dinero(pedido.envio) }}
-                      </td>
-                    </tr>
-                    <tr v-if="pedido.recargoFuera > 0">
-                      <td colspan="2">Recargo fuera de horario</td>
-                      <td class="num">{{ dinero(pedido.recargoFuera) }}</td>
-                    </tr>
-                    <tr v-if="pedido.descuento > 0">
-                      <td colspan="2">
-                        {{ pedido.cupon ? `Cupón ${pedido.cupon.code}` : 'Descuento' }}
-                      </td>
-                      <td class="num">−{{ dinero(pedido.descuento) }}</td>
-                    </tr>
-                    <tr v-if="pedido.pago.billetera > 0">
-                      <td colspan="2">Pagó con su billetera</td>
-                      <td class="num">−{{ dinero(pedido.pago.billetera) }}</td>
-                    </tr>
-                    <tr class="fuerte">
-                      <td colspan="2">
-                        {{
-                          pedido.pago.aPagar > 0
-                            ? `A cobrar · ${nombreMetodoPago(pedido.pago.metodo)}`
-                            : 'Cubierto'
-                        }}
-                      </td>
-                      <td class="num">{{ dinero(pedido.pago.aPagar) }}</td>
-                    </tr>
-                  </tfoot>
-                </table>
-                <p
-                  v-if="pedido.pago.pagoCon !== null && pedido.pago.cambio !== null"
-                  class="nota-pago"
-                >
-                  💵 Paga con {{ dinero(pedido.pago.pagoCon) }} · Cambio
-                  {{ dinero(pedido.pago.cambio) }}
-                </p>
-                <p class="nota-pago">
-                  🧾 Referencia de transferencia: {{ pedido.pago.referencia }}
-                </p>
-                <p v-if="direccionCorta(pedido)" class="nota-pago">
-                  📍 {{ direccionCorta(pedido) }}
-                </p>
+                <div class="detalle">
+                  <table class="tabla-lineas">
+                    <thead>
+                      <tr>
+                        <th class="num">Cantidad</th>
+                        <th>Producto</th>
+                        <th class="num">Importe</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="item in pedido.items" :key="item.productoId">
+                        <td class="num">{{ item.cantidad }} {{ item.unidad }}</td>
+                        <td>{{ item.nombre }}</td>
+                        <td class="num">{{ dinero(item.importe) }}</td>
+                      </tr>
+                    </tbody>
+                    <tfoot>
+                      <tr>
+                        <td colspan="2">Productos</td>
+                        <td class="num">{{ dinero(pedido.subtotal) }}</td>
+                      </tr>
+                      <tr v-if="pedido.metodoEntrega === 'DOMICILIO'">
+                        <td colspan="2">Envío</td>
+                        <td class="num">
+                          {{ pedido.envio === 0 ? 'Gratis' : dinero(pedido.envio) }}
+                        </td>
+                      </tr>
+                      <tr v-if="pedido.recargoFuera > 0">
+                        <td colspan="2">Recargo fuera de horario</td>
+                        <td class="num">{{ dinero(pedido.recargoFuera) }}</td>
+                      </tr>
+                      <tr v-if="pedido.descuento > 0">
+                        <td colspan="2">
+                          {{ pedido.cupon ? `Cupón ${pedido.cupon.code}` : 'Descuento' }}
+                        </td>
+                        <td class="num">−{{ dinero(pedido.descuento) }}</td>
+                      </tr>
+                      <tr v-if="pedido.pago.billetera > 0">
+                        <td colspan="2">Pagó con su billetera</td>
+                        <td class="num">−{{ dinero(pedido.pago.billetera) }}</td>
+                      </tr>
+                      <tr class="fuerte">
+                        <td colspan="2">
+                          {{
+                            pedido.pago.aPagar > 0
+                              ? `A cobrar · ${nombreMetodoPago(pedido.pago.metodo)}`
+                              : 'Cubierto'
+                          }}
+                        </td>
+                        <td class="num">{{ dinero(pedido.pago.aPagar) }}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                  <p
+                    v-if="pedido.pago.pagoCon !== null && pedido.pago.cambio !== null"
+                    class="nota-pago"
+                  >
+                    💵 Paga con {{ dinero(pedido.pago.pagoCon) }} · Cambio
+                    {{ dinero(pedido.pago.cambio) }}
+                  </p>
+                  <p class="nota-pago">
+                    🧾 Referencia de transferencia: {{ pedido.pago.referencia }}
+                  </p>
+                  <p v-if="direccionCorta(pedido)" class="nota-pago">
+                    📍 {{ direccionCorta(pedido) }}
+                  </p>
+                </div>
               </td>
             </tr>
           </template>
@@ -444,11 +442,6 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
   color: var(--terracotta-dark);
 }
 
-.mini-tag.cashback {
-  background: var(--amarillo);
-  color: var(--ink);
-}
-
 /* Los siete estatus uno al costado del otro, como una sola tira. */
 .botonera {
   display: flex;
@@ -503,14 +496,37 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
   color: var(--orange-dark);
 }
 
-.tabla-lineas.angosta {
+/* Detalle: una sola letra y un solo tamaño para todo —encabezados, renglones,
+   total y notas—; lo que distingue es el peso y el color, no la fuente. Se
+   queda fijo a la izquierda aunque la tabla se desplace de lado. */
+.detalle {
+  position: sticky;
+  left: 12px;
   max-width: 520px;
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  color: var(--ink);
+}
+
+.detalle .tabla-lineas,
+.detalle .tabla-lineas th,
+.detalle .tabla-lineas td {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.detalle .tabla-lineas th {
+  font-weight: 600;
+  text-transform: none;
+  color: var(--muted);
+}
+
+.detalle .tabla-lineas tr.fuerte td {
+  font-weight: 700;
 }
 
 .nota-pago {
   margin: 6px 0 0;
-  font-size: 12px;
-  color: var(--ink);
 }
 
 .modal-texto {
