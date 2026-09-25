@@ -447,6 +447,8 @@ export interface BloqueoPaso {
     | 'PEDIDO_CANCELADO'
     | 'PAGO_RETENIDO'
     | 'PAGO_NO_LIBERADO'
+    /** Transferencia sin Pagado ni Crédito: no se entrega. El efectivo se cobra en la puerta. */
+    | 'PAGO_NO_CUBIERTO'
   mensaje: string
 }
 

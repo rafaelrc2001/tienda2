@@ -1,4 +1,4 @@
-import { EstadoPago, EstadoPedido, MetodoEntrega } from '@prisma/client';
+import { EstadoPago, EstadoPedido, MetodoEntrega, MetodoPago } from '@prisma/client';
 import { Seccion } from '../auth/permisos';
 
 /**
@@ -28,6 +28,8 @@ export interface Transicion {
   entrega?: MetodoEntrega;
   /** Si Finanzas tiene que haber liberado el pago antes. */
   exigeLiberado: boolean;
+  /** Si el dinero tiene que estar cubierto (ver `pagoCubierto`). Solo al entregar. */
+  exigePago?: boolean;
 }
 
 /**
@@ -63,6 +65,7 @@ export const TRANSICIONES: readonly Transicion[] = [
     seccion: 'operaciones',
     entrega: MetodoEntrega.TIENDA,
     exigeLiberado: true,
+    exigePago: true,
   },
   {
     de: EstadoPedido.LISTO_PARA_ENTREGA,
@@ -84,6 +87,7 @@ export const TRANSICIONES: readonly Transicion[] = [
     seccion: 'rutas',
     entrega: MetodoEntrega.DOMICILIO,
     exigeLiberado: true,
+    exigePago: true,
   },
 ];
 
@@ -98,13 +102,30 @@ export function esLiberado(estadoPago: EstadoPago): boolean {
   return estadoPago !== EstadoPago.RETENER;
 }
 
+/**
+ * Si el dinero permite entregar.
+ *
+ * El efectivo se cobra en la puerta o en el mostrador, asi que se entrega con
+ * el pago pendiente: esperar a PAGADO seria esperar al corte, que llega
+ * despues. Lo demas (transferencia) tiene que estar PAGADO, o con CREDITO,
+ * que es justo Finanzas autorizando entregar sin cobrar.
+ */
+export function pagoCubierto(metodoPago: MetodoPago, estadoPago: EstadoPago): boolean {
+  if (estadoPago === EstadoPago.PAGADO || estadoPago === EstadoPago.CREDITO) return true;
+  return (
+    metodoPago === MetodoPago.EFECTIVO &&
+    (estadoPago === EstadoPago.PAGO_PENDIENTE || estadoPago === EstadoPago.LIBERAR)
+  );
+}
+
 export type CodigoBloqueo =
   | 'TRANSICION_INVALIDA'
   | 'SOLO_A_DOMICILIO'
   | 'SOLO_EN_TIENDA'
   | 'PEDIDO_CANCELADO'
   | 'PAGO_RETENIDO'
-  | 'PAGO_NO_LIBERADO';
+  | 'PAGO_NO_LIBERADO'
+  | 'PAGO_NO_CUBIERTO';
 
 export interface Bloqueo {
   codigo: CodigoBloqueo;
@@ -116,6 +137,7 @@ export interface PedidoEnFlujo {
   estado: EstadoPedido;
   estadoPago: EstadoPago;
   metodoEntrega: MetodoEntrega;
+  metodoPago: MetodoPago;
 }
 
 /**
@@ -178,6 +200,15 @@ export function evaluarAvance(
       bloqueo: {
         codigo: 'PAGO_NO_LIBERADO',
         mensaje: `Finanzas debe liberar el pago antes de marcarlo "${NOMBRE_ESTADO_PEDIDO[destino]}".`,
+      },
+    };
+  }
+  if (transicion.exigePago && !pagoCubierto(pedido.metodoPago, pedido.estadoPago)) {
+    return {
+      bloqueo: {
+        codigo: 'PAGO_NO_CUBIERTO',
+        mensaje:
+          'Falta el pago: Finanzas debe marcarlo "Pagado" o darle "Crédito" antes de entregarlo.',
       },
     };
   }

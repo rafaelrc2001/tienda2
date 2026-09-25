@@ -151,6 +151,7 @@ export class FlujoPedidosService {
         estado: pedido.estado,
         estadoPago: pedido.pago.estado,
         metodoEntrega: pedido.metodoEntrega,
+        metodoPago: pedido.pago.metodo,
       }),
     };
   }
@@ -198,7 +199,14 @@ export class FlujoPedidosService {
     await FlujoPedidosService.bloquearFila(tx, id);
     return tx.pedido.findUniqueOrThrow({
       where: { id },
-      select: { id: true, folio: true, estado: true, estadoPago: true, metodoEntrega: true },
+      select: {
+        id: true,
+        folio: true,
+        estado: true,
+        estadoPago: true,
+        metodoEntrega: true,
+        metodoPago: true,
+      },
     });
   }
 
