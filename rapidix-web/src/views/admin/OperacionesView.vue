@@ -102,6 +102,13 @@ function clasePago(estado: EstadoPago): string {
   return 'pago-liberado'
 }
 
+/** La colonia de la dirección congelada en el pedido; el de tienda no lleva. */
+function colonia(pedido: PedidoEnPantalla): string {
+  if (pedido.metodoEntrega === 'TIENDA') return '🏪 Tienda'
+  const d = pedido.direccion as Record<string, string | null> | null
+  return d?.colonia || '—'
+}
+
 function direccionCorta(pedido: PedidoEnPantalla): string {
   const d = pedido.direccion as Record<string, string | null> | null
   if (!d) return ''
@@ -252,6 +259,7 @@ function marcarTodos(): void {
               />
               Pedido
             </th>
+            <th>Colonia</th>
             <th>Cliente</th>
             <th>Fecha</th>
             <th>Estado del pedido</th>
@@ -298,6 +306,8 @@ function marcarTodos(): void {
                 </button>
                 <span class="folio">{{ pedido.folio }}</span>
               </td>
+              <!-- La colonia agrupa a simple vista lo que va para el mismo rumbo. -->
+              <td>{{ colonia(pedido) }}</td>
               <!-- Solo el nombre: cómo se entrega va en el detalle. -->
               <td>{{ pedido.clienteNombre ?? '—' }}</td>
               <td>{{ fechaNumerica(pedido.creadoEn) }}</td>
@@ -355,7 +365,7 @@ function marcarTodos(): void {
             </tr>
 
             <tr v-if="abierto === pedido.id" class="fila-detalle">
-              <td colspan="7">
+              <td colspan="8">
                 <div class="detalle-pedido">
                   <ul class="renglones">
                     <li v-for="item in pedido.items" :key="item.productoId">
@@ -460,7 +470,7 @@ function marcarTodos(): void {
 }
 
 .tabla {
-  min-width: 860px;
+  min-width: 980px;
 }
 
 /* La libreta va sobre la barra naranja: blanca, y rellena cuando está abierta. */
