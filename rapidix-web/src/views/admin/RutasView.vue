@@ -11,7 +11,7 @@
  * candado. Lo propio de Rutas es lo que va encima del camión —la carga— y lo
  * que se cuenta en la puerta del cliente.
  */
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ErrorApi, http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
 import { dinero, fechaHora, nombreEstadoPedido, nombreMetodoPago } from '@/utils/formato'
@@ -67,7 +67,12 @@ let peticion = 0
 
 const trabajando = computed(() => jornada.value !== null && jornada.value.finalizadaEn === null)
 
-async function cargar(conEsqueleto = true): Promise<void> {
+/**
+ * `silenciosa` es la recarga automática: sin esqueleto y sin avisar si falla.
+ * En la calle la señal va y viene, y un error cada minuto por algo que nadie
+ * pidió solo estorba; la siguiente vuelta lo vuelve a intentar.
+ */
+async function cargar(conEsqueleto = true, silenciosa = false): Promise<void> {
   const numero = ++peticion
   if (conEsqueleto) cargando.value = true
   try {
@@ -79,13 +84,42 @@ async function cargar(conEsqueleto = true): Promise<void> {
     pedidos.value = respuesta.pedidos
     conteos.value = respuesta.conteos
   } catch (fallo) {
-    if (numero === peticion) ui.errorDeApi(fallo)
+    if (numero === peticion && !silenciosa) ui.errorDeApi(fallo)
   } finally {
     if (numero === peticion) cargando.value = false
   }
 }
 
-onMounted(() => cargar())
+// ------------------------------------------------------------------
+// Recarga sola
+// ------------------------------------------------------------------
+
+/** Cada cuánto se relee el tablero mientras la pantalla está a la vista. */
+const CADA_MS = 60_000
+
+/**
+ * Finanzas puede marcar Pagado —o dar Crédito— mientras el repartidor está en
+ * bodega, y sin releer seguiría viendo «Falta pago» hasta recargar a mano. Se
+ * relee al volver a la pestaña y cada minuto, solo con la pantalla visible y
+ * nunca a media acción: la respuesta pisaría lo que está moviendo.
+ */
+function recargarSola(): void {
+  if (document.visibilityState !== 'visible' || moviendo.value) return
+  void cargar(false, true)
+}
+
+let reloj: ReturnType<typeof setInterval> | undefined
+
+onMounted(() => {
+  void cargar()
+  reloj = setInterval(recargarSola, CADA_MS)
+  document.addEventListener('visibilitychange', recargarSola)
+})
+
+onBeforeUnmount(() => {
+  clearInterval(reloj)
+  document.removeEventListener('visibilitychange', recargarSola)
+})
 
 function elegir(nuevo: FiltroRutas): void {
   if (nuevo === filtro.value) return
