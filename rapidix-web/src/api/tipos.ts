@@ -577,6 +577,31 @@ export interface ResumenEntrega {
   parcial: boolean
 }
 
+/**
+ * Respuesta de `POST pedidos/:id/entregar/previsualizar`: la cuenta de la hoja
+ * mientras se cuenta. Sale de las mismas funciones que el corte.
+ */
+export interface PrevisualizacionEntrega {
+  renglones: {
+    pedidoItemId: string
+    cantidadEntregada: number
+    /** El unitario que toca por lo aceptado: el del pedido o el re-cotizado. */
+    precio: number
+    importe: number
+  }[]
+  productos: number
+  envio: number
+  recargoFuera: number
+  descuento: number
+  billetera: number
+  cobraEnEfectivo: boolean
+  /** El efectivo que se cobra en la puerta. */
+  aCobrar: number
+  /** `null` mientras el pago recibido no cubra el cobro. */
+  cambio: number | null
+  cubre: boolean
+}
+
 /** Respuesta de `POST pedidos/:id/entregar` y de `no-entregar`. */
 export interface ResultadoEntrega {
   pedido: PedidoEnRuta

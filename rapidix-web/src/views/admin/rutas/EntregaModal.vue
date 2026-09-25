@@ -1,69 +1,39 @@
 <script setup lang="ts">
 /**
- * «Entregado»: el recuento de lo que baja del camión, delante del cliente.
+ * «Detalle y entrega»: todo lo que el repartidor hace en la puerta, en una hoja.
  *
- * Se captura lo que **acepta**, renglón por renglón, porque es lo que el
- * repartidor cuenta en la puerta; lo devuelto es la resta. Van todos los
- * renglones y ninguno de más: la API exige el recuento completo para que un
- * olvido de la pantalla no acabe cobrando mercancía que nadie recibió.
+ * El orden es el de la puerta: a quién y dónde, contar lo que baja del camión,
+ * cobrar, firma y foto. Abajo se juntan **todos** los pendientes a la vez para
+ * que no los vaya descubriendo toque a toque.
  *
- * La evidencia —foto, ubicación— es opcional y **no frena la entrega**: la
- * cámara puede fallar y el cliente puede negar el permiso de ubicación.
+ * Se captura lo que el cliente **acepta**, renglón por renglón; lo devuelto es
+ * la resta. Van todos los renglones y ninguno de más: la API exige el recuento
+ * completo para que un olvido de la pantalla no acabe cobrando mercancía que
+ * nadie recibió.
+ *
+ * La pantalla no suma dinero: con cada toque manda lo aceptado y el pago a
+ * `entregar/previsualizar` y pinta la cuenta que vuelve, que sale de las mismas
+ * funciones que el corte. Lo que se pide cobrar aquí es lo que se liquida.
+ *
+ * La foto es obligatoria salvo que el almacenamiento no esté disponible (503):
+ * entonces no hay forma de cumplirla y no se frena la entrega. La firma y la
+ * ubicación son opcionales: el cliente puede no querer firmar o negar el GPS.
  */
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ErrorApi, http, subirAUrlFirmada } from '@/api/http'
-import { dinero, nombreMetodoPago } from '@/utils/formato'
+import { dinero, nombreEstadoPedido, nombreMetodoPago } from '@/utils/formato'
 import { reducirImagen } from '@/utils/reducirImagen'
-import { itemsDeLaEntrega, piezasDelRecuento, problemaDelRecuento } from './recuento'
+import { itemsDeLaEntrega, pendientesParaConfirmar, piezasDelRecuento } from './recuento'
 import { MOTIVOS } from './etiquetas'
-import { cobraEnEfectivo } from './cobro'
 import type { RenglonContado } from './recuento'
-import type { PedidoEnRuta, ResultadoEntrega } from '@/api/tipos'
+import type { PedidoEnRuta, PrevisualizacionEntrega, ResultadoEntrega } from '@/api/tipos'
 
 const props = defineProps<{ pedido: PedidoEnRuta }>()
-
-/** La copia de la dirección que se congeló en el pedido. */
-interface DireccionPedido {
-  quienRecibe?: string | null
-  telefono?: string | null
-  calle?: string | null
-  colonia?: string | null
-  cp?: string | null
-  ciudad?: string | null
-  referencias?: string | null
-  lat?: number | null
-  lng?: number | null
-}
-
-/**
- * A quién y dónde. Va dentro de la hoja porque en la puerta el repartidor ya no
- * mira la tabla: si no recuerda el nombre o tiene que llamar, está aquí.
- */
-const destino = computed(() => {
-  const d = (props.pedido.direccion ?? {}) as DireccionPedido
-  const lineaCalle = [d.calle, d.colonia].filter(Boolean).join(', ')
-  const lineaCiudad = [d.ciudad, d.cp ? `CP ${d.cp}` : null].filter(Boolean).join(' · ')
-  return {
-    quien: d.quienRecibe || props.pedido.clienteNombre || null,
-    telefono: d.telefono || null,
-    direccion: [lineaCalle, lineaCiudad].filter(Boolean).join(' · '),
-    referencias: d.referencias || null,
-    mapa:
-      d.lat != null && d.lng != null
-        ? `https://www.google.com/maps/search/?api=1&query=${d.lat},${d.lng}`
-        : null,
-  }
-})
-
-const cobra = computed(() => cobraEnEfectivo(props.pedido))
-
-/** El precio de lista de cada renglón, solo para leerlo; el importe lo da la API. */
-const precioPorRenglon = new Map(
-  props.pedido.carga.map((c) => [c.pedidoItemId, c.precioUnitario] as const),
-)
 const emit = defineEmits<{
   (e: 'cerrar'): void
   (e: 'entregado', resultado: ResultadoEntrega): void
+  /** «Cancelar / Reportar incidencia»: lo lleva a «No entregado». */
+  (e: 'incidencia'): void
 }>()
 
 const TIPOS_PERMITIDOS = ['image/jpeg', 'image/png', 'image/webp']
@@ -77,66 +47,257 @@ interface FirmaSubida {
   destino: 'S3' | 'LOCAL'
 }
 
+/** La copia de la dirección que se congeló en el pedido. */
+interface DireccionPedido {
+  quienRecibe?: string | null
+  telefono?: string | null
+  calle?: string | null
+  colonia?: string | null
+  cp?: string | null
+  ciudad?: string | null
+  estado?: string | null
+  referencias?: string | null
+  lat?: number | null
+  lng?: number | null
+}
+
+// ------------------------------------------------------------------
+// Resumen del pedido
+// ------------------------------------------------------------------
+
+const destino = computed(() => {
+  const d = (props.pedido.direccion ?? {}) as DireccionPedido
+  const calle = [d.calle, d.colonia].filter(Boolean).join(', ')
+  const ciudad = [d.ciudad, d.estado, d.cp].filter(Boolean).join(', ')
+  const texto = [calle, ciudad].filter(Boolean).join(', ')
+  return {
+    nombre: d.quienRecibe || props.pedido.clienteNombre || '—',
+    telefono: d.telefono || null,
+    calle,
+    ciudad,
+    referencias: d.referencias || null,
+    // Con coordenadas se va al punto exacto; sin ellas, a buscar la dirección.
+    mapa:
+      d.lat != null && d.lng != null
+        ? `https://www.google.com/maps/search/?api=1&query=${d.lat},${d.lng}`
+        : texto
+          ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(texto)}`
+          : null,
+  }
+})
+
+/** Los pasos que ya dio el pedido antes de llegar a la puerta. */
+const pasos = computed(() => [
+  { titulo: 'Recolectado', hecho: ['RECOLECTADO', 'EN_RUTA'].includes(props.pedido.estado) },
+  { titulo: 'En ruta', hecho: props.pedido.estado === 'EN_RUTA' },
+])
+
+// ------------------------------------------------------------------
+// Productos
+// ------------------------------------------------------------------
+
+type RenglonEnHoja = RenglonContado & { productoId: string; unidad: string; soloNombre: string }
+
 /**
  * Solo lo que sigue arriba del camión. Un renglón ya cerrado es el intento de
- * otro día y no se vuelve a contar.
+ * otro día y no se vuelve a contar. Se arranca en cero, como en la puerta: el
+ * repartidor marca lo que el cliente va aceptando.
  */
-const renglones = reactive<RenglonContado[]>(
+const renglones = reactive<RenglonEnHoja[]>(
   props.pedido.carga
     .filter((c) => c.enCamion)
     .map((c) => ({
       pedidoItemId: c.pedidoItemId,
+      productoId: c.productoId,
       nombre: `${c.nombre} (${c.unidad})`,
+      soloNombre: c.nombre,
+      unidad: c.unidad,
       cantidadCargada: c.cantidadCargada,
-      // Se arranca con la entrega completa: es lo que pasa casi siempre y así
-      // el repartidor solo toca lo que no cuadra.
-      cantidadEntregada: c.cantidadCargada,
+      cantidadEntregada: 0,
       motivoDevolucion: null,
     })),
 )
 
-const nota = ref('')
-const enviando = ref(false)
-const error = ref('')
+const conteo = computed(() => piezasDelRecuento(renglones))
+const aceptados = computed(
+  () => renglones.filter((r) => r.cantidadEntregada >= r.cantidadCargada).length,
+)
 
-/** Evidencia. Ninguna de las tres es obligatoria. */
-const fotoId = ref<string | null>(null)
-const fotoUrl = ref('')
-const subiendo = ref(false)
-const ubicacion = ref<{ lat: number; lng: number } | null>(null)
-const buscandoUbicacion = ref(true)
+/** Lo que el pedido cotizó por renglón, para enseñarlo mientras no se acepta nada. */
+const importeCotizado = new Map(props.pedido.items.map((i) => [i.productoId, i.importe]))
 
-/**
- * La ubicación se pide sola al abrir: es un dato de la entrega y pedírsela al
- * repartidor sería un toque más en la puerta de un cliente. Si la niega o no
- * llega, se entrega igual.
- */
-onMounted(() => {
-  if (!navigator.geolocation) {
-    buscandoUbicacion.value = false
-    return
+function importeDe(renglon: RenglonEnHoja): { valor: number | null; cotizado: boolean } {
+  if (renglon.cantidadEntregada <= 0) {
+    return { valor: importeCotizado.get(renglon.productoId) ?? null, cotizado: true }
   }
-  navigator.geolocation.getCurrentPosition(
-    (posicion) => {
-      ubicacion.value = { lat: posicion.coords.latitude, lng: posicion.coords.longitude }
-      buscandoUbicacion.value = false
-    },
-    () => {
-      buscandoUbicacion.value = false
-    },
-    { enableHighAccuracy: true, timeout: 10000 },
-  )
-})
+  const previsto = cuenta.value?.renglones.find((r) => r.pedidoItemId === renglon.pedidoItemId)
+  return {
+    valor: previsto?.cantidadEntregada === renglon.cantidadEntregada ? previsto.importe : null,
+    cotizado: false,
+  }
+}
 
-function ajustar(renglon: RenglonContado, delta: number): void {
+/** El círculo: todo o nada, que es lo que pasa casi siempre. */
+function alternar(renglon: RenglonEnHoja): void {
+  renglon.cantidadEntregada =
+    renglon.cantidadEntregada >= renglon.cantidadCargada ? 0 : renglon.cantidadCargada
+  limpiarMotivo(renglon)
+}
+
+function ajustar(renglon: RenglonEnHoja, delta: number): void {
   const contadas = (renglon.cantidadEntregada || 0) + delta
   renglon.cantidadEntregada = Math.min(Math.max(contadas, 0), renglon.cantidadCargada)
   limpiarMotivo(renglon)
 }
 
 /** El motivo acompaña a lo que sobra, y solo a eso. */
-function limpiarMotivo(renglon: RenglonContado): void {
+function limpiarMotivo(renglon: RenglonEnHoja): void {
   if (renglon.cantidadEntregada >= renglon.cantidadCargada) renglon.motivoDevolucion = null
+}
+
+/** Mientras no ha aceptado nada no se pregunta por qué: todavía está contando. */
+function pideMotivo(renglon: RenglonEnHoja): boolean {
+  return conteo.value.entregadas > 0 && renglon.cantidadEntregada < renglon.cantidadCargada
+}
+
+// ------------------------------------------------------------------
+// Cobro: la cuenta la hace la API
+// ------------------------------------------------------------------
+
+const pagoRecibido = ref('')
+const cuenta = ref<PrevisualizacionEntrega | null>(null)
+const errorCuenta = ref('')
+
+/** `null` si está vacío o no es un importe: no se manda. */
+const pagoNumero = computed(() => {
+  const texto = pagoRecibido.value.trim().replace(',', '.')
+  if (!texto) return null
+  const valor = Number(texto)
+  return Number.isFinite(valor) && valor >= 0 ? valor : null
+})
+
+let peticion = 0
+let temporizador: ReturnType<typeof setTimeout> | undefined
+
+/** Las respuestas viejas se descartan: gana la del último toque. */
+async function recalcular(): Promise<void> {
+  const numero = ++peticion
+  try {
+    const respuesta = await http.post<PrevisualizacionEntrega>(
+      `/admin/rutas/pedidos/${props.pedido.id}/entregar/previsualizar`,
+      {
+        items: renglones.map((r) => ({
+          pedidoItemId: r.pedidoItemId,
+          cantidadEntregada: Number.isInteger(r.cantidadEntregada)
+            ? Math.max(r.cantidadEntregada, 0)
+            : 0,
+        })),
+        ...(pagoNumero.value !== null ? { pagoRecibido: pagoNumero.value } : {}),
+      },
+    )
+    if (numero !== peticion) return
+    cuenta.value = respuesta
+    errorCuenta.value = ''
+  } catch (fallo) {
+    if (numero !== peticion) return
+    errorCuenta.value =
+      fallo instanceof ErrorApi ? fallo.message : 'No pudimos calcular el cobro.'
+  }
+}
+
+watch(
+  [() => renglones.map((r) => r.cantidadEntregada), pagoNumero],
+  () => {
+    clearTimeout(temporizador)
+    temporizador = setTimeout(recalcular, 250)
+  },
+  { immediate: true },
+)
+
+const cobraEnEfectivo = computed(() => cuenta.value?.cobraEnEfectivo ?? false)
+
+// ------------------------------------------------------------------
+// Firma y evidencia
+// ------------------------------------------------------------------
+
+const lienzo = ref<HTMLCanvasElement | null>(null)
+const hayFirma = ref(false)
+let trazando = false
+
+/** El lienzo se dibuja a la densidad de la pantalla para que el trazo no salga borroso. */
+function prepararLienzo(): void {
+  const canvas = lienzo.value
+  if (!canvas) return
+  const escala = window.devicePixelRatio || 1
+  const { width, height } = canvas.getBoundingClientRect()
+  canvas.width = Math.round(width * escala)
+  canvas.height = Math.round(height * escala)
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return
+  ctx.scale(escala, escala)
+  ctx.lineWidth = 2.2
+  ctx.lineCap = 'round'
+  ctx.lineJoin = 'round'
+  ctx.strokeStyle = '#1f1f1f'
+  hayFirma.value = false
+}
+
+function punto(evento: PointerEvent): { x: number; y: number } {
+  const caja = (evento.currentTarget as HTMLCanvasElement).getBoundingClientRect()
+  return { x: evento.clientX - caja.left, y: evento.clientY - caja.top }
+}
+
+function empezarTrazo(evento: PointerEvent): void {
+  const ctx = lienzo.value?.getContext('2d')
+  if (!ctx) return
+  ;(evento.currentTarget as HTMLCanvasElement).setPointerCapture(evento.pointerId)
+  trazando = true
+  const { x, y } = punto(evento)
+  ctx.beginPath()
+  ctx.moveTo(x, y)
+}
+
+function seguirTrazo(evento: PointerEvent): void {
+  if (!trazando) return
+  const ctx = lienzo.value?.getContext('2d')
+  if (!ctx) return
+  const { x, y } = punto(evento)
+  ctx.lineTo(x, y)
+  ctx.stroke()
+  hayFirma.value = true
+}
+
+function terminarTrazo(): void {
+  trazando = false
+}
+
+function limpiarFirma(): void {
+  const canvas = lienzo.value
+  canvas?.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height)
+  hayFirma.value = false
+}
+
+const fotoId = ref<string | null>(null)
+const fotoUrl = ref('')
+const subiendo = ref(false)
+/** Se apaga si el almacenamiento responde 503: no se puede exigir lo imposible. */
+const fotoExigible = ref(true)
+const ubicacion = ref<{ lat: number; lng: number } | null>(null)
+
+/**
+ * Sube una imagen a la carpeta de entregas y devuelve su URL y el id que la
+ * entrega guarda. Ese id solo existe cuando la API almacena la imagen: con un
+ * bucket detrás la clave es `entregas/algo.jpg`, que la API rechaza, así que la
+ * imagen se sube igual pero no se manda una referencia que no podrá resolver.
+ */
+async function subir(archivo: File): Promise<{ url: string; id: string | null }> {
+  const firma = await http.post<FirmaSubida>('/uploads/firma', {
+    carpeta: 'entregas',
+    contentType: archivo.type,
+    tamanoBytes: archivo.size,
+  })
+  await subirAUrlFirmada(firma.urlSubida, archivo)
+  return { url: firma.urlPublica, id: firma.destino === 'LOCAL' ? firma.clave : null }
 }
 
 async function adjuntarFoto(evento: Event): Promise<void> {
@@ -160,53 +321,90 @@ async function adjuntarFoto(evento: Event): Promise<void> {
       error.value = 'La foto no puede pesar más de 5 MB.'
       return
     }
-
-    const firma = await http.post<FirmaSubida>('/uploads/firma', {
-      carpeta: 'entregas',
-      contentType: archivo.type,
-      tamanoBytes: archivo.size,
-    })
-    await subirAUrlFirmada(firma.urlSubida, archivo)
-    fotoUrl.value = firma.urlPublica
-    // La entrega guarda el **id de la fila** de la imagen, y esa fila solo
-    // existe cuando la API es quien la almacena: con un bucket detrás la clave
-    // es `entregas/algo.jpg`, que la API rechaza. La foto se sube igual; lo que
-    // no se manda es una referencia que no va a poder resolver.
-    fotoId.value = firma.destino === 'LOCAL' ? firma.clave : null
+    const subida = await subir(archivo)
+    fotoUrl.value = subida.url
+    fotoId.value = subida.id
   } catch (fallo) {
-    // La evidencia no bloquea: se avisa dentro de la hoja y se puede entregar.
-    error.value =
-      fallo instanceof ErrorApi && fallo.estado === 503
-        ? 'La subida de fotos no está disponible ahora mismo. Puedes entregar sin ella.'
-        : 'No pudimos subir la foto. Puedes entregar sin ella.'
+    if (fallo instanceof ErrorApi && fallo.estado === 503) {
+      fotoExigible.value = false
+      error.value = 'La subida de fotos no está disponible ahora mismo. Puedes entregar sin ella.'
+    } else {
+      error.value = 'No pudimos subir la foto. Inténtalo otra vez.'
+    }
   } finally {
     subiendo.value = false
   }
 }
 
-function quitarFoto(): void {
-  fotoId.value = null
-  fotoUrl.value = ''
+/** La firma viaja como PNG al confirmar; si falla, no frena la entrega. */
+async function subirFirma(): Promise<string | null> {
+  const canvas = lienzo.value
+  if (!canvas || !hayFirma.value) return null
+  const blob = await new Promise<Blob | null>((resolver) => canvas.toBlob(resolver, 'image/png'))
+  if (!blob) return null
+  try {
+    const subida = await subir(new File([blob], 'firma.png', { type: 'image/png' }))
+    return subida.id
+  } catch {
+    return null
+  }
 }
 
+/**
+ * La ubicación se pide sola al abrir: es un dato de la entrega y pedírsela al
+ * repartidor sería un toque más en la puerta. Si la niega, se entrega igual.
+ */
+onMounted(() => {
+  prepararLienzo()
+  navigator.geolocation?.getCurrentPosition(
+    (posicion) => {
+      ubicacion.value = { lat: posicion.coords.latitude, lng: posicion.coords.longitude }
+    },
+    () => {},
+    { enableHighAccuracy: true, timeout: 10000 },
+  )
+})
+
+onBeforeUnmount(() => clearTimeout(temporizador))
+
+// ------------------------------------------------------------------
+// Confirmar
+// ------------------------------------------------------------------
+
+const nota = ref('')
+const enviando = ref(false)
+const error = ref('')
+
+const pendientes = computed(() =>
+  pendientesParaConfirmar({
+    renglones,
+    conFoto: fotoUrl.value !== '',
+    fotoExigible: fotoExigible.value,
+    cubre: cuenta.value && !errorCuenta.value ? cuenta.value.cubre : null,
+  }),
+)
+
+const puedeConfirmar = computed(
+  () => pendientes.value.length === 0 && !subiendo.value && !enviando.value,
+)
+
 async function entregar(): Promise<void> {
-  // Confirmar a media subida mandaría la entrega sin su foto: se espera.
-  if (subiendo.value) return
-  const problema = problemaDelRecuento(renglones)
-  if (problema) {
-    error.value = problema
-    return
-  }
+  if (!puedeConfirmar.value) return
 
   enviando.value = true
   error.value = ''
   try {
+    const firmaId = await subirFirma()
     const resultado = await http.post<ResultadoEntrega>(
       `/admin/rutas/pedidos/${props.pedido.id}/entregar`,
       {
         items: itemsDeLaEntrega(renglones),
         ...(fotoId.value ? { fotoId: fotoId.value } : {}),
+        ...(firmaId ? { firmaId } : {}),
         ...(ubicacion.value ?? {}),
+        ...(cobraEnEfectivo.value && pagoNumero.value !== null
+          ? { pagoRecibido: pagoNumero.value }
+          : {}),
         ...(nota.value.trim() ? { nota: nota.value.trim() } : {}),
       },
     )
@@ -222,67 +420,96 @@ async function entregar(): Promise<void> {
 
 <template>
   <div class="modal-overlay" @click.self="emit('cerrar')">
-    <div class="modal-sheet" role="dialog" aria-label="Contar la entrega">
-      <div class="modal-handle" />
-      <p class="modal-title">Entregar {{ pedido.folio }}</p>
+    <div class="modal-sheet hoja" role="dialog" aria-label="Detalle y entrega">
+      <header class="cabecera">
+        <p class="titulo">Detalle y entrega {{ pedido.folio }}</p>
+        <button type="button" class="cerrar" aria-label="Cerrar" @click="emit('cerrar')">
+          ✕
+        </button>
+      </header>
 
-      <!-- A quién se le entrega y cómo se cobra: lo primero que se mira en la puerta. -->
-      <section class="ficha">
-        <p v-if="destino.quien" class="quien">
-          👤 {{ destino.quien }}
-          <a v-if="destino.telefono" :href="`tel:${destino.telefono}`" class="tel">
-            📞 {{ destino.telefono }}
-          </a>
-        </p>
-        <p v-if="destino.direccion" class="dato">📍 {{ destino.direccion }}</p>
-        <p v-if="destino.referencias" class="dato referencias">
-          🏠 {{ destino.referencias }}
-        </p>
-        <a
-          v-if="destino.mapa"
-          :href="destino.mapa"
-          target="_blank"
-          rel="noopener"
-          class="enlace-mapa"
-        >
-          Abrir en el mapa ↗
-        </a>
-
-        <div class="cobro" :class="{ cobrar: cobra }">
-          <template v-if="cobra">
-            <p class="t">💵 Cobra en efectivo hasta {{ dinero(pedido.pago.aPagar) }}</p>
-            <p
-              v-if="pedido.pago.pagoCon !== null && pedido.pago.cambio !== null"
-              class="s"
-            >
-              Paga con {{ dinero(pedido.pago.pagoCon) }} · lleva {{ dinero(pedido.pago.cambio) }}
-              de cambio
-            </p>
-            <p class="s">Si regresa algo, el importe se ajusta al confirmar.</p>
-          </template>
-          <p v-else class="t">
-            {{ nombreMetodoPago(pedido.pago.metodo) }} · no cobras nada en la puerta
+      <div class="cuerpo">
+        <!-- Resumen del pedido -->
+        <section class="tarjeta">
+          <div class="encabezado">
+            <p class="etiqueta">Resumen del pedido</p>
+            <span class="estado">{{ nombreEstadoPedido(pedido.estado, pedido.pago.estado) }}</span>
+          </div>
+          <p class="fila-nombre">
+            <span class="apagado">Nombre</span>
+            <strong>{{ destino.nombre }}</strong>
           </p>
+          <p v-if="destino.calle" class="apagado">{{ destino.calle }}</p>
+          <p v-if="destino.ciudad" class="apagado">{{ destino.ciudad }}</p>
+          <p v-if="destino.referencias" class="referencias">🏠 {{ destino.referencias }}</p>
+          <div class="dos">
+            <a
+              v-if="destino.telefono"
+              :href="`tel:${destino.telefono}`"
+              class="boton-claro"
+            >
+              📞 {{ destino.telefono }}
+            </a>
+            <span v-else class="boton-claro apagado">📞 Sin tel.</span>
+            <a
+              v-if="destino.mapa"
+              :href="destino.mapa"
+              target="_blank"
+              rel="noopener"
+              class="boton-claro"
+            >
+              📍 Mapas
+            </a>
+            <span v-else class="boton-claro apagado">📍 Sin dirección</span>
+          </div>
+        </section>
+
+        <div class="dos pasos">
+          <span v-for="paso in pasos" :key="paso.titulo" class="paso" :class="{ hecho: paso.hecho }">
+            {{ paso.hecho ? '✓ ' : '' }}{{ paso.titulo }}
+          </span>
         </div>
-      </section>
 
-      <p class="intro">
-        Cuenta con el cliente lo que se queda. Lo que no acepte sigue en tu camión hasta el corte.
-      </p>
-
-      <ul class="renglones">
-        <li v-for="renglon in renglones" :key="renglon.pedidoItemId">
-          <div class="linea">
-            <span class="nombre">
-              {{ renglon.nombre }}
-              <span v-if="precioPorRenglon.has(renglon.pedidoItemId)" class="precio">
-                {{ dinero(precioPorRenglon.get(renglon.pedidoItemId)!) }} c/u
+        <!-- Lista de productos y verificación -->
+        <div class="encabezado seccion">
+          <p class="etiqueta">Lista de productos y verificación</p>
+          <span class="contador-aceptados">
+            {{ aceptados }} de {{ renglones.length }} aceptados
+          </span>
+        </div>
+        <ul class="productos">
+          <li v-for="renglon in renglones" :key="renglon.pedidoItemId" class="tarjeta producto">
+            <div class="linea">
+              <span class="nombre">
+                {{ renglon.soloNombre }}
+                <span class="apagado">× {{ renglon.cantidadCargada }}</span>
               </span>
-            </span>
-            <div class="contador">
+              <span class="importe" :class="{ apagado: importeDe(renglon).cotizado }">
+                {{ importeDe(renglon).valor === null ? '…' : dinero(importeDe(renglon).valor!) }}
+              </span>
               <button
                 type="button"
-                class="paso"
+                class="check"
+                :class="{
+                  lleno: renglon.cantidadEntregada >= renglon.cantidadCargada,
+                  parcial:
+                    renglon.cantidadEntregada > 0 &&
+                    renglon.cantidadEntregada < renglon.cantidadCargada,
+                }"
+                :aria-pressed="renglon.cantidadEntregada >= renglon.cantidadCargada"
+                :aria-label="`Aceptar ${renglon.soloNombre}`"
+                @click="alternar(renglon)"
+              >
+                {{ renglon.cantidadEntregada >= renglon.cantidadCargada ? '✓' : '' }}
+              </button>
+            </div>
+
+            <!-- Con más de una pieza se puede aceptar una parte. -->
+            <div v-if="renglon.cantidadCargada > 1" class="parcialidad">
+              <span class="apagado">Acepta</span>
+              <button
+                type="button"
+                class="paso-cantidad"
                 aria-label="Una menos"
                 :disabled="renglon.cantidadEntregada <= 0"
                 @click="ajustar(renglon, -1)"
@@ -300,85 +527,162 @@ async function entregar(): Promise<void> {
               />
               <button
                 type="button"
-                class="paso"
+                class="paso-cantidad"
                 aria-label="Una más"
                 :disabled="renglon.cantidadEntregada >= renglon.cantidadCargada"
                 @click="ajustar(renglon, 1)"
               >
                 +
               </button>
-              <span class="de">de {{ renglon.cantidadCargada }}</span>
+              <span class="apagado">de {{ renglon.cantidadCargada }} {{ renglon.unidad }}</span>
             </div>
-          </div>
 
-          <!-- En cuanto sobra una pieza hay que decir por qué. -->
-          <select
-            v-if="renglon.cantidadEntregada < renglon.cantidadCargada"
-            v-model="renglon.motivoDevolucion"
-            class="select-input motivo"
+            <!-- En cuanto sobra una pieza hay que decir por qué. -->
+            <select
+              v-if="pideMotivo(renglon)"
+              v-model="renglon.motivoDevolucion"
+              class="select-input motivo"
+            >
+              <option :value="null">¿Por qué no se lo quedó?</option>
+              <option v-for="m in MOTIVOS" :key="m.valor" :value="m.valor">
+                {{ m.etiqueta }}
+              </option>
+            </select>
+          </li>
+        </ul>
+        <p v-if="conteo.devueltas > 0 && conteo.entregadas > 0" class="nota-camion">
+          {{ conteo.devueltas }} pieza(s) siguen en tu camión hasta el corte.
+        </p>
+
+        <!-- Confirmación y cobro -->
+        <p class="etiqueta seccion">Confirmación y cobro</p>
+        <section class="tarjeta cobro">
+          <template v-if="cuenta">
+            <p class="renglon-cuenta">
+              <span>Productos entregados</span><strong>{{ dinero(cuenta.productos) }}</strong>
+            </p>
+            <p v-if="cuenta.envio > 0" class="renglon-cuenta">
+              <span>Envío a domicilio</span><strong>{{ dinero(cuenta.envio) }}</strong>
+            </p>
+            <p v-if="cuenta.recargoFuera > 0" class="renglon-cuenta">
+              <span>Recargo fuera de horario</span>
+              <strong>{{ dinero(cuenta.recargoFuera) }}</strong>
+            </p>
+            <p v-if="cuenta.descuento > 0" class="renglon-cuenta">
+              <span>{{ pedido.cupon ? `Cupón ${pedido.cupon.code}` : 'Descuento' }}</span>
+              <strong>−{{ dinero(cuenta.descuento) }}</strong>
+            </p>
+            <p v-if="cuenta.billetera > 0" class="renglon-cuenta">
+              <span>Pagó con su billetera</span><strong>−{{ dinero(cuenta.billetera) }}</strong>
+            </p>
+
+            <p class="total">
+              <span>{{ cobraEnEfectivo ? 'Total a cobrar' : 'A cobrar' }}</span>
+              <span>{{ dinero(cuenta.aCobrar) }}</span>
+            </p>
+            <p class="apagado metodo">
+              Método de pago:
+              {{ pedido.pago.metodo === 'EFECTIVO' ? '💵' : '' }}
+              {{ nombreMetodoPago(pedido.pago.metodo) }}
+              <template v-if="!cobraEnEfectivo"> · no cobras nada en la puerta</template>
+            </p>
+
+            <template v-if="cobraEnEfectivo">
+              <label class="etiqueta-campo" for="pago-recibido">Pago recibido</label>
+              <input
+                id="pago-recibido"
+                v-model="pagoRecibido"
+                class="form-input pago"
+                type="text"
+                inputmode="decimal"
+                placeholder="0.00"
+                autocomplete="off"
+              />
+              <p v-if="pedido.pago.pagoCon !== null" class="apagado pista">
+                Dijo que pagaría con {{ dinero(pedido.pago.pagoCon) }}
+              </p>
+              <p class="cambio">
+                Cambio a entregar:
+                <strong>{{ cuenta.cambio === null ? '—' : dinero(cuenta.cambio) }}</strong>
+              </p>
+            </template>
+          </template>
+          <p v-else-if="errorCuenta" class="form-error">{{ errorCuenta }}</p>
+          <p v-else class="apagado">Calculando el cobro…</p>
+        </section>
+
+        <p class="aviso-cashback">
+          ↺ Aviso de cashback:
+          <template v-if="pedido.cashbackGenerado > 0">
+            este pedido le genera {{ dinero(pedido.cashbackGenerado) }} al cliente; entra a su
+            billetera cuando el pago quede pagado.
+          </template>
+          <template v-else>este pedido no generó cashback.</template>
+        </p>
+
+        <!-- Firma y evidencia -->
+        <p class="etiqueta seccion">Firma y evidencia</p>
+        <p class="apagado leyenda">Firmo de conformidad que he recibido mi pedido.</p>
+        <canvas
+          ref="lienzo"
+          class="lienzo"
+          aria-label="Firma del cliente"
+          @pointerdown="empezarTrazo"
+          @pointermove="seguirTrazo"
+          @pointerup="terminarTrazo"
+          @pointercancel="terminarTrazo"
+          @pointerleave="terminarTrazo"
+        />
+        <button type="button" class="enlace" :disabled="!hayFirma" @click="limpiarFirma">
+          Limpiar firma
+        </button>
+
+        <div class="evidencia">
+          <label class="boton-claro foto" :class="{ deshabilitado: subiendo }">
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              capture="environment"
+              :disabled="subiendo"
+              @change="adjuntarFoto"
+            />
+            {{ subiendo ? 'Subiendo…' : fotoUrl ? '📷 Cambiar foto' : '📷 Tomar foto' }}
+          </label>
+          <a
+            v-if="fotoUrl"
+            :href="fotoUrl"
+            target="_blank"
+            rel="noopener"
+            class="enlace"
           >
-            <option :value="null">¿Por qué no se lo quedó?</option>
-            <option v-for="m in MOTIVOS" :key="m.valor" :value="m.valor">{{ m.etiqueta }}</option>
-          </select>
-        </li>
-      </ul>
+            Ver foto
+          </a>
+          <span v-else class="enlace apagado">Ver foto</span>
+        </div>
 
-      <p class="conteo">
-        Se queda {{ piezasDelRecuento(renglones).entregadas }} pieza(s) · regresan
-        {{ piezasDelRecuento(renglones).devueltas }}
-      </p>
+        <textarea
+          v-model="nota"
+          class="form-textarea"
+          rows="2"
+          maxlength="500"
+          placeholder="Nota de la entrega (opcional)"
+        />
 
-      <div class="evidencia">
-        <label class="boton-foto" :class="{ deshabilitado: subiendo }">
-          <input
-            type="file"
-            accept="image/jpeg,image/png,image/webp"
-            capture="environment"
-            :disabled="subiendo"
-            @change="adjuntarFoto"
-          />
-          {{ subiendo ? 'Subiendo…' : '📷 Foto de la entrega' }}
-        </label>
-        <img v-if="fotoUrl" :src="fotoUrl" class="miniatura" alt="Foto de la entrega" />
-        <button
-          v-if="fotoUrl"
-          type="button"
-          class="quitar"
-          aria-label="Quitar la foto"
-          @click="quitarFoto"
-        >
-          ✕
-        </button>
-        <span class="ubicacion">
-          <template v-if="ubicacion">📍 Ubicación lista</template>
-          <template v-else-if="buscandoUbicacion">📍 Buscando ubicación…</template>
-          <template v-else>📍 Sin ubicación</template>
-        </span>
-      </div>
+        <p v-if="pendientes.length > 0" class="pendientes">
+          ⚠️ Para confirmar: {{ pendientes.join(' · ') }}.
+        </p>
+        <p v-if="error" class="form-error">{{ error }}</p>
 
-      <textarea
-        v-model="nota"
-        class="form-textarea"
-        rows="2"
-        maxlength="500"
-        placeholder="Nota de la entrega (opcional)"
-      />
-
-      <p v-if="error" class="form-error">{{ error }}</p>
-
-      <div class="modal-actions">
-        <button type="button" class="btn-cancel" :disabled="enviando" @click="emit('cerrar')">
-          Volver
+        <button type="button" class="incidencia" :disabled="enviando" @click="emit('incidencia')">
+          × Cancelar / Reportar incidencia
         </button>
         <button
           type="button"
-          class="btn-primary"
-          :disabled="enviando || subiendo"
+          class="btn-primary confirmar"
+          :disabled="!puedeConfirmar"
           @click="entregar"
         >
-          {{
-            enviando ? 'Cerrando…' : subiendo ? 'Esperando la foto…' : 'Confirmar entrega'
-          }}
+          {{ enviando ? 'Cerrando…' : '✓ Confirmar pedido y entrega' }}
         </button>
       </div>
     </div>
@@ -386,225 +690,427 @@ async function entregar(): Promise<void> {
 </template>
 
 <style scoped>
-.ficha {
-  background: var(--white);
-  border-radius: var(--radius-md);
-  padding: 10px 12px;
-  margin-bottom: 12px;
-}
-
-.ficha p {
-  margin: 0;
-}
-
-.quien {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  flex-wrap: wrap;
-  font-family: var(--font-heading);
-  font-weight: 800;
-  font-size: 13px;
-  color: var(--ink);
-}
-
-.tel {
-  font-weight: 700;
-  font-size: 12px;
-  color: var(--terracotta-dark);
-  text-decoration: none;
-}
-
-.ficha .dato {
-  margin-top: 4px;
-  font-size: 12px;
-  color: var(--ink);
-  line-height: 1.4;
-}
-
-.dato.referencias {
-  color: var(--muted);
-}
-
-.enlace-mapa {
-  display: inline-block;
-  margin-top: 6px;
-  font-family: var(--font-heading);
-  font-weight: 700;
-  font-size: 11.5px;
-  color: var(--terracotta-dark);
-  text-decoration: none;
-}
-
-.cobro {
-  margin-top: 10px;
-  padding: 8px 10px;
-  border-radius: var(--radius-sm);
-  background: var(--cream-2);
-}
-
-.cobro.cobrar {
-  background: var(--amarillo);
-}
-
-.cobro .t {
-  font-family: var(--font-heading);
-  font-weight: 700;
-  font-size: 12.5px;
-  color: var(--ink);
-}
-
-.cobro:not(.cobrar) .t {
-  color: var(--muted);
-}
-
-.cobro .s {
-  margin-top: 2px;
-  font-size: 11.5px;
-  color: var(--ink);
-}
-
-.precio {
-  display: block;
-  font-size: 11px;
-  color: var(--muted);
-}
-
-.intro {
-  margin: 0 0 12px;
-  font-size: 12.5px;
-  color: var(--muted);
-  line-height: 1.45;
-}
-
-.renglones {
-  list-style: none;
-  margin: 0 0 10px;
+/* La hoja lleva su propia cabecera: el relleno pasa al cuerpo. */
+.hoja {
   padding: 0;
-}
-
-.renglones li {
   background: var(--white);
-  border-radius: var(--radius-md);
-  padding: 10px 12px;
-  margin-bottom: 8px;
 }
 
-.linea {
+.cabecera {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  background: var(--verde-compra);
+  padding: 14px 18px;
 }
 
-.nombre {
+.cabecera .titulo {
+  margin: 0;
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 16px;
+  color: var(--white);
+}
+
+.cerrar {
+  background: none;
+  border: none;
+  color: var(--white);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.cuerpo {
+  padding: 14px 16px 20px;
+}
+
+/* Especificidad cero: cada párrafo pone su propio margen sin pelear con este. */
+:where(.cuerpo p) {
+  margin: 0;
+}
+
+.tarjeta {
+  background: var(--white);
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+}
+
+.encabezado {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.etiqueta {
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.seccion {
+  margin: 16px 0 8px;
+}
+
+.estado {
+  background: var(--cream-2);
+  color: var(--verde-compra);
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 11.5px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.apagado {
+  color: var(--muted);
+}
+
+.fila-nombre {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.tarjeta > .apagado {
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.referencias {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--ink);
+}
+
+.dos {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.boton-claro {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background: var(--white);
+  border: 1.5px solid var(--line);
+  border-radius: 11px;
+  padding: 9px 10px;
+  font-family: var(--font-heading);
+  font-weight: 700;
   font-size: 12.5px;
   color: var(--ink);
+  text-decoration: none;
+  cursor: pointer;
   min-width: 0;
 }
 
-.contador {
+.boton-claro.apagado {
+  color: var(--muted);
+  cursor: default;
+}
+
+.pasos .paso {
+  text-align: center;
+  border: 1.5px solid var(--line);
+  border-radius: 11px;
+  padding: 8px 10px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.pasos .paso.hecho {
+  color: var(--verde-compra);
+  border-color: var(--verde);
+  font-weight: 700;
+}
+
+.contador-aceptados {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 11.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.productos {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.producto .linea {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.producto .nombre {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 13.5px;
+  color: var(--ink);
+}
+
+.producto .importe {
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 13.5px;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.producto .importe.apagado {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.check {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 2px solid var(--line);
+  background: var(--white);
+  color: var(--white);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.check.lleno {
+  background: var(--verde);
+  border-color: var(--verde-dark);
+}
+
+.check.parcial {
+  border-color: var(--amarillo-dark);
+  background: linear-gradient(90deg, var(--amarillo) 50%, var(--white) 50%);
+}
+
+.parcialidad {
   display: flex;
   align-items: center;
   gap: 6px;
-  flex-shrink: 0;
+  margin-top: 8px;
+  font-size: 12px;
 }
 
-.paso {
-  width: 30px;
-  height: 30px;
+.paso-cantidad {
+  width: 28px;
+  height: 28px;
   border-radius: var(--radius-sm);
   border: 1.5px solid var(--line);
   background: var(--cream-2);
   font-family: var(--font-heading);
   font-weight: 800;
-  font-size: 15px;
+  font-size: 14px;
   color: var(--ink);
   cursor: pointer;
 }
 
-.paso:disabled {
+.paso-cantidad:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }
 
-.contador .cantidad {
-  width: 52px;
+.parcialidad .cantidad {
+  width: 48px;
   margin: 0;
-  padding: 6px 4px;
+  padding: 5px 4px;
   text-align: center;
   font-family: var(--font-heading);
   font-weight: 700;
-}
-
-.de {
-  font-size: 11px;
-  color: var(--muted);
-  white-space: nowrap;
 }
 
 .motivo {
   margin: 8px 0 0;
 }
 
-.conteo {
-  margin: 0 0 12px;
+.nota-camion {
+  margin-top: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--orange-dark);
+}
+
+.cobro {
+  background: var(--cream);
+}
+
+.renglon-cuenta {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12.5px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.renglon-cuenta strong {
+  color: var(--ink);
+}
+
+.total {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  border-top: 1.5px solid var(--line);
+  padding-top: 10px;
+  margin-top: 4px;
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 16px;
+  color: var(--ink);
+}
+
+.metodo {
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.etiqueta-campo {
+  display: block;
+  margin: 12px 0 6px;
   font-family: var(--font-heading);
   font-weight: 700;
-  font-size: 12px;
+  font-size: 12.5px;
   color: var(--ink);
+}
+
+/* Campo de captura en blanco sobre el bloque crema. */
+.pago {
+  margin: 0;
+  background: var(--white);
+  text-align: right;
+  font-size: 16px;
+}
+
+.pista {
+  margin-top: 4px;
+  font-size: 11.5px;
+}
+
+.cambio {
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.aviso-cashback {
+  margin-top: 12px;
+  background: var(--amarillo);
+  border: 1.5px solid var(--amarillo-dark);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  font-size: 12.5px;
+  color: var(--ink);
+  line-height: 1.45;
+}
+
+.leyenda {
+  font-size: 12.5px;
+  margin-bottom: 8px;
+}
+
+.lienzo {
+  display: block;
+  width: 100%;
+  height: 150px;
+  border: 2px dashed var(--verde-compra);
+  border-radius: var(--radius-md);
+  background: var(--white);
+  /* Sin esto, arrastrar el dedo desplaza la hoja en vez de firmar. */
+  touch-action: none;
+}
+
+.enlace {
+  background: none;
+  border: none;
+  padding: 8px 4px;
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 12.5px;
+  color: var(--muted);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.enlace:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+a.enlace {
+  color: var(--terracotta-dark);
 }
 
 .evidencia {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-bottom: 12px;
+  gap: 12px;
+  margin: 6px 0 12px;
 }
 
-.boton-foto {
-  background: var(--white);
-  border: 1.5px solid var(--line);
-  border-radius: 11px;
-  padding: 9px 12px;
-  font-family: var(--font-heading);
-  font-weight: 700;
-  font-size: 12px;
-  color: var(--ink);
-  cursor: pointer;
+.foto input {
+  display: none;
 }
 
-.boton-foto.deshabilitado {
+.foto.deshabilitado {
   opacity: 0.55;
   cursor: not-allowed;
 }
 
-.boton-foto input {
-  display: none;
-}
-
-.miniatura {
-  width: 40px;
-  height: 40px;
+.pendientes {
+  margin-top: 12px;
+  background: var(--cream);
+  border-left: 4px solid var(--orange-dark);
   border-radius: var(--radius-sm);
-  object-fit: cover;
+  padding: 10px 12px;
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 12.5px;
+  color: var(--orange-dark);
+  line-height: 1.45;
 }
 
-.quitar {
-  background: var(--white);
+.incidencia {
+  display: block;
+  width: 100%;
+  margin: 10px 0;
+  background: none;
   border: none;
-  width: 28px;
-  height: 28px;
-  border-radius: var(--radius-sm);
-  color: var(--terracotta);
-  font-size: 12px;
+  padding: 8px;
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--muted);
   cursor: pointer;
 }
 
-.ubicacion {
-  font-size: 11px;
-  color: var(--muted);
+.confirmar {
+  width: 100%;
+  background: var(--verde-compra);
+  border-color: var(--verde-compra);
+  box-shadow: none;
 }
 </style>

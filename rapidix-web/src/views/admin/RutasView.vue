@@ -212,6 +212,13 @@ function abrirNoEntregado(pedido: PedidoEnRuta): void {
   noEntregando.value = pedido
 }
 
+/** Desde la hoja de entrega: la incidencia es el mismo «No entregado». */
+function reportarIncidencia(): void {
+  const pedido = entregando.value
+  entregando.value = null
+  if (pedido) abrirNoEntregado(pedido)
+}
+
 // ------------------------------------------------------------------
 // Lectura de la tarjeta
 // ------------------------------------------------------------------
@@ -513,6 +520,7 @@ function sinAceptar(pedido: PedidoEnRuta): RenglonDeCarga[] {
       :pedido="entregando"
       @cerrar="entregando = null"
       @entregado="alEntregar"
+      @incidencia="reportarIncidencia"
     />
 
     <!-- El intento fallido: un motivo para el pedido entero, obligatorio. -->

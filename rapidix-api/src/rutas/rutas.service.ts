@@ -10,6 +10,7 @@ import {
   EstadoPago,
   EstadoPedido,
   MetodoEntrega,
+  MetodoPago,
   MotivoDevolucion,
   Prisma,
 } from '@prisma/client';
@@ -20,7 +21,13 @@ import { FlujoPedidosService, PedidoEnPantallaDto } from '../pedidos/flujo-pedid
 import { NOMBRE_ESTADO_PEDIDO, PedidoEnFlujo } from '../pedidos/flujo';
 import { PedidoDto, PedidosService } from '../pedidos/pedidos.service';
 import { ListasDePrecio, precioUnitario } from '../catalogo/precios';
-import { EntregarPedidoDto, NoEntregadoDto, RenglonEntregadoDto } from './dto/entregar-pedido.dto';
+import {
+  EntregarPedidoDto,
+  NoEntregadoDto,
+  PrevisualizarEntregaDto,
+  RenglonEntregadoDto,
+} from './dto/entregar-pedido.dto';
+import { CargaLiquidable, cuentaDeLaEntrega, traeEfectivo } from './dinero-del-corte';
 
 const Decimal = Prisma.Decimal;
 type Decimal = Prisma.Decimal;
@@ -100,6 +107,36 @@ export interface ResumenEntregaDto {
    */
   importeEntregado: number;
   parcial: boolean;
+}
+
+/**
+ * La cuenta de la hoja de entrega mientras el repartidor cuenta.
+ *
+ * La pantalla no suma: manda lo aceptado y el pago, y pinta esto. Los importes
+ * salen de las mismas funciones que usa el corte.
+ */
+export interface PrevisualizacionEntregaDto {
+  renglones: {
+    pedidoItemId: string;
+    cantidadEntregada: number;
+    /** El unitario que toca por lo aceptado: el del pedido o el re-cotizado. */
+    precio: number;
+    importe: number;
+  }[];
+  /** Lo que vale lo aceptado. */
+  productos: number;
+  envio: number;
+  recargoFuera: number;
+  descuento: number;
+  /** Lo que el cliente ya pago con su saldo al confirmar. */
+  billetera: number;
+  /** Si el repartidor cobra en la puerta. */
+  cobraEnEfectivo: boolean;
+  /** El efectivo a cobrar: el mismo que pedira el corte. */
+  aCobrar: number;
+  /** `null` mientras el pago recibido no cubra el cobro. */
+  cambio: number | null;
+  cubre: boolean;
 }
 
 /** El pedido tras el intento, y como acabo. */
@@ -456,26 +493,11 @@ export class RutasService {
       const cargas = await this.cargasDelCamion(tx, id);
       const renglones = RutasService.emparejar(cargas, dto.items);
       await RutasService.exigirImagenes(tx, dto);
-
-      // Las listas de precio de hoy: el pedido guarda el unitario que se
-      // cobro, no las listas con que se calculo, asi que re-cotizar solo puede
-      // hacerse con las vigentes.
-      const productos = await tx.producto.findMany({
-        where: { id: { in: cargas.map((c) => c.productoId) } },
-        select: {
-          id: true,
-          precioVenta: true,
-          piso2: true,
-          precio2: true,
-          piso3: true,
-          precio3: true,
-        },
-      });
-      const listasPorProducto = new Map(productos.map((p) => [p.id, p]));
+      const listasPorProducto = await RutasService.listasDePrecio(tx, cargas);
 
       let entregadas = 0;
       let devueltas = 0;
-      let importe = new Decimal(0);
+      const liquidables: CargaLiquidable[] = [];
 
       for (const { carga, cantidadEntregada, motivoDevolucion } of renglones) {
         const precioEntregado = RutasService.recotizar(
@@ -491,7 +513,7 @@ export class RutasService {
 
         entregadas += cantidadEntregada;
         devueltas += carga.cantidadCargada - cantidadEntregada;
-        importe = importe.add((precioEntregado ?? carga.precioUnitario).mul(cantidadEntregada));
+        liquidables.push({ ...carga, cantidadEntregada, precioEntregado });
       }
 
       if (entregadas === 0) {
@@ -499,6 +521,19 @@ export class RutasService {
           statusCode: 409,
           code: 'NADA_ENTREGADO',
           message: 'Si el cliente no aceptó nada, márcalo como "No entregado".',
+        });
+      }
+
+      const pagoRecibido = dto.pagoRecibido === undefined ? null : new Decimal(dto.pagoRecibido);
+      const cuenta = cuentaDeLaEntrega(pedido, liquidables, pagoRecibido);
+      const importe = cuenta.productos;
+      // Solo si lo manda: la pantalla lo pide siempre que haya efectivo, pero
+      // un cliente viejo que no lo conoce no debe quedarse sin poder entregar.
+      if (pagoRecibido !== null && !cuenta.cubre) {
+        throw new BadRequestException({
+          statusCode: 400,
+          code: 'PAGO_INSUFICIENTE',
+          message: `El pago recibido no cubre los $${cuenta.aCobrar.toFixed(2)} a cobrar.`,
         });
       }
 
@@ -519,7 +554,16 @@ export class RutasService {
         transicion,
         actorDe(usuario),
         RutasService.nota(
-          devueltas > 0 ? `Entrega parcial: ${devueltas} pieza(s) no aceptadas.` : null,
+          [
+            devueltas > 0 ? `Entrega parcial: ${devueltas} pieza(s) no aceptadas.` : null,
+            // Queda en la bitacora para que Finanzas, al recibir el corte,
+            // pueda cotejar el cambio que salio de la bolsa del repartidor.
+            pagoRecibido !== null && cuenta.cambio !== null && !cuenta.aCobrar.isZero()
+              ? `Recibió $${pagoRecibido.toFixed(2)}, cambio $${cuenta.cambio.toFixed(2)}.`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(' ') || null,
           dto.nota,
         ),
       );
@@ -540,6 +584,79 @@ export class RutasService {
     return {
       pedido: await this.pedidoConCarga(id),
       entrega: resumen!,
+    };
+  }
+
+  /**
+   * La cuenta de la hoja de entrega, sin cerrar nada.
+   *
+   * Hace la misma re-cotizacion que `entregar` y la misma cuenta que el corte,
+   * asi que lo que la hoja pide cobrar es lo que despues se liquida. No exige
+   * jornada activa: solo lee, y el candado de verdad esta al confirmar.
+   */
+  async previsualizarEntrega(
+    id: string,
+    dto: PrevisualizarEntregaDto,
+    usuario: UsuarioAutenticado,
+  ): Promise<PrevisualizacionEntregaDto> {
+    const pedido = await this.prisma.pedido.findUnique({
+      where: { id },
+      select: {
+        estado: true,
+        repartidorId: true,
+        metodoPago: true,
+        estadoPago: true,
+        total: true,
+        envio: true,
+        recargoFuera: true,
+        descuento: true,
+        pagadoConBilletera: true,
+      },
+    });
+    if (!pedido) throw new NotFoundException('Pedido no encontrado');
+    RutasService.exigirPropio(pedido, usuario);
+
+    const cargas = await this.cargasDelCamion(this.prisma, id);
+    const listasPorProducto = await RutasService.listasDePrecio(this.prisma, cargas);
+    const aceptado = new Map(dto.items.map((i) => [i.pedidoItemId, i.cantidadEntregada]));
+
+    const renglones: PrevisualizacionEntregaDto['renglones'] = [];
+    const liquidables: CargaLiquidable[] = [];
+    for (const carga of cargas) {
+      // A media captura: lo que falta cuenta como cero y lo que sobra, como el tope.
+      const cantidadEntregada = Math.min(
+        aceptado.get(carga.pedidoItemId) ?? 0,
+        carga.cantidadCargada,
+      );
+      const precioEntregado = RutasService.recotizar(
+        carga,
+        cantidadEntregada,
+        listasPorProducto.get(carga.productoId),
+      );
+      const liquidable = { ...carga, cantidadEntregada, precioEntregado };
+      const precio = precioEntregado ?? carga.precioUnitario;
+      liquidables.push(liquidable);
+      renglones.push({
+        pedidoItemId: carga.pedidoItemId,
+        cantidadEntregada,
+        precio: precio.toNumber(),
+        importe: precio.mul(cantidadEntregada).toNumber(),
+      });
+    }
+
+    const pagoRecibido = dto.pagoRecibido === undefined ? null : new Decimal(dto.pagoRecibido);
+    const cuenta = cuentaDeLaEntrega(pedido, liquidables, pagoRecibido);
+    return {
+      renglones,
+      productos: cuenta.productos.toNumber(),
+      envio: pedido.envio.toNumber(),
+      recargoFuera: pedido.recargoFuera.toNumber(),
+      descuento: pedido.descuento.toNumber(),
+      billetera: pedido.pagadoConBilletera.toNumber(),
+      cobraEnEfectivo: traeEfectivo(pedido),
+      aCobrar: cuenta.aCobrar.toNumber(),
+      cambio: cuenta.cambio?.toNumber() ?? null,
+      cubre: cuenta.cubre,
     };
   }
 
@@ -862,6 +979,29 @@ export class RutasService {
   }
 
   /**
+   * Las listas de precio de hoy: el pedido guarda el unitario que se cobro, no
+   * las listas con que se calculo, asi que re-cotizar solo puede hacerse con
+   * las vigentes.
+   */
+  private static async listasDePrecio(
+    tx: Prisma.TransactionClient,
+    cargas: CargaEnCamion[],
+  ): Promise<Map<string, ListasDePrecio>> {
+    const productos = await tx.producto.findMany({
+      where: { id: { in: cargas.map((c) => c.productoId) } },
+      select: {
+        id: true,
+        precioVenta: true,
+        piso2: true,
+        precio2: true,
+        piso3: true,
+        precio3: true,
+      },
+    });
+    return new Map(productos.map((p) => [p.id, p]));
+  }
+
+  /**
    * Las imagenes tienen que existir y estar en la carpeta de entregas. Sin
    * esto, `fotoId` seria un texto cualquiera y la evidencia apuntaria a nada.
    */
@@ -899,6 +1039,9 @@ export class RutasService {
       id: string;
       folio: string;
       repartidorId: string | null;
+      metodoPago: MetodoPago;
+      total: Prisma.Decimal;
+      pagadoConBilletera: Prisma.Decimal;
       items: { id: string; productoId: string; precioUnitario: Prisma.Decimal; cantidad: number }[];
     }
   > {
@@ -912,6 +1055,10 @@ export class RutasService {
         estadoPago: true,
         metodoEntrega: true,
         repartidorId: true,
+        // Lo que decide cuanto efectivo se cobra en la puerta.
+        metodoPago: true,
+        total: true,
+        pagadoConBilletera: true,
         items: { select: { id: true, productoId: true, precioUnitario: true, cantidad: true } },
       },
     });

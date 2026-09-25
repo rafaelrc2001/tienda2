@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { itemsDeLaEntrega, piezasDelRecuento, problemaDelRecuento } from './recuento'
+import {
+  itemsDeLaEntrega,
+  pendientesParaConfirmar,
+  piezasDelRecuento,
+  problemaDelRecuento,
+} from './recuento'
 import type { RenglonContado } from './recuento'
 
 /** Dos renglones en el camión: 10 tomates y 3 lechugas. */
@@ -69,6 +74,45 @@ describe('lo que impide cerrar la entrega', () => {
     const renglones = camion()
     renglones[0].cantidadEntregada = Number.NaN
     expect(problemaDelRecuento(renglones)).toContain('cuántas piezas')
+  })
+})
+
+describe('lo que falta para confirmar', () => {
+  const lista = { conFoto: true, fotoExigible: true, cubre: true }
+
+  it('con todo contado, la foto y el pago, no falta nada', () => {
+    expect(pendientesParaConfirmar({ ...lista, renglones: camion() })).toEqual([])
+  })
+
+  it('junta todo lo pendiente de una vez, en el orden de la puerta', () => {
+    const renglones = camion().map((r) => ({ ...r, cantidadEntregada: 0 }))
+    expect(
+      pendientesParaConfirmar({ renglones, conFoto: false, fotoExigible: true, cubre: false }),
+    ).toEqual([
+      'acepta al menos un producto',
+      'falta la foto de evidencia',
+      'el pago recibido no cubre el cobro',
+    ])
+  })
+
+  it('pide el motivo solo cuando ya aceptó algo', () => {
+    const renglones = camion()
+    renglones[0].cantidadEntregada = 7
+    expect(pendientesParaConfirmar({ ...lista, renglones })).toEqual([
+      'di por qué no se quedó con todo «Tomate bola»',
+    ])
+  })
+
+  it('sin almacenamiento de fotos no la exige', () => {
+    expect(
+      pendientesParaConfirmar({ ...lista, renglones: camion(), conFoto: false, fotoExigible: false }),
+    ).toEqual([])
+  })
+
+  it('espera la cuenta de la API antes de dejar confirmar', () => {
+    expect(pendientesParaConfirmar({ ...lista, renglones: camion(), cubre: null })).toEqual([
+      'calculando el cobro',
+    ])
   })
 })
 

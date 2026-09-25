@@ -79,6 +79,41 @@ export function efectivoDelPedido(pedido: PedidoALiquidar, cargas: CargaLiquidab
   return Decimal.max(0, aPagar.sub(noEntregado));
 }
 
+/** Lo que la hoja de entrega le dice al repartidor antes de confirmar. */
+export interface CuentaDeLaEntrega {
+  /** Lo que vale lo que el cliente acepto, ya re-cotizado. */
+  productos: Decimal;
+  /** El efectivo que se cobra en la puerta: el mismo numero que pedira el corte. */
+  aCobrar: Decimal;
+  /** `null` mientras el pago recibido no cubra el cobro. */
+  cambio: Decimal | null;
+  /** Si con lo recibido ya se puede cerrar la entrega. */
+  cubre: boolean;
+}
+
+/**
+ * La cuenta de la entrega, con lo que el repartidor lleva contado.
+ *
+ * Sale de `efectivoDelPedido` y no de sumar aparte: si la hoja pidiera un
+ * numero y el corte otro, el repartidor cobraria uno y le faltaria el otro.
+ * Sin efectivo que cobrar (transferencia, pagado, credito) siempre cubre.
+ */
+export function cuentaDeLaEntrega(
+  pedido: PedidoALiquidar,
+  cargas: CargaLiquidable[],
+  pagoRecibido: Decimal | null,
+): CuentaDeLaEntrega {
+  const productos = cargas.reduce(
+    (suma, carga) => suma.add(cobradoDelRenglon(carga)),
+    new Decimal(0),
+  );
+  const aCobrar = efectivoDelPedido(pedido, cargas);
+
+  if (aCobrar.isZero()) return { productos, aCobrar, cambio: null, cubre: true };
+  const cubre = pagoRecibido !== null && pagoRecibido.greaterThanOrEqualTo(aCobrar);
+  return { productos, aCobrar, cambio: cubre ? pagoRecibido.sub(aCobrar) : null, cubre };
+}
+
 /** Lo que un renglon devuelve a bodega. */
 export function devueltoDelRenglon(carga: CargaLiquidable): number {
   return Math.max(0, carga.cantidadCargada - carga.cantidadEntregada);

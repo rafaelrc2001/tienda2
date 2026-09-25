@@ -16,12 +16,17 @@ import {
   FiltroRutas,
   JornadaDto,
   PedidoEnRutaDto,
+  PrevisualizacionEntregaDto,
   ResultadoEntregaDto,
   RutasService,
   TableroRutasDto,
 } from './rutas.service';
 import { NotaRutaDto } from './dto/nota-ruta.dto';
-import { EntregarPedidoDto, NoEntregadoDto } from './dto/entregar-pedido.dto';
+import {
+  EntregarPedidoDto,
+  NoEntregadoDto,
+  PrevisualizarEntregaDto,
+} from './dto/entregar-pedido.dto';
 import { CerrarCorteDto } from './dto/corte.dto';
 import { CorteDto, CortesService, ResumenCorteDto } from './cortes.service';
 import { RequiereSeccion } from '../auth/seccion.decorator';
@@ -89,6 +94,19 @@ export class RutasController {
     @UsuarioActual() usuario: UsuarioAutenticado,
   ): Promise<PedidoEnRutaDto> {
     return this.rutas.marcarEnRuta(id, usuario, dto.nota);
+  }
+
+  /**
+   * La cuenta de la hoja de entrega mientras se cuenta: lo aceptado, el total a
+   * cobrar y el cambio. No cambia nada; la pantalla la pide con cada toque.
+   */
+  @Post('pedidos/:id/entregar/previsualizar')
+  previsualizarEntrega(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: PrevisualizarEntregaDto,
+    @UsuarioActual() usuario: UsuarioAutenticado,
+  ): Promise<PrevisualizacionEntregaDto> {
+    return this.rutas.previsualizarEntrega(id, dto, usuario);
   }
 
   /**
