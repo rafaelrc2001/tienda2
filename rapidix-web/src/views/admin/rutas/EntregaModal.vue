@@ -10,16 +10,57 @@
  * La evidencia —foto, ubicación— es opcional y **no frena la entrega**: la
  * cámara puede fallar y el cliente puede negar el permiso de ubicación.
  */
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ErrorApi, http, subirAUrlFirmada } from '@/api/http'
-import { dinero } from '@/utils/formato'
+import { dinero, nombreMetodoPago } from '@/utils/formato'
 import { reducirImagen } from '@/utils/reducirImagen'
 import { itemsDeLaEntrega, piezasDelRecuento, problemaDelRecuento } from './recuento'
 import { MOTIVOS } from './etiquetas'
+import { cobraEnEfectivo } from './cobro'
 import type { RenglonContado } from './recuento'
 import type { PedidoEnRuta, ResultadoEntrega } from '@/api/tipos'
 
 const props = defineProps<{ pedido: PedidoEnRuta }>()
+
+/** La copia de la dirección que se congeló en el pedido. */
+interface DireccionPedido {
+  quienRecibe?: string | null
+  telefono?: string | null
+  calle?: string | null
+  colonia?: string | null
+  cp?: string | null
+  ciudad?: string | null
+  referencias?: string | null
+  lat?: number | null
+  lng?: number | null
+}
+
+/**
+ * A quién y dónde. Va dentro de la hoja porque en la puerta el repartidor ya no
+ * mira la tabla: si no recuerda el nombre o tiene que llamar, está aquí.
+ */
+const destino = computed(() => {
+  const d = (props.pedido.direccion ?? {}) as DireccionPedido
+  const lineaCalle = [d.calle, d.colonia].filter(Boolean).join(', ')
+  const lineaCiudad = [d.ciudad, d.cp ? `CP ${d.cp}` : null].filter(Boolean).join(' · ')
+  return {
+    quien: d.quienRecibe || props.pedido.clienteNombre || null,
+    telefono: d.telefono || null,
+    direccion: [lineaCalle, lineaCiudad].filter(Boolean).join(' · '),
+    referencias: d.referencias || null,
+    mapa:
+      d.lat != null && d.lng != null
+        ? `https://www.google.com/maps/search/?api=1&query=${d.lat},${d.lng}`
+        : null,
+  }
+})
+
+const cobra = computed(() => cobraEnEfectivo(props.pedido))
+
+/** El precio de lista de cada renglón, solo para leerlo; el importe lo da la API. */
+const precioPorRenglon = new Map(
+  props.pedido.carga.map((c) => [c.pedidoItemId, c.precioUnitario] as const),
+)
 const emit = defineEmits<{
   (e: 'cerrar'): void
   (e: 'entregado', resultado: ResultadoEntrega): void
@@ -185,6 +226,46 @@ async function entregar(): Promise<void> {
       <div class="modal-handle" />
       <p class="modal-title">Entregar {{ pedido.folio }}</p>
 
+      <!-- A quién se le entrega y cómo se cobra: lo primero que se mira en la puerta. -->
+      <section class="ficha">
+        <p v-if="destino.quien" class="quien">
+          👤 {{ destino.quien }}
+          <a v-if="destino.telefono" :href="`tel:${destino.telefono}`" class="tel">
+            📞 {{ destino.telefono }}
+          </a>
+        </p>
+        <p v-if="destino.direccion" class="dato">📍 {{ destino.direccion }}</p>
+        <p v-if="destino.referencias" class="dato referencias">
+          🏠 {{ destino.referencias }}
+        </p>
+        <a
+          v-if="destino.mapa"
+          :href="destino.mapa"
+          target="_blank"
+          rel="noopener"
+          class="enlace-mapa"
+        >
+          Abrir en el mapa ↗
+        </a>
+
+        <div class="cobro" :class="{ cobrar: cobra }">
+          <template v-if="cobra">
+            <p class="t">💵 Cobra en efectivo hasta {{ dinero(pedido.pago.aPagar) }}</p>
+            <p
+              v-if="pedido.pago.pagoCon !== null && pedido.pago.cambio !== null"
+              class="s"
+            >
+              Paga con {{ dinero(pedido.pago.pagoCon) }} · lleva {{ dinero(pedido.pago.cambio) }}
+              de cambio
+            </p>
+            <p class="s">Si regresa algo, el importe se ajusta al confirmar.</p>
+          </template>
+          <p v-else class="t">
+            {{ nombreMetodoPago(pedido.pago.metodo) }} · no cobras nada en la puerta
+          </p>
+        </div>
+      </section>
+
       <p class="intro">
         Cuenta con el cliente lo que se queda. Lo que no acepte sigue en tu camión hasta el corte.
       </p>
@@ -192,7 +273,12 @@ async function entregar(): Promise<void> {
       <ul class="renglones">
         <li v-for="renglon in renglones" :key="renglon.pedidoItemId">
           <div class="linea">
-            <span class="nombre">{{ renglon.nombre }}</span>
+            <span class="nombre">
+              {{ renglon.nombre }}
+              <span v-if="precioPorRenglon.has(renglon.pedidoItemId)" class="precio">
+                {{ dinero(precioPorRenglon.get(renglon.pedidoItemId)!) }} c/u
+              </span>
+            </span>
             <div class="contador">
               <button
                 type="button"
@@ -240,9 +326,6 @@ async function entregar(): Promise<void> {
       <p class="conteo">
         Se queda {{ piezasDelRecuento(renglones).entregadas }} pieza(s) · regresan
         {{ piezasDelRecuento(renglones).devueltas }}
-        <template v-if="pedido.pago.aPagar > 0">
-          · a cobrar hasta {{ dinero(pedido.pago.aPagar) }}
-        </template>
       </p>
 
       <div class="evidencia">
@@ -303,6 +386,91 @@ async function entregar(): Promise<void> {
 </template>
 
 <style scoped>
+.ficha {
+  background: var(--white);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+
+.ficha p {
+  margin: 0;
+}
+
+.quien {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.tel {
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--terracotta-dark);
+  text-decoration: none;
+}
+
+.ficha .dato {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--ink);
+  line-height: 1.4;
+}
+
+.dato.referencias {
+  color: var(--muted);
+}
+
+.enlace-mapa {
+  display: inline-block;
+  margin-top: 6px;
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 11.5px;
+  color: var(--terracotta-dark);
+  text-decoration: none;
+}
+
+.cobro {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--cream-2);
+}
+
+.cobro.cobrar {
+  background: var(--amarillo);
+}
+
+.cobro .t {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 12.5px;
+  color: var(--ink);
+}
+
+.cobro:not(.cobrar) .t {
+  color: var(--muted);
+}
+
+.cobro .s {
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--ink);
+}
+
+.precio {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+}
+
 .intro {
   margin: 0 0 12px;
   font-size: 12.5px;

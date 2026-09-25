@@ -20,6 +20,7 @@ import EvidenciaEntrega from '@/components/EvidenciaEntrega.vue'
 import EntregaModal from './rutas/EntregaModal.vue'
 import CorteModal from './rutas/CorteModal.vue'
 import { MOTIVOS, nombreMotivo } from './rutas/etiquetas'
+import { cobraEnEfectivo } from './rutas/cobro'
 import type {
   EstadoPedido,
   FiltroRutas,
@@ -236,15 +237,6 @@ function piezasArriba(pedido: PedidoEnRuta): number {
  */
 function sinAceptar(pedido: PedidoEnRuta): RenglonDeCarga[] {
   return pedido.carga.filter((c) => c.cantidadEntregada < c.cantidadCargada)
-}
-
-/** Si el dinero de este pedido pasa por sus manos. Lo demás ya se cobró o no se cobra. */
-function cobraEnEfectivo(pedido: PedidoEnRuta): boolean {
-  return (
-    pedido.pago.metodo === 'EFECTIVO' &&
-    pedido.pago.aPagar > 0 &&
-    (pedido.pago.estado === 'PAGO_PENDIENTE' || pedido.pago.estado === 'LIBERAR')
-  )
 }
 </script>
 
