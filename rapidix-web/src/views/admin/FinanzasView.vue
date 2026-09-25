@@ -25,7 +25,7 @@ const ui = useUiStore()
 
 const PESTANAS: { filtro: FiltroFinanzas; titulo: string }[] = [
   { filtro: 'por-decidir', titulo: 'Por decidir' },
-  { filtro: 'liberados', titulo: 'Liberados' },
+  { filtro: 'credito', titulo: 'Crédito' },
   { filtro: 'pagados', titulo: 'Pagados' },
   { filtro: 'cancelados', titulo: 'Cancelados' },
 ]

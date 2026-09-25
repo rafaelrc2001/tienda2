@@ -248,7 +248,6 @@ export type MetodoEntrega = 'DOMICILIO' | 'TIENDA'
 /** Lo que decidió Finanzas sobre el dinero. Nace en `PAGO_PENDIENTE`. */
 export type EstadoPago =
   | 'PAGO_PENDIENTE'
-  | 'LIBERAR'
   | 'RETENER'
   | 'CREDITO'
   | 'REEMBOLSADO'
@@ -499,7 +498,7 @@ export interface PedidoEnFinanzas extends Pedido {
   botones: BotonPago[]
 }
 
-export type FiltroFinanzas = 'por-decidir' | 'liberados' | 'pagados' | 'cancelados'
+export type FiltroFinanzas = 'por-decidir' | 'credito' | 'pagados' | 'cancelados'
 
 /** Respuesta de `GET /admin/finanzas/pedidos`. */
 export interface ListadoFinanzas {

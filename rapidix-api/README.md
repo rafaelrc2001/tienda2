@@ -189,8 +189,10 @@ checkout.
 
 **Dos ejes de estatus.** `estado` dice dónde está la mercancía (`CONFIRMADO →
 EN_PREPARACION → PREPARADO → LISTO_PARA_ENTREGA → RECOLECTADO → EN_RUTA →
-ENTREGADO`) y `estadoPago` qué decidió Finanzas (`PAGO_PENDIENTE`, `LIBERAR`,
-`RETENER`, `CREDITO`, `REEMBOLSADO`, `PAGADO`, `CANCELADO`). Cancelar vive solo
+ENTREGADO`) y `estadoPago` qué decidió Finanzas (`PAGO_PENDIENTE`, `RETENER`,
+`CREDITO`, `REEMBOLSADO`, `PAGADO`, `CANCELADO`). Solo `RETENER` frena el avance;
+para entregar, una transferencia necesita `PAGADO` o `CREDITO` y el efectivo se
+cobra en la puerta. Cancelar vive solo
 en el eje de pago. Cada cambio de cualquiera de los dos deja un renglón en
 `bitacora_pedidos` (quién, cuándo, de qué a qué y la nota), escrito dentro de
 la misma transacción.

@@ -112,10 +112,7 @@ export function esLiberado(estadoPago: EstadoPago): boolean {
  */
 export function pagoCubierto(metodoPago: MetodoPago, estadoPago: EstadoPago): boolean {
   if (estadoPago === EstadoPago.PAGADO || estadoPago === EstadoPago.CREDITO) return true;
-  return (
-    metodoPago === MetodoPago.EFECTIVO &&
-    (estadoPago === EstadoPago.PAGO_PENDIENTE || estadoPago === EstadoPago.LIBERAR)
-  );
+  return metodoPago === MetodoPago.EFECTIVO && estadoPago === EstadoPago.PAGO_PENDIENTE;
 }
 
 export type CodigoBloqueo =

@@ -11,6 +11,6 @@ export function cobraEnEfectivo(pedido: Pedido): boolean {
   return (
     pedido.pago.metodo === 'EFECTIVO' &&
     pedido.pago.aPagar > 0 &&
-    (pedido.pago.estado === 'PAGO_PENDIENTE' || pedido.pago.estado === 'LIBERAR')
+    pedido.pago.estado === 'PAGO_PENDIENTE'
   )
 }

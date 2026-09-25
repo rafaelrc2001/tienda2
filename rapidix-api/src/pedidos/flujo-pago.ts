@@ -14,7 +14,6 @@ import { EstadoPago, EstadoPedido } from '@prisma/client';
 /** Nombre legible de cada estado, para los mensajes y para la interfaz. */
 export const NOMBRE_ESTADO_PAGO: Readonly<Record<EstadoPago, string>> = {
   PAGO_PENDIENTE: 'Pago pendiente',
-  LIBERAR: 'Liberar',
   RETENER: 'Retener',
   CREDITO: 'Crédito',
   REEMBOLSADO: 'Reembolsado',
@@ -26,10 +25,10 @@ export const NOMBRE_ESTADO_PAGO: Readonly<Record<EstadoPago, string>> = {
  * El orden en que Finanzas ve los botones. Es el del prototipo: primero lo que
  * frena o deja seguir, al final lo que cierra el pedido.
  *
- * LIBERAR ya no se ofrece: el pago pendiente deja avanzar por si solo (ver
+ * No hay "Liberar": el pago pendiente deja avanzar por si solo (ver
  * `esLiberado` en `flujo.ts`) y pulsar un boton por cada pedido solo hacia
- * lento el proceso. El estado sigue existiendo para los pedidos que ya lo
- * tienen.
+ * lento el proceso. La migracion `quitar_liberar` paso a PAGO_PENDIENTE los
+ * pedidos que lo tenian.
  */
 export const ESTADOS_PAGO: readonly EstadoPago[] = [
   EstadoPago.PAGO_PENDIENTE,
@@ -132,18 +131,11 @@ export interface BotonPago {
 }
 
 /**
- * Los siete botones con su candado resuelto. Lo calcula la API para que la
- * interfaz no lleve copia de las reglas, igual que `pasoPendiente()` en el eje
- * fisico.
+ * Los botones con su candado resuelto. Lo calcula la API para que la interfaz
+ * no lleve copia de las reglas, igual que `pasoPendiente()` en el eje fisico.
  */
 export function botonesDePago(pedido: PedidoEnPago): BotonPago[] {
-  // Un pedido que ya quedo en LIBERAR lo sigue ensenando como su estatus
-  // actual, en su lugar de siempre; a los demas ya no se les ofrece.
-  const estados =
-    pedido.estadoPago === EstadoPago.LIBERAR
-      ? [ESTADOS_PAGO[0], EstadoPago.LIBERAR, ...ESTADOS_PAGO.slice(1)]
-      : ESTADOS_PAGO;
-  return estados.map((estado) => {
+  return ESTADOS_PAGO.map((estado) => {
     const resultado = evaluarCambioPago(pedido, estado);
     const actual = estado === pedido.estadoPago;
     return {

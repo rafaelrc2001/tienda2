@@ -31,7 +31,7 @@ describe('eje de pago', () => {
   });
 
   it('avanzar en el eje fisico no estorba al del dinero', () => {
-    const enRuta = pedido({ estado: EstadoPedido.EN_RUTA, estadoPago: EstadoPago.LIBERAR });
+    const enRuta = pedido({ estado: EstadoPedido.EN_RUTA, estadoPago: EstadoPago.PAGO_PENDIENTE });
     expect(resultado(enRuta, EstadoPago.PAGADO)).toBe('cambiar');
     expect(resultado(enRuta, EstadoPago.RETENER)).toBe('cambiar');
   });
@@ -50,11 +50,7 @@ describe('cancelar', () => {
   });
 
   it('no se puede una vez que la mercancia salio', () => {
-    for (const estado of [
-      EstadoPedido.RECOLECTADO,
-      EstadoPedido.EN_RUTA,
-      EstadoPedido.ENTREGADO,
-    ]) {
+    for (const estado of [EstadoPedido.RECOLECTADO, EstadoPedido.EN_RUTA, EstadoPedido.ENTREGADO]) {
       expect(resultado(pedido({ estado }), EstadoPago.CANCELADO)).toBe('MERCANCIA_FUERA');
     }
   });
@@ -81,10 +77,10 @@ describe('cancelar', () => {
 });
 
 describe('botonesDePago', () => {
-  it('devuelve los botones en el orden del prototipo, sin Liberar', () => {
-    const estados = botonesDePago(pedido()).map((b) => b.estado);
-    expect(estados).toEqual(ESTADOS_PAGO);
-    expect(estados).not.toContain(EstadoPago.LIBERAR);
+  it('devuelve un boton por cada estatus, en el orden del prototipo', () => {
+    expect(botonesDePago(pedido()).map((b) => b.estado)).toEqual(ESTADOS_PAGO);
+    // Todos los que existen: si se agrega uno al enum, tiene que decidirse su boton.
+    expect([...ESTADOS_PAGO].sort()).toEqual(Object.values(EstadoPago).sort());
   });
 
   it('marca el actual sin tratarlo como bloqueado', () => {
@@ -92,12 +88,6 @@ describe('botonesDePago', () => {
       (b) => b.estado === EstadoPago.RETENER,
     );
     expect(boton).toMatchObject({ actual: true, bloqueo: null });
-  });
-
-  it('un pedido que ya estaba liberado lo sigue enseñando como su estatus', () => {
-    const botones = botonesDePago(pedido({ estadoPago: EstadoPago.LIBERAR }));
-    expect(botones[1]).toMatchObject({ estado: EstadoPago.LIBERAR, actual: true });
-    expect(botones).toHaveLength(ESTADOS_PAGO.length + 1);
   });
 
   it('explica el candado de la mercancia que ya salio', () => {

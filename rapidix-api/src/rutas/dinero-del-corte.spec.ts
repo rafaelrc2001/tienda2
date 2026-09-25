@@ -11,10 +11,10 @@ import {
 
 const D = (n: number) => new Prisma.Decimal(n);
 
-/** Efectivo contra entrega ya liberado por Finanzas: el caso de todos los días. */
+/** Efectivo contra entrega con el pago pendiente: el caso de todos los días. */
 const enEfectivo: PedidoALiquidar = {
   metodoPago: MetodoPago.EFECTIVO,
-  estadoPago: EstadoPago.LIBERAR,
+  estadoPago: EstadoPago.PAGO_PENDIENTE,
   total: D(300),
   pagadoConBilletera: D(0),
 };
@@ -30,7 +30,7 @@ const diezPiezas: CargaLiquidable = {
 describe('traeEfectivo', () => {
   it.each([
     [EstadoPago.PAGO_PENDIENTE, true],
-    [EstadoPago.LIBERAR, true],
+    [EstadoPago.RETENER, false],
     [EstadoPago.CREDITO, false],
     [EstadoPago.PAGADO, false],
     [EstadoPago.REEMBOLSADO, false],

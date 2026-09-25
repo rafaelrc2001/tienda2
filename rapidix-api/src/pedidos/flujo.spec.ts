@@ -10,7 +10,7 @@ import {
 
 const pedido = (cambios: Partial<PedidoEnFlujo> = {}): PedidoEnFlujo => ({
   estado: EstadoPedido.CONFIRMADO,
-  estadoPago: EstadoPago.LIBERAR,
+  estadoPago: EstadoPago.PAGO_PENDIENTE,
   metodoEntrega: MetodoEntrega.DOMICILIO,
   metodoPago: MetodoPago.EFECTIVO,
   ...cambios,
@@ -176,7 +176,6 @@ describe('candados de Finanzas', () => {
     expect(liberados.sort()).toEqual(
       [
         EstadoPago.PAGO_PENDIENTE,
-        EstadoPago.LIBERAR,
         EstadoPago.CREDITO,
         EstadoPago.REEMBOLSADO,
         EstadoPago.PAGADO,
@@ -237,7 +236,6 @@ describe('candados de Finanzas', () => {
     [MetodoPago.EFECTIVO, EstadoPago.PAGO_PENDIENTE, true],
     [MetodoPago.EFECTIVO, EstadoPago.REEMBOLSADO, false],
     [MetodoPago.TRANSFERENCIA, EstadoPago.PAGO_PENDIENTE, false],
-    [MetodoPago.TRANSFERENCIA, EstadoPago.LIBERAR, false],
     [MetodoPago.TRANSFERENCIA, EstadoPago.CREDITO, true],
     [MetodoPago.TRANSFERENCIA, EstadoPago.PAGADO, true],
   ])('pagoCubierto(%s, %s) = %s', (metodo, estado, esperado) => {

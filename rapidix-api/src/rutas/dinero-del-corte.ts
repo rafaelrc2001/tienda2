@@ -40,9 +40,7 @@ export interface CargaLiquidable {
  */
 export function traeEfectivo(pedido: PedidoALiquidar): boolean {
   if (pedido.metodoPago !== MetodoPago.EFECTIVO) return false;
-  return (
-    pedido.estadoPago === EstadoPago.PAGO_PENDIENTE || pedido.estadoPago === EstadoPago.LIBERAR
-  );
+  return pedido.estadoPago === EstadoPago.PAGO_PENDIENTE;
 }
 
 /** Lo que se cobra por un renglon: el precio que toque por lo que acepto el cliente. */

@@ -559,16 +559,16 @@ enum MetodoPago {
 
 /// Lo que Finanzas decidio sobre el dinero, independiente del avance fisico.
 ///
-/// "Liberado" no es un valor sino una condicion: todo lo que no es
-/// PAGO_PENDIENTE ni RETENER deja entregar.
+/// Solo RETENER frena el avance; lo demas deja llegar hasta la puerta. Entregar
+/// pide ademas el pago cubierto (`pagoCubierto` en `flujo.ts`). Ya no existe
+/// LIBERAR: el pago pendiente deja avanzar por si solo.
 enum EstadoPago {
-  /// Estado inicial de todo pedido con algo por cobrar. Deja preparar, no entregar.
+  /// Estado inicial de todo pedido con algo por cobrar. Deja avanzar; el efectivo
+  /// se entrega y se cobra en la puerta, la transferencia espera a PAGADO.
   PAGO_PENDIENTE
-  /// Finanzas autoriza entregar sin haber cobrado (tipico: efectivo contra entrega).
-  LIBERAR
   /// Congela todo el avance fisico, incluso la preparacion.
   RETENER
-  /// El cliente paga despues. Solo etiqueta.
+  /// Finanzas autoriza entregar sin cobrar: el cliente paga despues.
   CREDITO
   /// Solo etiqueta: no mueve dinero por si mismo.
   REEMBOLSADO
