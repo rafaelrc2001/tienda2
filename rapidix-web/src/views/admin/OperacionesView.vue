@@ -326,11 +326,9 @@ function marcarTodos(): void {
               </td>
               <td class="num importe">{{ dinero(pedido.total) }}</td>
               <td class="accion">
-                <!-- «Ver» abre el detalle; después, los estados en orden. Solo se
-                     enciende el que toca; los ya dados quedan marcados. -->
+                <!-- Los estados en orden: solo se enciende el que toca y los ya
+                     dados quedan marcados. El detalle se abre con la flecha del folio. -->
                 <div class="en-linea">
-                  <button type="button" class="btn-ver" @click="alternar(pedido.id)">Ver</button>
-                  <span class="separador" aria-hidden="true"></span>
                   <button
                     v-for="estado in PASOS"
                     :key="estado"
@@ -567,14 +565,6 @@ function marcarTodos(): void {
   color: var(--muted);
 }
 
-.separador {
-  width: 1px;
-  align-self: stretch;
-  background: var(--line);
-  margin: 0 4px;
-}
-
-.tabla.lineal .en-linea > .btn-ver,
 .tabla.lineal .en-linea > .btn-paso {
   padding: 5px 12px;
   border-radius: 8px;
@@ -583,11 +573,6 @@ function marcarTodos(): void {
   font-weight: 500;
   background: var(--white);
   cursor: pointer;
-}
-
-.btn-ver {
-  border: 1px solid var(--line);
-  color: var(--ink);
 }
 
 .btn-paso {
