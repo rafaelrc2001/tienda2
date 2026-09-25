@@ -165,9 +165,6 @@ const seleccion = ref(new Set<string>())
  */
 const seleccionados = computed(() => pedidos.value.filter((p) => seleccion.value.has(p.id)))
 const productosContados = computed(() => sumarProductos(seleccionados.value))
-const piezasContadas = computed(() =>
-  productosContados.value.reduce((suma, p) => suma + p.cantidad, 0),
-)
 const todosMarcados = computed(
   () => pedidos.value.length > 0 && seleccionados.value.length === pedidos.value.length,
 )
@@ -223,13 +220,16 @@ function marcarTodos(): void {
       <p class="conteo-titulo">
         📒 {{ seleccionados.length }} pedido(s) seleccionados
         <template v-if="seleccionados.length > 0">
-          · {{ productosContados.length }} producto(s) · {{ piezasContadas }} pieza(s)
+          · {{ productosContados.length }} producto(s)
         </template>
       </p>
+      <!-- Cada producto con su propia suma y su unidad. No hay un total general:
+           sumar kilos con piezas daría un número que no significa nada. -->
       <ul v-if="productosContados.length > 0" class="conteo-lista">
         <li v-for="producto in productosContados" :key="producto.productoId">
-          <strong>{{ producto.cantidad }}-</strong>{{ producto.nombre }}
+          <span class="conteo-nombre">{{ producto.nombre }}</span>
           <span class="conteo-unidad">{{ producto.unidad }}</span>
+          <strong class="conteo-cantidad">{{ producto.cantidad }}</strong>
         </li>
       </ul>
       <p v-else class="conteo-vacio">Palomea los pedidos que quieras sumar.</p>
@@ -525,15 +525,31 @@ function marcarTodos(): void {
   column-gap: 24px;
 }
 
+/* Producto · unidad · cantidad, alineados como una lista de surtido. */
 .conteo-lista li {
-  padding: 2px 0;
+  display: grid;
+  grid-template-columns: 1fr auto 3.5em;
+  gap: 8px;
+  align-items: baseline;
+  padding: 3px 0;
+  border-bottom: 1px dashed var(--line);
   break-inside: avoid;
 }
 
+.conteo-nombre {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .conteo-unidad {
-  margin-left: 4px;
   font-size: 11px;
   color: var(--muted);
+}
+
+.conteo-cantidad {
+  text-align: right;
 }
 
 .conteo-vacio {
