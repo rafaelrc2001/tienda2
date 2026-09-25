@@ -25,10 +25,14 @@ export const NOMBRE_ESTADO_PAGO: Readonly<Record<EstadoPago, string>> = {
 /**
  * El orden en que Finanzas ve los botones. Es el del prototipo: primero lo que
  * frena o deja seguir, al final lo que cierra el pedido.
+ *
+ * LIBERAR ya no se ofrece: el pago pendiente deja avanzar por si solo (ver
+ * `esLiberado` en `flujo.ts`) y pulsar un boton por cada pedido solo hacia
+ * lento el proceso. El estado sigue existiendo para los pedidos que ya lo
+ * tienen.
  */
 export const ESTADOS_PAGO: readonly EstadoPago[] = [
   EstadoPago.PAGO_PENDIENTE,
-  EstadoPago.LIBERAR,
   EstadoPago.RETENER,
   EstadoPago.CREDITO,
   EstadoPago.REEMBOLSADO,
@@ -133,7 +137,13 @@ export interface BotonPago {
  * fisico.
  */
 export function botonesDePago(pedido: PedidoEnPago): BotonPago[] {
-  return ESTADOS_PAGO.map((estado) => {
+  // Un pedido que ya quedo en LIBERAR lo sigue ensenando como su estatus
+  // actual, en su lugar de siempre; a los demas ya no se les ofrece.
+  const estados =
+    pedido.estadoPago === EstadoPago.LIBERAR
+      ? [ESTADOS_PAGO[0], EstadoPago.LIBERAR, ...ESTADOS_PAGO.slice(1)]
+      : ESTADOS_PAGO;
+  return estados.map((estado) => {
     const resultado = evaluarCambioPago(pedido, estado);
     const actual = estado === pedido.estadoPago;
     return {

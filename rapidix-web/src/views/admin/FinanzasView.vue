@@ -31,7 +31,7 @@ const PESTANAS: { filtro: FiltroFinanzas; titulo: string }[] = [
 ]
 
 /** Verde lo que deja seguir o cierra bien; rojo lo que cancela. */
-const VERDES: EstadoPago[] = ['LIBERAR', 'PAGADO']
+const VERDES: EstadoPago[] = ['PAGADO']
 
 /**
  * Los dos que mueven dinero de verdad se confirman antes: «Pagado» acredita el
@@ -137,6 +137,10 @@ function alternar(id: string): void {
   abierto.value = abierto.value === id ? null : id
 }
 
+function iconoMetodo(metodo: string): string {
+  return metodo === 'TRANSFERENCIA' ? '🏦' : '💵'
+}
+
 function direccionCorta(pedido: PedidoEnFinanzas): string {
   const d = pedido.direccion as Record<string, string | null> | null
   if (!d) return ''
@@ -145,7 +149,7 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
 </script>
 
 <template>
-  <div class="pantalla">
+  <div class="pantalla-panel sin-colchon">
     <div class="encabezado">
       <RouterLink to="/admin" class="admin-back-inline">← Volver al menú</RouterLink>
       <!-- El otro eje del dinero: lo que traen los repartidores al cerrar. -->
@@ -171,13 +175,16 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
 
     <SkeletonList v-if="cargando" :cantidad="4" />
 
-    <div v-else-if="pedidos.length > 0" class="tabla-envoltorio">
-      <table class="tabla lineal">
+    <!-- Mismo formato que Operaciones: tabla del panel, pastillas y detalle. -->
+    <div v-else-if="pedidos.length > 0" class="tabla-envoltorio panel">
+      <table class="tabla lineal panel">
         <thead>
           <tr>
-            <th>Folio</th>
-            <th>Cliente</th>
             <th>Pedido</th>
+            <th>Cliente</th>
+            <th>Fecha</th>
+            <th>Estado del pedido</th>
+            <th>Método de pago</th>
             <th class="num">Total</th>
             <th>Estatus de pago</th>
           </tr>
@@ -186,7 +193,6 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
           <template v-for="pedido in pedidos" :key="pedido.id">
             <tr :class="{ 'con-detalle': abierto === pedido.id }">
               <td>
-                <!-- La misma flecha que Operaciones: abre y cierra el detalle. -->
                 <button
                   type="button"
                   class="chevron"
@@ -207,33 +213,18 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
                   </svg>
                 </button>
                 <span class="folio">{{ pedido.folio }}</span>
-                <span class="sub">{{ fechaNumerica(pedido.creadoEn) }}</span>
-                <div class="enlaces">
-                  <button type="button" class="enlace" @click="bitacoraDe = pedido">
-                    Bitácora
-                  </button>
-                </div>
+              </td>
+              <td>{{ pedido.clienteNombre ?? '—' }}</td>
+              <td>{{ fechaNumerica(pedido.creadoEn) }}</td>
+              <td>
+                <span class="pastilla estado">{{ nombreEstadoPedido(pedido.estado) }}</span>
               </td>
               <td>
-                {{ pedido.clienteNombre ?? '—' }}
-                <span class="sub">{{ nombreMetodoPago(pedido.pago.metodo) }}</span>
+                {{ iconoMetodo(pedido.pago.metodo) }} {{ nombreMetodoPago(pedido.pago.metodo) }}
               </td>
-              <td>
-                <div class="en-linea">
-                  <span class="mini-tag">{{ nombreEstadoPedido(pedido.estado) }}</span>
-                  <span v-if="pedido.pago.billetera > 0" class="mini-tag billetera">
-                    Billetera {{ dinero(pedido.pago.billetera) }}
-                  </span>
-                </div>
-              </td>
-              <td class="num">
-                <span class="importe">{{ dinero(pedido.total) }}</span>
-                <span v-if="pedido.pago.aPagar > 0" class="sub">
-                  cobrar {{ dinero(pedido.pago.aPagar) }}
-                </span>
-              </td>
+              <td class="num importe">{{ dinero(pedido.total) }}</td>
               <td class="estatus">
-                <!-- Los siete estatus. El actual se pinta hundido; los bloqueados,
+                <!-- Los estatus de pago. El actual se pinta hundido; los bloqueados,
                      con su candado y el motivo debajo. -->
                 <div class="botonera">
                   <button
@@ -268,73 +259,70 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
             </tr>
 
             <tr v-if="abierto === pedido.id" class="fila-detalle">
-              <td colspan="5">
-                <div class="detalle">
-                  <table class="tabla-lineas">
-                    <thead>
-                      <tr>
-                        <th class="num">Cantidad</th>
-                        <th>Producto</th>
-                        <th class="num">Importe</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr v-for="item in pedido.items" :key="item.productoId">
-                        <td class="num">{{ item.cantidad }} {{ item.unidad }}</td>
-                        <td>{{ item.nombre }}</td>
-                        <td class="num">{{ dinero(item.importe) }}</td>
-                      </tr>
-                    </tbody>
-                    <tfoot>
-                      <tr>
-                        <td colspan="2">Productos</td>
-                        <td class="num">{{ dinero(pedido.subtotal) }}</td>
-                      </tr>
-                      <tr v-if="pedido.metodoEntrega === 'DOMICILIO'">
-                        <td colspan="2">Envío</td>
-                        <td class="num">
-                          {{ pedido.envio === 0 ? 'Gratis' : dinero(pedido.envio) }}
-                        </td>
-                      </tr>
-                      <tr v-if="pedido.recargoFuera > 0">
-                        <td colspan="2">Recargo fuera de horario</td>
-                        <td class="num">{{ dinero(pedido.recargoFuera) }}</td>
-                      </tr>
-                      <tr v-if="pedido.descuento > 0">
-                        <td colspan="2">
-                          {{ pedido.cupon ? `Cupón ${pedido.cupon.code}` : 'Descuento' }}
-                        </td>
-                        <td class="num">−{{ dinero(pedido.descuento) }}</td>
-                      </tr>
-                      <tr v-if="pedido.pago.billetera > 0">
-                        <td colspan="2">Pagó con su billetera</td>
-                        <td class="num">−{{ dinero(pedido.pago.billetera) }}</td>
-                      </tr>
-                      <tr class="fuerte">
-                        <td colspan="2">
-                          {{
-                            pedido.pago.aPagar > 0
-                              ? `A cobrar · ${nombreMetodoPago(pedido.pago.metodo)}`
-                              : 'Cubierto'
-                          }}
-                        </td>
-                        <td class="num">{{ dinero(pedido.pago.aPagar) }}</td>
-                      </tr>
-                    </tfoot>
-                  </table>
+              <td colspan="7">
+                <div class="detalle-pedido">
+                  <ul class="renglones">
+                    <li v-for="item in pedido.items" :key="item.productoId">
+                      <strong>{{ item.cantidad }}-</strong>{{ item.nombre }}
+                    </li>
+                  </ul>
+
+                  <dl class="cuentas">
+                    <div>
+                      <dt>Subtotal</dt>
+                      <dd>{{ dinero(pedido.subtotal) }}</dd>
+                    </div>
+                    <div v-if="pedido.metodoEntrega === 'DOMICILIO'">
+                      <dt>Envío a domicilio</dt>
+                      <dd>{{ pedido.envio === 0 ? 'Gratis' : dinero(pedido.envio) }}</dd>
+                    </div>
+                    <div v-if="pedido.recargoFuera > 0">
+                      <dt>Recargo fuera de horario</dt>
+                      <dd>{{ dinero(pedido.recargoFuera) }}</dd>
+                    </div>
+                    <div v-if="pedido.descuento > 0">
+                      <dt>{{ pedido.cupon ? `Cupón ${pedido.cupon.code}` : 'Descuento' }}</dt>
+                      <dd>−{{ dinero(pedido.descuento) }}</dd>
+                    </div>
+                    <div class="total">
+                      <dt>Total</dt>
+                      <dd>{{ dinero(pedido.total) }}</dd>
+                    </div>
+                    <div v-if="pedido.pago.billetera > 0">
+                      <dt>Pagó con su billetera</dt>
+                      <dd>−{{ dinero(pedido.pago.billetera) }}</dd>
+                    </div>
+                    <div v-if="pedido.pago.billetera > 0">
+                      <dt>A cobrar</dt>
+                      <dd>{{ dinero(pedido.pago.aPagar) }}</dd>
+                    </div>
+                    <div>
+                      <dt>Método de pago</dt>
+                      <dd>
+                        {{ iconoMetodo(pedido.pago.metodo) }}
+                        {{ nombreMetodoPago(pedido.pago.metodo) }}
+                      </dd>
+                    </div>
+                  </dl>
+
                   <p
                     v-if="pedido.pago.pagoCon !== null && pedido.pago.cambio !== null"
-                    class="nota-pago"
+                    class="nota"
                   >
                     💵 Paga con {{ dinero(pedido.pago.pagoCon) }} · Cambio
                     {{ dinero(pedido.pago.cambio) }}
                   </p>
-                  <p class="nota-pago">
-                    🧾 Referencia de transferencia: {{ pedido.pago.referencia }}
+                  <p class="nota">🧾 Referencia de transferencia: {{ pedido.pago.referencia }}</p>
+                  <p class="nota">
+                    {{
+                      pedido.metodoEntrega === 'TIENDA' ? '🏪 Recoge en tienda' : '🛵 A domicilio'
+                    }}
                   </p>
-                  <p v-if="direccionCorta(pedido)" class="nota-pago">
-                    📍 {{ direccionCorta(pedido) }}
-                  </p>
+                  <p v-if="direccionCorta(pedido)" class="nota">📍 {{ direccionCorta(pedido) }}</p>
+
+                  <button type="button" class="enlace" @click="bitacoraDe = pedido">
+                    Ver bitácora
+                  </button>
                 </div>
               </td>
             </tr>
@@ -409,10 +397,9 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
 </template>
 
 <style scoped>
-.pantalla {
-  padding: 12px 18px 0;
-}
-
+/* La tabla, las pastillas y el detalle son los del panel de pedidos
+   (`.pantalla-panel`, `.tabla.panel`, `.detalle-pedido` en base.css), igual
+   que Operaciones. Aquí solo va lo propio: la tira de estatus de pago. */
 .encabezado {
   display: flex;
   justify-content: space-between;
@@ -434,40 +421,37 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
 }
 
 .tabla {
-  min-width: 800px;
+  min-width: 1060px;
 }
 
-.mini-tag.billetera {
-  background: var(--cream-2);
-  color: var(--terracotta-dark);
-}
-
-/* Los siete estatus uno al costado del otro, como una sola tira. */
+/* Los estatus uno al costado del otro, como una sola tira. */
 .botonera {
   display: flex;
   gap: 4px;
 }
 
-.btn-pago {
-  font-family: var(--font-heading);
-  font-weight: 700;
-  font-size: 11px;
+/* Misma forma que los pasos de Operaciones; el color dice qué hace cada uno. */
+.tabla.lineal .botonera > .btn-pago {
+  font-family: var(--font-body);
+  font-weight: 500;
+  font-size: 12px;
   white-space: nowrap;
-  padding: 3px 10px;
+  padding: 5px 12px;
   border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--cream);
+  border-radius: 8px;
+  background: var(--white);
   color: var(--ink);
+  box-shadow: none;
   cursor: pointer;
 }
 
-.btn-pago.verde {
-  background: var(--verde);
-  border-color: var(--verde);
+.tabla.lineal .botonera > .btn-pago.verde {
+  background: var(--verde-compra);
+  border-color: var(--verde-compra);
   color: var(--white);
 }
 
-.btn-pago.rojo {
+.tabla.lineal .botonera > .btn-pago.rojo {
   background: var(--rojo);
   border-color: var(--rojo);
   color: var(--white);
@@ -475,16 +459,14 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
 
 /* El que ya tiene: hundido y sin color, para que se lea como un estado y no
    como algo por hacer. */
-.btn-pago.actual,
-.btn-pago.actual.verde,
-.btn-pago.actual.rojo {
+.tabla.lineal .botonera > .btn-pago.actual {
   background: var(--gris-oscuro);
   border-color: var(--gris-oscuro);
   color: var(--white);
   cursor: default;
 }
 
-.btn-pago:disabled:not(.actual) {
+.tabla.lineal .botonera > .btn-pago:disabled:not(.actual) {
   opacity: 0.4;
   cursor: not-allowed;
 }
@@ -494,39 +476,6 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
   font-size: 11.5px;
   font-weight: 600;
   color: var(--orange-dark);
-}
-
-/* Detalle: una sola letra y un solo tamaño para todo —encabezados, renglones,
-   total y notas—; lo que distingue es el peso y el color, no la fuente. Se
-   queda fijo a la izquierda aunque la tabla se desplace de lado. */
-.detalle {
-  position: sticky;
-  left: 12px;
-  max-width: 520px;
-  font-family: var(--font-body);
-  font-size: 12.5px;
-  color: var(--ink);
-}
-
-.detalle .tabla-lineas,
-.detalle .tabla-lineas th,
-.detalle .tabla-lineas td {
-  font-family: inherit;
-  font-size: inherit;
-}
-
-.detalle .tabla-lineas th {
-  font-weight: 600;
-  text-transform: none;
-  color: var(--muted);
-}
-
-.detalle .tabla-lineas tr.fuerte td {
-  font-weight: 700;
-}
-
-.nota-pago {
-  margin: 6px 0 0;
 }
 
 .modal-texto {

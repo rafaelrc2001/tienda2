@@ -81,12 +81,12 @@ describe('pasoPendiente', () => {
   it('dice el siguiente paso, a quien le toca y que lo frena', () => {
     expect(
       pasoPendiente(
-        pedido({ estado: EstadoPedido.PREPARADO, estadoPago: EstadoPago.PAGO_PENDIENTE }),
+        pedido({ estado: EstadoPedido.PREPARADO, estadoPago: EstadoPago.RETENER }),
       ),
     ).toEqual({
       siguiente: EstadoPedido.LISTO_PARA_ENTREGA,
       seccion: 'operaciones',
-      bloqueo: expect.objectContaining({ codigo: 'PAGO_NO_LIBERADO' }) as unknown,
+      bloqueo: expect.objectContaining({ codigo: 'PAGO_RETENIDO' }) as unknown,
     });
   });
 
@@ -104,18 +104,21 @@ describe('pasoPendiente', () => {
 });
 
 describe('candados de Finanzas', () => {
-  it('con pago pendiente se puede preparar pero no dejar listo', () => {
+  it('con pago pendiente avanza hasta la entrega sin esperar a Finanzas', () => {
     const pendiente = { estadoPago: EstadoPago.PAGO_PENDIENTE };
     expect(codigo(pedido(pendiente), EstadoPedido.EN_PREPARACION)).toBeNull();
-    expect(
-      codigo(pedido({ ...pendiente, estado: EstadoPedido.EN_PREPARACION }), EstadoPedido.PREPARADO),
-    ).toBeNull();
     expect(
       codigo(
         pedido({ ...pendiente, estado: EstadoPedido.PREPARADO }),
         EstadoPedido.LISTO_PARA_ENTREGA,
       ),
-    ).toBe('PAGO_NO_LIBERADO');
+    ).toBeNull();
+    expect(
+      codigo(
+        pedido({ ...pendiente, estado: EstadoPedido.LISTO_PARA_ENTREGA }),
+        EstadoPedido.RECOLECTADO,
+      ),
+    ).toBeNull();
   });
 
   it('retenido no deja ni empezar a preparar', () => {
@@ -131,10 +134,11 @@ describe('candados de Finanzas', () => {
     );
   });
 
-  it('solo pago pendiente y retenido no cuentan como liberados', () => {
+  it('solo retenido no cuenta como liberado', () => {
     const liberados = Object.values(EstadoPago).filter(esLiberado);
     expect(liberados.sort()).toEqual(
       [
+        EstadoPago.PAGO_PENDIENTE,
         EstadoPago.LIBERAR,
         EstadoPago.CREDITO,
         EstadoPago.REEMBOLSADO,

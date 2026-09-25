@@ -33,9 +33,9 @@ export interface Transicion {
 /**
  * Los unicos pasos que existen: siempre uno hacia adelante.
  *
- * Preparar no exige pago liberado: se puede ir surtiendo mientras Finanzas
- * decide. Desde "Listo para entrega" si, porque a partir de ahi la mercancia
- * ya puede salir. Recoger en tienda se entrega en mostrador desde Operaciones;
+ * Preparar no exige pago liberado: se puede ir surtiendo aunque Finanzas lo
+ * tenga retenido. Desde "Listo para entrega" si, porque a partir de ahi la
+ * mercancia ya puede salir (ver `esLiberado`). Recoger en tienda se entrega en mostrador desde Operaciones;
  * a domicilio pasa por Rutas.
  */
 export const TRANSICIONES: readonly Transicion[] = [
@@ -89,11 +89,13 @@ export const TRANSICIONES: readonly Transicion[] = [
 
 /**
  * "Liberado" no es un estado de pago sino una condicion: todo lo que no es
- * PAGO_PENDIENTE ni RETENER deja entregar. CANCELADO cuenta como liberado a
+ * RETENER deja entregar. PAGO_PENDIENTE tambien: validar cada pedido antes de
+ * que saliera hacia lento el reparto, asi que Finanzas ya no libera sino que
+ * **retiene** el que tenga un problema. CANCELADO cuenta como liberado a
  * proposito; lo frena su propio candado, que se evalua antes.
  */
 export function esLiberado(estadoPago: EstadoPago): boolean {
-  return estadoPago !== EstadoPago.PAGO_PENDIENTE && estadoPago !== EstadoPago.RETENER;
+  return estadoPago !== EstadoPago.RETENER;
 }
 
 export type CodigoBloqueo =

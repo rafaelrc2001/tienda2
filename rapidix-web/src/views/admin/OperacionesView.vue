@@ -151,13 +151,13 @@ function iconoMetodo(metodo: string): string {
 </script>
 
 <template>
-  <div class="pantalla sin-colchon">
+  <div class="pantalla-panel sin-colchon">
     <RouterLink to="/admin" class="admin-back-inline">← Volver al menú</RouterLink>
 
     <SkeletonList v-if="cargando" :cantidad="4" />
 
-    <div v-else-if="pedidos.length > 0" class="tabla-envoltorio">
-      <table class="tabla lineal">
+    <div v-else-if="pedidos.length > 0" class="tabla-envoltorio panel">
+      <table class="tabla lineal panel">
         <thead>
           <tr>
             <th>Pedido</th>
@@ -252,7 +252,7 @@ function iconoMetodo(metodo: string): string {
 
             <tr v-if="abierto === pedido.id" class="fila-detalle">
               <td colspan="7">
-                <div class="detalle">
+                <div class="detalle-pedido">
                   <ul class="renglones">
                     <li v-for="item in pedido.items" :key="item.productoId">
                       <strong>{{ item.cantidad }}-</strong>{{ item.nombre }}
@@ -341,15 +341,9 @@ function iconoMetodo(metodo: string): string {
 </template>
 
 <style scoped>
-/* La pantalla ocupa justo el alto de `.app-screen` para que la tabla se quede
-   con el resto y desplace dentro de su caja (ver `.tabla-envoltorio`). */
-.pantalla {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  padding: 12px 18px 0;
-}
-
+/* La tabla, las pastillas y el detalle son los del panel de pedidos
+   (`.pantalla-panel`, `.tabla.panel`, `.detalle-pedido` en base.css), que
+   comparte con Finanzas. Aquí solo va lo propio: la fila de pasos. */
 .admin-back-inline {
   align-self: flex-start;
   display: inline-block;
@@ -363,93 +357,6 @@ function iconoMetodo(metodo: string): string {
 
 .tabla {
   min-width: 860px;
-}
-
-/* Filas con aire, como en la referencia: la acción va en botones, no en enlaces. */
-.tabla.lineal > tbody > tr:not(.fila-detalle) > td {
-  padding: 10px 14px;
-}
-
-.tabla.lineal .folio {
-  font-size: 13px;
-}
-
-/* Con la acción en botones, la tabla es más ancha que la pantalla. Si la caja
-   creciera con las filas, su barra horizontal quedaría bajo el último pedido,
-   fuera de la vista; por eso la caja llena el alto que queda y desplaza en los
-   dos sentidos: la barra se queda siempre al pie de la pantalla. */
-.tabla-envoltorio {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  border-bottom-left-radius: 0;
-  border-bottom-right-radius: 0;
-}
-
-/* Al desplazar dentro de la caja, los títulos de columna no se van. */
-.tabla.lineal > thead > tr > th {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-}
-
-/* Chrome ignora `::-webkit-scrollbar` si hay `scrollbar-width`/`scrollbar-color`,
-   y en Android es lo que la deja fija en lugar de desvanecerse: las
-   propiedades estándar quedan solo para Firefox. */
-@supports not selector(::-webkit-scrollbar) {
-  .tabla-envoltorio {
-    scrollbar-width: thin;
-    scrollbar-color: var(--gris) var(--cream-2);
-  }
-}
-
-.tabla-envoltorio::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-
-.tabla-envoltorio::-webkit-scrollbar-corner {
-  background: var(--cream-2);
-}
-
-.tabla-envoltorio::-webkit-scrollbar-track {
-  background: var(--cream-2);
-}
-
-.tabla-envoltorio::-webkit-scrollbar-thumb {
-  background: var(--gris);
-  border-radius: 999px;
-}
-
-/* Estados en pastilla suave, en minúsculas como se leen. */
-.pastilla {
-  display: inline-block;
-  padding: 3px 10px;
-  border-radius: 999px;
-  font-family: var(--font-heading);
-  font-size: 11px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.pastilla.estado {
-  background: color-mix(in srgb, var(--gris) 18%, var(--white));
-  color: var(--ink);
-}
-
-.pastilla.pago-retenido {
-  background: color-mix(in srgb, var(--gris-oscuro) 20%, var(--white));
-  color: var(--gris-oscuro);
-}
-
-.pastilla.pago-liberado {
-  background: color-mix(in srgb, var(--verde) 18%, var(--white));
-  color: var(--verde-compra);
-}
-
-.pastilla.pago-cancelado {
-  background: color-mix(in srgb, var(--rojo) 15%, var(--white));
-  color: var(--rojo);
 }
 
 .separador {
@@ -504,72 +411,5 @@ function iconoMetodo(metodo: string): string {
   font-size: 11.5px;
   font-weight: 600;
   color: var(--orange-dark);
-}
-
-/* Detalle: renglones y cuenta, en una columna angosta a la izquierda. Se
-   queda fijo aunque la tabla se desplace de lado. */
-.detalle {
-  position: sticky;
-  left: 14px;
-  max-width: 480px;
-  font-size: 12.5px;
-  color: var(--ink);
-}
-
-.renglones {
-  list-style: none;
-  margin: 0;
-  padding: 0 0 8px;
-  border-bottom: 1px dashed var(--line);
-}
-
-.renglones li {
-  padding: 2px 0;
-}
-
-.cuentas {
-  margin: 8px 0 0;
-  border-top: 1px solid var(--line);
-  padding-top: 6px;
-}
-
-.cuentas > div {
-  display: flex;
-  justify-content: space-between;
-  padding: 3px 0;
-}
-
-.cuentas dt {
-  color: var(--muted);
-}
-
-.cuentas dd {
-  margin: 0;
-  font-weight: 700;
-}
-
-.cuentas > .total {
-  border-top: 1px solid var(--line);
-  margin-top: 4px;
-  padding-top: 6px;
-}
-
-.cuentas > .total dt {
-  color: var(--ink);
-  font-weight: 700;
-}
-
-.cuentas > .total dd {
-  color: var(--verde-compra);
-}
-
-.nota {
-  margin: 6px 0 0;
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.detalle .enlace {
-  margin-top: 8px;
 }
 </style>

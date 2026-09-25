@@ -81,15 +81,23 @@ describe('cancelar', () => {
 });
 
 describe('botonesDePago', () => {
-  it('devuelve los siete, en el orden del prototipo', () => {
-    expect(botonesDePago(pedido()).map((b) => b.estado)).toEqual(ESTADOS_PAGO);
+  it('devuelve los botones en el orden del prototipo, sin Liberar', () => {
+    const estados = botonesDePago(pedido()).map((b) => b.estado);
+    expect(estados).toEqual(ESTADOS_PAGO);
+    expect(estados).not.toContain(EstadoPago.LIBERAR);
   });
 
   it('marca el actual sin tratarlo como bloqueado', () => {
-    const boton = botonesDePago(pedido({ estadoPago: EstadoPago.LIBERAR })).find(
-      (b) => b.estado === EstadoPago.LIBERAR,
+    const boton = botonesDePago(pedido({ estadoPago: EstadoPago.RETENER })).find(
+      (b) => b.estado === EstadoPago.RETENER,
     );
     expect(boton).toMatchObject({ actual: true, bloqueo: null });
+  });
+
+  it('un pedido que ya estaba liberado lo sigue enseñando como su estatus', () => {
+    const botones = botonesDePago(pedido({ estadoPago: EstadoPago.LIBERAR }));
+    expect(botones[1]).toMatchObject({ estado: EstadoPago.LIBERAR, actual: true });
+    expect(botones).toHaveLength(ESTADOS_PAGO.length + 1);
   });
 
   it('explica el candado de la mercancia que ya salio', () => {
