@@ -387,8 +387,29 @@ function sinAceptar(pedido: PedidoEnRuta): RenglonDeCarga[] {
           <template v-for="pedido in pedidos" :key="pedido.id">
             <tr :class="{ 'con-detalle': abierto === pedido.id }">
               <td>
+                <!-- Como en Operaciones y Finanzas: la flecha despliega el detalle debajo;
+                     el folio sigue abriendo la hoja del pedido con sus pasos. -->
+                <button
+                  type="button"
+                  class="chevron"
+                  :class="{ abierto: abierto === pedido.id }"
+                  :aria-expanded="abierto === pedido.id"
+                  :aria-label="`Detalle de ${pedido.folio}`"
+                  @click="alternar(pedido.id)"
+                >
+                  <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                    <path
+                      d="M4 6l4 4 4-4"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
+                  </svg>
+                </button>
                 <button type="button" class="folio abre-hoja" @click="enHoja = pedido.id">
-                  {{ pedido.folio }} ›
+                  {{ pedido.folio }}
                 </button>
               </td>
               <!-- Como en Operaciones: la colonia agrupa lo que va para el mismo rumbo;
@@ -474,12 +495,6 @@ function sinAceptar(pedido: PedidoEnRuta): RenglonDeCarga[] {
                     🏭 Lo está surtiendo Operaciones.
                   </p>
                   <p v-else class="aviso hecho">✓ Entregado · entra en tu corte</p>
-
-                  <div class="enlaces">
-                    <button type="button" class="enlace" @click="alternar(pedido.id)">
-                      {{ abierto === pedido.id ? 'Ocultar detalle' : 'Ver detalle' }}
-                    </button>
-                  </div>
                 </div>
 
                 <p v-if="pedido.paso.bloqueo" class="bloqueo">
