@@ -10,7 +10,7 @@
 import { onMounted, ref } from 'vue'
 import { ErrorApi, http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
-import { dinero, fechaHora, nombreEstadoPedido, nombreMetodoPago } from '@/utils/formato'
+import { dinero, fechaNumerica, nombreEstadoPedido, nombreMetodoPago } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
 import BitacoraPedido from '@/components/BitacoraPedido.vue'
 import type {
@@ -186,12 +186,29 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
           <template v-for="pedido in pedidos" :key="pedido.id">
             <tr :class="{ 'con-detalle': abierto === pedido.id }">
               <td>
+                <!-- La misma flecha que Operaciones: abre y cierra el detalle. -->
+                <button
+                  type="button"
+                  class="chevron"
+                  :class="{ abierto: abierto === pedido.id }"
+                  :aria-expanded="abierto === pedido.id"
+                  :aria-label="`Detalle de ${pedido.folio}`"
+                  @click="alternar(pedido.id)"
+                >
+                  <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                    <path
+                      d="M4 6l4 4 4-4"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
+                  </svg>
+                </button>
                 <span class="folio">{{ pedido.folio }}</span>
-                <span class="sub">{{ fechaHora(pedido.creadoEn) }}</span>
+                <span class="sub">{{ fechaNumerica(pedido.creadoEn) }}</span>
                 <div class="enlaces">
-                  <button type="button" class="enlace" @click="alternar(pedido.id)">
-                    {{ abierto === pedido.id ? 'Ocultar' : 'Detalle' }}
-                  </button>
                   <button type="button" class="enlace" @click="bitacoraDe = pedido">
                     Bitácora
                   </button>

@@ -625,6 +625,24 @@ input:checked + .switch-danger-slider {
   margin-right: 6px;
 }
 
+/* Flecha junto al folio: abre el detalle. Abierto, apunta arriba para cerrarlo. */
+.tabla .chevron {
+  background: none;
+  border: none;
+  padding: 0;
+  margin-right: 8px;
+  color: var(--muted);
+  cursor: pointer;
+  display: inline-flex;
+  vertical-align: middle;
+  transition: transform 0.15s;
+}
+
+.tabla .chevron.abierto {
+  transform: rotate(180deg);
+  color: var(--ink);
+}
+
 .tabla.lineal .enlaces {
   display: inline-flex;
   vertical-align: middle;

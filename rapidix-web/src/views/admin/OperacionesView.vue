@@ -421,24 +421,6 @@ function iconoMetodo(metodo: string): string {
   border-radius: 999px;
 }
 
-/* Flecha abajo: abre el detalle. Abierto, apunta arriba para cerrarlo. */
-.chevron {
-  background: none;
-  border: none;
-  padding: 0;
-  margin-right: 8px;
-  color: var(--muted);
-  cursor: pointer;
-  display: inline-flex;
-  vertical-align: middle;
-  transition: transform 0.15s;
-}
-
-.chevron.abierto {
-  transform: rotate(180deg);
-  color: var(--ink);
-}
-
 /* Estados en pastilla suave, en minúsculas como se leen. */
 .pastilla {
   display: inline-block;
