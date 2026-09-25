@@ -90,6 +90,37 @@ describe('pasoPendiente', () => {
     });
   });
 
+  it('con pago pendiente, el de tienda enciende "Listo para entrega" en Operaciones', () => {
+    const tienda = pedido({
+      estado: EstadoPedido.PREPARADO,
+      estadoPago: EstadoPago.PAGO_PENDIENTE,
+      metodoEntrega: MetodoEntrega.TIENDA,
+    });
+    expect(pasoPendiente(tienda)).toEqual({
+      siguiente: EstadoPedido.LISTO_PARA_ENTREGA,
+      seccion: 'operaciones',
+      bloqueo: null,
+    });
+    expect(pasoPendiente({ ...tienda, estado: EstadoPedido.LISTO_PARA_ENTREGA })).toEqual({
+      siguiente: EstadoPedido.ENTREGADO,
+      seccion: 'operaciones',
+      bloqueo: null,
+    });
+  });
+
+  it('con pago pendiente, el de domicilio pasa a Rutas sin candado', () => {
+    const domicilio = pedido({
+      estado: EstadoPedido.LISTO_PARA_ENTREGA,
+      estadoPago: EstadoPago.PAGO_PENDIENTE,
+      metodoEntrega: MetodoEntrega.DOMICILIO,
+    });
+    expect(pasoPendiente(domicilio)).toEqual({
+      siguiente: EstadoPedido.RECOLECTADO,
+      seccion: 'rutas',
+      bloqueo: null,
+    });
+  });
+
   it('sin bloqueo cuando ya se puede dar', () => {
     expect(pasoPendiente(pedido()).bloqueo).toBeNull();
   });
