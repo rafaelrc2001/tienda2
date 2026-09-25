@@ -5,7 +5,7 @@
  * se queda en el <style scoped> de su componente.
  */
 
-@import "./tokens.css";
+@import './tokens.css';
 
 * {
   box-sizing: border-box;
@@ -28,12 +28,7 @@ body {
 /* En escritorio un degradado de los neutros de la paleta rodea a la columna centrada. */
 @media (min-width: 700px) {
   body {
-    background: radial-gradient(
-      circle at 20% 10%,
-      #f5f5f5 0%,
-      #e0e0e0 55%,
-      #d0d0d0 100%
-    );
+    background: radial-gradient(circle at 20% 10%, #f5f5f5 0%, #e0e0e0 55%, #d0d0d0 100%);
   }
 }
 
@@ -244,7 +239,7 @@ body {
 }
 
 .slider-switch::before {
-  content: "";
+  content: '';
   position: absolute;
   height: 20px;
   width: 20px;
@@ -626,7 +621,7 @@ input:checked + .switch-danger-slider {
 }
 
 .tabla.lineal .sub::before {
-  content: "·";
+  content: '·';
   margin-right: 6px;
 }
 

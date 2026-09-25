@@ -17,6 +17,7 @@ import { http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
 import { dinero, fechaHora } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
+import { nombreEntrega } from './rutas/etiquetas'
 import type { Corte, FiltroCortes, ListadoCortes } from '@/api/tipos'
 
 const ui = useUiStore()
@@ -181,7 +182,10 @@ async function abonar(): Promise<void> {
             <tr :class="{ 'con-detalle': abierto === corte.id }">
               <td>
                 <span class="nombre">🛵 {{ corte.repartidorNombre }}</span>
-                <span class="sub">Cerrado {{ fechaHora(corte.cerradoEn) }}</span>
+                <span class="sub">
+                  <template v-if="corte.entrega">{{ nombreEntrega(corte.entrega) }} · </template>
+                  Cerrado {{ fechaHora(corte.cerradoEn) }}
+                </span>
                 <div v-if="tieneDetalle(corte)" class="enlaces">
                   <button type="button" class="enlace" @click="alternar(corte.id)">
                     {{ abierto === corte.id ? 'Ocultar detalle' : 'Ver detalle' }}

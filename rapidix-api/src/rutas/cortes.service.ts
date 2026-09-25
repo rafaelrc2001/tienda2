@@ -30,6 +30,21 @@ export interface ResumenCorteDto {
   piezasQueRegresan: number;
   /** Pedidos que no se entregaron y vuelven a bodega para salir otro día. */
   pedidosQueRegresan: number;
+  /** Es la ultima entrega viva: su corte cierra tambien la jornada. */
+  cierraJornada: boolean;
+}
+
+/**
+ * Lo que abarca el corte de una entrega. La ultima entrega viva se lleva
+ * ademas lo que no tiene entrega (pedidos cargados antes de que existieran),
+ * para que nada quede en el camion al cerrar la jornada.
+ */
+interface AlcanceDelCorte {
+  sesionId: string;
+  finalizadaEn: Date | null;
+  cierraJornada: boolean;
+  pedidos: Prisma.PedidoWhereInput;
+  cargas: Prisma.CargaRepartidorWhereInput;
 }
 
 export interface CorteDto {
@@ -48,6 +63,8 @@ export interface CorteDto {
   recibidoPorNombre: string | null;
   estado: EstadoCorte;
   notas: string | null;
+  /** La entrega que liquida. `null` en los cortes de jornada entera de antes. */
+  entrega: { numero: number; nombre: string | null } | null;
   abonos: {
     id: string;
     monto: number;
@@ -81,14 +98,15 @@ const INCLUIR_CORTE = {
     orderBy: { creadoEn: 'asc' },
     include: { registradoPor: { select: { nombre: true } } },
   },
+  entregas: { select: { numero: true, nombre: true }, take: 1 },
   _count: { select: { pedidos: true } },
 } satisfies Prisma.CorteInclude;
 
 type CorteCompleto = Prisma.CorteGetPayload<{ include: typeof INCLUIR_CORTE }>;
 
 /**
- * El cierre del dia: el dinero que el repartidor entrega y la mercancia que
- * regresa a bodega.
+ * El cierre de cada entrega: el dinero que el repartidor entrega y la
+ * mercancia que regresa a bodega. El de la ultima entrega cierra la jornada.
  *
  * Es el unico sitio que descarga el camion. Hasta aqui, lo que el cliente no
  * acepto seguia fisicamente arriba: la entrega solo lo apunto.
@@ -113,43 +131,50 @@ export class CortesService {
    * La pantalla lo ensena para que el repartidor cuente contra un numero, no
    * contra su memoria. No cambia nada: se puede pedir las veces que haga falta.
    */
-  async previsualizar(usuario: UsuarioAutenticado): Promise<ResumenCorteDto> {
-    return this.calcular(this.prisma, usuario.sub);
+  async previsualizar(usuario: UsuarioAutenticado, entregaId: string): Promise<ResumenCorteDto> {
+    const alcance = await this.alcance(this.prisma, usuario.sub, entregaId);
+    return this.calcular(this.prisma, usuario.sub, alcance);
   }
 
   /**
-   * Cierra la jornada.
+   * Corta una entrega.
    *
    * Un corte **nace cerrado**: el repartidor ya no lo toca salvo para corregir
    * lo declarado, y de ahi solo puede pasar a recibido por Finanzas. Todo pasa
    * en una transaccion:
    *
-   *  1. Se calcula lo que trae, con la jornada bloqueada.
+   *  1. Se calcula lo que trae de esta entrega, con la jornada bloqueada.
    *  2. Nace el corte con lo calculado y lo declarado, uno al lado del otro.
-   *  3. Los pedidos entregados quedan liquidados y atados a este corte.
-   *  4. **Se descarga el camion**: cada renglon abierto escribe lo que devuelve
-   *     y se cierra, y esas piezas vuelven a bodega.
+   *  3. Los pedidos entregados de la entrega quedan liquidados y atados a el.
+   *  4. **Se descarga su parte del camion**: cada renglon abierto escribe lo
+   *     que devuelve y se cierra, y esas piezas vuelven a bodega.
    *  5. Lo que no se entrego regresa a "Listo para entrega" y suelta a su
-   *     repartidor, para que pueda salir otro dia con otro camion.
-   *  6. La jornada queda atada al corte y deja de estar viva.
+   *     repartidor, para que pueda salir en otra entrega.
+   *  6. La entrega queda atada al corte; si era la ultima viva, la jornada
+   *     tambien, y deja de estar viva.
    */
-  async cerrar(usuario: UsuarioAutenticado, dto: CerrarCorteDto): Promise<CorteDto> {
+  async cerrar(
+    usuario: UsuarioAutenticado,
+    entregaId: string,
+    dto: CerrarCorteDto,
+  ): Promise<CorteDto> {
     const quien = actorDe(usuario);
     const controlInventario = (await this.configuracion.obtener()).controlInventario;
 
     const corteId = await this.prisma.$transaction(async (tx) => {
-      const jornada = await tx.sesionEntrega.findFirst({
-        where: { repartidorId: usuario.sub, corteId: null },
+      // Se bloquea la jornada, no solo la entrega: dos cortes de entregas
+      // distintas a la vez podrian creer cada uno que queda la otra, y la
+      // jornada no se cerraria nunca.
+      const entrega = await tx.entregaRuta.findFirst({
+        where: { id: entregaId, repartidorId: usuario.sub },
+        select: { sesionId: true },
       });
-      if (!jornada) {
-        throw new ConflictException({
-          statusCode: 409,
-          code: 'SIN_JORNADA',
-          message: 'No tienes ninguna jornada abierta que liquidar.',
-        });
+      if (entrega) {
+        await tx.$queryRaw`SELECT id FROM sesiones_entrega WHERE id = ${entrega.sesionId} FOR UPDATE`;
       }
 
-      const resumen = await this.calcular(tx, usuario.sub);
+      const alcance = await this.alcance(tx, usuario.sub, entregaId);
+      const resumen = await this.calcular(tx, usuario.sub, alcance);
 
       const corte = await tx.corte.create({
         data: {
@@ -165,6 +190,7 @@ export class CortesService {
       const ahora = new Date();
       await tx.pedido.updateMany({
         where: {
+          ...alcance.pedidos,
           repartidorId: usuario.sub,
           estado: EstadoPedido.ENTREGADO,
           liquidado: false,
@@ -172,22 +198,73 @@ export class CortesService {
         data: { liquidado: true, liquidadoEn: ahora, corteId: corte.id },
       });
 
-      await this.descargarCamion(tx, jornada.id, quien, controlInventario);
+      await this.descargarCamion(tx, alcance.cargas, quien, controlInventario);
 
-      // La jornada muere aqui: atada a su corte, ya no es "la viva".
-      await tx.sesionEntrega.update({
-        where: { id: jornada.id },
-        data: { corteId: corte.id, finalizadaEn: jornada.finalizadaEn ?? ahora },
+      await tx.entregaRuta.update({
+        where: { id: entregaId },
+        data: { corteId: corte.id, finalizadaEn: alcance.finalizadaEn ?? ahora },
       });
 
+      // La ultima entrega se lleva la jornada: atada a su corte, ya no es "la viva".
+      if (alcance.cierraJornada) {
+        const jornada = await tx.sesionEntrega.findUniqueOrThrow({
+          where: { id: alcance.sesionId },
+        });
+        await tx.sesionEntrega.update({
+          where: { id: jornada.id },
+          data: { corteId: corte.id, finalizadaEn: jornada.finalizadaEn ?? ahora },
+        });
+      }
+
       this.logger.log(
-        `Corte ${corte.id} de ${usuario.nombre}: calculado $${resumen.montoCalculado}, ` +
-          `declarado $${dto.montoDeclarado}, ${resumen.piezasQueRegresan} pieza(s) a bodega`,
+        `Corte ${corte.id} de ${usuario.nombre} (entrega ${entregaId}): calculado ` +
+          `$${resumen.montoCalculado}, declarado $${dto.montoDeclarado}, ` +
+          `${resumen.piezasQueRegresan} pieza(s) a bodega` +
+          (alcance.cierraJornada ? ', cierra la jornada' : ''),
       );
       return corte.id;
     });
 
     return this.detalle(corteId);
+  }
+
+  /** La entrega que se corta y lo que abarca, o el 404/409 que lo impide. */
+  private async alcance(
+    tx: Prisma.TransactionClient,
+    repartidorId: string,
+    entregaId: string,
+  ): Promise<AlcanceDelCorte> {
+    const entrega = await tx.entregaRuta.findFirst({
+      where: { id: entregaId, repartidorId },
+      include: { sesion: { select: { corteId: true } } },
+    });
+    if (!entrega) throw new NotFoundException('Entrega no encontrada');
+    if (entrega.corteId !== null || entrega.sesion.corteId !== null) {
+      throw new ConflictException({
+        statusCode: 409,
+        code: 'ENTREGA_CORTADA',
+        message: 'Esa entrega ya tiene su corte.',
+      });
+    }
+
+    const otrasVivas = await tx.entregaRuta.count({
+      where: { sesionId: entrega.sesionId, corteId: null, id: { not: entregaId } },
+    });
+    const cierraJornada = otrasVivas === 0;
+
+    return {
+      sesionId: entrega.sesionId,
+      finalizadaEn: entrega.finalizadaEn,
+      cierraJornada,
+      pedidos: cierraJornada
+        ? { OR: [{ entregaRutaId: entregaId }, { entregaRutaId: null }] }
+        : { entregaRutaId: entregaId },
+      cargas: {
+        sesionId: entrega.sesionId,
+        cerradoEn: null,
+        ...(!cierraJornada && { pedido: { entregaRutaId: entregaId } }),
+      },
+    };
   }
 
   /**
@@ -240,9 +317,11 @@ export class CortesService {
   private async calcular(
     tx: Prisma.TransactionClient,
     repartidorId: string,
+    alcance: AlcanceDelCorte,
   ): Promise<ResumenCorteDto> {
     const pedidos = await tx.pedido.findMany({
       where: {
+        ...alcance.pedidos,
         repartidorId,
         liquidado: false,
         estado: { in: [EstadoPedido.ENTREGADO, EstadoPedido.RECOLECTADO, EstadoPedido.EN_RUTA] },
@@ -301,22 +380,23 @@ export class CortesService {
       pedidos: detalle,
       piezasQueRegresan: piezas,
       pedidosQueRegresan: regresan,
+      cierraJornada: alcance.cierraJornada,
     };
   }
 
   /**
-   * Baja del camion lo que queda: escribe lo devuelto en cada renglon, lo
-   * cierra, lo reingresa a bodega y devuelve a la cola los pedidos que no se
-   * llegaron a entregar.
+   * Baja del camion lo que queda de la entrega: escribe lo devuelto en cada
+   * renglon, lo cierra, lo reingresa a bodega y devuelve a la cola los pedidos
+   * que no se llegaron a entregar.
    */
   private async descargarCamion(
     tx: Prisma.TransactionClient,
-    sesionId: string,
+    donde: Prisma.CargaRepartidorWhereInput,
     quien: ActorDeBitacora,
     controlInventario: boolean,
   ): Promise<void> {
     const cargas = await tx.cargaRepartidor.findMany({
-      where: { sesionId, cerradoEn: null },
+      where: donde,
       select: {
         id: true,
         pedidoId: true,
@@ -528,6 +608,7 @@ export class CortesService {
       recibidoPorNombre: corte.recibidoPor?.nombre ?? null,
       estado: corte.estado,
       notas: corte.notas,
+      entrega: corte.entregas[0] ?? null,
       abonos: corte.abonos.map((a) => ({
         id: a.id,
         monto: a.monto.toNumber(),

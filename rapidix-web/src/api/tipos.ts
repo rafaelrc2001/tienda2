@@ -521,7 +521,7 @@ export type MotivoDevolucion =
 export interface Jornada {
   id: string
   iniciadaEn: string
-  /** Sellada al «Finalizar entregas»; vuelve a `null` si la reabre. */
+  /** Solo en jornadas finalizadas enteras, de antes de finalizar por entrega. */
   finalizadaEn: string | null
   /** Piezas que siguen arriba del camión. Cero no significa que ya pueda liquidar. */
   piezasEnCamion: number
@@ -577,13 +577,17 @@ export interface EntregaRuta {
   recolectados: number
   enRuta: number
   entregados: number
+  /** «Finalizar entrega»: ya no sale nada más en ella hasta reanudarla. */
+  finalizadaEn: string | null
+  /** Ya tiene su corte: se consulta, no se mueve. */
+  cortada: boolean
 }
 
 /** Respuesta de `GET /admin/rutas/entregas/:id`. */
 export interface DetalleEntregaRuta {
   jornada: Jornada | null
   entrega: EntregaRuta
-  /** `false` si es de una jornada ya cortada: se consulta, no se carga. */
+  /** `false` si ya se cortó (ella o su jornada): se consulta, no se carga. */
   abierta: boolean
   pedidos: PedidoEnRuta[]
   /** Lo que espera en bodega, para subirlo a esta entrega. */
@@ -653,13 +657,15 @@ export interface PedidoDelCorte {
   devueltas: number
 }
 
-/** Respuesta de `GET /admin/rutas/corte`: lo que el sistema dice que trae. */
+/** Respuesta de `GET /admin/rutas/entregas/:id/corte`: lo que el sistema dice que trae. */
 export interface ResumenCorte {
   montoCalculado: number
   pedidos: PedidoDelCorte[]
   piezasQueRegresan: number
   /** Pedidos que no se entregaron y vuelven a bodega para salir otro día. */
   pedidosQueRegresan: number
+  /** Es la última entrega viva: su corte cierra también la jornada. */
+  cierraJornada: boolean
 }
 
 export type EstadoCorte = 'CERRADO' | 'RECIBIDO'
@@ -680,6 +686,8 @@ export interface Corte {
   recibidoPorNombre: string | null
   estado: EstadoCorte
   notas: string | null
+  /** La entrega que liquida. `null` en los cortes de jornada entera de antes. */
+  entrega: { numero: number; nombre: string | null } | null
   abonos: {
     id: string
     monto: number
@@ -1007,13 +1015,7 @@ export interface Campania {
 }
 
 export type TipoFuente =
-  | 'FACEBOOK'
-  | 'INSTAGRAM'
-  | 'INFLUENCER'
-  | 'QR'
-  | 'REFERIDO'
-  | 'GOOGLE'
-  | 'OTRO'
+  'FACEBOOK' | 'INSTAGRAM' | 'INFLUENCER' | 'QR' | 'REFERIDO' | 'GOOGLE' | 'OTRO'
 
 export interface Fuente {
   id: string
@@ -1116,13 +1118,7 @@ export type TipoMovimiento = 'ENTRADA' | 'SALIDA'
 export type AfectaInventario = 'AMBOS' | 'FISICO' | 'APT'
 
 /** Por qué se movió. Catálogo cerrado, para poder agrupar por causa. */
-export type MotivoMovimiento =
-  | 'COMPRA'
-  | 'VENTA'
-  | 'MERMA'
-  | 'TRASPASO'
-  | 'AJUSTE'
-  | 'DEVOLUCION'
+export type MotivoMovimiento = 'COMPRA' | 'VENTA' | 'MERMA' | 'TRASPASO' | 'AJUSTE' | 'DEVOLUCION'
 
 /** Una fila de la ventana de Inventario. */
 export interface SaldoProducto {

@@ -8,6 +8,7 @@ import {
 import {
   EjeBitacora,
   EstadoPago,
+  EntregaRuta,
   EstadoPedido,
   MetodoEntrega,
   MetodoPago,
@@ -44,7 +45,7 @@ const NOMBRE_MOTIVO: Readonly<Record<MotivoDevolucion, string>> = {
 export interface JornadaDto {
   id: string;
   iniciadaEn: string;
-  /** Sellada al "Finalizar entregas"; vuelve a null si la reabre. */
+  /** Solo en jornadas finalizadas enteras, de antes de finalizar por entrega. */
   finalizadaEn: string | null;
   /** Renglones que siguen en el camion. Cero no significa que ya pueda liquidar. */
   piezasEnCamion: number;
@@ -109,13 +110,17 @@ export interface EntregaRutaDto {
   recolectados: number;
   enRuta: number;
   entregados: number;
+  /** "Finalizar entrega": ya no sale nada mas en ella hasta reanudarla. */
+  finalizadaEn: string | null;
+  /** Ya tiene su corte: se consulta, no se mueve. */
+  cortada: boolean;
 }
 
 /** La pantalla de una entrega: sus pedidos y lo que se le puede agregar. */
 export interface DetalleEntregaRutaDto {
   jornada: JornadaDto | null;
   entrega: EntregaRutaDto;
-  /** `false` si es de una jornada ya cortada: se consulta, no se carga. */
+  /** `false` si ya se corto (ella o su jornada): se consulta, no se carga. */
   abierta: boolean;
   pedidos: PedidoEnRutaDto[];
   /** Lo que espera en bodega, para subirlo a esta entrega. */
@@ -354,30 +359,11 @@ export class RutasService {
   }
 
   /**
-   * "Finalizar entregas": ya no sale nada mas a la calle hoy, pero la jornada
-   * sigue viva hasta el corte. No exige el camion vacio a proposito: lo que no
-   * se entrego regresa a bodega al liquidar, y esa es justo la razon de cerrar.
-   *
-   * Pulsarlo dos veces no es un error: deja la misma jornada finalizada.
-   */
-  async finalizarJornada(usuario: UsuarioAutenticado): Promise<JornadaDto> {
-    const jornada = await this.exigirJornada(this.prisma, usuario.sub, { activa: false });
-    if (jornada.finalizadaEn) return this.aJornadaDto(jornada);
-
-    const finalizada = await this.prisma.sesionEntrega.update({
-      where: { id: jornada.id },
-      data: { finalizadaEn: new Date() },
-    });
-    this.logger.log(`Jornada ${finalizada.id} finalizada por ${usuario.nombre}`);
-    return this.aJornadaDto(finalizada);
-  }
-
-  /**
    * La jornada sin liquidar, o el 409 que dice que falta pulsar algo.
    *
-   * Con `activa` se exige ademas que no este finalizada: cargar el camion
-   * despues de haber cerrado el dia dejaria mercancia fuera del corte que ya
-   * se iba a hacer.
+   * Con `activa` se exige ademas que no este finalizada. Finalizar ya es cosa
+   * de cada entrega; esto queda por las jornadas que se finalizaron enteras
+   * antes de que existieran, y que se reanudan con "Inicio de entregas".
    */
   private async exigirJornada(
     tx: Prisma.TransactionClient,
@@ -398,7 +384,7 @@ export class RutasService {
       throw new ConflictException({
         statusCode: 409,
         code: 'JORNADA_FINALIZADA',
-        message: 'Ya finalizaste las entregas de hoy. Vuelve a iniciarlas o haz tu corte.',
+        message: 'Tu jornada está finalizada. Vuelve a iniciarla desde Rutas.',
       });
     }
     return jornada;
@@ -462,6 +448,7 @@ export class RutasService {
           message: 'Esa entrega es de una jornada que ya se cortó. Crea una nueva.',
         });
       }
+      RutasService.exigirEntregaViva(entrega);
 
       const pedido = await this.bloquearParaRutas(tx, id);
       // Antes que el flujo: "va en otra entrega" explica mejor que "no se puede
@@ -540,6 +527,7 @@ export class RutasService {
       await this.exigirJornada(tx, usuario.sub, { activa: true });
       const pedido = await this.bloquearParaRutas(tx, id);
       RutasService.exigirPropio(pedido, usuario);
+      await RutasService.exigirSuEntregaViva(tx, pedido.entregaRutaId);
 
       if (pedido.estado !== EstadoPedido.RECOLECTADO) {
         throw new ConflictException({
@@ -634,11 +622,46 @@ export class RutasService {
     return {
       jornada,
       entrega: resumen,
-      // Una entrega de una jornada ya cortada se puede consultar, pero no cargar.
-      abierta: jornada !== null && entrega.sesionId === jornada.id,
+      // Una entrega ya cortada, o de una jornada ya cortada, se consulta pero
+      // no se carga.
+      abierta: jornada !== null && entrega.sesionId === jornada.id && entrega.corteId === null,
       pedidos: await this.conCarga(suyos),
       disponibles: await this.conCarga(disponibles),
     };
+  }
+
+  /**
+   * "Finalizar entrega": ya no sale nada mas en ella, pero sigue viva hasta su
+   * corte. No exige que todo este entregado a proposito: lo que no se entrego
+   * regresa a bodega al cortarla, y esa es justo la razon de cerrar.
+   *
+   * Pulsarlo dos veces no es un error: deja la misma entrega finalizada.
+   */
+  async finalizarEntrega(id: string, usuario: UsuarioAutenticado): Promise<EntregaRutaDto> {
+    const entrega = await RutasService.exigirEntregaPropia(this.prisma, id, usuario.sub);
+    RutasService.exigirSinCorte(entrega);
+    if (entrega.finalizadaEn) return (await this.resumenesDeEntregas([entrega]))[0];
+
+    const finalizada = await this.prisma.entregaRuta.update({
+      where: { id },
+      data: { finalizadaEn: new Date() },
+    });
+    this.logger.log(`Entrega ${finalizada.numero} finalizada por ${usuario.nombre}`);
+    return (await this.resumenesDeEntregas([finalizada]))[0];
+  }
+
+  /** La vuelve a abrir mientras no tenga corte: es la misma entrega. */
+  async reanudarEntrega(id: string, usuario: UsuarioAutenticado): Promise<EntregaRutaDto> {
+    const entrega = await RutasService.exigirEntregaPropia(this.prisma, id, usuario.sub);
+    RutasService.exigirSinCorte(entrega);
+    if (!entrega.finalizadaEn) return (await this.resumenesDeEntregas([entrega]))[0];
+
+    const reanudada = await this.prisma.entregaRuta.update({
+      where: { id },
+      data: { finalizadaEn: null },
+    });
+    this.logger.log(`Entrega ${reanudada.numero} reanudada por ${usuario.nombre}`);
+    return (await this.resumenesDeEntregas([reanudada]))[0];
   }
 
   /** Las entregas de la jornada viva, de la primera a la ultima. */
@@ -652,9 +675,7 @@ export class RutasService {
   }
 
   /** Cuantos pedidos lleva cada entrega y en que va cada uno, contados en vivo. */
-  private async resumenesDeEntregas(
-    entregas: { id: string; numero: number; nombre: string | null; creadoEn: Date }[],
-  ): Promise<EntregaRutaDto[]> {
+  private async resumenesDeEntregas(entregas: EntregaRuta[]): Promise<EntregaRutaDto[]> {
     if (entregas.length === 0) return [];
     const cuentas = await this.prisma.pedido.groupBy({
       by: ['entregaRutaId', 'estado'],
@@ -674,6 +695,8 @@ export class RutasService {
         recolectados: cuantos(EstadoPedido.RECOLECTADO),
         enRuta: cuantos(EstadoPedido.EN_RUTA),
         entregados: cuantos(EstadoPedido.ENTREGADO),
+        finalizadaEn: e.finalizadaEn?.toISOString() ?? null,
+        cortada: e.corteId !== null,
       };
     });
   }
@@ -683,16 +706,46 @@ export class RutasService {
     tx: Prisma.TransactionClient,
     id: string,
     repartidorId: string,
-  ): Promise<{
-    id: string;
-    sesionId: string;
-    numero: number;
-    nombre: string | null;
-    creadoEn: Date;
-  }> {
+  ): Promise<EntregaRuta> {
     const entrega = await tx.entregaRuta.findFirst({ where: { id, repartidorId } });
     if (!entrega) throw new NotFoundException('Entrega no encontrada');
     return entrega;
+  }
+
+  private static exigirSinCorte(entrega: { corteId: string | null }): void {
+    if (entrega.corteId === null) return;
+    throw new ConflictException({
+      statusCode: 409,
+      code: 'ENTREGA_CORTADA',
+      message: 'Esa entrega ya tiene su corte: solo se consulta.',
+    });
+  }
+
+  /**
+   * Nada se mueve en una entrega finalizada o cortada: lo que salga despues de
+   * finalizarla quedaria fuera del corte que ya se iba a hacer.
+   */
+  private static exigirEntregaViva(entrega: {
+    corteId: string | null;
+    finalizadaEn: Date | null;
+  }): void {
+    RutasService.exigirSinCorte(entrega);
+    if (entrega.finalizadaEn === null) return;
+    throw new ConflictException({
+      statusCode: 409,
+      code: 'ENTREGA_FINALIZADA',
+      message: 'Finalizaste esa entrega: reanúdala o haz su corte.',
+    });
+  }
+
+  /** La de un pedido que ya va en camion. Sin entrega (de antes de que existieran), pasa. */
+  private static async exigirSuEntregaViva(
+    tx: Prisma.TransactionClient,
+    entregaRutaId: string | null,
+  ): Promise<void> {
+    if (entregaRutaId === null) return;
+    const entrega = await tx.entregaRuta.findUniqueOrThrow({ where: { id: entregaRutaId } });
+    RutasService.exigirEntregaViva(entrega);
   }
 
   /**
@@ -724,6 +777,7 @@ export class RutasService {
       const transicion = FlujoPedidosService.exigirAvance(pedido, EstadoPedido.ENTREGADO);
       FlujoPedidosService.exigirSeccion(usuario, transicion);
       RutasService.exigirPropio(pedido, usuario);
+      await RutasService.exigirSuEntregaViva(tx, pedido.entregaRutaId);
 
       const cargas = await this.cargasDelCamion(tx, id);
       const renglones = RutasService.emparejar(cargas, dto.items);
@@ -916,6 +970,7 @@ export class RutasService {
 
       const pedido = await this.bloquearParaRutas(tx, id);
       RutasService.exigirPropio(pedido, usuario);
+      await RutasService.exigirSuEntregaViva(tx, pedido.entregaRutaId);
 
       // No hay transicion que validar —el estado no se mueve— asi que el
       // candado se pone a mano: solo se puede no entregar lo que salio a ruta.
@@ -976,6 +1031,7 @@ export class RutasService {
       const transicion = FlujoPedidosService.exigirAvance(pedido, EstadoPedido.EN_RUTA);
       FlujoPedidosService.exigirSeccion(usuario, transicion);
       RutasService.exigirPropio(pedido, usuario);
+      await RutasService.exigirSuEntregaViva(tx, pedido.entregaRutaId);
 
       await FlujoPedidosService.aplicar(tx, id, transicion, actorDe(usuario), nota);
     });

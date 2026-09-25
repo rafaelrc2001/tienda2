@@ -245,13 +245,7 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
                   </button>
                 </div>
 
-                <p
-                  v-if="pedido.botones.some((b) => b.bloqueo?.codigo === 'MERCANCIA_FUERA')"
-                  class="bloqueo"
-                >
-                  La mercancía ya salió de bodega: el pedido ya no se puede cancelar.
-                </p>
-                <p v-else-if="pedido.pago.estado === 'CANCELADO'" class="bloqueo">
+                <p v-if="pedido.pago.estado === 'CANCELADO'" class="bloqueo">
                   Pedido cancelado: su inventario regresó a bodega. Si el cliente retoma la compra,
                   levanta un pedido nuevo.
                 </p>
