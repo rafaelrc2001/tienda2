@@ -562,6 +562,32 @@ export interface PedidoEnRuta extends PedidoEnPantalla {
   carga: RenglonDeCarga[]
   /** `null` mientras no se haya entregado. */
   evidencia: EvidenciaEntrega | null
+  /** La entrega en la que va o fue; `null` en bodega. */
+  entrega: { id: string; numero: number; nombre: string | null } | null
+}
+
+/** Una entrega (viaje) del repartidor, con lo que lleva contado por la API. */
+export interface EntregaRuta {
+  id: string
+  numero: number
+  nombre: string | null
+  creadoEn: string
+  pedidos: number
+  /** Arriba del camión, sin salir todavía. */
+  recolectados: number
+  enRuta: number
+  entregados: number
+}
+
+/** Respuesta de `GET /admin/rutas/entregas/:id`. */
+export interface DetalleEntregaRuta {
+  jornada: Jornada | null
+  entrega: EntregaRuta
+  /** `false` si es de una jornada ya cortada: se consulta, no se carga. */
+  abierta: boolean
+  pedidos: PedidoEnRuta[]
+  /** Lo que espera en bodega, para subirlo a esta entrega. */
+  disponibles: PedidoEnRuta[]
 }
 
 export type FiltroRutas = 'disponibles' | 'en-camion' | 'entregados'
@@ -569,6 +595,8 @@ export type FiltroRutas = 'disponibles' | 'en-camion' | 'entregados'
 /** Respuesta de `GET /admin/rutas`: la jornada y los pedidos, de un viaje. */
 export interface TableroRutas {
   jornada: Jornada | null
+  /** Las entregas de la jornada viva. */
+  entregas: EntregaRuta[]
   pedidos: PedidoEnRuta[]
   conteos: Record<FiltroRutas, number>
 }
