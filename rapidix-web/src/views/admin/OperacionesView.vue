@@ -7,7 +7,7 @@
  * API (siguiente estado, a quién le toca y por qué está bloqueado). Aquí solo
  * se enciende el botón o se enseña el candado.
  */
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ErrorApi, http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
 import {
@@ -19,6 +19,7 @@ import {
 } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
 import BitacoraPedido from '@/components/BitacoraPedido.vue'
+import { sumarProductos } from './operaciones/conteo'
 import type {
   EstadoPago,
   EstadoPedido,
@@ -148,11 +149,91 @@ function bloqueoDe(pedido: PedidoEnPantalla): string | null {
 function iconoMetodo(metodo: string): string {
   return metodo === 'TRANSFERENCIA' ? '🏦' : '💵'
 }
+
+// ------------------------------------------------------------------
+// La libreta: contar productos de varios pedidos
+// ------------------------------------------------------------------
+
+/** Con la libreta abierta cada pedido lleva su casilla. */
+const contando = ref(false)
+const seleccion = ref(new Set<string>())
+
+/**
+ * Los palomeados que siguen en la lista. Se filtra contra `pedidos` y no se
+ * lee el `Set` a secas: un pedido que ya se entregó en tienda sale de la lista
+ * al recargar y no debe seguir sumando.
+ */
+const seleccionados = computed(() => pedidos.value.filter((p) => seleccion.value.has(p.id)))
+const productosContados = computed(() => sumarProductos(seleccionados.value))
+const piezasContadas = computed(() =>
+  productosContados.value.reduce((suma, p) => suma + p.cantidad, 0),
+)
+const todosMarcados = computed(
+  () => pedidos.value.length > 0 && seleccionados.value.length === pedidos.value.length,
+)
+
+/** Cerrar la libreta la deja en blanco: la próxima cuenta empieza de cero. */
+function alternarLibreta(): void {
+  contando.value = !contando.value
+  if (!contando.value) seleccion.value = new Set()
+}
+
+function marcar(id: string): void {
+  const nueva = new Set(seleccion.value)
+  if (nueva.has(id)) nueva.delete(id)
+  else nueva.add(id)
+  seleccion.value = nueva
+}
+
+function marcarTodos(): void {
+  seleccion.value = todosMarcados.value ? new Set() : new Set(pedidos.value.map((p) => p.id))
+}
 </script>
 
 <template>
   <div class="pantalla-panel sin-colchon">
+    <!-- La libreta, a la derecha del título de la barra. -->
+    <Teleport defer to="#topbar-acciones">
+      <button
+        type="button"
+        class="libreta"
+        :class="{ activa: contando }"
+        :aria-pressed="contando"
+        :title="contando ? 'Cerrar el conteo' : 'Contar productos de varios pedidos'"
+        aria-label="Contar productos de varios pedidos"
+        @click="alternarLibreta"
+      >
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+          <path
+            d="M6 3h11a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6zM6 3v18M3 7h3M3 12h3M3 17h3M10 8h6M10 12h6"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </button>
+    </Teleport>
+
     <RouterLink to="/admin" class="admin-back-inline">← Volver al menú</RouterLink>
+
+    <!-- La cuenta de lo palomeado: cuántas piezas de cada producto hay que surtir. -->
+    <section v-if="contando" class="conteo" aria-live="polite">
+      <p class="conteo-titulo">
+        📒 {{ seleccionados.length }} pedido(s) seleccionados
+        <template v-if="seleccionados.length > 0">
+          · {{ productosContados.length }} producto(s) · {{ piezasContadas }} pieza(s)
+        </template>
+      </p>
+      <ul v-if="productosContados.length > 0" class="conteo-lista">
+        <li v-for="producto in productosContados" :key="producto.productoId">
+          <strong>{{ producto.cantidad }}-</strong>{{ producto.nombre }}
+          <span class="conteo-unidad">{{ producto.unidad }}</span>
+        </li>
+      </ul>
+      <p v-else class="conteo-vacio">Palomea los pedidos que quieras sumar.</p>
+    </section>
 
     <SkeletonList v-if="cargando" :cantidad="4" />
 
@@ -160,7 +241,17 @@ function iconoMetodo(metodo: string): string {
       <table class="tabla lineal panel">
         <thead>
           <tr>
-            <th>Pedido</th>
+            <th>
+              <input
+                v-if="contando"
+                type="checkbox"
+                class="casilla"
+                :checked="todosMarcados"
+                aria-label="Seleccionar todos los pedidos"
+                @change="marcarTodos"
+              />
+              Pedido
+            </th>
             <th>Cliente</th>
             <th>Fecha</th>
             <th>Estado del pedido</th>
@@ -171,8 +262,21 @@ function iconoMetodo(metodo: string): string {
         </thead>
         <tbody>
           <template v-for="pedido in pedidos" :key="pedido.id">
-            <tr :class="{ 'con-detalle': abierto === pedido.id }">
+            <tr
+              :class="{
+                'con-detalle': abierto === pedido.id,
+                marcado: contando && seleccion.has(pedido.id),
+              }"
+            >
               <td>
+                <input
+                  v-if="contando"
+                  type="checkbox"
+                  class="casilla"
+                  :checked="seleccion.has(pedido.id)"
+                  :aria-label="`Sumar ${pedido.folio}`"
+                  @change="marcar(pedido.id)"
+                />
                 <button
                   type="button"
                   class="chevron"
@@ -357,6 +461,84 @@ function iconoMetodo(metodo: string): string {
 
 .tabla {
   min-width: 860px;
+}
+
+/* La libreta va sobre la barra naranja: blanca, y rellena cuando está abierta. */
+.libreta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1.5px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--white);
+  cursor: pointer;
+}
+
+.libreta.activa {
+  background: var(--white);
+  color: var(--orange-dark);
+}
+
+.casilla {
+  width: 16px;
+  height: 16px;
+  margin: 0 10px 0 0;
+  vertical-align: middle;
+  accent-color: var(--verde-compra);
+  cursor: pointer;
+}
+
+.tabla.lineal > tbody > tr.marcado > td {
+  background: color-mix(in srgb, var(--verde) 10%, var(--white));
+}
+
+/* La cuenta: arriba de la tabla, con su propio scroll para no comerse la
+   pantalla cuando son muchos productos. */
+.conteo {
+  flex-shrink: 0;
+  max-height: 34vh;
+  overflow-y: auto;
+  margin: 0 0 10px;
+  padding: 10px 14px;
+  background: var(--white);
+  border: 1.5px solid var(--verde);
+  border-radius: var(--radius-md);
+  font-size: 12.5px;
+  color: var(--ink);
+}
+
+.conteo-titulo {
+  margin: 0 0 6px;
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.conteo-lista {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  columns: 3 200px;
+  column-gap: 24px;
+}
+
+.conteo-lista li {
+  padding: 2px 0;
+  break-inside: avoid;
+}
+
+.conteo-unidad {
+  margin-left: 4px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.conteo-vacio {
+  margin: 0;
+  color: var(--muted);
 }
 
 .separador {
