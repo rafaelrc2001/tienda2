@@ -144,7 +144,15 @@ onBeforeUnmount(() => {
         </button>
         <!-- Ocupa el sitio de la hamburguesa para que el título siga centrado. -->
         <span v-else class="hueco-hamburguesa" aria-hidden="true" />
-        <h1 class="topbar-title">{{ titulo }}</h1>
+        <div class="topbar-centro">
+          <h1 class="topbar-title">{{ titulo }}</h1>
+          <!--
+            Acciones de la pantalla, a la derecha del título. La pantalla las
+            manda con `<Teleport defer to="#topbar-acciones">`; así el layout no
+            sabe nada de cada pantalla y, vacío, no ocupa sitio.
+          -->
+          <span id="topbar-acciones" class="topbar-acciones" />
+        </div>
 
         <!--
           Arriba a la derecha va el carrito, que se abre desde cualquier
@@ -326,11 +334,30 @@ onBeforeUnmount(() => {
   letter-spacing: 0.02em;
   margin: 0;
   text-align: center;
-  flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Título y sus acciones, centrados juntos entre la hamburguesa y el carrito. */
+.topbar-centro {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.topbar-acciones {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.topbar-acciones:empty {
+  display: none;
 }
 
 .app-screen {

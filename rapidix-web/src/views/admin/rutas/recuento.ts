@@ -71,6 +71,49 @@ export function problemaDelRecuento(renglones: RenglonContado[]): string | null 
   return null
 }
 
+/** Todo lo que la hoja de entrega sabe para decidir si ya se puede confirmar. */
+export interface HojaDeEntrega {
+  renglones: RenglonContado[]
+  /** La foto ya está subida. */
+  conFoto: boolean
+  /** `false` cuando el almacenamiento de fotos no está disponible: no se puede exigir. */
+  fotoExigible: boolean
+  /** Lo dice la API; `null` mientras la cuenta no ha llegado. */
+  cubre: boolean | null
+}
+
+/**
+ * Lo que falta para confirmar, en frases cortas y en el orden en que se hace
+ * en la puerta: contar, fotografiar, cobrar. Vacío es que ya se puede.
+ *
+ * A diferencia de `problemaDelRecuento`, junta **todo** lo pendiente: el
+ * repartidor lo lee de una vez en vez de descubrirlo toque a toque.
+ */
+export function pendientesParaConfirmar(hoja: HojaDeEntrega): string[] {
+  const pendientes: string[] = []
+  const { entregadas } = piezasDelRecuento(hoja.renglones)
+
+  if (entregadas === 0) pendientes.push('acepta al menos un producto')
+  for (const renglon of hoja.renglones) {
+    if (!Number.isInteger(renglon.cantidadEntregada) || renglon.cantidadEntregada < 0) {
+      pendientes.push(`escribe cuántas piezas aceptó de «${renglon.nombre}»`)
+    } else if (renglon.cantidadEntregada > renglon.cantidadCargada) {
+      pendientes.push(`de «${renglon.nombre}» subiste ${renglon.cantidadCargada} pieza(s)`)
+    } else if (
+      entregadas > 0 &&
+      renglon.cantidadEntregada < renglon.cantidadCargada &&
+      !renglon.motivoDevolucion
+    ) {
+      pendientes.push(`di por qué no se quedó con todo «${renglon.nombre}»`)
+    }
+  }
+
+  if (hoja.fotoExigible && !hoja.conFoto) pendientes.push('falta la foto de evidencia')
+  if (hoja.cubre === null) pendientes.push('calculando el cobro')
+  else if (!hoja.cubre) pendientes.push('el pago recibido no cubre el cobro')
+  return pendientes
+}
+
 /**
  * Los `items` del cuerpo de la entrega.
  *

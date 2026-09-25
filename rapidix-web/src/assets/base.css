@@ -625,6 +625,24 @@ input:checked + .switch-danger-slider {
   margin-right: 6px;
 }
 
+/* Flecha junto al folio: abre el detalle. Abierto, apunta arriba para cerrarlo. */
+.tabla .chevron {
+  background: none;
+  border: none;
+  padding: 0;
+  margin-right: 8px;
+  color: var(--muted);
+  cursor: pointer;
+  display: inline-flex;
+  vertical-align: middle;
+  transition: transform 0.15s;
+}
+
+.tabla .chevron.abierto {
+  transform: rotate(180deg);
+  color: var(--ink);
+}
+
 .tabla.lineal .enlaces {
   display: inline-flex;
   vertical-align: middle;
@@ -660,6 +678,175 @@ input:checked + .switch-danger-slider {
 .tabla.lineal .bloqueo {
   white-space: normal;
   max-width: 320px;
+}
+
+/* ------------------------------------------------------------------
+ * Panel de pedidos: Operaciones y Finanzas se ven igual
+ *
+ * La pantalla ocupa justo el alto de `.app-screen` y la tabla se queda con el
+ * resto y desplaza dentro de su caja: si la caja creciera con las filas, su
+ * barra horizontal quedaría bajo el último pedido, fuera de la vista. Así la
+ * barra se queda siempre al pie de la pantalla y los títulos arriba.
+ * ------------------------------------------------------------------ */
+
+.pantalla-panel {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 12px 18px 0;
+}
+
+.tabla-envoltorio.panel {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+/* Chrome ignora `::-webkit-scrollbar` si hay `scrollbar-width`/`scrollbar-color`,
+   y en Android es lo que la deja fija en lugar de desvanecerse: las
+   propiedades estándar quedan solo para Firefox. */
+@supports not selector(::-webkit-scrollbar) {
+  .tabla-envoltorio.panel {
+    scrollbar-width: thin;
+    scrollbar-color: var(--gris) var(--cream-2);
+  }
+}
+
+.tabla-envoltorio.panel::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.tabla-envoltorio.panel::-webkit-scrollbar-corner,
+.tabla-envoltorio.panel::-webkit-scrollbar-track {
+  background: var(--cream-2);
+}
+
+.tabla-envoltorio.panel::-webkit-scrollbar-thumb {
+  background: var(--gris);
+  border-radius: 999px;
+}
+
+.tabla.panel > thead > tr > th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+/* Filas con aire, como en la referencia: la acción va en botones, no en enlaces. */
+.tabla.panel > tbody > tr:not(.fila-detalle) > td {
+  padding: 10px 14px;
+}
+
+.tabla.panel .folio {
+  font-size: 13px;
+}
+
+/* El detalle, un tono más claro que el crema de siempre: se distingue de la
+   fila sin pesar. */
+.tabla.panel > tbody > tr.fila-detalle > td {
+  background: color-mix(in srgb, var(--cream) 40%, var(--white));
+}
+
+/* Estados en pastilla suave, en minúsculas como se leen. */
+.pastilla {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-family: var(--font-heading);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.pastilla.estado {
+  background: color-mix(in srgb, var(--gris) 18%, var(--white));
+  color: var(--ink);
+}
+
+.pastilla.pago-retenido {
+  background: color-mix(in srgb, var(--gris-oscuro) 20%, var(--white));
+  color: var(--gris-oscuro);
+}
+
+.pastilla.pago-liberado {
+  background: color-mix(in srgb, var(--verde) 18%, var(--white));
+  color: var(--verde-compra);
+}
+
+.pastilla.pago-cancelado {
+  background: color-mix(in srgb, var(--rojo) 15%, var(--white));
+  color: var(--rojo);
+}
+
+/* Detalle: renglones y cuenta en una columna angosta a la izquierda, con una
+   sola letra y un solo tamaño. Se queda fijo aunque la tabla se desplace. */
+.detalle-pedido {
+  position: sticky;
+  left: 14px;
+  max-width: 480px;
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  color: var(--ink);
+}
+
+.detalle-pedido .renglones {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 8px;
+  border-bottom: 1px dashed var(--line);
+}
+
+.detalle-pedido .renglones li {
+  padding: 2px 0;
+}
+
+.detalle-pedido .cuentas {
+  margin: 8px 0 0;
+  border-top: 1px solid var(--line);
+  padding-top: 6px;
+}
+
+.detalle-pedido .cuentas > div {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 0;
+}
+
+.detalle-pedido .cuentas dt {
+  color: var(--muted);
+}
+
+.detalle-pedido .cuentas dd {
+  margin: 0;
+  font-weight: 700;
+}
+
+.detalle-pedido .cuentas > .total {
+  border-top: 1px solid var(--line);
+  margin-top: 4px;
+  padding-top: 6px;
+}
+
+.detalle-pedido .cuentas > .total dt {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.detalle-pedido .cuentas > .total dd {
+  color: var(--verde-compra);
+}
+
+.detalle-pedido .nota {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.detalle-pedido .enlace {
+  margin-top: 8px;
 }
 
 /* ------------------------------------------------------------------

@@ -363,11 +363,15 @@ export class CortesService {
       // **El unico retroceso del eje fisico.** No pasa por `TRANSICIONES`
       // porque no es un paso adelante sino la constatacion de que la mercancia
       // volvio: el pedido esta otra vez en bodega esperando camion, y suelta a
-      // su repartidor para que manana lo tome cualquiera.
+      // su repartidor y su entrega para que manana entre a otra.
       if (pedido.estado !== EstadoPedido.ENTREGADO) {
         await tx.pedido.update({
           where: { id: pedidoId },
-          data: { estado: EstadoPedido.LISTO_PARA_ENTREGA, repartidorId: null },
+          data: {
+            estado: EstadoPedido.LISTO_PARA_ENTREGA,
+            repartidorId: null,
+            entregaRutaId: null,
+          },
         });
         await registrarEnBitacora(
           tx,

@@ -92,7 +92,6 @@ export function nombreMetodoPago(metodo: string): string {
 
 const NOMBRES_ESTADO_PAGO: Record<EstadoPago, string> = {
   PAGO_PENDIENTE: 'Pago pendiente',
-  LIBERAR: 'Liberado',
   RETENER: 'Retenido',
   CREDITO: 'Crédito',
   REEMBOLSADO: 'Reembolsado',

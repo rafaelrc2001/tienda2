@@ -36,6 +36,7 @@ model Usuario {
 
   // Rutas. Solo las llena quien reparte; el resto del personal las deja vacias.
   sesiones        SesionEntrega[]
+  entregasRuta    EntregaRuta[]
   cargas          CargaRepartidor[]
   pedidos         Pedido[]
   entregas        EntregaPedido[]
@@ -559,16 +560,16 @@ enum MetodoPago {
 
 /// Lo que Finanzas decidio sobre el dinero, independiente del avance fisico.
 ///
-/// "Liberado" no es un valor sino una condicion: todo lo que no es
-/// PAGO_PENDIENTE ni RETENER deja entregar.
+/// Solo RETENER frena el avance; lo demas deja llegar hasta la puerta. Entregar
+/// pide ademas el pago cubierto (`pagoCubierto` en `flujo.ts`). Ya no existe
+/// LIBERAR: el pago pendiente deja avanzar por si solo.
 enum EstadoPago {
-  /// Estado inicial de todo pedido con algo por cobrar. Deja preparar, no entregar.
+  /// Estado inicial de todo pedido con algo por cobrar. Deja avanzar; el efectivo
+  /// se entrega y se cobra en la puerta, la transferencia espera a PAGADO.
   PAGO_PENDIENTE
-  /// Finanzas autoriza entregar sin haber cobrado (tipico: efectivo contra entrega).
-  LIBERAR
   /// Congela todo el avance fisico, incluso la preparacion.
   RETENER
-  /// El cliente paga despues. Solo etiqueta.
+  /// Finanzas autoriza entregar sin cobrar: el cliente paga despues.
   CREDITO
   /// Solo etiqueta: no mueve dinero por si mismo.
   REEMBOLSADO
@@ -630,6 +631,10 @@ model Pedido {
   // al cerrar el corte.
   repartidorId String?
   repartidor   Usuario? @relation(fields: [repartidorId], references: [id])
+  /// La entrega (viaje) en la que va. Se llena al "Recolectado" y se suelta
+  /// junto con `repartidorId`. Al entregarse se conserva como historia.
+  entregaRutaId String?
+  entregaRuta   EntregaRuta? @relation(fields: [entregaRutaId], references: [id])
   /// Ya entro a un corte como dinero entregado. Un pedido que solo regreso a
   /// bodega no se liquida: vuelve a salir.
   liquidado    Boolean   @default(false)
@@ -664,6 +669,7 @@ model Pedido {
 
   @@index([clienteId, creadoEn])
   @@index([repartidorId])
+  @@index([entregaRutaId])
   @@map("pedidos")
 }
 
@@ -762,10 +768,41 @@ model SesionEntrega {
   corteId String?
   corte   Corte?  @relation(fields: [corteId], references: [id])
 
-  cargas CargaRepartidor[]
+  cargas   CargaRepartidor[]
+  entregas EntregaRuta[]
 
   @@index([repartidorId, iniciadaEn])
   @@map("sesiones_entrega")
+}
+
+/// Una entrega (viaje) del repartidor: un grupo de pedidos que sube al camion
+/// y sale junto, p. ej. los de una zona. Un repartidor puede tener varias a la
+/// vez dentro de su jornada; el corte sigue siendo uno por jornada y las junta.
+///
+/// Que un pedido no este en dos entregas lo garantiza el esquema: el pedido
+/// guarda **una** `entregaRutaId`. Se suelta al quitarlo antes de salir o al
+/// regresar a bodega en el corte, y entonces puede entrar a otra.
+model EntregaRuta {
+  id String @id @default(uuid())
+
+  sesionId String
+  sesion   SesionEntrega @relation(fields: [sesionId], references: [id])
+
+  repartidorId String
+  repartidor   Usuario @relation(fields: [repartidorId], references: [id])
+
+  /// Entrega 1, 2, 3... dentro de la jornada.
+  numero Int
+  /// Opcional: la zona o la colonia, para reconocerla de un vistazo.
+  nombre String?
+
+  creadoEn DateTime @default(now())
+
+  pedidos Pedido[]
+
+  @@unique([sesionId, numero])
+  @@index([repartidorId])
+  @@map("entregas_ruta")
 }
 
 /// Un renglon de lo que va en el camion: que producto, de que pedido, cuanto

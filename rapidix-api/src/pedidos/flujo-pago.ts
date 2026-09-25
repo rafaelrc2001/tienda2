@@ -14,7 +14,6 @@ import { EstadoPago, EstadoPedido } from '@prisma/client';
 /** Nombre legible de cada estado, para los mensajes y para la interfaz. */
 export const NOMBRE_ESTADO_PAGO: Readonly<Record<EstadoPago, string>> = {
   PAGO_PENDIENTE: 'Pago pendiente',
-  LIBERAR: 'Liberar',
   RETENER: 'Retener',
   CREDITO: 'Crédito',
   REEMBOLSADO: 'Reembolsado',
@@ -25,10 +24,14 @@ export const NOMBRE_ESTADO_PAGO: Readonly<Record<EstadoPago, string>> = {
 /**
  * El orden en que Finanzas ve los botones. Es el del prototipo: primero lo que
  * frena o deja seguir, al final lo que cierra el pedido.
+ *
+ * No hay "Liberar": el pago pendiente deja avanzar por si solo (ver
+ * `esLiberado` en `flujo.ts`) y pulsar un boton por cada pedido solo hacia
+ * lento el proceso. La migracion `quitar_liberar` paso a PAGO_PENDIENTE los
+ * pedidos que lo tenian.
  */
 export const ESTADOS_PAGO: readonly EstadoPago[] = [
   EstadoPago.PAGO_PENDIENTE,
-  EstadoPago.LIBERAR,
   EstadoPago.RETENER,
   EstadoPago.CREDITO,
   EstadoPago.REEMBOLSADO,
@@ -128,9 +131,8 @@ export interface BotonPago {
 }
 
 /**
- * Los siete botones con su candado resuelto. Lo calcula la API para que la
- * interfaz no lleve copia de las reglas, igual que `pasoPendiente()` en el eje
- * fisico.
+ * Los botones con su candado resuelto. Lo calcula la API para que la interfaz
+ * no lleve copia de las reglas, igual que `pasoPendiente()` en el eje fisico.
  */
 export function botonesDePago(pedido: PedidoEnPago): BotonPago[] {
   return ESTADOS_PAGO.map((estado) => {

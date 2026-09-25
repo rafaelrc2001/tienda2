@@ -203,9 +203,10 @@ export class InventarioService {
         productoId: linea.productoId,
         cantidad: linea.cantidad,
         tipo: TipoMovimiento.SALIDA,
-        // La venta se lleva la mercancia de verdad: sale del fisico y de lo
-        // apartado a la vez.
-        afecta: AfectaInventario.AMBOS,
+        // La venta solo compromete lo liberado para venta: la mercancia sigue
+        // en bodega hasta que sale fisicamente. Las devoluciones copian este
+        // alcance, asi que cancelar o regresar del reparto tampoco toca el fisico.
+        afecta: AfectaInventario.APT,
         motivo: MotivoMovimiento.VENTA,
         empleado: 'Venta en línea',
         observaciones: `Pedido ${folio}`,

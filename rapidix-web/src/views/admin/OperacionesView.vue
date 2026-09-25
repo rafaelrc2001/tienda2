@@ -7,7 +7,7 @@
  * API (siguiente estado, a quién le toca y por qué está bloqueado). Aquí solo
  * se enciende el botón o se enseña el candado.
  */
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ErrorApi, http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
 import {
@@ -19,6 +19,7 @@ import {
 } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
 import BitacoraPedido from '@/components/BitacoraPedido.vue'
+import { sumarProductos } from './operaciones/conteo'
 import type {
   EstadoPago,
   EstadoPedido,
@@ -101,6 +102,13 @@ function clasePago(estado: EstadoPago): string {
   return 'pago-liberado'
 }
 
+/** La colonia de la dirección congelada en el pedido; el de tienda no lleva. */
+function colonia(pedido: PedidoEnPantalla): string {
+  if (pedido.metodoEntrega === 'TIENDA') return '🏪 Tienda'
+  const d = pedido.direccion as Record<string, string | null> | null
+  return d?.colonia || '—'
+}
+
 function direccionCorta(pedido: PedidoEnPantalla): string {
   const d = pedido.direccion as Record<string, string | null> | null
   if (!d) return ''
@@ -148,19 +156,110 @@ function bloqueoDe(pedido: PedidoEnPantalla): string | null {
 function iconoMetodo(metodo: string): string {
   return metodo === 'TRANSFERENCIA' ? '🏦' : '💵'
 }
+
+// ------------------------------------------------------------------
+// La libreta: contar productos de varios pedidos
+// ------------------------------------------------------------------
+
+/** Con la libreta abierta cada pedido lleva su casilla. */
+const contando = ref(false)
+const seleccion = ref(new Set<string>())
+
+/**
+ * Los palomeados que siguen en la lista. Se filtra contra `pedidos` y no se
+ * lee el `Set` a secas: un pedido que ya se entregó en tienda sale de la lista
+ * al recargar y no debe seguir sumando.
+ */
+const seleccionados = computed(() => pedidos.value.filter((p) => seleccion.value.has(p.id)))
+const productosContados = computed(() => sumarProductos(seleccionados.value))
+const todosMarcados = computed(
+  () => pedidos.value.length > 0 && seleccionados.value.length === pedidos.value.length,
+)
+
+/** Cerrar la libreta la deja en blanco: la próxima cuenta empieza de cero. */
+function alternarLibreta(): void {
+  contando.value = !contando.value
+  if (!contando.value) seleccion.value = new Set()
+}
+
+function marcar(id: string): void {
+  const nueva = new Set(seleccion.value)
+  if (nueva.has(id)) nueva.delete(id)
+  else nueva.add(id)
+  seleccion.value = nueva
+}
+
+function marcarTodos(): void {
+  seleccion.value = todosMarcados.value ? new Set() : new Set(pedidos.value.map((p) => p.id))
+}
 </script>
 
 <template>
-  <div class="pantalla">
+  <div class="pantalla-panel sin-colchon">
+    <!-- La libreta, a la derecha del título de la barra. -->
+    <Teleport defer to="#topbar-acciones">
+      <button
+        type="button"
+        class="libreta"
+        :class="{ activa: contando }"
+        :aria-pressed="contando"
+        :title="contando ? 'Cerrar el conteo' : 'Contar productos de varios pedidos'"
+        aria-label="Contar productos de varios pedidos"
+        @click="alternarLibreta"
+      >
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+          <path
+            d="M6 3h11a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6zM6 3v18M3 7h3M3 12h3M3 17h3M10 8h6M10 12h6"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </button>
+    </Teleport>
+
     <RouterLink to="/admin" class="admin-back-inline">← Volver al menú</RouterLink>
+
+    <!-- La cuenta de lo palomeado: cuántas piezas de cada producto hay que surtir. -->
+    <section v-if="contando" class="conteo" aria-live="polite">
+      <p class="conteo-titulo">
+        📒 {{ seleccionados.length }} pedido(s) seleccionados
+        <template v-if="seleccionados.length > 0">
+          · {{ productosContados.length }} producto(s)
+        </template>
+      </p>
+      <!-- Cada producto con su propia suma y su unidad. No hay un total general:
+           sumar kilos con piezas daría un número que no significa nada. -->
+      <ul v-if="productosContados.length > 0" class="conteo-lista">
+        <li v-for="producto in productosContados" :key="producto.productoId">
+          <span class="conteo-nombre">{{ producto.nombre }}</span>
+          <span class="conteo-unidad">{{ producto.unidad }}</span>
+          <strong class="conteo-cantidad">{{ producto.cantidad }}</strong>
+        </li>
+      </ul>
+      <p v-else class="conteo-vacio">Palomea los pedidos que quieras sumar.</p>
+    </section>
 
     <SkeletonList v-if="cargando" :cantidad="4" />
 
-    <div v-else-if="pedidos.length > 0" class="tabla-envoltorio">
-      <table class="tabla lineal">
+    <div v-else-if="pedidos.length > 0" class="tabla-envoltorio panel">
+      <table class="tabla lineal panel">
         <thead>
           <tr>
-            <th>Pedido</th>
+            <th>
+              <input
+                v-if="contando"
+                type="checkbox"
+                class="casilla"
+                :checked="todosMarcados"
+                aria-label="Seleccionar todos los pedidos"
+                @change="marcarTodos"
+              />
+              Pedido
+            </th>
+            <th>Colonia</th>
             <th>Cliente</th>
             <th>Fecha</th>
             <th>Estado del pedido</th>
@@ -171,8 +270,21 @@ function iconoMetodo(metodo: string): string {
         </thead>
         <tbody>
           <template v-for="pedido in pedidos" :key="pedido.id">
-            <tr :class="{ 'con-detalle': abierto === pedido.id }">
+            <tr
+              :class="{
+                'con-detalle': abierto === pedido.id,
+                marcado: contando && seleccion.has(pedido.id),
+              }"
+            >
               <td>
+                <input
+                  v-if="contando"
+                  type="checkbox"
+                  class="casilla"
+                  :checked="seleccion.has(pedido.id)"
+                  :aria-label="`Sumar ${pedido.folio}`"
+                  @change="marcar(pedido.id)"
+                />
                 <button
                   type="button"
                   class="chevron"
@@ -194,6 +306,8 @@ function iconoMetodo(metodo: string): string {
                 </button>
                 <span class="folio">{{ pedido.folio }}</span>
               </td>
+              <!-- La colonia agrupa a simple vista lo que va para el mismo rumbo. -->
+              <td>{{ colonia(pedido) }}</td>
               <!-- Solo el nombre: cómo se entrega va en el detalle. -->
               <td>{{ pedido.clienteNombre ?? '—' }}</td>
               <td>{{ fechaNumerica(pedido.creadoEn) }}</td>
@@ -212,11 +326,9 @@ function iconoMetodo(metodo: string): string {
               </td>
               <td class="num importe">{{ dinero(pedido.total) }}</td>
               <td class="accion">
-                <!-- «Ver» abre el detalle; después, los estados en orden. Solo se
-                     enciende el que toca; los ya dados quedan marcados. -->
+                <!-- Los estados en orden: solo se enciende el que toca y los ya
+                     dados quedan marcados. El detalle se abre con la flecha del folio. -->
                 <div class="en-linea">
-                  <button type="button" class="btn-ver" @click="alternar(pedido.id)">Ver</button>
-                  <span class="separador" aria-hidden="true"></span>
                   <button
                     v-for="estado in PASOS"
                     :key="estado"
@@ -251,8 +363,8 @@ function iconoMetodo(metodo: string): string {
             </tr>
 
             <tr v-if="abierto === pedido.id" class="fila-detalle">
-              <td colspan="7">
-                <div class="detalle">
+              <td colspan="8">
+                <div class="detalle-pedido">
                   <ul class="renglones">
                     <li v-for="item in pedido.items" :key="item.productoId">
                       <strong>{{ item.cantidad }}-</strong>{{ item.nombre }}
@@ -341,11 +453,11 @@ function iconoMetodo(metodo: string): string {
 </template>
 
 <style scoped>
-.pantalla {
-  padding: 12px 18px 0;
-}
-
+/* La tabla, las pastillas y el detalle son los del panel de pedidos
+   (`.pantalla-panel`, `.tabla.panel`, `.detalle-pedido` en base.css), que
+   comparte con Finanzas. Aquí solo va lo propio: la fila de pasos. */
 .admin-back-inline {
+  align-self: flex-start;
   display: inline-block;
   color: var(--terracotta-dark);
   font-family: var(--font-heading);
@@ -356,96 +468,103 @@ function iconoMetodo(metodo: string): string {
 }
 
 .tabla {
-  min-width: 860px;
+  min-width: 980px;
 }
 
-/* Filas con aire, como en la referencia: la acción va en botones, no en enlaces. */
-.tabla.lineal > tbody > tr:not(.fila-detalle) > td {
+/* La libreta va sobre la barra naranja: blanca, y rellena cuando está abierta. */
+.libreta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1.5px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--white);
+  cursor: pointer;
+}
+
+.libreta.activa {
+  background: var(--white);
+  color: var(--orange-dark);
+}
+
+.casilla {
+  width: 16px;
+  height: 16px;
+  margin: 0 10px 0 0;
+  vertical-align: middle;
+  accent-color: var(--verde-compra);
+  cursor: pointer;
+}
+
+.tabla.lineal > tbody > tr.marcado > td {
+  background: color-mix(in srgb, var(--verde) 10%, var(--white));
+}
+
+/* La cuenta: arriba de la tabla, con su propio scroll para no comerse la
+   pantalla cuando son muchos productos. */
+.conteo {
+  flex-shrink: 0;
+  max-height: 34vh;
+  overflow-y: auto;
+  margin: 0 0 10px;
   padding: 10px 14px;
+  background: var(--white);
+  border: 1.5px solid var(--verde);
+  border-radius: var(--radius-md);
+  font-size: 12.5px;
+  color: var(--ink);
 }
 
-.tabla.lineal .folio {
+.conteo-titulo {
+  margin: 0 0 6px;
+  font-family: var(--font-heading);
+  font-weight: 700;
   font-size: 13px;
 }
 
-/* Con la acción en botones, la tabla es más ancha que la pantalla: la barra
-   se queda siempre a la vista para moverla de lado. */
-.tabla-envoltorio {
-  overflow-x: scroll;
-  scrollbar-width: thin;
-  scrollbar-color: var(--gris) var(--cream-2);
-}
-
-.tabla-envoltorio::-webkit-scrollbar {
-  height: 10px;
-}
-
-.tabla-envoltorio::-webkit-scrollbar-track {
-  background: var(--cream-2);
-}
-
-.tabla-envoltorio::-webkit-scrollbar-thumb {
-  background: var(--gris);
-  border-radius: 999px;
-}
-
-/* Flecha abajo: abre el detalle. Abierto, apunta arriba para cerrarlo. */
-.chevron {
-  background: none;
-  border: none;
+.conteo-lista {
+  list-style: none;
+  margin: 0;
   padding: 0;
-  margin-right: 8px;
-  color: var(--muted);
-  cursor: pointer;
-  display: inline-flex;
-  vertical-align: middle;
-  transition: transform 0.15s;
+  columns: 3 200px;
+  column-gap: 24px;
 }
 
-.chevron.abierto {
-  transform: rotate(180deg);
-  color: var(--ink);
+/* Producto · unidad · cantidad, alineados como una lista de surtido. */
+.conteo-lista li {
+  display: grid;
+  grid-template-columns: 1fr auto 3.5em;
+  gap: 8px;
+  align-items: baseline;
+  padding: 3px 0;
+  border-bottom: 1px dashed var(--line);
+  break-inside: avoid;
 }
 
-/* Estados en pastilla suave, en minúsculas como se leen. */
-.pastilla {
-  display: inline-block;
-  padding: 3px 10px;
-  border-radius: 999px;
-  font-family: var(--font-heading);
-  font-size: 11px;
-  font-weight: 600;
+.conteo-nombre {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.pastilla.estado {
-  background: color-mix(in srgb, var(--gris) 18%, var(--white));
-  color: var(--ink);
+.conteo-unidad {
+  font-size: 11px;
+  color: var(--muted);
 }
 
-.pastilla.pago-retenido {
-  background: color-mix(in srgb, var(--gris-oscuro) 20%, var(--white));
-  color: var(--gris-oscuro);
+.conteo-cantidad {
+  text-align: right;
 }
 
-.pastilla.pago-liberado {
-  background: color-mix(in srgb, var(--verde) 18%, var(--white));
-  color: var(--verde-compra);
+.conteo-vacio {
+  margin: 0;
+  color: var(--muted);
 }
 
-.pastilla.pago-cancelado {
-  background: color-mix(in srgb, var(--rojo) 15%, var(--white));
-  color: var(--rojo);
-}
-
-.separador {
-  width: 1px;
-  align-self: stretch;
-  background: var(--line);
-  margin: 0 4px;
-}
-
-.tabla.lineal .en-linea > .btn-ver,
 .tabla.lineal .en-linea > .btn-paso {
   padding: 5px 12px;
   border-radius: 8px;
@@ -454,11 +573,6 @@ function iconoMetodo(metodo: string): string {
   font-weight: 500;
   background: var(--white);
   cursor: pointer;
-}
-
-.btn-ver {
-  border: 1px solid var(--line);
-  color: var(--ink);
 }
 
 .btn-paso {
@@ -490,72 +604,5 @@ function iconoMetodo(metodo: string): string {
   font-size: 11.5px;
   font-weight: 600;
   color: var(--orange-dark);
-}
-
-/* Detalle: renglones y cuenta, en una columna angosta a la izquierda. Se
-   queda fijo aunque la tabla se desplace de lado. */
-.detalle {
-  position: sticky;
-  left: 14px;
-  max-width: 480px;
-  font-size: 12.5px;
-  color: var(--ink);
-}
-
-.renglones {
-  list-style: none;
-  margin: 0;
-  padding: 0 0 8px;
-  border-bottom: 1px dashed var(--line);
-}
-
-.renglones li {
-  padding: 2px 0;
-}
-
-.cuentas {
-  margin: 8px 0 0;
-  border-top: 1px solid var(--line);
-  padding-top: 6px;
-}
-
-.cuentas > div {
-  display: flex;
-  justify-content: space-between;
-  padding: 3px 0;
-}
-
-.cuentas dt {
-  color: var(--muted);
-}
-
-.cuentas dd {
-  margin: 0;
-  font-weight: 700;
-}
-
-.cuentas > .total {
-  border-top: 1px solid var(--line);
-  margin-top: 4px;
-  padding-top: 6px;
-}
-
-.cuentas > .total dt {
-  color: var(--ink);
-  font-weight: 700;
-}
-
-.cuentas > .total dd {
-  color: var(--verde-compra);
-}
-
-.nota {
-  margin: 6px 0 0;
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.detalle .enlace {
-  margin-top: 8px;
 }
 </style>

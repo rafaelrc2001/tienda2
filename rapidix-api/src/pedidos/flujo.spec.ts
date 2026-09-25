@@ -1,10 +1,18 @@
-import { EstadoPago, EstadoPedido, MetodoEntrega } from '@prisma/client';
-import { esLiberado, evaluarAvance, PedidoEnFlujo, pasoPendiente, siguientePaso } from './flujo';
+import { EstadoPago, EstadoPedido, MetodoEntrega, MetodoPago } from '@prisma/client';
+import {
+  esLiberado,
+  evaluarAvance,
+  PedidoEnFlujo,
+  pagoCubierto,
+  pasoPendiente,
+  siguientePaso,
+} from './flujo';
 
 const pedido = (cambios: Partial<PedidoEnFlujo> = {}): PedidoEnFlujo => ({
   estado: EstadoPedido.CONFIRMADO,
-  estadoPago: EstadoPago.LIBERAR,
+  estadoPago: EstadoPago.PAGO_PENDIENTE,
   metodoEntrega: MetodoEntrega.DOMICILIO,
+  metodoPago: MetodoPago.EFECTIVO,
   ...cambios,
 });
 
@@ -80,13 +88,42 @@ describe('flujo del pedido', () => {
 describe('pasoPendiente', () => {
   it('dice el siguiente paso, a quien le toca y que lo frena', () => {
     expect(
-      pasoPendiente(
-        pedido({ estado: EstadoPedido.PREPARADO, estadoPago: EstadoPago.PAGO_PENDIENTE }),
-      ),
+      pasoPendiente(pedido({ estado: EstadoPedido.PREPARADO, estadoPago: EstadoPago.RETENER })),
     ).toEqual({
       siguiente: EstadoPedido.LISTO_PARA_ENTREGA,
       seccion: 'operaciones',
-      bloqueo: expect.objectContaining({ codigo: 'PAGO_NO_LIBERADO' }) as unknown,
+      bloqueo: expect.objectContaining({ codigo: 'PAGO_RETENIDO' }) as unknown,
+    });
+  });
+
+  it('con pago pendiente, el de tienda enciende "Listo para entrega" en Operaciones', () => {
+    const tienda = pedido({
+      estado: EstadoPedido.PREPARADO,
+      estadoPago: EstadoPago.PAGO_PENDIENTE,
+      metodoEntrega: MetodoEntrega.TIENDA,
+    });
+    expect(pasoPendiente(tienda)).toEqual({
+      siguiente: EstadoPedido.LISTO_PARA_ENTREGA,
+      seccion: 'operaciones',
+      bloqueo: null,
+    });
+    expect(pasoPendiente({ ...tienda, estado: EstadoPedido.LISTO_PARA_ENTREGA })).toEqual({
+      siguiente: EstadoPedido.ENTREGADO,
+      seccion: 'operaciones',
+      bloqueo: null,
+    });
+  });
+
+  it('con pago pendiente, el de domicilio pasa a Rutas sin candado', () => {
+    const domicilio = pedido({
+      estado: EstadoPedido.LISTO_PARA_ENTREGA,
+      estadoPago: EstadoPago.PAGO_PENDIENTE,
+      metodoEntrega: MetodoEntrega.DOMICILIO,
+    });
+    expect(pasoPendiente(domicilio)).toEqual({
+      siguiente: EstadoPedido.RECOLECTADO,
+      seccion: 'rutas',
+      bloqueo: null,
     });
   });
 
@@ -104,18 +141,21 @@ describe('pasoPendiente', () => {
 });
 
 describe('candados de Finanzas', () => {
-  it('con pago pendiente se puede preparar pero no dejar listo', () => {
+  it('con pago pendiente avanza hasta la entrega sin esperar a Finanzas', () => {
     const pendiente = { estadoPago: EstadoPago.PAGO_PENDIENTE };
     expect(codigo(pedido(pendiente), EstadoPedido.EN_PREPARACION)).toBeNull();
-    expect(
-      codigo(pedido({ ...pendiente, estado: EstadoPedido.EN_PREPARACION }), EstadoPedido.PREPARADO),
-    ).toBeNull();
     expect(
       codigo(
         pedido({ ...pendiente, estado: EstadoPedido.PREPARADO }),
         EstadoPedido.LISTO_PARA_ENTREGA,
       ),
-    ).toBe('PAGO_NO_LIBERADO');
+    ).toBeNull();
+    expect(
+      codigo(
+        pedido({ ...pendiente, estado: EstadoPedido.LISTO_PARA_ENTREGA }),
+        EstadoPedido.RECOLECTADO,
+      ),
+    ).toBeNull();
   });
 
   it('retenido no deja ni empezar a preparar', () => {
@@ -131,17 +171,75 @@ describe('candados de Finanzas', () => {
     );
   });
 
-  it('solo pago pendiente y retenido no cuentan como liberados', () => {
+  it('solo retenido no cuenta como liberado', () => {
     const liberados = Object.values(EstadoPago).filter(esLiberado);
     expect(liberados.sort()).toEqual(
       [
-        EstadoPago.LIBERAR,
+        EstadoPago.PAGO_PENDIENTE,
         EstadoPago.CREDITO,
         EstadoPago.REEMBOLSADO,
         EstadoPago.PAGADO,
         EstadoPago.CANCELADO,
       ].sort(),
     );
+  });
+
+  it('transferencia sin pagar llega hasta la puerta pero no se entrega', () => {
+    const transferencia = {
+      metodoPago: MetodoPago.TRANSFERENCIA,
+      estadoPago: EstadoPago.PAGO_PENDIENTE,
+    };
+    // Todo lo anterior sigue abierto: el candado es solo el ultimo paso.
+    expect(
+      codigo(pedido({ ...transferencia, estado: EstadoPedido.RECOLECTADO }), EstadoPedido.EN_RUTA),
+    ).toBeNull();
+    expect(
+      codigo(pedido({ ...transferencia, estado: EstadoPedido.EN_RUTA }), EstadoPedido.ENTREGADO),
+    ).toBe('PAGO_NO_CUBIERTO');
+    expect(
+      codigo(
+        pedido({
+          ...transferencia,
+          estado: EstadoPedido.LISTO_PARA_ENTREGA,
+          metodoEntrega: MetodoEntrega.TIENDA,
+        }),
+        EstadoPedido.ENTREGADO,
+      ),
+    ).toBe('PAGO_NO_CUBIERTO');
+  });
+
+  it('Pagado o Crédito dejan entregar la transferencia', () => {
+    for (const estadoPago of [EstadoPago.PAGADO, EstadoPago.CREDITO]) {
+      expect(
+        codigo(
+          pedido({
+            metodoPago: MetodoPago.TRANSFERENCIA,
+            estadoPago,
+            estado: EstadoPedido.EN_RUTA,
+          }),
+          EstadoPedido.ENTREGADO,
+        ),
+      ).toBeNull();
+    }
+  });
+
+  it('el efectivo se entrega con el pago pendiente: se cobra en la puerta', () => {
+    expect(
+      codigo(
+        pedido({ estadoPago: EstadoPago.PAGO_PENDIENTE, estado: EstadoPedido.EN_RUTA }),
+        EstadoPedido.ENTREGADO,
+      ),
+    ).toBeNull();
+  });
+
+  it.each([
+    [MetodoPago.EFECTIVO, EstadoPago.PAGO_PENDIENTE, true],
+    [MetodoPago.EFECTIVO, EstadoPago.REEMBOLSADO, false],
+    [MetodoPago.TRANSFERENCIA, EstadoPago.PAGO_PENDIENTE, false],
+    [MetodoPago.TRANSFERENCIA, EstadoPago.CREDITO, true],
+    [MetodoPago.TRANSFERENCIA, EstadoPago.PAGADO, true],
+  ])('pagoCubierto(%s, %s) = %s', (metodo, estado, esperado) => {
+    expect(pagoCubierto(metodo, estado)).toBe(esperado);
   });
 
   it('un paso que no existe se explica antes que el pago', () => {

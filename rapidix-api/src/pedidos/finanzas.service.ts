@@ -16,10 +16,10 @@ export type PedidoEnFinanzasDto = PedidoDto & { botones: BotonPago[] };
 
 /** Las pestanas de Finanzas, por lo que Finanzas tiene que hacer con el pedido. */
 export enum FiltroFinanzas {
-  /** Espera una decision: nadie ha dicho si se entrega ni si el dinero llego. */
+  /** El dinero no esta confirmado: pendiente, o retenido por Finanzas. */
   POR_DECIDIR = 'por-decidir',
-  /** Ya se dejo avanzar, pero el dinero todavia no esta confirmado. */
-  LIBERADOS = 'liberados',
+  /** Se entrega sin cobrar: el cliente paga despues. */
+  CREDITO = 'credito',
   PAGADOS = 'pagados',
   CANCELADOS = 'cancelados',
 }
@@ -28,9 +28,7 @@ const WHERE_FINANZAS: Record<FiltroFinanzas, Prisma.PedidoWhereInput> = {
   [FiltroFinanzas.POR_DECIDIR]: {
     estadoPago: { in: [EstadoPago.PAGO_PENDIENTE, EstadoPago.RETENER] },
   },
-  [FiltroFinanzas.LIBERADOS]: {
-    estadoPago: { in: [EstadoPago.LIBERAR, EstadoPago.CREDITO] },
-  },
+  [FiltroFinanzas.CREDITO]: { estadoPago: EstadoPago.CREDITO },
   [FiltroFinanzas.PAGADOS]: {
     estadoPago: { in: [EstadoPago.PAGADO, EstadoPago.REEMBOLSADO] },
   },

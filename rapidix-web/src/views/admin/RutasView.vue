@@ -11,20 +11,22 @@
  * candado. Lo propio de Rutas es lo que va encima del camión —la carga— y lo
  * que se cuenta en la puerta del cliente.
  */
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ErrorApi, http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
 import { dinero, fechaHora, nombreEstadoPedido, nombreMetodoPago } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
 import EvidenciaEntrega from '@/components/EvidenciaEntrega.vue'
 import EntregaModal from './rutas/EntregaModal.vue'
+import NoEntregadoModal from './rutas/NoEntregadoModal.vue'
 import CorteModal from './rutas/CorteModal.vue'
-import { MOTIVOS, nombreMotivo } from './rutas/etiquetas'
+import { nombreEntrega, nombreMotivo, TITULO_PASO } from './rutas/etiquetas'
+import { cobraEnEfectivo } from './rutas/cobro'
 import type {
-  EstadoPedido,
+  EntregaRuta,
   FiltroRutas,
   Jornada,
-  MotivoDevolucion,
   PedidoEnRuta,
   RenglonDeCarga,
   ResultadoEntrega,
@@ -32,6 +34,7 @@ import type {
 } from '@/api/tipos'
 
 const ui = useUiStore()
+const router = useRouter()
 
 const PESTANAS: { filtro: FiltroRutas; titulo: string }[] = [
   { filtro: 'disponibles', titulo: 'En bodega' },
@@ -39,34 +42,34 @@ const PESTANAS: { filtro: FiltroRutas; titulo: string }[] = [
   { filtro: 'entregados', titulo: 'Entregados' },
 ]
 
-/** El texto del único paso que cada estado tiene por delante en Rutas. */
-const TITULO_PASO: Partial<Record<EstadoPedido, string>> = {
-  RECOLECTADO: 'Subir al camión',
-  EN_RUTA: 'Salir a ruta',
-  ENTREGADO: 'Entregar',
-}
-
 const filtro = ref<FiltroRutas>('disponibles')
 const jornada = ref<Jornada | null>(null)
+const entregas = ref<EntregaRuta[]>([])
 const pedidos = ref<PedidoEnRuta[]>([])
 const conteos = ref<Record<FiltroRutas, number> | null>(null)
 const cargando = ref(true)
 const moviendo = ref<string | null>(null)
 const abierto = ref<string | null>(null)
 
-/** Las tres hojas: contar la entrega, explicar el intento fallido y el corte. */
+/** Las hojas: contar la entrega, explicar el intento fallido, crear una entrega y el corte. */
 const entregando = ref<PedidoEnRuta | null>(null)
 const noEntregando = ref<PedidoEnRuta | null>(null)
-const motivo = ref<MotivoDevolucion | null>(null)
-const notaFallo = ref('')
 const corteAbierto = ref(false)
+const creandoEntrega = ref(false)
+const nombreNueva = ref('')
+const enviandoEntrega = ref(false)
 
 /** Cambiar de pestaña rápido deja respuestas viejas en el aire: gana la última. */
 let peticion = 0
 
 const trabajando = computed(() => jornada.value !== null && jornada.value.finalizadaEn === null)
 
-async function cargar(conEsqueleto = true): Promise<void> {
+/**
+ * `silenciosa` es la recarga automática: sin esqueleto y sin avisar si falla.
+ * En la calle la señal va y viene, y un error cada minuto por algo que nadie
+ * pidió solo estorba; la siguiente vuelta lo vuelve a intentar.
+ */
+async function cargar(conEsqueleto = true, silenciosa = false): Promise<void> {
   const numero = ++peticion
   if (conEsqueleto) cargando.value = true
   try {
@@ -75,16 +78,46 @@ async function cargar(conEsqueleto = true): Promise<void> {
     })
     if (numero !== peticion) return
     jornada.value = respuesta.jornada
+    entregas.value = respuesta.entregas
     pedidos.value = respuesta.pedidos
     conteos.value = respuesta.conteos
   } catch (fallo) {
-    if (numero === peticion) ui.errorDeApi(fallo)
+    if (numero === peticion && !silenciosa) ui.errorDeApi(fallo)
   } finally {
     if (numero === peticion) cargando.value = false
   }
 }
 
-onMounted(() => cargar())
+// ------------------------------------------------------------------
+// Recarga sola
+// ------------------------------------------------------------------
+
+/** Cada cuánto se relee el tablero mientras la pantalla está a la vista. */
+const CADA_MS = 60_000
+
+/**
+ * Finanzas puede marcar Pagado —o dar Crédito— mientras el repartidor está en
+ * bodega, y sin releer seguiría viendo «Falta pago» hasta recargar a mano. Se
+ * relee al volver a la pestaña y cada minuto, solo con la pantalla visible y
+ * nunca a media acción: la respuesta pisaría lo que está moviendo.
+ */
+function recargarSola(): void {
+  if (document.visibilityState !== 'visible' || moviendo.value) return
+  void cargar(false, true)
+}
+
+let reloj: ReturnType<typeof setInterval> | undefined
+
+onMounted(() => {
+  void cargar()
+  reloj = setInterval(recargarSola, CADA_MS)
+  document.addEventListener('visibilitychange', recargarSola)
+})
+
+onBeforeUnmount(() => {
+  clearInterval(reloj)
+  document.removeEventListener('visibilitychange', recargarSola)
+})
 
 function elegir(nuevo: FiltroRutas): void {
   if (nuevo === filtro.value) return
@@ -127,9 +160,36 @@ async function finalizarJornada(): Promise<void> {
 // El camión
 // ------------------------------------------------------------------
 
+// ------------------------------------------------------------------
+// Las entregas
+// ------------------------------------------------------------------
+
+function abrirCrearEntrega(): void {
+  nombreNueva.value = ''
+  creandoEntrega.value = true
+}
+
+/** «Crear entrega» y directo a ella: lo siguiente siempre es agregarle pedidos. */
+async function crearEntrega(): Promise<void> {
+  if (enviandoEntrega.value) return
+  enviandoEntrega.value = true
+  try {
+    const creada = await http.post<EntregaRuta>('/admin/rutas/entregas', {
+      ...(nombreNueva.value.trim() ? { nombre: nombreNueva.value.trim() } : {}),
+    })
+    creandoEntrega.value = false
+    ui.exito(`${nombreEntrega(creada)} creada. Agrégale sus pedidos.`)
+    await router.push(`/admin/rutas/entregas/${creada.id}`)
+  } catch (fallo) {
+    ui.errorDeApi(fallo)
+  } finally {
+    enviandoEntrega.value = false
+  }
+}
+
 /**
- * Los dos pasos que no piden nada más que pulsarlos: subir al camión y salir a
- * ruta. Entregar tiene su propia hoja porque hay que contar.
+ * Salir a ruta, o abrir la hoja de entrega. Subir al camión ya no se hace
+ * aquí: se hace dentro de una entrega, que es la que dice con quién sale.
  */
 async function avanzar(pedido: PedidoEnRuta): Promise<void> {
   const destino = pedido.paso.siguiente
@@ -138,12 +198,12 @@ async function avanzar(pedido: PedidoEnRuta): Promise<void> {
     entregando.value = pedido
     return
   }
+  if (destino !== 'EN_RUTA') return
 
-  const ruta = destino === 'RECOLECTADO' ? 'recolectar' : 'en-ruta'
   moviendo.value = pedido.id
   try {
     const actualizado = await http.post<PedidoEnRuta>(
-      `/admin/rutas/pedidos/${pedido.id}/${ruta}`,
+      `/admin/rutas/pedidos/${pedido.id}/en-ruta`,
       {},
     )
     ui.exito(`${pedido.folio} → ${nombreEstadoPedido(actualizado.estado)}`)
@@ -172,28 +232,10 @@ function alEntregar(resultado: ResultadoEntrega): void {
   void cargar(false)
 }
 
-/**
- * «No entregado»: el intento que no llegó a entrega. El pedido **no se cierra**
- * —la mercancía sigue arriba— y por eso no hay nada que contar, solo el motivo.
- */
-async function noEntregar(): Promise<void> {
-  const pedido = noEntregando.value
-  if (!pedido || !motivo.value) return
-
-  moviendo.value = pedido.id
-  try {
-    await http.post(`/admin/rutas/pedidos/${pedido.id}/no-entregar`, {
-      motivo: motivo.value,
-      ...(notaFallo.value.trim() ? { nota: notaFallo.value.trim() } : {}),
-    })
-    ui.info(`${pedido.folio}: ${nombreMotivo(motivo.value)}. La mercancía sigue en tu camión.`)
-    noEntregando.value = null
-  } catch (fallo) {
-    ui.errorDeApi(fallo)
-  } finally {
-    moviendo.value = null
-  }
-  await cargar(false)
+/** El intento fallido quedó guardado: se cierra la hoja y se relee. */
+function alNoEntregar(): void {
+  noEntregando.value = null
+  void cargar(false)
 }
 
 /**
@@ -206,9 +248,14 @@ function cerrarCorte(): void {
 }
 
 function abrirNoEntregado(pedido: PedidoEnRuta): void {
-  motivo.value = null
-  notaFallo.value = ''
   noEntregando.value = pedido
+}
+
+/** Desde la hoja de entrega: la incidencia es el mismo «No entregado». */
+function reportarIncidencia(): void {
+  const pedido = entregando.value
+  entregando.value = null
+  if (pedido) abrirNoEntregado(pedido)
 }
 
 // ------------------------------------------------------------------
@@ -228,6 +275,11 @@ function piezasArriba(pedido: PedidoEnRuta): number {
     .reduce((suma, c) => suma + c.cantidadCargada - c.cantidadEntregada, 0)
 }
 
+/** Le queda la entrega por delante y el dinero todavía no la permite. */
+function faltaPago(pedido: PedidoEnRuta): boolean {
+  return pedido.paso.siguiente !== null && !pedido.pagoCubierto
+}
+
 /**
  * Los renglones que el cliente no aceptó, del intento que sea.
  *
@@ -236,15 +288,6 @@ function piezasArriba(pedido: PedidoEnRuta): number {
  */
 function sinAceptar(pedido: PedidoEnRuta): RenglonDeCarga[] {
   return pedido.carga.filter((c) => c.cantidadEntregada < c.cantidadCargada)
-}
-
-/** Si el dinero de este pedido pasa por sus manos. Lo demás ya se cobró o no se cobra. */
-function cobraEnEfectivo(pedido: PedidoEnRuta): boolean {
-  return (
-    pedido.pago.metodo === 'EFECTIVO' &&
-    pedido.pago.aPagar > 0 &&
-    (pedido.pago.estado === 'PAGO_PENDIENTE' || pedido.pago.estado === 'LIBERAR')
-  )
 }
 </script>
 
@@ -275,9 +318,14 @@ function cobraEnEfectivo(pedido: PedidoEnRuta): boolean {
         <button v-if="!trabajando" type="button" class="btn-primary" @click="abrirJornada">
           {{ jornada ? 'Reanudar entregas' : 'Inicio de entregas' }}
         </button>
-        <button v-else type="button" class="btn-secondary" @click="finalizarJornada">
-          Finalizar entregas
-        </button>
+        <template v-else>
+          <button type="button" class="btn-primary" @click="abrirCrearEntrega">
+            + Crear entrega
+          </button>
+          <button type="button" class="btn-secondary" @click="finalizarJornada">
+            Finalizar entregas
+          </button>
+        </template>
         <button
           v-if="jornada"
           type="button"
@@ -286,6 +334,42 @@ function cobraEnEfectivo(pedido: PedidoEnRuta): boolean {
         >
           Hacer mi corte
         </button>
+      </div>
+    </section>
+
+    <!-- Las entregas de la jornada: cada una es un viaje con sus pedidos. -->
+    <section v-if="entregas.length > 0" class="entregas">
+      <p class="entregas-titulo">Mis entregas</p>
+      <div class="tabla-envoltorio">
+        <table class="tabla lineal">
+          <thead>
+            <tr>
+              <th>Entrega</th>
+              <th class="num">Pedidos</th>
+              <th class="num">Recolectados</th>
+              <th class="num">En ruta</th>
+              <th class="num">Entregados</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="entrega in entregas" :key="entrega.id">
+              <td>
+                <span class="folio">{{ nombreEntrega(entrega) }}</span>
+                <span class="sub">{{ fechaHora(entrega.creadoEn) }}</span>
+              </td>
+              <td class="num">{{ entrega.pedidos }}</td>
+              <td class="num">{{ entrega.recolectados }}</td>
+              <td class="num">{{ entrega.enRuta }}</td>
+              <td class="num">{{ entrega.entregados }}</td>
+              <td class="accion">
+                <RouterLink :to="`/admin/rutas/entregas/${entrega.id}`" class="btn-secondary abrir">
+                  Abrir →
+                </RouterLink>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </section>
 
@@ -339,10 +423,26 @@ function cobraEnEfectivo(pedido: PedidoEnRuta): boolean {
                   <span v-if="piezasArriba(pedido) > 0" class="mini-tag camion">
                     {{ piezasArriba(pedido) }} pieza(s) arriba
                   </span>
+                  <RouterLink
+                    v-if="pedido.entrega"
+                    :to="`/admin/rutas/entregas/${pedido.entrega.id}`"
+                    class="mini-tag entrega"
+                  >
+                    {{ nombreEntrega(pedido.entrega) }}
+                  </RouterLink>
                 </div>
               </td>
               <td>
-                <span v-if="cobraEnEfectivo(pedido)" class="mini-tag cobrar">
+                <!-- Sin el pago cubierto no se va a poder entregar: se avisa desde
+                     bodega para no cargarlo y salir en balde. -->
+                <span
+                  v-if="faltaPago(pedido)"
+                  class="mini-tag falta-pago"
+                  title="No se podrá entregar hasta que Finanzas lo marque Pagado o le dé Crédito"
+                >
+                  🔒 Falta pago · {{ nombreMetodoPago(pedido.pago.metodo) }}
+                </span>
+                <span v-else-if="cobraEnEfectivo(pedido)" class="mini-tag cobrar">
                   Cobrar {{ dinero(pedido.pago.aPagar) }}
                 </span>
                 <span v-else class="mini-tag pagado">
@@ -360,7 +460,11 @@ function cobraEnEfectivo(pedido: PedidoEnRuta): boolean {
               <td class="accion">
                 <!-- El paso que le toca a Rutas, o por qué no se puede dar. -->
                 <div class="en-linea">
-                  <template v-if="pedido.paso.siguiente && pedido.paso.seccion === 'rutas'">
+                  <!-- Subir al camión es de una entrega: se hace desde dentro de ella. -->
+                  <p v-if="pedido.paso.siguiente === 'RECOLECTADO'" class="aviso">
+                    📦 Agrégalo desde una de tus entregas.
+                  </p>
+                  <template v-else-if="pedido.paso.siguiente && pedido.paso.seccion === 'rutas'">
                     <button
                       type="button"
                       class="btn-primary"
@@ -399,6 +503,10 @@ function cobraEnEfectivo(pedido: PedidoEnRuta): boolean {
 
                 <p v-if="pedido.paso.bloqueo" class="bloqueo">
                   {{ pedido.paso.bloqueo.mensaje }}
+                </p>
+                <p v-else-if="faltaPago(pedido)" class="bloqueo">
+                  Aún no está pagado: podrás llevarlo, pero no entregarlo hasta que Finanzas lo
+                  marque Pagado o le dé Crédito.
                 </p>
                 <p
                   v-else-if="
@@ -521,42 +629,40 @@ function cobraEnEfectivo(pedido: PedidoEnRuta): boolean {
       :pedido="entregando"
       @cerrar="entregando = null"
       @entregado="alEntregar"
+      @incidencia="reportarIncidencia"
     />
 
-    <!-- El intento fallido: un motivo para el pedido entero, obligatorio. -->
-    <div v-if="noEntregando" class="modal-overlay" @click.self="noEntregando = null">
-      <div class="modal-sheet" role="dialog" aria-label="Marcar como no entregado">
+    <NoEntregadoModal
+      v-if="noEntregando"
+      :pedido="noEntregando"
+      @cerrar="noEntregando = null"
+      @guardado="alNoEntregar"
+    />
+
+    <!-- «Crear entrega»: el número lo pone la API; el nombre ayuda a reconocerla. -->
+    <div v-if="creandoEntrega" class="modal-overlay" @click.self="creandoEntrega = false">
+      <div class="modal-sheet" role="dialog" aria-label="Crear entrega">
         <div class="modal-handle" />
-        <p class="modal-title">No entregado · {{ noEntregando.folio }}</p>
+        <p class="modal-title">Crear entrega</p>
         <p class="modal-texto">
-          El pedido no se cierra: la mercancía sigue en tu camión y vuelve a bodega en el corte.
-          Puedes intentarlo otra vez hoy mismo.
+          Se numera sola. Si quieres, ponle un nombre para reconocerla: la zona o la colonia.
         </p>
-
-        <select v-model="motivo" class="select-input">
-          <option :value="null">¿Por qué no se pudo entregar?</option>
-          <option v-for="m in MOTIVOS" :key="m.valor" :value="m.valor">
-            {{ m.etiqueta }}
-          </option>
-        </select>
-
-        <textarea
-          v-model="notaFallo"
-          class="form-textarea"
-          rows="2"
-          maxlength="500"
-          placeholder="Qué pasó (opcional)"
+        <input
+          v-model="nombreNueva"
+          class="form-input"
+          maxlength="80"
+          placeholder="Nombre (opcional), p. ej. Centro"
+          @keyup.enter="crearEntrega"
         />
-
         <div class="modal-actions">
-          <button type="button" class="btn-cancel" @click="noEntregando = null">Volver</button>
+          <button type="button" class="btn-cancel" @click="creandoEntrega = false">Volver</button>
           <button
             type="button"
             class="btn-primary"
-            :disabled="!motivo || moviendo === noEntregando.id"
-            @click="noEntregar"
+            :disabled="enviandoEntrega"
+            @click="crearEntrega"
           >
-            Guardar el intento
+            Crear y agregar pedidos
           </button>
         </div>
       </div>
@@ -633,6 +739,38 @@ function cobraEnEfectivo(pedido: PedidoEnRuta): boolean {
 .mini-tag.cobrar {
   background: var(--amarillo);
   color: var(--ink);
+}
+
+/* Las entregas de la jornada, entre la jornada y las pestañas. */
+.entregas {
+  margin-bottom: 12px;
+}
+
+.entregas-titulo {
+  margin: 0 0 6px;
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.tabla.lineal .abrir {
+  display: inline-block;
+  padding: 4px 12px;
+  font-size: 12px;
+  text-decoration: none;
+  box-shadow: none;
+}
+
+.mini-tag.entrega {
+  background: color-mix(in srgb, var(--verde) 15%, var(--white));
+  color: var(--verde-compra);
+  text-decoration: none;
+}
+
+.mini-tag.falta-pago {
+  background: color-mix(in srgb, var(--rojo) 15%, var(--white));
+  color: var(--rojo);
 }
 
 .mini-tag.pagado {

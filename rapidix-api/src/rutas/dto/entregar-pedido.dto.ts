@@ -78,6 +78,45 @@ export class EntregarPedidoDto {
   @IsString()
   @MaxLength(500)
   nota?: string;
+
+  /**
+   * El efectivo que el cliente le dio en la puerta. Si viene y no cubre el
+   * cobro, la entrega no se cierra: el faltante acabaria saliendo en el corte.
+   */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 }, { message: 'El pago recibido lleva a lo más dos decimales' })
+  @Min(0, { message: 'El pago recibido no puede ser negativo' })
+  pagoRecibido?: number;
+}
+
+/**
+ * Lo que cuenta el repartidor mientras cuenta, sin cerrar nada.
+ *
+ * Mas tolerante que la entrega: faltan renglones o sobran piezas a media
+ * captura, y aqui eso se lee como cero o como el tope en vez de un 400.
+ */
+export class RenglonPrevistoDto {
+  @IsUUID()
+  pedidoItemId: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  cantidadEntregada: number;
+}
+
+export class PrevisualizarEntregaDto {
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => RenglonPrevistoDto)
+  items: RenglonPrevistoDto[];
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  pagoRecibido?: number;
 }
 
 /**

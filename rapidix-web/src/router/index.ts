@@ -245,6 +245,13 @@ const routes: RouteRecordRaw[] = [
     meta: { seccion: 'rutas', titulo: 'Rutas' },
   },
   {
+    // Una entrega (viaje) del repartidor: sus pedidos y lo que se le agrega.
+    path: '/admin/rutas/entregas/:id',
+    name: 'rutas-entrega',
+    component: () => import('@/views/admin/EntregaRutaView.vue'),
+    meta: { seccion: 'rutas', titulo: 'Entrega', volverA: '/admin/rutas' },
+  },
+  {
     // Se abren desde la casilla de términos del carrito, en otra pestaña.
     path: '/legal/:documento(privacidad|terminos)',
     name: 'legal',

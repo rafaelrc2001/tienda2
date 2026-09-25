@@ -10,6 +10,7 @@ import {
   EstadoPago,
   EstadoPedido,
   MetodoEntrega,
+  MetodoPago,
   MotivoDevolucion,
   Prisma,
 } from '@prisma/client';
@@ -20,7 +21,13 @@ import { FlujoPedidosService, PedidoEnPantallaDto } from '../pedidos/flujo-pedid
 import { NOMBRE_ESTADO_PEDIDO, PedidoEnFlujo } from '../pedidos/flujo';
 import { PedidoDto, PedidosService } from '../pedidos/pedidos.service';
 import { ListasDePrecio, precioUnitario } from '../catalogo/precios';
-import { EntregarPedidoDto, NoEntregadoDto, RenglonEntregadoDto } from './dto/entregar-pedido.dto';
+import {
+  EntregarPedidoDto,
+  NoEntregadoDto,
+  PrevisualizarEntregaDto,
+  RenglonEntregadoDto,
+} from './dto/entregar-pedido.dto';
+import { CargaLiquidable, cuentaDeLaEntrega, traeEfectivo } from './dinero-del-corte';
 
 const Decimal = Prisma.Decimal;
 type Decimal = Prisma.Decimal;
@@ -87,7 +94,33 @@ export type PedidoEnRutaDto = PedidoEnPantallaDto & {
   carga: RenglonDeCargaDto[];
   /** `null` mientras no se haya entregado. */
   evidencia: EvidenciaEntregaDto | null;
+  /** La entrega en la que va o fue; `null` en bodega. */
+  entrega: { id: string; numero: number; nombre: string | null } | null;
 };
+
+/** Una entrega (viaje) del repartidor, con lo que lleva contado en vivo. */
+export interface EntregaRutaDto {
+  id: string;
+  numero: number;
+  nombre: string | null;
+  creadoEn: string;
+  pedidos: number;
+  /** Arriba del camion, sin salir todavia. */
+  recolectados: number;
+  enRuta: number;
+  entregados: number;
+}
+
+/** La pantalla de una entrega: sus pedidos y lo que se le puede agregar. */
+export interface DetalleEntregaRutaDto {
+  jornada: JornadaDto | null;
+  entrega: EntregaRutaDto;
+  /** `false` si es de una jornada ya cortada: se consulta, no se carga. */
+  abierta: boolean;
+  pedidos: PedidoEnRutaDto[];
+  /** Lo que espera en bodega, para subirlo a esta entrega. */
+  disponibles: PedidoEnRutaDto[];
+}
 
 /** Como acabo el intento de entrega. Es lo que la pantalla le resume al repartidor. */
 export interface ResumenEntregaDto {
@@ -100,6 +133,36 @@ export interface ResumenEntregaDto {
    */
   importeEntregado: number;
   parcial: boolean;
+}
+
+/**
+ * La cuenta de la hoja de entrega mientras el repartidor cuenta.
+ *
+ * La pantalla no suma: manda lo aceptado y el pago, y pinta esto. Los importes
+ * salen de las mismas funciones que usa el corte.
+ */
+export interface PrevisualizacionEntregaDto {
+  renglones: {
+    pedidoItemId: string;
+    cantidadEntregada: number;
+    /** El unitario que toca por lo aceptado: el del pedido o el re-cotizado. */
+    precio: number;
+    importe: number;
+  }[];
+  /** Lo que vale lo aceptado. */
+  productos: number;
+  envio: number;
+  recargoFuera: number;
+  descuento: number;
+  /** Lo que el cliente ya pago con su saldo al confirmar. */
+  billetera: number;
+  /** Si el repartidor cobra en la puerta. */
+  cobraEnEfectivo: boolean;
+  /** El efectivo a cobrar: el mismo que pedira el corte. */
+  aCobrar: number;
+  /** `null` mientras el pago recibido no cubra el cobro. */
+  cambio: number | null;
+  cubre: boolean;
 }
 
 /** El pedido tras el intento, y como acabo. */
@@ -142,6 +205,8 @@ export enum FiltroRutas {
 export interface TableroRutasDto {
   /** `null` mientras no haya pulsado "Inicio de entregas". */
   jornada: JornadaDto | null;
+  /** Las entregas de la jornada viva. */
+  entregas: EntregaRutaDto[];
   pedidos: PedidoEnRutaDto[];
   conteos: Record<FiltroRutas, number>;
 }
@@ -199,7 +264,12 @@ export class RutasService {
       Object.values(FiltroRutas).map((f, i) => [f, cuentas[i]]),
     ) as Record<FiltroRutas, number>;
 
-    return { jornada, pedidos: await this.conCarga(pedidos), conteos };
+    return {
+      jornada,
+      entregas: await this.entregasDeLaJornada(jornada?.id ?? null),
+      pedidos: await this.conCarga(pedidos),
+      conteos,
+    };
   }
 
   /** Las tres pestanas. Dos son de quien pregunta; los disponibles son de nadie. */
@@ -360,18 +430,22 @@ export class RutasService {
   // ----------------------------------------------------------------
 
   /**
-   * "Recolectado": el pedido sube al camion de quien pulsa.
+   * "Recolectado": el pedido sube al camion de quien pulsa, dentro de una de
+   * sus entregas.
    *
-   * Tres efectos en la misma transaccion, ademas del paso:
+   * Cuatro efectos en la misma transaccion, ademas del paso:
    *
    *  1. El pedido se queda con su repartidor. El primero que lo toma es el
    *     dueno; los demas ya no lo ven disponible.
-   *  2. Cada renglon del pedido abre su fila de `CargaRepartidor` con el precio
+   *  2. Queda en la entrega que se eligio. Es una sola columna, asi que no
+   *     puede ir en dos entregas a la vez.
+   *  3. Cada renglon del pedido abre su fila de `CargaRepartidor` con el precio
    *     congelado, que es lo que luego se compara con lo que el cliente acepte.
-   *  3. El paso y su renglon de bitacora, por el camino de siempre.
+   *  4. El paso y su renglon de bitacora, por el camino de siempre.
    */
   async recolectar(
     id: string,
+    entregaId: string,
     usuario: UsuarioAutenticado,
     nota?: string,
   ): Promise<PedidoEnRutaDto> {
@@ -380,8 +454,25 @@ export class RutasService {
       // corte que deje la jornada liquidada, y la carga colgaria de una jornada
       // ya cerrada.
       const jornada = await this.exigirJornada(tx, usuario.sub, { activa: true });
+      const entrega = await RutasService.exigirEntregaPropia(tx, entregaId, usuario.sub);
+      if (entrega.sesionId !== jornada.id) {
+        throw new ConflictException({
+          statusCode: 409,
+          code: 'ENTREGA_DE_OTRA_JORNADA',
+          message: 'Esa entrega es de una jornada que ya se cortó. Crea una nueva.',
+        });
+      }
 
       const pedido = await this.bloquearParaRutas(tx, id);
+      // Antes que el flujo: "va en otra entrega" explica mejor que "no se puede
+      // pasar de Recolectado a Recolectado".
+      if (pedido.entregaRutaId !== null && pedido.entregaRutaId !== entregaId) {
+        throw new ConflictException({
+          statusCode: 409,
+          code: 'EN_OTRA_ENTREGA',
+          message: 'Ese pedido ya va en otra entrega.',
+        });
+      }
       const transicion = FlujoPedidosService.exigirAvance(pedido, EstadoPedido.RECOLECTADO);
       FlujoPedidosService.exigirSeccion(usuario, transicion);
       RutasService.exigirPropio(pedido, usuario);
@@ -411,16 +502,197 @@ export class RutasService {
         throw fallo;
       }
 
-      await FlujoPedidosService.aplicar(tx, id, transicion, actorDe(usuario), nota);
-      await tx.pedido.update({ where: { id }, data: { repartidorId: usuario.sub } });
+      await FlujoPedidosService.aplicar(
+        tx,
+        id,
+        transicion,
+        actorDe(usuario),
+        RutasService.nota(`Subió a la entrega ${entrega.numero}.`, nota),
+      );
+      await tx.pedido.update({
+        where: { id },
+        data: { repartidorId: usuario.sub, entregaRutaId: entrega.id },
+      });
 
       this.logger.log(
-        `Pedido ${pedido.folio} recolectado por ${usuario.nombre}: ` +
-          `${pedido.items.length} renglón(es) al camión`,
+        `Pedido ${pedido.folio} recolectado por ${usuario.nombre} en la entrega ` +
+          `${entrega.numero}: ${pedido.items.length} renglón(es) al camión`,
       );
     });
 
     return this.pedidoConCarga(id);
+  }
+
+  /**
+   * Baja el pedido del camion antes de salir: vuelve a bodega y queda libre
+   * para otra entrega.
+   *
+   * Solo en RECOLECTADO: ya en ruta la mercancia esta en la calle, y lo que no
+   * se entregue regresa por el corte, que es quien la cuenta. Las filas de
+   * carga se **borran** en vez de cerrarse: cerrarlas las contaria como
+   * devueltas y el corte reingresaria al inventario algo que nunca salio.
+   *
+   * Es un retroceso del eje fisico, como el del corte, y por eso no pasa por
+   * `TRANSICIONES`: no es un paso adelante sino deshacer la carga.
+   */
+  async quitarDeEntrega(id: string, usuario: UsuarioAutenticado): Promise<PedidoEnRutaDto> {
+    await this.prisma.$transaction(async (tx) => {
+      await this.exigirJornada(tx, usuario.sub, { activa: true });
+      const pedido = await this.bloquearParaRutas(tx, id);
+      RutasService.exigirPropio(pedido, usuario);
+
+      if (pedido.estado !== EstadoPedido.RECOLECTADO) {
+        throw new ConflictException({
+          statusCode: 409,
+          code: 'YA_SALIO',
+          message:
+            pedido.estado === EstadoPedido.EN_RUTA
+              ? 'Ese pedido ya salió a ruta: si no se entrega, regresa en el corte.'
+              : `Solo se quita un pedido que está en "Recolectado", y ese está en "${NOMBRE_ESTADO_PEDIDO[pedido.estado]}".`,
+        });
+      }
+
+      await tx.cargaRepartidor.deleteMany({ where: { pedidoId: id, cerradoEn: null } });
+      await tx.pedido.update({
+        where: { id },
+        data: {
+          estado: EstadoPedido.LISTO_PARA_ENTREGA,
+          repartidorId: null,
+          entregaRutaId: null,
+        },
+      });
+      await registrarEnBitacora(
+        tx,
+        id,
+        {
+          eje: EjeBitacora.PEDIDO,
+          estadoAnterior: EstadoPedido.RECOLECTADO,
+          estadoNuevo: EstadoPedido.LISTO_PARA_ENTREGA,
+          nota: 'Se bajó del camión antes de salir: vuelve a bodega.',
+        },
+        actorDe(usuario),
+      );
+
+      this.logger.log(`Pedido ${pedido.folio} bajado del camión por ${usuario.nombre}`);
+    });
+
+    return this.pedidoConCarga(id);
+  }
+
+  // ----------------------------------------------------------------
+  // Entregas
+  // ----------------------------------------------------------------
+
+  /**
+   * "Crear entrega": un viaje nuevo dentro de la jornada, con el siguiente
+   * numero. El indice unico (sesion, numero) cubre la doble pulsacion: la
+   * segunda choca y se le pide repetir.
+   */
+  async crearEntrega(usuario: UsuarioAutenticado, nombre?: string): Promise<EntregaRutaDto> {
+    try {
+      const creada = await this.prisma.$transaction(async (tx) => {
+        const jornada = await this.exigirJornada(tx, usuario.sub, { activa: true });
+        const ultima = await tx.entregaRuta.aggregate({
+          where: { sesionId: jornada.id },
+          _max: { numero: true },
+        });
+        return tx.entregaRuta.create({
+          data: {
+            sesionId: jornada.id,
+            repartidorId: usuario.sub,
+            numero: (ultima._max.numero ?? 0) + 1,
+            nombre: nombre?.trim() || null,
+          },
+        });
+      });
+      this.logger.log(`Entrega ${creada.numero} creada por ${usuario.nombre}`);
+      return (await this.resumenesDeEntregas([creada]))[0];
+    } catch (fallo) {
+      if (fallo instanceof Prisma.PrismaClientKnownRequestError && fallo.code === 'P2002') {
+        throw new ConflictException({
+          statusCode: 409,
+          code: 'ENTREGA_DUPLICADA',
+          message: 'Se crearon dos entregas a la vez. Actualiza la pantalla e inténtalo otra vez.',
+        });
+      }
+      throw fallo;
+    }
+  }
+
+  /**
+   * Una entrega con sus pedidos y, para irle agregando, lo que espera en
+   * bodega. En un solo viaje: es la pantalla desde la que se carga el camion.
+   */
+  async detalleEntrega(id: string, usuario: UsuarioAutenticado): Promise<DetalleEntregaRutaDto> {
+    const entrega = await RutasService.exigirEntregaPropia(this.prisma, id, usuario.sub);
+    const [jornada, suyos, disponibles] = await Promise.all([
+      this.jornada(usuario.sub),
+      this.pedidos.buscar({ entregaRutaId: id }, { creadoEn: 'asc' }, 200),
+      this.pedidos.buscar(DISPONIBLES, { creadoEn: 'asc' }, 200),
+    ]);
+    const [resumen] = await this.resumenesDeEntregas([entrega]);
+    return {
+      jornada,
+      entrega: resumen,
+      // Una entrega de una jornada ya cortada se puede consultar, pero no cargar.
+      abierta: jornada !== null && entrega.sesionId === jornada.id,
+      pedidos: await this.conCarga(suyos),
+      disponibles: await this.conCarga(disponibles),
+    };
+  }
+
+  /** Las entregas de la jornada viva, de la primera a la ultima. */
+  private async entregasDeLaJornada(jornadaId: string | null): Promise<EntregaRutaDto[]> {
+    if (!jornadaId) return [];
+    const entregas = await this.prisma.entregaRuta.findMany({
+      where: { sesionId: jornadaId },
+      orderBy: { numero: 'asc' },
+    });
+    return this.resumenesDeEntregas(entregas);
+  }
+
+  /** Cuantos pedidos lleva cada entrega y en que va cada uno, contados en vivo. */
+  private async resumenesDeEntregas(
+    entregas: { id: string; numero: number; nombre: string | null; creadoEn: Date }[],
+  ): Promise<EntregaRutaDto[]> {
+    if (entregas.length === 0) return [];
+    const cuentas = await this.prisma.pedido.groupBy({
+      by: ['entregaRutaId', 'estado'],
+      where: { entregaRutaId: { in: entregas.map((e) => e.id) } },
+      _count: { _all: true },
+    });
+    return entregas.map((e) => {
+      const deEsta = cuentas.filter((c) => c.entregaRutaId === e.id);
+      const cuantos = (estado: EstadoPedido): number =>
+        deEsta.find((c) => c.estado === estado)?._count._all ?? 0;
+      return {
+        id: e.id,
+        numero: e.numero,
+        nombre: e.nombre,
+        creadoEn: e.creadoEn.toISOString(),
+        pedidos: deEsta.reduce((suma, c) => suma + c._count._all, 0),
+        recolectados: cuantos(EstadoPedido.RECOLECTADO),
+        enRuta: cuantos(EstadoPedido.EN_RUTA),
+        entregados: cuantos(EstadoPedido.ENTREGADO),
+      };
+    });
+  }
+
+  /** La entrega, si es de quien pregunta. De otro repartidor, ni se ve. */
+  private static async exigirEntregaPropia(
+    tx: Prisma.TransactionClient,
+    id: string,
+    repartidorId: string,
+  ): Promise<{
+    id: string;
+    sesionId: string;
+    numero: number;
+    nombre: string | null;
+    creadoEn: Date;
+  }> {
+    const entrega = await tx.entregaRuta.findFirst({ where: { id, repartidorId } });
+    if (!entrega) throw new NotFoundException('Entrega no encontrada');
+    return entrega;
   }
 
   /**
@@ -456,26 +728,11 @@ export class RutasService {
       const cargas = await this.cargasDelCamion(tx, id);
       const renglones = RutasService.emparejar(cargas, dto.items);
       await RutasService.exigirImagenes(tx, dto);
-
-      // Las listas de precio de hoy: el pedido guarda el unitario que se
-      // cobro, no las listas con que se calculo, asi que re-cotizar solo puede
-      // hacerse con las vigentes.
-      const productos = await tx.producto.findMany({
-        where: { id: { in: cargas.map((c) => c.productoId) } },
-        select: {
-          id: true,
-          precioVenta: true,
-          piso2: true,
-          precio2: true,
-          piso3: true,
-          precio3: true,
-        },
-      });
-      const listasPorProducto = new Map(productos.map((p) => [p.id, p]));
+      const listasPorProducto = await RutasService.listasDePrecio(tx, cargas);
 
       let entregadas = 0;
       let devueltas = 0;
-      let importe = new Decimal(0);
+      const liquidables: CargaLiquidable[] = [];
 
       for (const { carga, cantidadEntregada, motivoDevolucion } of renglones) {
         const precioEntregado = RutasService.recotizar(
@@ -491,7 +748,7 @@ export class RutasService {
 
         entregadas += cantidadEntregada;
         devueltas += carga.cantidadCargada - cantidadEntregada;
-        importe = importe.add((precioEntregado ?? carga.precioUnitario).mul(cantidadEntregada));
+        liquidables.push({ ...carga, cantidadEntregada, precioEntregado });
       }
 
       if (entregadas === 0) {
@@ -499,6 +756,19 @@ export class RutasService {
           statusCode: 409,
           code: 'NADA_ENTREGADO',
           message: 'Si el cliente no aceptó nada, márcalo como "No entregado".',
+        });
+      }
+
+      const pagoRecibido = dto.pagoRecibido === undefined ? null : new Decimal(dto.pagoRecibido);
+      const cuenta = cuentaDeLaEntrega(pedido, liquidables, pagoRecibido);
+      const importe = cuenta.productos;
+      // Solo si lo manda: la pantalla lo pide siempre que haya efectivo, pero
+      // un cliente viejo que no lo conoce no debe quedarse sin poder entregar.
+      if (pagoRecibido !== null && !cuenta.cubre) {
+        throw new BadRequestException({
+          statusCode: 400,
+          code: 'PAGO_INSUFICIENTE',
+          message: `El pago recibido no cubre los $${cuenta.aCobrar.toFixed(2)} a cobrar.`,
         });
       }
 
@@ -519,7 +789,16 @@ export class RutasService {
         transicion,
         actorDe(usuario),
         RutasService.nota(
-          devueltas > 0 ? `Entrega parcial: ${devueltas} pieza(s) no aceptadas.` : null,
+          [
+            devueltas > 0 ? `Entrega parcial: ${devueltas} pieza(s) no aceptadas.` : null,
+            // Queda en la bitacora para que Finanzas, al recibir el corte,
+            // pueda cotejar el cambio que salio de la bolsa del repartidor.
+            pagoRecibido !== null && cuenta.cambio !== null && !cuenta.aCobrar.isZero()
+              ? `Recibió $${pagoRecibido.toFixed(2)}, cambio $${cuenta.cambio.toFixed(2)}.`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(' ') || null,
           dto.nota,
         ),
       );
@@ -540,6 +819,79 @@ export class RutasService {
     return {
       pedido: await this.pedidoConCarga(id),
       entrega: resumen!,
+    };
+  }
+
+  /**
+   * La cuenta de la hoja de entrega, sin cerrar nada.
+   *
+   * Hace la misma re-cotizacion que `entregar` y la misma cuenta que el corte,
+   * asi que lo que la hoja pide cobrar es lo que despues se liquida. No exige
+   * jornada activa: solo lee, y el candado de verdad esta al confirmar.
+   */
+  async previsualizarEntrega(
+    id: string,
+    dto: PrevisualizarEntregaDto,
+    usuario: UsuarioAutenticado,
+  ): Promise<PrevisualizacionEntregaDto> {
+    const pedido = await this.prisma.pedido.findUnique({
+      where: { id },
+      select: {
+        estado: true,
+        repartidorId: true,
+        metodoPago: true,
+        estadoPago: true,
+        total: true,
+        envio: true,
+        recargoFuera: true,
+        descuento: true,
+        pagadoConBilletera: true,
+      },
+    });
+    if (!pedido) throw new NotFoundException('Pedido no encontrado');
+    RutasService.exigirPropio(pedido, usuario);
+
+    const cargas = await this.cargasDelCamion(this.prisma, id);
+    const listasPorProducto = await RutasService.listasDePrecio(this.prisma, cargas);
+    const aceptado = new Map(dto.items.map((i) => [i.pedidoItemId, i.cantidadEntregada]));
+
+    const renglones: PrevisualizacionEntregaDto['renglones'] = [];
+    const liquidables: CargaLiquidable[] = [];
+    for (const carga of cargas) {
+      // A media captura: lo que falta cuenta como cero y lo que sobra, como el tope.
+      const cantidadEntregada = Math.min(
+        aceptado.get(carga.pedidoItemId) ?? 0,
+        carga.cantidadCargada,
+      );
+      const precioEntregado = RutasService.recotizar(
+        carga,
+        cantidadEntregada,
+        listasPorProducto.get(carga.productoId),
+      );
+      const liquidable = { ...carga, cantidadEntregada, precioEntregado };
+      const precio = precioEntregado ?? carga.precioUnitario;
+      liquidables.push(liquidable);
+      renglones.push({
+        pedidoItemId: carga.pedidoItemId,
+        cantidadEntregada,
+        precio: precio.toNumber(),
+        importe: precio.mul(cantidadEntregada).toNumber(),
+      });
+    }
+
+    const pagoRecibido = dto.pagoRecibido === undefined ? null : new Decimal(dto.pagoRecibido);
+    const cuenta = cuentaDeLaEntrega(pedido, liquidables, pagoRecibido);
+    return {
+      renglones,
+      productos: cuenta.productos.toNumber(),
+      envio: pedido.envio.toNumber(),
+      recargoFuera: pedido.recargoFuera.toNumber(),
+      descuento: pedido.descuento.toNumber(),
+      billetera: pedido.pagadoConBilletera.toNumber(),
+      cobraEnEfectivo: traeEfectivo(pedido),
+      aCobrar: cuenta.aCobrar.toNumber(),
+      cambio: cuenta.cambio?.toNumber() ?? null,
+      cubre: cuenta.cubre,
     };
   }
 
@@ -646,7 +998,15 @@ export class RutasService {
     if (pedidos.length === 0) return [];
 
     const ids = pedidos.map((p) => p.id);
-    const evidencias = await this.evidencias(ids);
+    const [evidencias, conEntrega] = await Promise.all([
+      this.evidencias(ids),
+      // `PedidoDto` es el del cliente y no sabe de entregas: se leen aparte.
+      this.prisma.pedido.findMany({
+        where: { id: { in: ids }, entregaRutaId: { not: null } },
+        select: { id: true, entregaRuta: { select: { id: true, numero: true, nombre: true } } },
+      }),
+    ]);
+    const entregaDe = new Map(conEntrega.map((p) => [p.id, p.entregaRuta]));
 
     const cargas = await this.prisma.cargaRepartidor.findMany({
       where: { pedidoId: { in: ids } },
@@ -689,6 +1049,7 @@ export class RutasService {
       ...FlujoPedidosService.enPantalla(pedido),
       carga: porPedido.get(pedido.id) ?? [],
       evidencia: evidencias.get(pedido.id) ?? null,
+      entrega: entregaDe.get(pedido.id) ?? null,
     }));
   }
 
@@ -862,6 +1223,29 @@ export class RutasService {
   }
 
   /**
+   * Las listas de precio de hoy: el pedido guarda el unitario que se cobro, no
+   * las listas con que se calculo, asi que re-cotizar solo puede hacerse con
+   * las vigentes.
+   */
+  private static async listasDePrecio(
+    tx: Prisma.TransactionClient,
+    cargas: CargaEnCamion[],
+  ): Promise<Map<string, ListasDePrecio>> {
+    const productos = await tx.producto.findMany({
+      where: { id: { in: cargas.map((c) => c.productoId) } },
+      select: {
+        id: true,
+        precioVenta: true,
+        piso2: true,
+        precio2: true,
+        piso3: true,
+        precio3: true,
+      },
+    });
+    return new Map(productos.map((p) => [p.id, p]));
+  }
+
+  /**
    * Las imagenes tienen que existir y estar en la carpeta de entregas. Sin
    * esto, `fotoId` seria un texto cualquiera y la evidencia apuntaria a nada.
    */
@@ -899,6 +1283,10 @@ export class RutasService {
       id: string;
       folio: string;
       repartidorId: string | null;
+      entregaRutaId: string | null;
+      metodoPago: MetodoPago;
+      total: Prisma.Decimal;
+      pagadoConBilletera: Prisma.Decimal;
       items: { id: string; productoId: string; precioUnitario: Prisma.Decimal; cantidad: number }[];
     }
   > {
@@ -912,6 +1300,11 @@ export class RutasService {
         estadoPago: true,
         metodoEntrega: true,
         repartidorId: true,
+        entregaRutaId: true,
+        // Lo que decide cuanto efectivo se cobra en la puerta.
+        metodoPago: true,
+        total: true,
+        pagadoConBilletera: true,
         items: { select: { id: true, productoId: true, precioUnitario: true, cantidad: true } },
       },
     });

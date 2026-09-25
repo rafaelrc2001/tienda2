@@ -2,6 +2,7 @@ import { EstadoPago, MetodoPago, Prisma } from '@prisma/client';
 import {
   CargaLiquidable,
   cobradoDelRenglon,
+  cuentaDeLaEntrega,
   devueltoDelRenglon,
   efectivoDelPedido,
   PedidoALiquidar,
@@ -10,10 +11,10 @@ import {
 
 const D = (n: number) => new Prisma.Decimal(n);
 
-/** Efectivo contra entrega ya liberado por Finanzas: el caso de todos los días. */
+/** Efectivo contra entrega con el pago pendiente: el caso de todos los días. */
 const enEfectivo: PedidoALiquidar = {
   metodoPago: MetodoPago.EFECTIVO,
-  estadoPago: EstadoPago.LIBERAR,
+  estadoPago: EstadoPago.PAGO_PENDIENTE,
   total: D(300),
   pagadoConBilletera: D(0),
 };
@@ -29,7 +30,7 @@ const diezPiezas: CargaLiquidable = {
 describe('traeEfectivo', () => {
   it.each([
     [EstadoPago.PAGO_PENDIENTE, true],
-    [EstadoPago.LIBERAR, true],
+    [EstadoPago.RETENER, false],
     [EstadoPago.CREDITO, false],
     [EstadoPago.PAGADO, false],
     [EstadoPago.REEMBOLSADO, false],
@@ -120,6 +121,38 @@ describe('cobradoDelRenglon', () => {
   it('re-cotizado manda el precio nuevo', () => {
     const parcial = { ...diezPiezas, cantidadEntregada: 4, precioEntregado: D(19.95) };
     expect(cobradoDelRenglon(parcial).toNumber()).toBe(79.8);
+  });
+});
+
+describe('cuentaDeLaEntrega', () => {
+  it('pide lo mismo que el corte y da el cambio', () => {
+    const ocho: CargaLiquidable = { ...diezPiezas, cantidadEntregada: 8 };
+    const cuenta = cuentaDeLaEntrega(enEfectivo, [ocho], D(300));
+    expect(cuenta.productos.toNumber()).toBe(136);
+    expect(cuenta.aCobrar.toNumber()).toBe(efectivoDelPedido(enEfectivo, [ocho]).toNumber());
+    expect(cuenta.cambio?.toNumber()).toBe(34);
+    expect(cuenta.cubre).toBe(true);
+  });
+
+  it('sin pago recibido, o corto, no cubre ni da cambio', () => {
+    expect(cuentaDeLaEntrega(enEfectivo, [diezPiezas], null)).toMatchObject({
+      cambio: null,
+      cubre: false,
+    });
+    expect(cuentaDeLaEntrega(enEfectivo, [diezPiezas], D(299.99)).cubre).toBe(false);
+  });
+
+  it('el pago exacto cubre con cambio cero', () => {
+    const cuenta = cuentaDeLaEntrega(enEfectivo, [diezPiezas], D(300));
+    expect(cuenta.cubre).toBe(true);
+    expect(cuenta.cambio?.toNumber()).toBe(0);
+  });
+
+  it('sin efectivo que cobrar siempre cubre', () => {
+    const transferencia = { ...enEfectivo, metodoPago: MetodoPago.TRANSFERENCIA };
+    const cuenta = cuentaDeLaEntrega(transferencia, [diezPiezas], null);
+    expect(cuenta.aCobrar.toNumber()).toBe(0);
+    expect(cuenta.cubre).toBe(true);
   });
 });
 

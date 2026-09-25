@@ -13,15 +13,23 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
+  DetalleEntregaRutaDto,
+  EntregaRutaDto,
   FiltroRutas,
   JornadaDto,
   PedidoEnRutaDto,
+  PrevisualizacionEntregaDto,
   ResultadoEntregaDto,
   RutasService,
   TableroRutasDto,
 } from './rutas.service';
 import { NotaRutaDto } from './dto/nota-ruta.dto';
-import { EntregarPedidoDto, NoEntregadoDto } from './dto/entregar-pedido.dto';
+import { CrearEntregaRutaDto, RecolectarDto } from './dto/entrega-ruta.dto';
+import {
+  EntregarPedidoDto,
+  NoEntregadoDto,
+  PrevisualizarEntregaDto,
+} from './dto/entregar-pedido.dto';
 import { CerrarCorteDto } from './dto/corte.dto';
 import { CorteDto, CortesService, ResumenCorteDto } from './cortes.service';
 import { RequiereSeccion } from '../auth/seccion.decorator';
@@ -69,17 +77,45 @@ export class RutasController {
     return this.rutas.finalizarJornada(usuario);
   }
 
+  /** "Crear entrega": un viaje nuevo de la jornada, con el siguiente numero. */
+  @Post('entregas')
+  crearEntrega(
+    @Body() dto: CrearEntregaRutaDto,
+    @UsuarioActual() usuario: UsuarioAutenticado,
+  ): Promise<EntregaRutaDto> {
+    return this.rutas.crearEntrega(usuario, dto.nombre);
+  }
+
+  /** La entrega con sus pedidos y lo que espera en bodega para agregarle. */
+  @Get('entregas/:id')
+  entrega(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UsuarioActual() usuario: UsuarioAutenticado,
+  ): Promise<DetalleEntregaRutaDto> {
+    return this.rutas.detalleEntrega(id, usuario);
+  }
+
   /**
-   * Sube el pedido al camion de quien pulsa. Los candados responden 409 con su
-   * `code` (SIN_JORNADA, PAGO_NO_LIBERADO, PEDIDO_DE_OTRO...).
+   * Sube el pedido al camion de quien pulsa, dentro de la entrega que manda.
+   * Los candados responden 409 con su `code` (SIN_JORNADA, EN_OTRA_ENTREGA,
+   * PEDIDO_DE_OTRO...).
    */
   @Post('pedidos/:id/recolectar')
   recolectar(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: NotaRutaDto,
+    @Body() dto: RecolectarDto,
     @UsuarioActual() usuario: UsuarioAutenticado,
   ): Promise<PedidoEnRutaDto> {
-    return this.rutas.recolectar(id, usuario, dto.nota);
+    return this.rutas.recolectar(id, dto.entregaId, usuario, dto.nota);
+  }
+
+  /** Lo baja del camion antes de salir: vuelve a bodega. 409 `YA_SALIO` si ya va en ruta. */
+  @Post('pedidos/:id/quitar-de-entrega')
+  quitarDeEntrega(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UsuarioActual() usuario: UsuarioAutenticado,
+  ): Promise<PedidoEnRutaDto> {
+    return this.rutas.quitarDeEntrega(id, usuario);
   }
 
   @Post('pedidos/:id/en-ruta')
@@ -89,6 +125,19 @@ export class RutasController {
     @UsuarioActual() usuario: UsuarioAutenticado,
   ): Promise<PedidoEnRutaDto> {
     return this.rutas.marcarEnRuta(id, usuario, dto.nota);
+  }
+
+  /**
+   * La cuenta de la hoja de entrega mientras se cuenta: lo aceptado, el total a
+   * cobrar y el cambio. No cambia nada; la pantalla la pide con cada toque.
+   */
+  @Post('pedidos/:id/entregar/previsualizar')
+  previsualizarEntrega(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: PrevisualizarEntregaDto,
+    @UsuarioActual() usuario: UsuarioAutenticado,
+  ): Promise<PrevisualizacionEntregaDto> {
+    return this.rutas.previsualizarEntrega(id, dto, usuario);
   }
 
   /**

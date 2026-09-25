@@ -248,7 +248,6 @@ export type MetodoEntrega = 'DOMICILIO' | 'TIENDA'
 /** Lo que decidió Finanzas sobre el dinero. Nace en `PAGO_PENDIENTE`. */
 export type EstadoPago =
   | 'PAGO_PENDIENTE'
-  | 'LIBERAR'
   | 'RETENER'
   | 'CREDITO'
   | 'REEMBOLSADO'
@@ -447,6 +446,8 @@ export interface BloqueoPaso {
     | 'PEDIDO_CANCELADO'
     | 'PAGO_RETENIDO'
     | 'PAGO_NO_LIBERADO'
+    /** Transferencia sin Pagado ni Crédito: no se entrega. El efectivo se cobra en la puerta. */
+    | 'PAGO_NO_CUBIERTO'
   mensaje: string
 }
 
@@ -462,6 +463,11 @@ export interface PasoPendiente {
 /** Pedido de una pantalla de trabajo (Operaciones, Rutas…). */
 export interface PedidoEnPantalla extends Pedido {
   paso: PasoPendiente
+  /**
+   * Si el dinero ya permite entregarlo (Pagado, Crédito, o efectivo que se
+   * cobra en la puerta). Lo calcula la API con la misma regla del candado.
+   */
+  pagoCubierto: boolean
 }
 
 export type FiltroOperaciones = 'activos' | 'en-ruta' | 'entregados' | 'cancelados'
@@ -492,7 +498,7 @@ export interface PedidoEnFinanzas extends Pedido {
   botones: BotonPago[]
 }
 
-export type FiltroFinanzas = 'por-decidir' | 'liberados' | 'pagados' | 'cancelados'
+export type FiltroFinanzas = 'por-decidir' | 'credito' | 'pagados' | 'cancelados'
 
 /** Respuesta de `GET /admin/finanzas/pedidos`. */
 export interface ListadoFinanzas {
@@ -556,6 +562,32 @@ export interface PedidoEnRuta extends PedidoEnPantalla {
   carga: RenglonDeCarga[]
   /** `null` mientras no se haya entregado. */
   evidencia: EvidenciaEntrega | null
+  /** La entrega en la que va o fue; `null` en bodega. */
+  entrega: { id: string; numero: number; nombre: string | null } | null
+}
+
+/** Una entrega (viaje) del repartidor, con lo que lleva contado por la API. */
+export interface EntregaRuta {
+  id: string
+  numero: number
+  nombre: string | null
+  creadoEn: string
+  pedidos: number
+  /** Arriba del camión, sin salir todavía. */
+  recolectados: number
+  enRuta: number
+  entregados: number
+}
+
+/** Respuesta de `GET /admin/rutas/entregas/:id`. */
+export interface DetalleEntregaRuta {
+  jornada: Jornada | null
+  entrega: EntregaRuta
+  /** `false` si es de una jornada ya cortada: se consulta, no se carga. */
+  abierta: boolean
+  pedidos: PedidoEnRuta[]
+  /** Lo que espera en bodega, para subirlo a esta entrega. */
+  disponibles: PedidoEnRuta[]
 }
 
 export type FiltroRutas = 'disponibles' | 'en-camion' | 'entregados'
@@ -563,6 +595,8 @@ export type FiltroRutas = 'disponibles' | 'en-camion' | 'entregados'
 /** Respuesta de `GET /admin/rutas`: la jornada y los pedidos, de un viaje. */
 export interface TableroRutas {
   jornada: Jornada | null
+  /** Las entregas de la jornada viva. */
+  entregas: EntregaRuta[]
   pedidos: PedidoEnRuta[]
   conteos: Record<FiltroRutas, number>
 }
@@ -575,6 +609,31 @@ export interface ResumenEntrega {
   /** Lo que se cobra por lo que quedó en casa del cliente. **No es el total.** */
   importeEntregado: number
   parcial: boolean
+}
+
+/**
+ * Respuesta de `POST pedidos/:id/entregar/previsualizar`: la cuenta de la hoja
+ * mientras se cuenta. Sale de las mismas funciones que el corte.
+ */
+export interface PrevisualizacionEntrega {
+  renglones: {
+    pedidoItemId: string
+    cantidadEntregada: number
+    /** El unitario que toca por lo aceptado: el del pedido o el re-cotizado. */
+    precio: number
+    importe: number
+  }[]
+  productos: number
+  envio: number
+  recargoFuera: number
+  descuento: number
+  billetera: number
+  cobraEnEfectivo: boolean
+  /** El efectivo que se cobra en la puerta. */
+  aCobrar: number
+  /** `null` mientras el pago recibido no cubra el cobro. */
+  cambio: number | null
+  cubre: boolean
 }
 
 /** Respuesta de `POST pedidos/:id/entregar` y de `no-entregar`. */

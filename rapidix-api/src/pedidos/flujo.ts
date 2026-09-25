@@ -1,4 +1,4 @@
-import { EstadoPago, EstadoPedido, MetodoEntrega } from '@prisma/client';
+import { EstadoPago, EstadoPedido, MetodoEntrega, MetodoPago } from '@prisma/client';
 import { Seccion } from '../auth/permisos';
 
 /**
@@ -28,14 +28,16 @@ export interface Transicion {
   entrega?: MetodoEntrega;
   /** Si Finanzas tiene que haber liberado el pago antes. */
   exigeLiberado: boolean;
+  /** Si el dinero tiene que estar cubierto (ver `pagoCubierto`). Solo al entregar. */
+  exigePago?: boolean;
 }
 
 /**
  * Los unicos pasos que existen: siempre uno hacia adelante.
  *
- * Preparar no exige pago liberado: se puede ir surtiendo mientras Finanzas
- * decide. Desde "Listo para entrega" si, porque a partir de ahi la mercancia
- * ya puede salir. Recoger en tienda se entrega en mostrador desde Operaciones;
+ * Preparar no exige pago liberado: se puede ir surtiendo aunque Finanzas lo
+ * tenga retenido. Desde "Listo para entrega" si, porque a partir de ahi la
+ * mercancia ya puede salir (ver `esLiberado`). Recoger en tienda se entrega en mostrador desde Operaciones;
  * a domicilio pasa por Rutas.
  */
 export const TRANSICIONES: readonly Transicion[] = [
@@ -63,6 +65,7 @@ export const TRANSICIONES: readonly Transicion[] = [
     seccion: 'operaciones',
     entrega: MetodoEntrega.TIENDA,
     exigeLiberado: true,
+    exigePago: true,
   },
   {
     de: EstadoPedido.LISTO_PARA_ENTREGA,
@@ -84,16 +87,32 @@ export const TRANSICIONES: readonly Transicion[] = [
     seccion: 'rutas',
     entrega: MetodoEntrega.DOMICILIO,
     exigeLiberado: true,
+    exigePago: true,
   },
 ];
 
 /**
  * "Liberado" no es un estado de pago sino una condicion: todo lo que no es
- * PAGO_PENDIENTE ni RETENER deja entregar. CANCELADO cuenta como liberado a
+ * RETENER deja entregar. PAGO_PENDIENTE tambien: validar cada pedido antes de
+ * que saliera hacia lento el reparto, asi que Finanzas ya no libera sino que
+ * **retiene** el que tenga un problema. CANCELADO cuenta como liberado a
  * proposito; lo frena su propio candado, que se evalua antes.
  */
 export function esLiberado(estadoPago: EstadoPago): boolean {
-  return estadoPago !== EstadoPago.PAGO_PENDIENTE && estadoPago !== EstadoPago.RETENER;
+  return estadoPago !== EstadoPago.RETENER;
+}
+
+/**
+ * Si el dinero permite entregar.
+ *
+ * El efectivo se cobra en la puerta o en el mostrador, asi que se entrega con
+ * el pago pendiente: esperar a PAGADO seria esperar al corte, que llega
+ * despues. Lo demas (transferencia) tiene que estar PAGADO, o con CREDITO,
+ * que es justo Finanzas autorizando entregar sin cobrar.
+ */
+export function pagoCubierto(metodoPago: MetodoPago, estadoPago: EstadoPago): boolean {
+  if (estadoPago === EstadoPago.PAGADO || estadoPago === EstadoPago.CREDITO) return true;
+  return metodoPago === MetodoPago.EFECTIVO && estadoPago === EstadoPago.PAGO_PENDIENTE;
 }
 
 export type CodigoBloqueo =
@@ -102,7 +121,8 @@ export type CodigoBloqueo =
   | 'SOLO_EN_TIENDA'
   | 'PEDIDO_CANCELADO'
   | 'PAGO_RETENIDO'
-  | 'PAGO_NO_LIBERADO';
+  | 'PAGO_NO_LIBERADO'
+  | 'PAGO_NO_CUBIERTO';
 
 export interface Bloqueo {
   codigo: CodigoBloqueo;
@@ -114,6 +134,7 @@ export interface PedidoEnFlujo {
   estado: EstadoPedido;
   estadoPago: EstadoPago;
   metodoEntrega: MetodoEntrega;
+  metodoPago: MetodoPago;
 }
 
 /**
@@ -176,6 +197,15 @@ export function evaluarAvance(
       bloqueo: {
         codigo: 'PAGO_NO_LIBERADO',
         mensaje: `Finanzas debe liberar el pago antes de marcarlo "${NOMBRE_ESTADO_PEDIDO[destino]}".`,
+      },
+    };
+  }
+  if (transicion.exigePago && !pagoCubierto(pedido.metodoPago, pedido.estadoPago)) {
+    return {
+      bloqueo: {
+        codigo: 'PAGO_NO_CUBIERTO',
+        mensaje:
+          'Falta el pago: Finanzas debe marcarlo "Pagado" o darle "Crédito" antes de entregarlo.',
       },
     };
   }
