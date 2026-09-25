@@ -20,7 +20,6 @@ import SkeletonList from '@/components/SkeletonList.vue'
 import EvidenciaEntrega from '@/components/EvidenciaEntrega.vue'
 import EntregaModal from './rutas/EntregaModal.vue'
 import NoEntregadoModal from './rutas/NoEntregadoModal.vue'
-import CorteModal from './rutas/CorteModal.vue'
 import { nombreEntrega, nombreMotivo, TITULO_PASO } from './rutas/etiquetas'
 import { cobraEnEfectivo } from './rutas/cobro'
 import type {
@@ -51,12 +50,11 @@ const cargando = ref(true)
 const moviendo = ref<string | null>(null)
 const abierto = ref<string | null>(null)
 
-/** Las hojas: contar la entrega, explicar el intento fallido, crear una entrega y el corte. */
+/** Las hojas: contar la entrega, explicar el intento fallido y crear una entrega. */
 const enHoja = ref<string | null>(null)
 /** Por id: al dar un paso desde la hoja se relee y la hoja sigue con el pedido al día. */
 const entregando = computed(() => pedidos.value.find((p) => p.id === enHoja.value) ?? null)
 const noEntregando = ref<PedidoEnRuta | null>(null)
-const corteAbierto = ref(false)
 const creandoEntrega = ref(false)
 const nombreNueva = ref('')
 const enviandoEntrega = ref(false)
@@ -147,17 +145,6 @@ async function abrirJornada(): Promise<void> {
   await cargar(false)
 }
 
-/** «Finalizar entregas»: no sale nada más hoy, pero la jornada vive hasta el corte. */
-async function finalizarJornada(): Promise<void> {
-  try {
-    jornada.value = await http.post<Jornada>('/admin/rutas/jornada/finalizar')
-    ui.info('Entregas finalizadas. Falta tu corte para cerrar el día.')
-  } catch (fallo) {
-    ui.errorDeApi(fallo)
-  }
-  await cargar(false)
-}
-
 // ------------------------------------------------------------------
 // El camión
 // ------------------------------------------------------------------
@@ -240,15 +227,6 @@ function alNoEntregar(): void {
   void cargar(false)
 }
 
-/**
- * Cerrar la hoja del corte relee el tablero: si llegó a cortar, la jornada ya
- * murió y el camión está vacío.
- */
-function cerrarCorte(): void {
-  corteAbierto.value = false
-  void cargar(false)
-}
-
 function abrirNoEntregado(pedido: PedidoEnRuta): void {
   noEntregando.value = pedido
 }
@@ -323,16 +301,9 @@ function sinAceptar(pedido: PedidoEnRuta): RenglonDeCarga[] {
         <button v-if="!trabajando" type="button" class="btn-primary" @click="abrirJornada">
           {{ jornada ? 'Reanudar entregas' : 'Inicio de entregas' }}
         </button>
-        <template v-else>
-          <button type="button" class="btn-primary" @click="abrirCrearEntrega">
-            + Crear entrega
-          </button>
-          <button type="button" class="btn-secondary" @click="finalizarJornada">
-            Finalizar entregas
-          </button>
-        </template>
-        <button v-if="jornada" type="button" class="btn-secondary" @click="corteAbierto = true">
-          Hacer mi corte
+        <!-- Finalizar y hacer el corte son de cada entrega: están dentro de ella. -->
+        <button v-else type="button" class="btn-primary" @click="abrirCrearEntrega">
+          + Crear entrega
         </button>
       </div>
     </section>
@@ -349,6 +320,7 @@ function sinAceptar(pedido: PedidoEnRuta): RenglonDeCarga[] {
               <th class="num">Recolectados</th>
               <th class="num">En ruta</th>
               <th class="num">Entregados</th>
+              <th>Estado</th>
               <th></th>
             </tr>
           </thead>
@@ -362,6 +334,13 @@ function sinAceptar(pedido: PedidoEnRuta): RenglonDeCarga[] {
               <td class="num">{{ entrega.recolectados }}</td>
               <td class="num">{{ entrega.enRuta }}</td>
               <td class="num">{{ entrega.entregados }}</td>
+              <td>
+                <span class="mini-tag" :class="{ viva: !entrega.cortada && !entrega.finalizadaEn }">
+                  {{
+                    entrega.cortada ? 'Cortada' : entrega.finalizadaEn ? 'Finalizada' : 'Abierta'
+                  }}
+                </span>
+              </td>
               <td class="accion">
                 <RouterLink :to="`/admin/rutas/entregas/${entrega.id}`" class="btn-secondary abrir">
                   Abrir →
@@ -512,15 +491,14 @@ function sinAceptar(pedido: PedidoEnRuta): RenglonDeCarga[] {
                 </p>
                 <p
                   v-else-if="
-                    !trabajando && pedido.paso.siguiente && pedido.paso.seccion === 'rutas'
+                    jornada &&
+                    !trabajando &&
+                    pedido.paso.siguiente &&
+                    pedido.paso.seccion === 'rutas'
                   "
                   class="bloqueo"
                 >
-                  {{
-                    jornada
-                      ? 'Finalizaste las entregas de hoy: reanúdalas o haz tu corte.'
-                      : 'Inicia tu jornada para mover pedidos.'
-                  }}
+                  Tu jornada está finalizada: reanúdala para seguir.
                 </p>
               </td>
             </tr>
@@ -673,8 +651,6 @@ function sinAceptar(pedido: PedidoEnRuta): RenglonDeCarga[] {
         </div>
       </div>
     </div>
-
-    <CorteModal v-if="corteAbierto" @cortado="cargar(false)" @cerrar="cerrarCorte" />
   </div>
 </template>
 
@@ -766,6 +742,11 @@ function sinAceptar(pedido: PedidoEnRuta): RenglonDeCarga[] {
   font-size: 12px;
   text-decoration: none;
   box-shadow: none;
+}
+
+.mini-tag.viva {
+  background: color-mix(in srgb, var(--verde) 15%, var(--white));
+  color: var(--verde-compra);
 }
 
 .mini-tag.entrega {

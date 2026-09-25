@@ -71,12 +71,6 @@ export class RutasController {
     return this.rutas.abrirJornada(usuario);
   }
 
-  /** "Finalizar entregas". La jornada sigue viva hasta el corte. */
-  @Post('jornada/finalizar')
-  finalizar(@UsuarioActual() usuario: UsuarioAutenticado): Promise<JornadaDto> {
-    return this.rutas.finalizarJornada(usuario);
-  }
-
   /** "Crear entrega": un viaje nuevo de la jornada, con el siguiente numero. */
   @Post('entregas')
   crearEntrega(
@@ -93,6 +87,50 @@ export class RutasController {
     @UsuarioActual() usuario: UsuarioAutenticado,
   ): Promise<DetalleEntregaRutaDto> {
     return this.rutas.detalleEntrega(id, usuario);
+  }
+
+  /** "Finalizar entrega": ya no sale nada mas en ella. Sigue viva hasta su corte. */
+  @Post('entregas/:id/finalizar')
+  finalizarEntrega(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UsuarioActual() usuario: UsuarioAutenticado,
+  ): Promise<EntregaRutaDto> {
+    return this.rutas.finalizarEntrega(id, usuario);
+  }
+
+  /** La vuelve a abrir mientras no tenga corte. */
+  @Post('entregas/:id/reanudar')
+  reanudarEntrega(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UsuarioActual() usuario: UsuarioAutenticado,
+  ): Promise<EntregaRutaDto> {
+    return this.rutas.reanudarEntrega(id, usuario);
+  }
+
+  /**
+   * Lo que el sistema dice que trae de esta entrega, para que cuente contra un
+   * número. No cambia nada: se puede pedir las veces que haga falta.
+   */
+  @Get('entregas/:id/corte')
+  previsualizarCorte(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UsuarioActual() usuario: UsuarioAutenticado,
+  ): Promise<ResumenCorteDto> {
+    return this.cortes.previsualizar(usuario, id);
+  }
+
+  /**
+   * Corta la entrega: liquida lo entregado y **descarga su parte del camión**,
+   * que es donde la mercancía devuelta vuelve por fin a bodega. El corte de la
+   * última entrega viva cierra también la jornada.
+   */
+  @Post('entregas/:id/corte')
+  cerrarCorte(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CerrarCorteDto,
+    @UsuarioActual() usuario: UsuarioAutenticado,
+  ): Promise<CorteDto> {
+    return this.cortes.cerrar(usuario, id, dto);
   }
 
   /**
@@ -164,27 +202,6 @@ export class RutasController {
     @UsuarioActual() usuario: UsuarioAutenticado,
   ): Promise<ResultadoEntregaDto> {
     return this.rutas.noEntregar(id, dto, usuario);
-  }
-
-  /**
-   * Lo que el sistema dice que trae, para que cuente contra un número. No
-   * cambia nada: se puede pedir las veces que haga falta.
-   */
-  @Get('corte')
-  previsualizarCorte(@UsuarioActual() usuario: UsuarioAutenticado): Promise<ResumenCorteDto> {
-    return this.cortes.previsualizar(usuario);
-  }
-
-  /**
-   * Cierra la jornada: liquida lo entregado y **descarga el camión**, que es
-   * donde la mercancía devuelta vuelve por fin a bodega.
-   */
-  @Post('corte')
-  cerrarCorte(
-    @Body() dto: CerrarCorteDto,
-    @UsuarioActual() usuario: UsuarioAutenticado,
-  ): Promise<CorteDto> {
-    return this.cortes.cerrar(usuario, dto);
   }
 
   /** Corrige lo declarado, mientras Finanzas no lo haya recibido. */

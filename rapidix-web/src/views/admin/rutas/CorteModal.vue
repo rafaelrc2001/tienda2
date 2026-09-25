@@ -1,6 +1,7 @@
 <script setup lang="ts">
 /**
- * El corte del día: el dinero que se entrega y la mercancía que regresa.
+ * El corte de una entrega: el dinero que se entrega y la mercancía que regresa.
+ * Cada entrega se corta por su lado; la última viva cierra también la jornada.
  *
  * Primero se enseña lo que el sistema dice que trae —para que cuente contra un
  * número y no contra su memoria— y aparte se captura lo que él declara. Los dos
@@ -13,6 +14,13 @@ import { onMounted, ref } from 'vue'
 import { ErrorApi, http } from '@/api/http'
 import { dinero, fechaNumerica, nombreEstadoPedido } from '@/utils/formato'
 import type { Corte, ResumenCorte } from '@/api/tipos'
+
+const props = defineProps<{
+  /** La entrega que se corta. */
+  entregaId: string
+  /** Su nombre, para el título: «Entrega 2 · Centro». */
+  titulo: string
+}>()
 
 const emit = defineEmits<{ (e: 'cerrar'): void; (e: 'cortado'): void }>()
 
@@ -28,10 +36,12 @@ const notas = ref('')
 
 onMounted(async () => {
   try {
-    resumen.value = await http.get<ResumenCorte>('/admin/rutas/corte')
+    resumen.value = await http.get<ResumenCorte>(`/admin/rutas/entregas/${props.entregaId}/corte`)
   } catch (fallo) {
     error.value =
-      fallo instanceof ErrorApi ? fallo.message : 'No pudimos calcular tu corte. Inténtalo otra vez.'
+      fallo instanceof ErrorApi
+        ? fallo.message
+        : 'No pudimos calcular tu corte. Inténtalo otra vez.'
   } finally {
     cargando.value = false
   }
@@ -46,11 +56,11 @@ async function cerrarCorte(): Promise<void> {
   enviando.value = true
   error.value = ''
   try {
-    corte.value = await http.post<Corte>('/admin/rutas/corte', {
+    corte.value = await http.post<Corte>(`/admin/rutas/entregas/${props.entregaId}/corte`, {
       montoDeclarado: declarado.value,
       ...(notas.value.trim() ? { notas: notas.value.trim() } : {}),
     })
-    // La jornada ya no existe: el tablero de atrás tiene que releerse.
+    // La entrega quedó cortada: la pantalla de atrás tiene que releerse.
     emit('cortado')
   } catch (fallo) {
     error.value =
@@ -88,9 +98,10 @@ async function corregir(): Promise<void> {
 
 <template>
   <div class="modal-overlay" @click.self="emit('cerrar')">
-    <div class="modal-sheet" role="dialog" aria-label="Corte del día">
+    <div class="modal-sheet" role="dialog" aria-label="Corte de la entrega">
       <div class="modal-handle" />
       <p class="modal-title">{{ corte ? 'Tu corte quedó cerrado' : 'Hacer mi corte' }}</p>
+      <p class="de-entrega">{{ titulo }}</p>
 
       <p v-if="cargando" class="aviso">Calculando lo que traes…</p>
 
@@ -130,7 +141,7 @@ async function corregir(): Promise<void> {
             <span>Efectivo que dice el sistema</span>
             <span>{{ dinero(resumen.montoCalculado) }}</span>
           </div>
-          <p class="aviso">No entregaste nada en esta jornada.</p>
+          <p class="aviso">No entregaste nada en esta entrega.</p>
         </div>
 
         <p class="regresan">
@@ -139,7 +150,10 @@ async function corregir(): Promise<void> {
             y {{ resumen.pedidosQueRegresan }} pedido(s) sin entregar vuelven a la cola para salir
             otro día
           </template>
-          . Tu camión queda vacío.
+          .
+          <template v-if="resumen.cierraJornada">
+            Es tu última entrega abierta: con este corte se cierra tu jornada.
+          </template>
         </p>
 
         <label class="form-label" for="declarado">¿Cuánto dinero entregas?</label>
@@ -159,7 +173,7 @@ async function corregir(): Promise<void> {
           class="form-textarea"
           rows="2"
           maxlength="1000"
-          placeholder="Novedades de la jornada (opcional)"
+          placeholder="Novedades de la entrega (opcional)"
         />
 
         <p v-if="error" class="form-error">{{ error }}</p>
@@ -169,7 +183,7 @@ async function corregir(): Promise<void> {
             Volver
           </button>
           <button type="button" class="btn-primary" :disabled="enviando" @click="cerrarCorte">
-            {{ enviando ? 'Cerrando…' : 'Cerrar mi jornada' }}
+            {{ enviando ? 'Cerrando…' : 'Cerrar el corte' }}
           </button>
         </div>
       </template>
@@ -177,7 +191,9 @@ async function corregir(): Promise<void> {
       <!-- Cerrado: lo que quedó escrito, y la última oportunidad de corregirlo. -->
       <template v-else-if="corte">
         <div class="bloque">
-          <div class="fila"><span>Cerrado</span><span>{{ fechaNumerica(corte.cerradoEn) }}</span></div>
+          <div class="fila">
+            <span>Cerrado</span><span>{{ fechaNumerica(corte.cerradoEn) }}</span>
+          </div>
           <div class="fila">
             <span>Dice el sistema</span><span>{{ dinero(corte.montoCalculado) }}</span>
           </div>
@@ -226,6 +242,13 @@ async function corregir(): Promise<void> {
 </template>
 
 <style scoped>
+.de-entrega {
+  margin: -6px 0 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
 .aviso {
   margin: 0 0 12px;
   font-size: 12.5px;

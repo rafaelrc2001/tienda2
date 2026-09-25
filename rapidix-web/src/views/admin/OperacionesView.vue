@@ -196,7 +196,7 @@ function marcarTodos(): void {
 
 <template>
   <div class="pantalla-panel sin-colchon">
-    <!-- La libreta, a la derecha del título de la barra. -->
+    <!-- La libreta, en el extremo derecho de la barra, frente a la hamburguesa. -->
     <Teleport defer to="#topbar-acciones">
       <button
         type="button"

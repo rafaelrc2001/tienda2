@@ -2,6 +2,10 @@
 /**
  * Rutas → una entrega: el viaje que se está armando o repartiendo.
  *
+ * En la cabecera, lo que cierra la entrega: «Finalizar entrega» (o reanudarla)
+ * y «Hacer mi corte». Son de cada entrega, no de la jornada: cada viaje se
+ * cierra y se liquida por su lado.
+ *
  * Arriba, los pedidos de esta entrega con el paso que les toca: «En ruta» (o
  * quitarlo mientras no haya salido), «Entregar» y «No entregado». Abajo, lo
  * que espera en bodega, con «Recolectado» para subirlo a esta entrega.
@@ -18,9 +22,10 @@ import { dinero, fechaNumerica, nombreEstadoPedido, nombreMetodoPago } from '@/u
 import SkeletonList from '@/components/SkeletonList.vue'
 import EntregaModal from './rutas/EntregaModal.vue'
 import NoEntregadoModal from './rutas/NoEntregadoModal.vue'
+import CorteModal from './rutas/CorteModal.vue'
 import { nombreEntrega, TITULO_PASO } from './rutas/etiquetas'
 import { cobraEnEfectivo } from './rutas/cobro'
-import type { DetalleEntregaRuta, PedidoEnRuta, ResultadoEntrega } from '@/api/tipos'
+import type { DetalleEntregaRuta, EntregaRuta, PedidoEnRuta, ResultadoEntrega } from '@/api/tipos'
 
 const route = useRoute()
 const ui = useUiStore()
@@ -34,6 +39,8 @@ const moviendo = ref<string | null>(null)
  */
 const enHoja = ref<string | null>(null)
 const noEntregando = ref<PedidoEnRuta | null>(null)
+const corteAbierto = ref(false)
+const cerrando = ref(false)
 
 const entregando = computed(() => {
   if (!enHoja.value || !detalle.value) return null
@@ -67,23 +74,61 @@ watch(
 )
 
 /**
- * Se puede mover algo si la entrega es de la jornada viva y la jornada no se
- * ha finalizado. Si no, la pantalla se consulta y dice por qué.
+ * Se puede mover algo si la entrega sigue abierta —sin corte, de la jornada
+ * viva— y no se ha finalizado. Si no, la pantalla se consulta y dice por qué.
  */
 const puedeMover = computed(
   () =>
     detalle.value !== null &&
     detalle.value.abierta &&
+    detalle.value.entrega.finalizadaEn === null &&
     detalle.value.jornada !== null &&
     detalle.value.jornada.finalizadaEn === null,
 )
 
 const avisoBloqueo = computed(() => {
   if (!detalle.value || puedeMover.value) return ''
+  if (detalle.value.entrega.cortada) return 'Esta entrega ya tiene su corte: solo se consulta.'
   if (!detalle.value.abierta)
     return 'Esta entrega es de una jornada que ya se cortó: solo se consulta.'
-  return 'Finalizaste las entregas de hoy: reanúdalas en Rutas para mover esta entrega.'
+  if (detalle.value.entrega.finalizadaEn)
+    return 'Finalizaste esta entrega: reanúdala para moverla o haz su corte.'
+  return 'Tu jornada está finalizada: reanúdala en Rutas para mover esta entrega.'
 })
+
+// ------------------------------------------------------------------
+// Cerrar la entrega
+// ------------------------------------------------------------------
+
+/**
+ * «Finalizar entrega» y su vuelta atrás. No exige que todo esté entregado: lo
+ * que no se entregó regresa a bodega al cortarla.
+ */
+async function finalizarOReanudar(): Promise<void> {
+  if (!detalle.value || cerrando.value) return
+  const finalizar = detalle.value.entrega.finalizadaEn === null
+  cerrando.value = true
+  try {
+    const entrega = await http.post<EntregaRuta>(
+      `/admin/rutas/entregas/${detalle.value.entrega.id}/${finalizar ? 'finalizar' : 'reanudar'}`,
+      {},
+    )
+    detalle.value.entrega = entrega
+    if (finalizar) ui.info(`${nombreEntrega(entrega)} finalizada. Falta su corte para cerrarla.`)
+    else ui.exito(`${nombreEntrega(entrega)} reanudada.`)
+  } catch (fallo) {
+    ui.errorDeApi(fallo)
+  } finally {
+    cerrando.value = false
+  }
+  await cargar(false)
+}
+
+/** Cerrar la hoja del corte relee: si llegó a cortar, la entrega ya solo se consulta. */
+function cerrarCorte(): void {
+  corteAbierto.value = false
+  void cargar(false)
+}
 
 // ------------------------------------------------------------------
 // Acciones
@@ -195,15 +240,36 @@ function faltaPago(pedido: PedidoEnRuta): boolean {
     <SkeletonList v-if="cargando" :cantidad="3" />
 
     <template v-else-if="detalle">
-      <header class="cabeza">
-        <p class="titulo">{{ nombreEntrega(detalle.entrega) }}</p>
-        <p class="cuenta">
-          {{ detalle.entrega.pedidos }} pedido(s) · {{ detalle.entrega.recolectados }} en el camión
-          · {{ detalle.entrega.enRuta }} en ruta ·
-          {{ detalle.entrega.entregados }}
-          entregado(s)
-        </p>
-        <p v-if="avisoBloqueo" class="bloqueo">{{ avisoBloqueo }}</p>
+      <header class="cabeza" :class="{ cerrada: !puedeMover }">
+        <div class="datos">
+          <p class="titulo">
+            {{ nombreEntrega(detalle.entrega) }}
+            <span v-if="detalle.entrega.cortada" class="mini-tag">Cortada</span>
+            <span v-else-if="detalle.entrega.finalizadaEn" class="mini-tag">Finalizada</span>
+          </p>
+          <p class="cuenta">
+            {{ detalle.entrega.pedidos }} pedido(s) · {{ detalle.entrega.recolectados }} en el
+            camión · {{ detalle.entrega.enRuta }} en ruta ·
+            {{ detalle.entrega.entregados }}
+            entregado(s)
+          </p>
+          <p v-if="avisoBloqueo" class="bloqueo">{{ avisoBloqueo }}</p>
+        </div>
+
+        <!-- Lo que cierra esta entrega, y solo esta: cada viaje se liquida por su lado. -->
+        <div v-if="detalle.abierta" class="acciones">
+          <button
+            type="button"
+            class="btn-secondary"
+            :disabled="cerrando"
+            @click="finalizarOReanudar"
+          >
+            {{ detalle.entrega.finalizadaEn ? 'Reanudar entrega' : 'Finalizar entrega' }}
+          </button>
+          <button type="button" class="btn-secondary" @click="corteAbierto = true">
+            Hacer mi corte
+          </button>
+        </div>
       </header>
 
       <!-- Los pedidos de esta entrega, con el paso que les toca. -->
@@ -380,6 +446,13 @@ function faltaPago(pedido: PedidoEnRuta): boolean {
       @cerrar="noEntregando = null"
       @guardado="alNoEntregar"
     />
+    <CorteModal
+      v-if="corteAbierto && detalle"
+      :entrega-id="detalle.entrega.id"
+      :titulo="nombreEntrega(detalle.entrega)"
+      @cortado="cargar(false)"
+      @cerrar="cerrarCorte"
+    />
   </div>
 </template>
 
@@ -399,12 +472,37 @@ function faltaPago(pedido: PedidoEnRuta): boolean {
 }
 
 .cabeza {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
   background: var(--white);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow);
   border-left: 4px solid var(--verde);
   padding: 12px 14px;
   margin-bottom: 14px;
+}
+
+.cabeza.cerrada {
+  border-left-color: var(--line);
+}
+
+.cabeza .datos {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+.cabeza .acciones {
+  display: flex;
+  gap: 8px;
+  flex: 1 1 320px;
+}
+
+.cabeza .acciones button {
+  flex: 1;
+  padding: 9px 8px;
+  font-size: 12px;
 }
 
 .cabeza .titulo {

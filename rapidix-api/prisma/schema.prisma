@@ -777,7 +777,8 @@ model SesionEntrega {
 
 /// Una entrega (viaje) del repartidor: un grupo de pedidos que sube al camion
 /// y sale junto, p. ej. los de una zona. Un repartidor puede tener varias a la
-/// vez dentro de su jornada; el corte sigue siendo uno por jornada y las junta.
+/// vez dentro de su jornada, y cada una se finaliza y se corta por su lado: el
+/// corte de la ultima entrega viva es el que cierra la jornada.
 ///
 /// Que un pedido no este en dos entregas lo garantiza el esquema: el pedido
 /// guarda **una** `entregaRutaId`. Se suelta al quitarlo antes de salir o al
@@ -798,10 +799,18 @@ model EntregaRuta {
 
   creadoEn DateTime @default(now())
 
+  /// "Finalizar entrega": ya no sale nada mas en ella. Vuelve a null si se
+  /// reanuda; mientras no tenga corte sigue siendo la misma entrega.
+  finalizadaEn DateTime?
+  /// Cada entrega se corta por su lado. Mientras es null sigue viva.
+  corteId      String?
+  corte        Corte?    @relation(fields: [corteId], references: [id])
+
   pedidos Pedido[]
 
   @@unique([sesionId, numero])
   @@index([repartidorId])
+  @@index([corteId])
   @@map("entregas_ruta")
 }
 
@@ -913,6 +922,7 @@ model Corte {
 
   pedidos  Pedido[]
   sesiones SesionEntrega[]
+  entregas EntregaRuta[]
   abonos   CorteAbono[]
 
   @@index([estado, cerradoEn])
