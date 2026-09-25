@@ -25,79 +25,64 @@
  * paso lo da quien abrió la hoja; al releer, el pedido llega con otro estado y
  * la hoja se vuelve a montar (`:key`), ya con la carga del camión.
  */
-import {
-  computed,
-  onBeforeUnmount,
-  onMounted,
-  reactive,
-  ref,
-  watch,
-} from "vue";
-import { ErrorApi, http, subirAUrlFirmada } from "@/api/http";
-import { dinero, nombreEstadoPedido, nombreMetodoPago } from "@/utils/formato";
-import { reducirImagen } from "@/utils/reducirImagen";
-import {
-  itemsDeLaEntrega,
-  pendientesParaConfirmar,
-  piezasDelRecuento,
-} from "./recuento";
-import { MOTIVOS, TITULO_PASO } from "./etiquetas";
-import type { RenglonContado } from "./recuento";
-import type {
-  PedidoEnRuta,
-  PrevisualizacionEntrega,
-  ResultadoEntrega,
-} from "@/api/tipos";
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { ErrorApi, http, subirAUrlFirmada } from '@/api/http'
+import { dinero, nombreEstadoPedido, nombreMetodoPago } from '@/utils/formato'
+import { reducirImagen } from '@/utils/reducirImagen'
+import { itemsDeLaEntrega, pendientesParaConfirmar, piezasDelRecuento } from './recuento'
+import { MOTIVOS, TITULO_PASO } from './etiquetas'
+import type { RenglonContado } from './recuento'
+import type { PedidoEnRuta, PrevisualizacionEntrega, ResultadoEntrega } from '@/api/tipos'
 
-type PasoDeHoja = "RECOLECTADO" | "EN_RUTA";
+type PasoDeHoja = 'RECOLECTADO' | 'EN_RUTA'
 
 const props = withDefaults(
   defineProps<{
-    pedido: PedidoEnRuta;
+    pedido: PedidoEnRuta
     /** Hay jornada viva: sin ella no se mueve nada. */
-    puedeMover?: boolean;
+    puedeMover?: boolean
     /** Recolectar es de una entrega: solo se ofrece desde dentro de una. */
-    recolectarAqui?: boolean;
+    recolectarAqui?: boolean
     /** El padre está dando un paso: los botones se apagan mientras. */
-    moviendo?: boolean;
+    moviendo?: boolean
   }>(),
   { puedeMover: true, recolectarAqui: false, moviendo: false },
-);
+)
 const emit = defineEmits<{
-  (e: "cerrar"): void;
-  (e: "entregado", resultado: ResultadoEntrega): void;
+  (e: 'cerrar'): void
+  (e: 'entregado', resultado: ResultadoEntrega): void
   /** «Cancelar / Reportar incidencia»: lo lleva a «No entregado». */
-  (e: "incidencia"): void;
+  (e: 'incidencia'): void
   /** Un paso previo a la puerta; lo da el padre, que sabe en qué entrega va. */
-  (e: "paso", estado: PasoDeHoja): void;
-}>();
+  (e: 'paso', estado: PasoDeHoja): void
+}>()
 
 /** Solo en ruta se cuenta, se cobra y se firma; antes, la hoja es de consulta. */
-const entregable = props.pedido.estado === "EN_RUTA";
+const entregable = props.pedido.estado === 'EN_RUTA'
 
-const TIPOS_PERMITIDOS = ["image/jpeg", "image/png", "image/webp"];
-const TAMANO_MAXIMO_BYTES = 5 * 1024 * 1024;
+const TIPOS_PERMITIDOS = ['image/jpeg', 'image/png', 'image/webp']
+const TAMANO_MAXIMO_BYTES = 5 * 1024 * 1024
 
 /** Lo que la API firma para subir una imagen. */
 interface FirmaSubida {
-  urlSubida: string;
-  urlPublica: string;
-  clave: string;
-  destino: "S3" | "LOCAL";
+  urlSubida: string
+  urlPublica: string
+  clave: string
+  destino: 'S3' | 'LOCAL'
 }
 
 /** La copia de la dirección que se congeló en el pedido. */
 interface DireccionPedido {
-  quienRecibe?: string | null;
-  telefono?: string | null;
-  calle?: string | null;
-  colonia?: string | null;
-  cp?: string | null;
-  ciudad?: string | null;
-  estado?: string | null;
-  referencias?: string | null;
-  lat?: number | null;
-  lng?: number | null;
+  quienRecibe?: string | null
+  telefono?: string | null
+  calle?: string | null
+  colonia?: string | null
+  cp?: string | null
+  ciudad?: string | null
+  estado?: string | null
+  referencias?: string | null
+  lat?: number | null
+  lng?: number | null
 }
 
 // ------------------------------------------------------------------
@@ -105,12 +90,12 @@ interface DireccionPedido {
 // ------------------------------------------------------------------
 
 const destino = computed(() => {
-  const d = (props.pedido.direccion ?? {}) as DireccionPedido;
-  const calle = [d.calle, d.colonia].filter(Boolean).join(", ");
-  const ciudad = [d.ciudad, d.estado, d.cp].filter(Boolean).join(", ");
-  const texto = [calle, ciudad].filter(Boolean).join(", ");
+  const d = (props.pedido.direccion ?? {}) as DireccionPedido
+  const calle = [d.calle, d.colonia].filter(Boolean).join(', ')
+  const ciudad = [d.ciudad, d.estado, d.cp].filter(Boolean).join(', ')
+  const texto = [calle, ciudad].filter(Boolean).join(', ')
   return {
-    nombre: d.quienRecibe || props.pedido.clienteNombre || "—",
+    nombre: d.quienRecibe || props.pedido.clienteNombre || '—',
     telefono: d.telefono || null,
     calle,
     ciudad,
@@ -122,23 +107,23 @@ const destino = computed(() => {
         : texto
           ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(texto)}`
           : null,
-  };
-});
+  }
+})
 
-const YA_RECOLECTADO = ["RECOLECTADO", "EN_RUTA", "ENTREGADO"];
-const YA_EN_RUTA = ["EN_RUTA", "ENTREGADO"];
+const YA_RECOLECTADO = ['RECOLECTADO', 'EN_RUTA', 'ENTREGADO']
+const YA_EN_RUTA = ['EN_RUTA', 'ENTREGADO']
 
 /**
  * Los pasos antes de la puerta. Solo se enciende el que toca, y solo si la API
  * no lo bloquea (pago, cancelado) y hay jornada viva; si no, se dice por qué.
  */
 const pasos = computed(() =>
-  (["RECOLECTADO", "EN_RUTA"] as const).map((estado) => {
-    const hecho = (
-      estado === "RECOLECTADO" ? YA_RECOLECTADO : YA_EN_RUTA
-    ).includes(props.pedido.estado);
-    const toca = props.pedido.paso.siguiente === estado;
-    const fueraDeEntrega = estado === "RECOLECTADO" && !props.recolectarAqui;
+  (['RECOLECTADO', 'EN_RUTA'] as const).map((estado) => {
+    const hecho = (estado === 'RECOLECTADO' ? YA_RECOLECTADO : YA_EN_RUTA).includes(
+      props.pedido.estado,
+    )
+    const toca = props.pedido.paso.siguiente === estado
+    const fueraDeEntrega = estado === 'RECOLECTADO' && !props.recolectarAqui
     return {
       estado,
       titulo: TITULO_PASO[estado]!,
@@ -151,31 +136,30 @@ const pasos = computed(() =>
         props.puedeMover &&
         !props.moviendo &&
         !fueraDeEntrega,
-    };
+    }
   }),
-);
+)
 
 /** Por qué el paso que toca no se puede dar desde aquí. */
 const avisoPaso = computed(() => {
-  const paso = pasos.value.find((p) => p.toca);
-  if (!paso) return "";
-  if (props.pedido.paso.bloqueo) return props.pedido.paso.bloqueo.mensaje;
-  if (!props.puedeMover)
-    return "Inicia o reanuda las entregas en Rutas para moverlo.";
-  if (paso.estado === "RECOLECTADO" && !props.recolectarAqui)
-    return "Para recolectarlo, agrégalo desde una de tus entregas.";
-  return "";
-});
+  const paso = pasos.value.find((p) => p.toca)
+  if (!paso) return ''
+  if (props.pedido.paso.bloqueo) return props.pedido.paso.bloqueo.mensaje
+  if (!props.puedeMover) return 'Inicia o reanuda las entregas en Rutas para moverlo.'
+  if (paso.estado === 'RECOLECTADO' && !props.recolectarAqui)
+    return 'Para recolectarlo, agrégalo desde una de tus entregas.'
+  return ''
+})
 
 // ------------------------------------------------------------------
 // Productos
 // ------------------------------------------------------------------
 
 type RenglonEnHoja = RenglonContado & {
-  productoId: string;
-  unidad: string;
-  soloNombre: string;
-};
+  productoId: string
+  unidad: string
+  soloNombre: string
+}
 
 /**
  * Solo lo que sigue arriba del camión. Un renglón ya cerrado es el intento de
@@ -195,97 +179,80 @@ const renglones = reactive<RenglonEnHoja[]>(
       cantidadEntregada: 0,
       motivoDevolucion: null,
     })),
-);
+)
 
-const conteo = computed(() => piezasDelRecuento(renglones));
+const conteo = computed(() => piezasDelRecuento(renglones))
 const aceptados = computed(
-  () =>
-    renglones.filter((r) => r.cantidadEntregada >= r.cantidadCargada).length,
-);
+  () => renglones.filter((r) => r.cantidadEntregada >= r.cantidadCargada).length,
+)
 
 /** Lo que el pedido cotizó por renglón, para enseñarlo mientras no se acepta nada. */
-const importeCotizado = new Map(
-  props.pedido.items.map((i) => [i.productoId, i.importe]),
-);
+const importeCotizado = new Map(props.pedido.items.map((i) => [i.productoId, i.importe]))
 
 function importeDe(renglon: RenglonEnHoja): {
-  valor: number | null;
-  cotizado: boolean;
+  valor: number | null
+  cotizado: boolean
 } {
   if (renglon.cantidadEntregada <= 0) {
     return {
       valor: importeCotizado.get(renglon.productoId) ?? null,
       cotizado: true,
-    };
+    }
   }
-  const previsto = cuenta.value?.renglones.find(
-    (r) => r.pedidoItemId === renglon.pedidoItemId,
-  );
+  const previsto = cuenta.value?.renglones.find((r) => r.pedidoItemId === renglon.pedidoItemId)
   return {
-    valor:
-      previsto?.cantidadEntregada === renglon.cantidadEntregada
-        ? previsto.importe
-        : null,
+    valor: previsto?.cantidadEntregada === renglon.cantidadEntregada ? previsto.importe : null,
     cotizado: false,
-  };
+  }
 }
 
 /** El círculo: todo o nada, que es lo que pasa casi siempre. */
 function alternar(renglon: RenglonEnHoja): void {
   renglon.cantidadEntregada =
-    renglon.cantidadEntregada >= renglon.cantidadCargada
-      ? 0
-      : renglon.cantidadCargada;
-  limpiarMotivo(renglon);
+    renglon.cantidadEntregada >= renglon.cantidadCargada ? 0 : renglon.cantidadCargada
+  limpiarMotivo(renglon)
 }
 
 function ajustar(renglon: RenglonEnHoja, delta: number): void {
-  const contadas = (renglon.cantidadEntregada || 0) + delta;
-  renglon.cantidadEntregada = Math.min(
-    Math.max(contadas, 0),
-    renglon.cantidadCargada,
-  );
-  limpiarMotivo(renglon);
+  const contadas = (renglon.cantidadEntregada || 0) + delta
+  renglon.cantidadEntregada = Math.min(Math.max(contadas, 0), renglon.cantidadCargada)
+  limpiarMotivo(renglon)
 }
 
 /** El motivo acompaña a lo que sobra, y solo a eso. */
 function limpiarMotivo(renglon: RenglonEnHoja): void {
-  if (renglon.cantidadEntregada >= renglon.cantidadCargada)
-    renglon.motivoDevolucion = null;
+  if (renglon.cantidadEntregada >= renglon.cantidadCargada) renglon.motivoDevolucion = null
 }
 
 /** Mientras no ha aceptado nada no se pregunta por qué: todavía está contando. */
 function pideMotivo(renglon: RenglonEnHoja): boolean {
-  return (
-    conteo.value.entregadas > 0 &&
-    renglon.cantidadEntregada < renglon.cantidadCargada
-  );
+  return conteo.value.entregadas > 0 && renglon.cantidadEntregada < renglon.cantidadCargada
 }
 
 // ------------------------------------------------------------------
 // Cobro: la cuenta la hace la API
 // ------------------------------------------------------------------
 
-const pagoRecibido = ref("");
-const cuenta = ref<PrevisualizacionEntrega | null>(null);
-const errorCuenta = ref("");
+const pagoRecibido = ref('')
+const cuenta = ref<PrevisualizacionEntrega | null>(null)
+const errorCuenta = ref('')
 
 /** `null` si está vacío o no es un importe: no se manda. */
 const pagoNumero = computed(() => {
-  const texto = pagoRecibido.value.trim().replace(",", ".");
-  if (!texto) return null;
-  const valor = Number(texto);
-  return Number.isFinite(valor) && valor >= 0 ? valor : null;
-});
+  const texto = pagoRecibido.value.trim().replace(',', '.')
+  if (!texto) return null
+  const valor = Number(texto)
+  return Number.isFinite(valor) && valor >= 0 ? valor : null
+})
 
-let peticion = 0;
-let temporizador: ReturnType<typeof setTimeout> | undefined;
+let peticion = 0
+let temporizador: ReturnType<typeof setTimeout> | undefined
 
 /** Las respuestas viejas se descartan: gana la del último toque. */
 async function recalcular(): Promise<void> {
   // Fuera de ruta la API no previsualiza: no hay nada que cobrar todavía.
-  if (!entregable) return;
-  const numero = ++peticion;
+  if (!entregable) return
+  const numero = ++peticion
   try {
     const respuesta = await http.post<PrevisualizacionEntrega>(
       `/admin/rutas/pedidos/${props.pedido.id}/entregar/previsualizar`,
@@ -296,105 +263,96 @@ async function recalcular(): Promise<void> {
             ? Math.max(r.cantidadEntregada, 0)
             : 0,
         })),
-        ...(pagoNumero.value !== null
-          ? { pagoRecibido: pagoNumero.value }
-          : {}),
+        ...(pagoNumero.value !== null ? { pagoRecibido: pagoNumero.value } : {}),
       },
-    );
-    if (numero !== peticion) return;
-    cuenta.value = respuesta;
-    errorCuenta.value = "";
+    )
+    if (numero !== peticion) return
+    cuenta.value = respuesta
+    errorCuenta.value = ''
   } catch (fallo) {
-    if (numero !== peticion) return;
-    errorCuenta.value =
-      fallo instanceof ErrorApi
-        ? fallo.message
-        : "No pudimos calcular el cobro.";
+    if (numero !== peticion) return
+    errorCuenta.value = fallo instanceof ErrorApi ? fallo.message : 'No pudimos calcular el cobro.'
   }
 }
 
 watch(
   [() => renglones.map((r) => r.cantidadEntregada), pagoNumero],
   () => {
-    clearTimeout(temporizador);
-    temporizador = setTimeout(recalcular, 250);
+    clearTimeout(temporizador)
+    temporizador = setTimeout(recalcular, 250)
   },
   { immediate: true },
-);
+)
 
-const cobraEnEfectivo = computed(() => cuenta.value?.cobraEnEfectivo ?? false);
+const cobraEnEfectivo = computed(() => cuenta.value?.cobraEnEfectivo ?? false)
 
 // ------------------------------------------------------------------
 // Firma y evidencia
 // ------------------------------------------------------------------
 
-const lienzo = ref<HTMLCanvasElement | null>(null);
-const hayFirma = ref(false);
-let trazando = false;
+const lienzo = ref<HTMLCanvasElement | null>(null)
+const hayFirma = ref(false)
+let trazando = false
 
 /** El lienzo se dibuja a la densidad de la pantalla para que el trazo no salga borroso. */
 function prepararLienzo(): void {
-  const canvas = lienzo.value;
-  if (!canvas) return;
-  const escala = window.devicePixelRatio || 1;
-  const { width, height } = canvas.getBoundingClientRect();
-  canvas.width = Math.round(width * escala);
-  canvas.height = Math.round(height * escala);
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
-  ctx.scale(escala, escala);
-  ctx.lineWidth = 2.2;
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  ctx.strokeStyle = "#1f1f1f";
-  hayFirma.value = false;
+  const canvas = lienzo.value
+  if (!canvas) return
+  const escala = window.devicePixelRatio || 1
+  const { width, height } = canvas.getBoundingClientRect()
+  canvas.width = Math.round(width * escala)
+  canvas.height = Math.round(height * escala)
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return
+  ctx.scale(escala, escala)
+  ctx.lineWidth = 2.2
+  ctx.lineCap = 'round'
+  ctx.lineJoin = 'round'
+  ctx.strokeStyle = '#1f1f1f'
+  hayFirma.value = false
 }
 
 function punto(evento: PointerEvent): { x: number; y: number } {
-  const caja = (
-    evento.currentTarget as HTMLCanvasElement
-  ).getBoundingClientRect();
-  return { x: evento.clientX - caja.left, y: evento.clientY - caja.top };
+  const caja = (evento.currentTarget as HTMLCanvasElement).getBoundingClientRect()
+  return { x: evento.clientX - caja.left, y: evento.clientY - caja.top }
 }
 
 function empezarTrazo(evento: PointerEvent): void {
-  const ctx = lienzo.value?.getContext("2d");
-  if (!ctx) return;
-  (evento.currentTarget as HTMLCanvasElement).setPointerCapture(
-    evento.pointerId,
-  );
-  trazando = true;
-  const { x, y } = punto(evento);
-  ctx.beginPath();
-  ctx.moveTo(x, y);
+  const ctx = lienzo.value?.getContext('2d')
+  if (!ctx) return
+  ;(evento.currentTarget as HTMLCanvasElement).setPointerCapture(evento.pointerId)
+  trazando = true
+  const { x, y } = punto(evento)
+  ctx.beginPath()
+  ctx.moveTo(x, y)
 }
 
 function seguirTrazo(evento: PointerEvent): void {
-  if (!trazando) return;
-  const ctx = lienzo.value?.getContext("2d");
-  if (!ctx) return;
-  const { x, y } = punto(evento);
-  ctx.lineTo(x, y);
-  ctx.stroke();
-  hayFirma.value = true;
+  if (!trazando) return
+  const ctx = lienzo.value?.getContext('2d')
+  if (!ctx) return
+  const { x, y } = punto(evento)
+  ctx.lineTo(x, y)
+  ctx.stroke()
+  hayFirma.value = true
 }
 
 function terminarTrazo(): void {
-  trazando = false;
+  trazando = false
 }
 
 function limpiarFirma(): void {
-  const canvas = lienzo.value;
-  canvas?.getContext("2d")?.clearRect(0, 0, canvas.width, canvas.height);
-  hayFirma.value = false;
+  const canvas = lienzo.value
+  canvas?.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height)
+  hayFirma.value = false
 }
 
-const fotoId = ref<string | null>(null);
-const fotoUrl = ref("");
-const subiendo = ref(false);
+const fotoId = ref<string | null>(null)
+const fotoUrl = ref('')
+const subiendo = ref(false)
 /** Se apaga si el almacenamiento responde 503: no se puede exigir lo imposible. */
-const fotoExigible = ref(true);
-const ubicacion = ref<{ lat: number; lng: number } | null>(null);
+const fotoExigible = ref(true)
+const ubicacion = ref<{ lat: number; lng: number } | null>(null)
 
 /**
  * Sube una imagen a la carpeta de entregas y devuelve su URL y el id que la
@@ -402,73 +360,66 @@ const ubicacion = ref<{ lat: number; lng: number } | null>(null);
  * bucket detrás la clave es `entregas/algo.jpg`, que la API rechaza, así que la
  * imagen se sube igual pero no se manda una referencia que no podrá resolver.
  */
-async function subir(
-  archivo: File,
-): Promise<{ url: string; id: string | null }> {
-  const firma = await http.post<FirmaSubida>("/uploads/firma", {
-    carpeta: "entregas",
+async function subir(archivo: File): Promise<{ url: string; id: string | null }> {
+  const firma = await http.post<FirmaSubida>('/uploads/firma', {
+    carpeta: 'entregas',
     contentType: archivo.type,
     tamanoBytes: archivo.size,
-  });
-  await subirAUrlFirmada(firma.urlSubida, archivo);
+  })
+  await subirAUrlFirmada(firma.urlSubida, archivo)
   return {
     url: firma.urlPublica,
-    id: firma.destino === "LOCAL" ? firma.clave : null,
-  };
+    id: firma.destino === 'LOCAL' ? firma.clave : null,
+  }
 }
 
 async function adjuntarFoto(evento: Event): Promise<void> {
-  const entrada = evento.target as HTMLInputElement;
-  const original = entrada.files?.[0];
-  entrada.value = "";
-  if (!original) return;
+  const entrada = evento.target as HTMLInputElement
+  const original = entrada.files?.[0]
+  entrada.value = ''
+  if (!original) return
 
-  error.value = "";
+  error.value = ''
   if (!TIPOS_PERMITIDOS.includes(original.type)) {
-    error.value = "Usa una foto JPG, PNG o WebP.";
-    return;
+    error.value = 'Usa una foto JPG, PNG o WebP.'
+    return
   }
 
-  subiendo.value = true;
+  subiendo.value = true
   try {
     // La foto de la cámara se achica antes de viajar: pesa una fracción y deja
     // de chocar con el tope de 5 MB.
-    const archivo = await reducirImagen(original);
+    const archivo = await reducirImagen(original)
     if (archivo.size > TAMANO_MAXIMO_BYTES) {
-      error.value = "La foto no puede pesar más de 5 MB.";
-      return;
+      error.value = 'La foto no puede pesar más de 5 MB.'
+      return
     }
-    const subida = await subir(archivo);
-    fotoUrl.value = subida.url;
-    fotoId.value = subida.id;
+    const subida = await subir(archivo)
+    fotoUrl.value = subida.url
+    fotoId.value = subida.id
   } catch (fallo) {
     if (fallo instanceof ErrorApi && fallo.estado === 503) {
-      fotoExigible.value = false;
-      error.value =
-        "La subida de fotos no está disponible ahora mismo. Puedes entregar sin ella.";
+      fotoExigible.value = false
+      error.value = 'La subida de fotos no está disponible ahora mismo. Puedes entregar sin ella.'
     } else {
-      error.value = "No pudimos subir la foto. Inténtalo otra vez.";
+      error.value = 'No pudimos subir la foto. Inténtalo otra vez.'
     }
   } finally {
-    subiendo.value = false;
+    subiendo.value = false
   }
 }
 
 /** La firma viaja como PNG al confirmar; si falla, no frena la entrega. */
 async function subirFirma(): Promise<string | null> {
-  const canvas = lienzo.value;
-  if (!canvas || !hayFirma.value) return null;
-  const blob = await new Promise<Blob | null>((resolver) =>
-    canvas.toBlob(resolver, "image/png"),
-  );
-  if (!blob) return null;
+  const canvas = lienzo.value
+  if (!canvas || !hayFirma.value) return null
+  const blob = await new Promise<Blob | null>((resolver) => canvas.toBlob(resolver, 'image/png'))
+  if (!blob) return null
   try {
-    const subida = await subir(
-      new File([blob], "firma.png", { type: "image/png" }),
-    );
-    return subida.id;
+    const subida = await subir(new File([blob], 'firma.png', { type: 'image/png' }))
+    return subida.id
   } catch {
-    return null;
+    return null
   }
 }
 
@@ -477,50 +428,50 @@ async function subirFirma(): Promise<string | null> {
  * repartidor sería un toque más en la puerta. Si la niega, se entrega igual.
  */
 onMounted(() => {
-  if (!entregable) return;
-  prepararLienzo();
+  if (!entregable) return
+  prepararLienzo()
   navigator.geolocation?.getCurrentPosition(
     (posicion) => {
       ubicacion.value = {
         lat: posicion.coords.latitude,
         lng: posicion.coords.longitude,
-      };
+      }
     },
     () => {},
     { enableHighAccuracy: true, timeout: 10000 },
-  );
-});
+  )
+})
 
-onBeforeUnmount(() => clearTimeout(temporizador));
+onBeforeUnmount(() => clearTimeout(temporizador))
 
 // ------------------------------------------------------------------
 // Confirmar
 // ------------------------------------------------------------------
 
-const nota = ref("");
-const enviando = ref(false);
-const error = ref("");
+const nota = ref('')
+const enviando = ref(false)
+const error = ref('')
 
 const pendientes = computed(() =>
   pendientesParaConfirmar({
     renglones,
-    conFoto: fotoUrl.value !== "",
+    conFoto: fotoUrl.value !== '',
     fotoExigible: fotoExigible.value,
     cubre: cuenta.value && !errorCuenta.value ? cuenta.value.cubre : null,
   }),
-);
+)
 
 const puedeConfirmar = computed(
   () => pendientes.value.length === 0 && !subiendo.value && !enviando.value,
-);
+)
 
 async function entregar(): Promise<void> {
-  if (!puedeConfirmar.value) return;
+  if (!puedeConfirmar.value) return
 
-  enviando.value = true;
-  error.value = "";
+  enviando.value = true
+  error.value = ''
   try {
-    const firmaId = await subirFirma();
+    const firmaId = await subirFirma()
     const resultado = await http.post<ResultadoEntrega>(
       `/admin/rutas/pedidos/${props.pedido.id}/entregar`,
       {
@@ -533,15 +484,15 @@ async function entregar(): Promise<void> {
           : {}),
         ...(nota.value.trim() ? { nota: nota.value.trim() } : {}),
       },
-    );
-    emit("entregado", resultado);
+    )
+    emit('entregado', resultado)
   } catch (fallo) {
     error.value =
       fallo instanceof ErrorApi
         ? fallo.message
-        : "No pudimos cerrar la entrega. Inténtalo otra vez.";
+        : 'No pudimos cerrar la entrega. Inténtalo otra vez.'
   } finally {
-    enviando.value = false;
+    enviando.value = false
   }
 }
 </script>
@@ -551,14 +502,7 @@ async function entregar(): Promise<void> {
     <div class="modal-sheet hoja" role="dialog" aria-label="Detalle y entrega">
       <header class="cabecera">
         <p class="titulo">Detalle y entrega {{ pedido.folio }}</p>
-        <button
-          type="button"
-          class="cerrar"
-          aria-label="Cerrar"
-          @click="emit('cerrar')"
-        >
-          ✕
-        </button>
+        <button type="button" class="cerrar" aria-label="Cerrar" @click="emit('cerrar')">✕</button>
       </header>
 
       <div class="cuerpo">
@@ -566,9 +510,7 @@ async function entregar(): Promise<void> {
         <section class="tarjeta">
           <div class="encabezado">
             <p class="etiqueta">Resumen del pedido</p>
-            <span class="estado">{{
-              nombreEstadoPedido(pedido.estado, pedido.pago.estado)
-            }}</span>
+            <span class="estado">{{ nombreEstadoPedido(pedido.estado, pedido.pago.estado) }}</span>
           </div>
           <p class="fila-nombre">
             <span class="apagado">Nombre</span>
@@ -576,15 +518,9 @@ async function entregar(): Promise<void> {
           </p>
           <p v-if="destino.calle" class="apagado">{{ destino.calle }}</p>
           <p v-if="destino.ciudad" class="apagado">{{ destino.ciudad }}</p>
-          <p v-if="destino.referencias" class="referencias">
-            🏠 {{ destino.referencias }}
-          </p>
+          <p v-if="destino.referencias" class="referencias">🏠 {{ destino.referencias }}</p>
           <div class="dos">
-            <a
-              v-if="destino.telefono"
-              :href="`tel:${destino.telefono}`"
-              class="boton-claro"
-            >
+            <a v-if="destino.telefono" :href="`tel:${destino.telefono}`" class="boton-claro">
               📞 {{ destino.telefono }}
             </a>
             <span v-else class="boton-claro apagado">📞 Sin tel.</span>
@@ -623,11 +559,7 @@ async function entregar(): Promise<void> {
         <template v-if="!entregable">
           <p class="etiqueta seccion">Lista de productos</p>
           <ul class="productos">
-            <li
-              v-for="item in pedido.items"
-              :key="item.productoId"
-              class="tarjeta producto"
-            >
+            <li v-for="item in pedido.items" :key="item.productoId" class="tarjeta producto">
               <div class="linea">
                 <span class="nombre">
                   {{ item.nombre }}
@@ -653,25 +585,14 @@ async function entregar(): Promise<void> {
             </span>
           </div>
           <ul class="productos">
-            <li
-              v-for="renglon in renglones"
-              :key="renglon.pedidoItemId"
-              class="tarjeta producto"
-            >
+            <li v-for="renglon in renglones" :key="renglon.pedidoItemId" class="tarjeta producto">
               <div class="linea">
                 <span class="nombre">
                   {{ renglon.soloNombre }}
                   <span class="apagado">× {{ renglon.cantidadCargada }}</span>
                 </span>
-                <span
-                  class="importe"
-                  :class="{ apagado: importeDe(renglon).cotizado }"
-                >
-                  {{
-                    importeDe(renglon).valor === null
-                      ? "…"
-                      : dinero(importeDe(renglon).valor!)
-                  }}
+                <span class="importe" :class="{ apagado: importeDe(renglon).cotizado }">
+                  {{ importeDe(renglon).valor === null ? '…' : dinero(importeDe(renglon).valor!) }}
                 </span>
                 <button
                   type="button"
@@ -682,17 +603,11 @@ async function entregar(): Promise<void> {
                       renglon.cantidadEntregada > 0 &&
                       renglon.cantidadEntregada < renglon.cantidadCargada,
                   }"
-                  :aria-pressed="
-                    renglon.cantidadEntregada >= renglon.cantidadCargada
-                  "
+                  :aria-pressed="renglon.cantidadEntregada >= renglon.cantidadCargada"
                   :aria-label="`Aceptar ${renglon.soloNombre}`"
                   @click="alternar(renglon)"
                 >
-                  {{
-                    renglon.cantidadEntregada >= renglon.cantidadCargada
-                      ? "✓"
-                      : ""
-                  }}
+                  {{ renglon.cantidadEntregada >= renglon.cantidadCargada ? '✓' : '' }}
                 </button>
               </div>
 
@@ -721,16 +636,12 @@ async function entregar(): Promise<void> {
                   type="button"
                   class="paso-cantidad"
                   aria-label="Una más"
-                  :disabled="
-                    renglon.cantidadEntregada >= renglon.cantidadCargada
-                  "
+                  :disabled="renglon.cantidadEntregada >= renglon.cantidadCargada"
                   @click="ajustar(renglon, 1)"
                 >
                   +
                 </button>
-                <span class="apagado"
-                  >de {{ renglon.cantidadCargada }} {{ renglon.unidad }}</span
-                >
+                <span class="apagado">de {{ renglon.cantidadCargada }} {{ renglon.unidad }}</span>
               </div>
 
               <!-- En cuanto sobra una pieza hay que decir por qué. -->
@@ -746,10 +657,7 @@ async function entregar(): Promise<void> {
               </select>
             </li>
           </ul>
-          <p
-            v-if="conteo.devueltas > 0 && conteo.entregadas > 0"
-            class="nota-camion"
-          >
+          <p v-if="conteo.devueltas > 0 && conteo.entregadas > 0" class="nota-camion">
             {{ conteo.devueltas }} pieza(s) siguen en tu camión hasta el corte.
           </p>
 
@@ -758,47 +666,36 @@ async function entregar(): Promise<void> {
           <section class="tarjeta cobro">
             <template v-if="cuenta">
               <p class="renglon-cuenta">
-                <span>Productos entregados</span
-                ><strong>{{ dinero(cuenta.productos) }}</strong>
+                <span>Productos entregados</span><strong>{{ dinero(cuenta.productos) }}</strong>
               </p>
               <p v-if="cuenta.envio > 0" class="renglon-cuenta">
-                <span>Envío a domicilio</span
-                ><strong>{{ dinero(cuenta.envio) }}</strong>
+                <span>Envío a domicilio</span><strong>{{ dinero(cuenta.envio) }}</strong>
               </p>
               <p v-if="cuenta.recargoFuera > 0" class="renglon-cuenta">
                 <span>Recargo fuera de horario</span>
                 <strong>{{ dinero(cuenta.recargoFuera) }}</strong>
               </p>
               <p v-if="cuenta.descuento > 0" class="renglon-cuenta">
-                <span>{{
-                  pedido.cupon ? `Cupón ${pedido.cupon.code}` : "Descuento"
-                }}</span>
+                <span>{{ pedido.cupon ? `Cupón ${pedido.cupon.code}` : 'Descuento' }}</span>
                 <strong>−{{ dinero(cuenta.descuento) }}</strong>
               </p>
               <p v-if="cuenta.billetera > 0" class="renglon-cuenta">
-                <span>Pagó con su billetera</span
-                ><strong>−{{ dinero(cuenta.billetera) }}</strong>
+                <span>Pagó con su billetera</span><strong>−{{ dinero(cuenta.billetera) }}</strong>
               </p>
 
               <p class="total">
-                <span>{{
-                  cobraEnEfectivo ? "Total a cobrar" : "A cobrar"
-                }}</span>
+                <span>{{ cobraEnEfectivo ? 'Total a cobrar' : 'A cobrar' }}</span>
                 <span>{{ dinero(cuenta.aCobrar) }}</span>
               </p>
               <p class="apagado metodo">
                 Método de pago:
-                {{ pedido.pago.metodo === "EFECTIVO" ? "💵" : "" }}
+                {{ pedido.pago.metodo === 'EFECTIVO' ? '💵' : '' }}
                 {{ nombreMetodoPago(pedido.pago.metodo) }}
-                <template v-if="!cobraEnEfectivo">
-                  · no cobras nada en la puerta</template
-                >
+                <template v-if="!cobraEnEfectivo"> · no cobras nada en la puerta</template>
               </p>
 
               <template v-if="cobraEnEfectivo">
-                <label class="etiqueta-campo" for="pago-recibido"
-                  >Pago recibido</label
-                >
+                <label class="etiqueta-campo" for="pago-recibido">Pago recibido</label>
                 <input
                   id="pago-recibido"
                   v-model="pagoRecibido"
@@ -813,9 +710,7 @@ async function entregar(): Promise<void> {
                 </p>
                 <p class="cambio">
                   Cambio a entregar:
-                  <strong>{{
-                    cuenta.cambio === null ? "—" : dinero(cuenta.cambio)
-                  }}</strong>
+                  <strong>{{ cuenta.cambio === null ? '—' : dinero(cuenta.cambio) }}</strong>
                 </p>
               </template>
             </template>
@@ -826,17 +721,15 @@ async function entregar(): Promise<void> {
           <p class="aviso-cashback">
             ↺ Aviso de cashback:
             <template v-if="pedido.cashbackGenerado > 0">
-              este pedido le genera {{ dinero(pedido.cashbackGenerado) }} al
-              cliente; entra a su billetera cuando el pago quede pagado.
+              este pedido le genera {{ dinero(pedido.cashbackGenerado) }} al cliente; entra a su
+              billetera cuando el pago quede pagado.
             </template>
             <template v-else>este pedido no generó cashback.</template>
           </p>
 
           <!-- Firma y evidencia -->
           <p class="etiqueta seccion">Firma y evidencia</p>
-          <p class="apagado leyenda">
-            Firmo de conformidad que he recibido mi pedido.
-          </p>
+          <p class="apagado leyenda">Firmo de conformidad que he recibido mi pedido.</p>
           <canvas
             ref="lienzo"
             class="lienzo"
@@ -847,20 +740,12 @@ async function entregar(): Promise<void> {
             @pointercancel="terminarTrazo"
             @pointerleave="terminarTrazo"
           />
-          <button
-            type="button"
-            class="enlace"
-            :disabled="!hayFirma"
-            @click="limpiarFirma"
-          >
+          <button type="button" class="enlace" :disabled="!hayFirma" @click="limpiarFirma">
             Limpiar firma
           </button>
 
           <div class="evidencia">
-            <label
-              class="boton-claro foto"
-              :class="{ deshabilitado: subiendo }"
-            >
+            <label class="boton-claro foto" :class="{ deshabilitado: subiendo }">
               <input
                 type="file"
                 accept="image/jpeg,image/png,image/webp"
@@ -868,21 +753,9 @@ async function entregar(): Promise<void> {
                 :disabled="subiendo"
                 @change="adjuntarFoto"
               />
-              {{
-                subiendo
-                  ? "Subiendo…"
-                  : fotoUrl
-                    ? "📷 Cambiar foto"
-                    : "📷 Tomar foto"
-              }}
+              {{ subiendo ? 'Subiendo…' : fotoUrl ? '📷 Cambiar foto' : '📷 Tomar foto' }}
             </label>
-            <a
-              v-if="fotoUrl"
-              :href="fotoUrl"
-              target="_blank"
-              rel="noopener"
-              class="enlace"
-            >
+            <a v-if="fotoUrl" :href="fotoUrl" target="_blank" rel="noopener" class="enlace">
               Ver foto
             </a>
             <span v-else class="enlace apagado">Ver foto</span>
@@ -897,16 +770,11 @@ async function entregar(): Promise<void> {
           />
 
           <p v-if="pendientes.length > 0" class="pendientes">
-            ⚠️ Para confirmar: {{ pendientes.join(" · ") }}.
+            ⚠️ Para confirmar: {{ pendientes.join(' · ') }}.
           </p>
           <p v-if="error" class="form-error">{{ error }}</p>
 
-          <button
-            type="button"
-            class="incidencia"
-            :disabled="enviando"
-            @click="emit('incidencia')"
-          >
+          <button type="button" class="incidencia" :disabled="enviando" @click="emit('incidencia')">
             × Cancelar / Reportar incidencia
           </button>
           <button
@@ -915,7 +783,7 @@ async function entregar(): Promise<void> {
             :disabled="!puedeConfirmar"
             @click="entregar"
           >
-            {{ enviando ? "Cerrando…" : "✓ Confirmar pedido y entrega" }}
+            {{ enviando ? 'Cerrando…' : '✓ Confirmar pedido y entrega' }}
           </button>
         </template>
       </div>

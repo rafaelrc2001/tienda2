@@ -11,23 +11,18 @@
  * candado. Lo propio de Rutas es lo que va encima del camión —la carga— y lo
  * que se cuenta en la puerta del cliente.
  */
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
-import { useRouter } from "vue-router";
-import { ErrorApi, http } from "@/api/http";
-import { useUiStore } from "@/stores/ui";
-import {
-  dinero,
-  fechaHora,
-  nombreEstadoPedido,
-  nombreMetodoPago,
-} from "@/utils/formato";
-import SkeletonList from "@/components/SkeletonList.vue";
-import EvidenciaEntrega from "@/components/EvidenciaEntrega.vue";
-import EntregaModal from "./rutas/EntregaModal.vue";
-import NoEntregadoModal from "./rutas/NoEntregadoModal.vue";
-import CorteModal from "./rutas/CorteModal.vue";
-import { nombreEntrega, nombreMotivo, TITULO_PASO } from "./rutas/etiquetas";
-import { cobraEnEfectivo } from "./rutas/cobro";
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
+import { ErrorApi, http } from '@/api/http'
+import { useUiStore } from '@/stores/ui'
+import { dinero, fechaNumerica, nombreEstadoPedido, nombreMetodoPago } from '@/utils/formato'
+import SkeletonList from '@/components/SkeletonList.vue'
+import EvidenciaEntrega from '@/components/EvidenciaEntrega.vue'
+import EntregaModal from './rutas/EntregaModal.vue'
+import NoEntregadoModal from './rutas/NoEntregadoModal.vue'
+import CorteModal from './rutas/CorteModal.vue'
+import { nombreEntrega, nombreMotivo, TITULO_PASO } from './rutas/etiquetas'
+import { cobraEnEfectivo } from './rutas/cobro'
 import type {
   EntregaRuta,
   FiltroRutas,
@@ -36,44 +31,40 @@ import type {
   RenglonDeCarga,
   ResultadoEntrega,
   TableroRutas,
-} from "@/api/tipos";
+} from '@/api/tipos'
 
-const ui = useUiStore();
-const router = useRouter();
+const ui = useUiStore()
+const router = useRouter()
 
 const PESTANAS: { filtro: FiltroRutas; titulo: string }[] = [
-  { filtro: "disponibles", titulo: "En bodega" },
-  { filtro: "en-camion", titulo: "Mi camión" },
-  { filtro: "entregados", titulo: "Entregados" },
-];
+  { filtro: 'disponibles', titulo: 'En bodega' },
+  { filtro: 'en-camion', titulo: 'Mi camión' },
+  { filtro: 'entregados', titulo: 'Entregados' },
+]
 
-const filtro = ref<FiltroRutas>("disponibles");
-const jornada = ref<Jornada | null>(null);
-const entregas = ref<EntregaRuta[]>([]);
-const pedidos = ref<PedidoEnRuta[]>([]);
-const conteos = ref<Record<FiltroRutas, number> | null>(null);
-const cargando = ref(true);
-const moviendo = ref<string | null>(null);
-const abierto = ref<string | null>(null);
+const filtro = ref<FiltroRutas>('disponibles')
+const jornada = ref<Jornada | null>(null)
+const entregas = ref<EntregaRuta[]>([])
+const pedidos = ref<PedidoEnRuta[]>([])
+const conteos = ref<Record<FiltroRutas, number> | null>(null)
+const cargando = ref(true)
+const moviendo = ref<string | null>(null)
+const abierto = ref<string | null>(null)
 
 /** Las hojas: contar la entrega, explicar el intento fallido, crear una entrega y el corte. */
-const enHoja = ref<string | null>(null);
+const enHoja = ref<string | null>(null)
 /** Por id: al dar un paso desde la hoja se relee y la hoja sigue con el pedido al día. */
-const entregando = computed(
-  () => pedidos.value.find((p) => p.id === enHoja.value) ?? null,
-);
-const noEntregando = ref<PedidoEnRuta | null>(null);
-const corteAbierto = ref(false);
-const creandoEntrega = ref(false);
-const nombreNueva = ref("");
-const enviandoEntrega = ref(false);
+const entregando = computed(() => pedidos.value.find((p) => p.id === enHoja.value) ?? null)
+const noEntregando = ref<PedidoEnRuta | null>(null)
+const corteAbierto = ref(false)
+const creandoEntrega = ref(false)
+const nombreNueva = ref('')
+const enviandoEntrega = ref(false)
 
 /** Cambiar de pestaña rápido deja respuestas viejas en el aire: gana la última. */
-let peticion = 0;
+let peticion = 0
 
-const trabajando = computed(
-  () => jornada.value !== null && jornada.value.finalizadaEn === null,
-);
+const trabajando = computed(() => jornada.value !== null && jornada.value.finalizadaEn === null)
 
 /**
  * `silenciosa` es la recarga automática: sin esqueleto y sin avisar si falla.
@@ -81,21 +72,21 @@ const trabajando = computed(
  * pidió solo estorba; la siguiente vuelta lo vuelve a intentar.
  */
 async function cargar(conEsqueleto = true, silenciosa = false): Promise<void> {
-  const numero = ++peticion;
-  if (conEsqueleto) cargando.value = true;
+  const numero = ++peticion
+  if (conEsqueleto) cargando.value = true
   try {
-    const respuesta = await http.get<TableroRutas>("/admin/rutas", {
+    const respuesta = await http.get<TableroRutas>('/admin/rutas', {
       query: { filtro: filtro.value },
-    });
-    if (numero !== peticion) return;
-    jornada.value = respuesta.jornada;
-    entregas.value = respuesta.entregas;
-    pedidos.value = respuesta.pedidos;
-    conteos.value = respuesta.conteos;
+    })
+    if (numero !== peticion) return
+    jornada.value = respuesta.jornada
+    entregas.value = respuesta.entregas
+    pedidos.value = respuesta.pedidos
+    conteos.value = respuesta.conteos
   } catch (fallo) {
-    if (numero === peticion && !silenciosa) ui.errorDeApi(fallo);
+    if (numero === peticion && !silenciosa) ui.errorDeApi(fallo)
   } finally {
-    if (numero === peticion) cargando.value = false;
+    if (numero === peticion) cargando.value = false
   }
 }
 
@@ -104,7 +95,7 @@ async function cargar(conEsqueleto = true, silenciosa = false): Promise<void> {
 // ------------------------------------------------------------------
 
 /** Cada cuánto se relee el tablero mientras la pantalla está a la vista. */
-const CADA_MS = 60_000;
+const CADA_MS = 60_000
 
 /**
  * Finanzas puede marcar Pagado —o dar Crédito— mientras el repartidor está en
@@ -113,32 +104,32 @@ const CADA_MS = 60_000;
  * nunca a media acción: la respuesta pisaría lo que está moviendo.
  */
 function recargarSola(): void {
-  if (document.visibilityState !== "visible" || moviendo.value) return;
-  void cargar(false, true);
+  if (document.visibilityState !== 'visible' || moviendo.value) return
+  void cargar(false, true)
 }
 
-let reloj: ReturnType<typeof setInterval> | undefined;
+let reloj: ReturnType<typeof setInterval> | undefined
 
 onMounted(() => {
-  void cargar();
-  reloj = setInterval(recargarSola, CADA_MS);
-  document.addEventListener("visibilitychange", recargarSola);
-});
+  void cargar()
+  reloj = setInterval(recargarSola, CADA_MS)
+  document.addEventListener('visibilitychange', recargarSola)
+})
 
 onBeforeUnmount(() => {
-  clearInterval(reloj);
-  document.removeEventListener("visibilitychange", recargarSola);
-});
+  clearInterval(reloj)
+  document.removeEventListener('visibilitychange', recargarSola)
+})
 
 function elegir(nuevo: FiltroRutas): void {
-  if (nuevo === filtro.value) return;
-  filtro.value = nuevo;
-  abierto.value = null;
-  void cargar();
+  if (nuevo === filtro.value) return
+  filtro.value = nuevo
+  abierto.value = null
+  void cargar()
 }
 
 function alternar(id: string): void {
-  abierto.value = abierto.value === id ? null : id;
+  abierto.value = abierto.value === id ? null : id
 }
 
 // ------------------------------------------------------------------
@@ -148,23 +139,23 @@ function alternar(id: string): void {
 /** «Inicio de entregas», que también reanuda la que se había finalizado. */
 async function abrirJornada(): Promise<void> {
   try {
-    jornada.value = await http.post<Jornada>("/admin/rutas/jornada");
-    ui.exito("Jornada iniciada. Ya puedes cargar el camión.");
+    jornada.value = await http.post<Jornada>('/admin/rutas/jornada')
+    ui.exito('Jornada iniciada. Ya puedes cargar el camión.')
   } catch (fallo) {
-    ui.errorDeApi(fallo);
+    ui.errorDeApi(fallo)
   }
-  await cargar(false);
+  await cargar(false)
 }
 
 /** «Finalizar entregas»: no sale nada más hoy, pero la jornada vive hasta el corte. */
 async function finalizarJornada(): Promise<void> {
   try {
-    jornada.value = await http.post<Jornada>("/admin/rutas/jornada/finalizar");
-    ui.info("Entregas finalizadas. Falta tu corte para cerrar el día.");
+    jornada.value = await http.post<Jornada>('/admin/rutas/jornada/finalizar')
+    ui.info('Entregas finalizadas. Falta tu corte para cerrar el día.')
   } catch (fallo) {
-    ui.errorDeApi(fallo);
+    ui.errorDeApi(fallo)
   }
-  await cargar(false);
+  await cargar(false)
 }
 
 // ------------------------------------------------------------------
@@ -176,25 +167,25 @@ async function finalizarJornada(): Promise<void> {
 // ------------------------------------------------------------------
 
 function abrirCrearEntrega(): void {
-  nombreNueva.value = "";
-  creandoEntrega.value = true;
+  nombreNueva.value = ''
+  creandoEntrega.value = true
 }
 
 /** «Crear entrega» y directo a ella: lo siguiente siempre es agregarle pedidos. */
 async function crearEntrega(): Promise<void> {
-  if (enviandoEntrega.value) return;
-  enviandoEntrega.value = true;
+  if (enviandoEntrega.value) return
+  enviandoEntrega.value = true
   try {
-    const creada = await http.post<EntregaRuta>("/admin/rutas/entregas", {
+    const creada = await http.post<EntregaRuta>('/admin/rutas/entregas', {
       ...(nombreNueva.value.trim() ? { nombre: nombreNueva.value.trim() } : {}),
-    });
-    creandoEntrega.value = false;
-    ui.exito(`${nombreEntrega(creada)} creada. Agrégale sus pedidos.`);
-    await router.push(`/admin/rutas/entregas/${creada.id}`);
+    })
+    creandoEntrega.value = false
+    ui.exito(`${nombreEntrega(creada)} creada. Agrégale sus pedidos.`)
+    await router.push(`/admin/rutas/entregas/${creada.id}`)
   } catch (fallo) {
-    ui.errorDeApi(fallo);
+    ui.errorDeApi(fallo)
   } finally {
-    enviandoEntrega.value = false;
+    enviandoEntrega.value = false
   }
 }
 
@@ -203,50 +194,50 @@ async function crearEntrega(): Promise<void> {
  * aquí: se hace dentro de una entrega, que es la que dice con quién sale.
  */
 async function avanzar(pedido: PedidoEnRuta): Promise<void> {
-  const destino = pedido.paso.siguiente;
-  if (!destino || moviendo.value) return;
-  if (destino === "ENTREGADO") {
-    enHoja.value = pedido.id;
-    return;
+  const destino = pedido.paso.siguiente
+  if (!destino || moviendo.value) return
+  if (destino === 'ENTREGADO') {
+    enHoja.value = pedido.id
+    return
   }
-  if (destino !== "EN_RUTA") return;
+  if (destino !== 'EN_RUTA') return
 
-  moviendo.value = pedido.id;
+  moviendo.value = pedido.id
   try {
     const actualizado = await http.post<PedidoEnRuta>(
       `/admin/rutas/pedidos/${pedido.id}/en-ruta`,
       {},
-    );
-    ui.exito(`${pedido.folio} → ${nombreEstadoPedido(actualizado.estado)}`);
+    )
+    ui.exito(`${pedido.folio} → ${nombreEstadoPedido(actualizado.estado)}`)
   } catch (fallo) {
     // Un 409 casi siempre es que otro compañero se llevó el pedido o que
     // Finanzas lo movió: se avisa y se recarga para enseñar lo vigente.
-    ui.errorDeApi(fallo);
-    if (!(fallo instanceof ErrorApi) || fallo.estado !== 409) return;
+    ui.errorDeApi(fallo)
+    if (!(fallo instanceof ErrorApi) || fallo.estado !== 409) return
   } finally {
-    moviendo.value = null;
+    moviendo.value = null
   }
   // Recolectar y salir a ruta cambian de pestaña al pedido: se relee entero.
-  await cargar(false);
+  await cargar(false)
 }
 
 function alEntregar(resultado: ResultadoEntrega): void {
-  const { entrega } = resultado;
-  const cobrado = dinero(entrega.importeEntregado);
+  const { entrega } = resultado
+  const cobrado = dinero(entrega.importeEntregado)
   ui.exito(
     entrega.parcial
       ? `Entrega parcial: ${entrega.piezasEntregadas} pieza(s) por ${cobrado}, ` +
           `${entrega.piezasDevueltas} siguen en tu camión.`
       : `${resultado.pedido.folio} entregado · ${cobrado}`,
-  );
-  enHoja.value = null;
-  void cargar(false);
+  )
+  enHoja.value = null
+  void cargar(false)
 }
 
 /** El intento fallido quedó guardado: se cierra la hoja y se relee. */
 function alNoEntregar(): void {
-  noEntregando.value = null;
-  void cargar(false);
+  noEntregando.value = null
+  void cargar(false)
 }
 
 /**
@@ -254,46 +245,46 @@ function alNoEntregar(): void {
  * murió y el camión está vacío.
  */
 function cerrarCorte(): void {
-  corteAbierto.value = false;
-  void cargar(false);
+  corteAbierto.value = false
+  void cargar(false)
 }
 
 function abrirNoEntregado(pedido: PedidoEnRuta): void {
-  noEntregando.value = pedido;
+  noEntregando.value = pedido
 }
 
 /** Desde la hoja de entrega: la incidencia es el mismo «No entregado». */
 function reportarIncidencia(): void {
-  const pedido = entregando.value;
-  enHoja.value = null;
-  if (pedido) abrirNoEntregado(pedido);
+  const pedido = entregando.value
+  enHoja.value = null
+  if (pedido) abrirNoEntregado(pedido)
 }
 
 /** Desde la hoja solo se sale a ruta: recolectar es de dentro de una entrega. */
 function pasoDesdeHoja(): void {
-  if (entregando.value) void avanzar(entregando.value);
+  if (entregando.value) void avanzar(entregando.value)
 }
 
 // ------------------------------------------------------------------
 // Lectura de la tarjeta
 // ------------------------------------------------------------------
 
-function direccionCorta(pedido: PedidoEnRuta): string {
-  const d = pedido.direccion as Record<string, string | null> | null;
-  if (!d) return "";
-  return [d.calle, d.colonia, d.ciudad].filter(Boolean).join(" · ");
+/** La colonia de la dirección congelada en el pedido. */
+function colonia(pedido: PedidoEnRuta): string {
+  const d = pedido.direccion as Record<string, string | null> | null
+  return d?.colonia || '—'
 }
 
 /** Lo que sigue arriba del camión de ese pedido. */
 function piezasArriba(pedido: PedidoEnRuta): number {
   return pedido.carga
     .filter((c) => c.enCamion)
-    .reduce((suma, c) => suma + c.cantidadCargada - c.cantidadEntregada, 0);
+    .reduce((suma, c) => suma + c.cantidadCargada - c.cantidadEntregada, 0)
 }
 
 /** Le queda la entrega por delante y el dinero todavía no la permite. */
 function faltaPago(pedido: PedidoEnRuta): boolean {
-  return pedido.paso.siguiente !== null && !pedido.pagoCubierto;
+  return pedido.paso.siguiente !== null && !pedido.pagoCubierto
 }
 
 /**
@@ -303,15 +294,13 @@ function faltaPago(pedido: PedidoEnRuta): boolean {
  * el recibo de lo que se compró y esto lo que el camión trae de vuelta.
  */
 function sinAceptar(pedido: PedidoEnRuta): RenglonDeCarga[] {
-  return pedido.carga.filter((c) => c.cantidadEntregada < c.cantidadCargada);
+  return pedido.carga.filter((c) => c.cantidadEntregada < c.cantidadCargada)
 }
 </script>
 
 <template>
   <div class="pantalla">
-    <RouterLink to="/admin" class="admin-back-inline"
-      >← Volver al menú</RouterLink
-    >
+    <RouterLink to="/admin" class="admin-back-inline">← Volver al menú</RouterLink>
 
     <!-- La jornada manda sobre todo lo demás, así que va arriba y siempre. -->
     <section class="jornada" :class="{ activa: trabajando }">
@@ -323,23 +312,16 @@ function sinAceptar(pedido: PedidoEnRuta): RenglonDeCarga[] {
         </p>
         <p class="s">
           <template v-if="jornada">
-            Desde {{ fechaHora(jornada.iniciadaEn) }} ·
-            {{ jornada.piezasEnCamion }} pieza(s) en el camión
+            Desde {{ fechaNumerica(jornada.iniciadaEn) }} · {{ jornada.piezasEnCamion }} pieza(s) en
+            el camión
           </template>
-          <template v-else>
-            Pulsa «Inicio de entregas» antes de cargar el camión.
-          </template>
+          <template v-else> Pulsa «Inicio de entregas» antes de cargar el camión. </template>
         </p>
       </div>
 
       <div class="acciones">
-        <button
-          v-if="!trabajando"
-          type="button"
-          class="btn-primary"
-          @click="abrirJornada"
-        >
-          {{ jornada ? "Reanudar entregas" : "Inicio de entregas" }}
+        <button v-if="!trabajando" type="button" class="btn-primary" @click="abrirJornada">
+          {{ jornada ? 'Reanudar entregas' : 'Inicio de entregas' }}
         </button>
         <template v-else>
           <button type="button" class="btn-primary" @click="abrirCrearEntrega">
@@ -349,12 +331,7 @@ function sinAceptar(pedido: PedidoEnRuta): RenglonDeCarga[] {
             Finalizar entregas
           </button>
         </template>
-        <button
-          v-if="jornada"
-          type="button"
-          class="btn-secondary"
-          @click="corteAbierto = true"
-        >
+        <button v-if="jornada" type="button" class="btn-secondary" @click="corteAbierto = true">
           Hacer mi corte
         </button>
       </div>
@@ -379,17 +356,14 @@ function sinAceptar(pedido: PedidoEnRuta): RenglonDeCarga[] {
             <tr v-for="entrega in entregas" :key="entrega.id">
               <td>
                 <span class="folio">{{ nombreEntrega(entrega) }}</span>
-                <span class="sub">{{ fechaHora(entrega.creadoEn) }}</span>
+                <span class="sub">{{ fechaNumerica(entrega.creadoEn) }}</span>
               </td>
               <td class="num">{{ entrega.pedidos }}</td>
               <td class="num">{{ entrega.recolectados }}</td>
               <td class="num">{{ entrega.enRuta }}</td>
               <td class="num">{{ entrega.entregados }}</td>
               <td class="accion">
-                <RouterLink
-                  :to="`/admin/rutas/entregas/${entrega.id}`"
-                  class="btn-secondary abrir"
-                >
+                <RouterLink :to="`/admin/rutas/entregas/${entrega.id}`" class="btn-secondary abrir">
                   Abrir →
                 </RouterLink>
               </td>
@@ -410,8 +384,7 @@ function sinAceptar(pedido: PedidoEnRuta): RenglonDeCarga[] {
         :aria-selected="filtro === p.filtro"
         @click="elegir(p.filtro)"
       >
-        {{ p.titulo
-        }}<template v-if="conteos"> · {{ conteos[p.filtro] }}</template>
+        {{ p.titulo }}<template v-if="conteos"> · {{ conteos[p.filtro] }}</template>
       </button>
     </div>
 
@@ -422,7 +395,9 @@ function sinAceptar(pedido: PedidoEnRuta): RenglonDeCarga[] {
         <thead>
           <tr>
             <th>Folio</th>
+            <th>Colonia</th>
             <th>Cliente</th>
+            <th>Fecha</th>
             <th>Estado</th>
             <th>Cobro</th>
             <th class="num">Total</th>
@@ -433,21 +408,15 @@ function sinAceptar(pedido: PedidoEnRuta): RenglonDeCarga[] {
           <template v-for="pedido in pedidos" :key="pedido.id">
             <tr :class="{ 'con-detalle': abierto === pedido.id }">
               <td>
-                <button
-                  type="button"
-                  class="folio abre-hoja"
-                  @click="enHoja = pedido.id"
-                >
+                <button type="button" class="folio abre-hoja" @click="enHoja = pedido.id">
                   {{ pedido.folio }} ›
                 </button>
-                <span class="sub">{{ fechaHora(pedido.creadoEn) }}</span>
               </td>
-              <td class="cliente">
-                {{ pedido.clienteNombre ?? "—" }}
-                <span v-if="direccionCorta(pedido)" class="sub">
-                  📍 {{ direccionCorta(pedido) }}
-                </span>
-              </td>
+              <!-- Como en Operaciones: la colonia agrupa lo que va para el mismo rumbo;
+                   la dirección completa está en la hoja del pedido. -->
+              <td>{{ colonia(pedido) }}</td>
+              <td class="cliente">{{ pedido.clienteNombre ?? '—' }}</td>
+              <td>{{ fechaNumerica(pedido.creadoEn) }}</td>
               <td>
                 <div class="en-linea">
                   <span class="mini-tag">
@@ -475,19 +444,14 @@ function sinAceptar(pedido: PedidoEnRuta): RenglonDeCarga[] {
                 >
                   🔒 Falta pago · {{ nombreMetodoPago(pedido.pago.metodo) }}
                 </span>
-                <span
-                  v-else-if="cobraEnEfectivo(pedido)"
-                  class="mini-tag cobrar"
-                >
+                <span v-else-if="cobraEnEfectivo(pedido)" class="mini-tag cobrar">
                   Cobrar {{ dinero(pedido.pago.aPagar) }}
                 </span>
                 <span v-else class="mini-tag pagado">
                   {{ nombreMetodoPago(pedido.pago.metodo) }} · no cobras
                 </span>
                 <span
-                  v-if="
-                    pedido.pago.pagoCon !== null && pedido.pago.cambio !== null
-                  "
+                  v-if="pedido.pago.pagoCon !== null && pedido.pago.cambio !== null"
                   class="sub"
                 >
                   💵 Paga con {{ dinero(pedido.pago.pagoCon) }} · Cambio
@@ -499,30 +463,21 @@ function sinAceptar(pedido: PedidoEnRuta): RenglonDeCarga[] {
                 <!-- El paso que le toca a Rutas, o por qué no se puede dar. -->
                 <div class="en-linea">
                   <!-- Subir al camión es de una entrega: se hace desde dentro de ella. -->
-                  <p
-                    v-if="pedido.paso.siguiente === 'RECOLECTADO'"
-                    class="aviso"
-                  >
+                  <p v-if="pedido.paso.siguiente === 'RECOLECTADO'" class="aviso">
                     📦 Agrégalo desde una de tus entregas.
                   </p>
-                  <template
-                    v-else-if="
-                      pedido.paso.siguiente && pedido.paso.seccion === 'rutas'
-                    "
-                  >
+                  <template v-else-if="pedido.paso.siguiente && pedido.paso.seccion === 'rutas'">
                     <button
                       type="button"
                       class="btn-primary"
                       :disabled="
-                        !trabajando ||
-                        pedido.paso.bloqueo !== null ||
-                        moviendo === pedido.id
+                        !trabajando || pedido.paso.bloqueo !== null || moviendo === pedido.id
                       "
                       @click="avanzar(pedido)"
                     >
                       <template v-if="moviendo === pedido.id">…</template>
                       <template v-else>
-                        {{ pedido.paso.bloqueo ? "🔒 " : ""
+                        {{ pedido.paso.bloqueo ? '🔒 ' : ''
                         }}{{ TITULO_PASO[pedido.paso.siguiente] }}
                       </template>
                     </button>
@@ -539,21 +494,11 @@ function sinAceptar(pedido: PedidoEnRuta): RenglonDeCarga[] {
                   <p v-else-if="pedido.paso.siguiente" class="aviso">
                     🏭 Lo está surtiendo Operaciones.
                   </p>
-                  <p v-else class="aviso hecho">
-                    ✓ Entregado · entra en tu corte
-                  </p>
+                  <p v-else class="aviso hecho">✓ Entregado · entra en tu corte</p>
 
                   <div class="enlaces">
-                    <button
-                      type="button"
-                      class="enlace"
-                      @click="alternar(pedido.id)"
-                    >
-                      {{
-                        abierto === pedido.id
-                          ? "Ocultar detalle"
-                          : "Ver detalle"
-                      }}
+                    <button type="button" class="enlace" @click="alternar(pedido.id)">
+                      {{ abierto === pedido.id ? 'Ocultar detalle' : 'Ver detalle' }}
                     </button>
                   </div>
                 </div>
@@ -562,28 +507,26 @@ function sinAceptar(pedido: PedidoEnRuta): RenglonDeCarga[] {
                   {{ pedido.paso.bloqueo.mensaje }}
                 </p>
                 <p v-else-if="faltaPago(pedido)" class="bloqueo">
-                  Aún no está pagado: podrás llevarlo, pero no entregarlo hasta
-                  que Finanzas lo marque Pagado o le dé Crédito.
+                  Aún no está pagado: podrás llevarlo, pero no entregarlo hasta que Finanzas lo
+                  marque Pagado o le dé Crédito.
                 </p>
                 <p
                   v-else-if="
-                    !trabajando &&
-                    pedido.paso.siguiente &&
-                    pedido.paso.seccion === 'rutas'
+                    !trabajando && pedido.paso.siguiente && pedido.paso.seccion === 'rutas'
                   "
                   class="bloqueo"
                 >
                   {{
                     jornada
-                      ? "Finalizaste las entregas de hoy: reanúdalas o haz tu corte."
-                      : "Inicia tu jornada para mover pedidos."
+                      ? 'Finalizaste las entregas de hoy: reanúdalas o haz tu corte.'
+                      : 'Inicia tu jornada para mover pedidos.'
                   }}
                 </p>
               </td>
             </tr>
 
             <tr v-if="abierto === pedido.id" class="fila-detalle">
-              <td colspan="6">
+              <td colspan="8">
                 <!-- Lo comprado: es el recibo del pedido y no cambia nunca, ni con
                      una entrega parcial. -->
                 <table class="tabla-lineas angosta">
@@ -612,11 +555,7 @@ function sinAceptar(pedido: PedidoEnRuta): RenglonDeCarga[] {
                     </tr>
                     <tr v-if="pedido.descuento > 0">
                       <td colspan="2">
-                        {{
-                          pedido.cupon
-                            ? `Cupón ${pedido.cupon.code}`
-                            : "Descuento"
-                        }}
+                        {{ pedido.cupon ? `Cupón ${pedido.cupon.code}` : 'Descuento' }}
                       </td>
                       <td class="num">−{{ dinero(pedido.descuento) }}</td>
                     </tr>
@@ -626,7 +565,7 @@ function sinAceptar(pedido: PedidoEnRuta): RenglonDeCarga[] {
                     </tr>
                     <tr class="fuerte">
                       <td colspan="2">
-                        {{ pedido.pago.aPagar > 0 ? "A cobrar" : "Cubierto" }}
+                        {{ pedido.pago.aPagar > 0 ? 'A cobrar' : 'Cubierto' }}
                       </td>
                       <td class="num">{{ dinero(pedido.pago.aPagar) }}</td>
                     </tr>
@@ -634,10 +573,7 @@ function sinAceptar(pedido: PedidoEnRuta): RenglonDeCarga[] {
                 </table>
 
                 <!-- Y aparte lo que el cliente no aceptó, que es cosa del camión. -->
-                <table
-                  v-if="sinAceptar(pedido).length > 0"
-                  class="tabla-lineas angosta devueltos"
-                >
+                <table v-if="sinAceptar(pedido).length > 0" class="tabla-lineas angosta devueltos">
                   <thead>
                     <tr>
                       <th class="num">Sin aceptar</th>
@@ -647,14 +583,9 @@ function sinAceptar(pedido: PedidoEnRuta): RenglonDeCarga[] {
                     </tr>
                   </thead>
                   <tbody>
-                    <tr
-                      v-for="renglon in sinAceptar(pedido)"
-                      :key="renglon.pedidoItemId"
-                    >
+                    <tr v-for="renglon in sinAceptar(pedido)" :key="renglon.pedidoItemId">
                       <td class="num">
-                        {{
-                          renglon.cantidadCargada - renglon.cantidadEntregada
-                        }}
+                        {{ renglon.cantidadCargada - renglon.cantidadEntregada }}
                         {{ renglon.unidad }}
                       </td>
                       <td>{{ renglon.nombre }}</td>
@@ -662,15 +593,11 @@ function sinAceptar(pedido: PedidoEnRuta): RenglonDeCarga[] {
                         {{
                           renglon.motivoDevolucion
                             ? nombreMotivo(renglon.motivoDevolucion)
-                            : "Sin aceptar"
+                            : 'Sin aceptar'
                         }}
                       </td>
                       <td>
-                        {{
-                          renglon.enCamion
-                            ? "Sigue en tu camión"
-                            : "Regresó a bodega"
-                        }}
+                        {{ renglon.enCamion ? 'Sigue en tu camión' : 'Regresó a bodega' }}
                       </td>
                     </tr>
                   </tbody>
@@ -691,11 +618,11 @@ function sinAceptar(pedido: PedidoEnRuta): RenglonDeCarga[] {
 
     <p v-else class="empty-block">
       {{
-        filtro === "disponibles"
-          ? "No hay pedidos esperando camión. 🎉"
-          : filtro === "en-camion"
-            ? "Tu camión está vacío."
-            : "Todavía no has entregado nada en esta jornada."
+        filtro === 'disponibles'
+          ? 'No hay pedidos esperando camión. 🎉'
+          : filtro === 'en-camion'
+            ? 'Tu camión está vacío.'
+            : 'Todavía no has entregado nada en esta jornada.'
       }}
     </p>
 
@@ -719,17 +646,12 @@ function sinAceptar(pedido: PedidoEnRuta): RenglonDeCarga[] {
     />
 
     <!-- «Crear entrega»: el número lo pone la API; el nombre ayuda a reconocerla. -->
-    <div
-      v-if="creandoEntrega"
-      class="modal-overlay"
-      @click.self="creandoEntrega = false"
-    >
+    <div v-if="creandoEntrega" class="modal-overlay" @click.self="creandoEntrega = false">
       <div class="modal-sheet" role="dialog" aria-label="Crear entrega">
         <div class="modal-handle" />
         <p class="modal-title">Crear entrega</p>
         <p class="modal-texto">
-          Se numera sola. Si quieres, ponle un nombre para reconocerla: la zona
-          o la colonia.
+          Se numera sola. Si quieres, ponle un nombre para reconocerla: la zona o la colonia.
         </p>
         <input
           v-model="nombreNueva"
@@ -739,13 +661,7 @@ function sinAceptar(pedido: PedidoEnRuta): RenglonDeCarga[] {
           @keyup.enter="crearEntrega"
         />
         <div class="modal-actions">
-          <button
-            type="button"
-            class="btn-cancel"
-            @click="creandoEntrega = false"
-          >
-            Volver
-          </button>
+          <button type="button" class="btn-cancel" @click="creandoEntrega = false">Volver</button>
           <button
             type="button"
             class="btn-primary"
@@ -758,11 +674,7 @@ function sinAceptar(pedido: PedidoEnRuta): RenglonDeCarga[] {
       </div>
     </div>
 
-    <CorteModal
-      v-if="corteAbierto"
-      @cortado="cargar(false)"
-      @cerrar="cerrarCorte"
-    />
+    <CorteModal v-if="corteAbierto" @cortado="cargar(false)" @cerrar="cerrarCorte" />
   </div>
 </template>
 

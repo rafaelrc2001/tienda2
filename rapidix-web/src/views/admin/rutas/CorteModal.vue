@@ -11,7 +11,7 @@
  */
 import { onMounted, ref } from 'vue'
 import { ErrorApi, http } from '@/api/http'
-import { dinero, fechaHora, nombreEstadoPedido } from '@/utils/formato'
+import { dinero, fechaNumerica, nombreEstadoPedido } from '@/utils/formato'
 import type { Corte, ResumenCorte } from '@/api/tipos'
 
 const emit = defineEmits<{ (e: 'cerrar'): void; (e: 'cortado'): void }>()
@@ -177,7 +177,7 @@ async function corregir(): Promise<void> {
       <!-- Cerrado: lo que quedó escrito, y la última oportunidad de corregirlo. -->
       <template v-else-if="corte">
         <div class="bloque">
-          <div class="fila"><span>Cerrado</span><span>{{ fechaHora(corte.cerradoEn) }}</span></div>
+          <div class="fila"><span>Cerrado</span><span>{{ fechaNumerica(corte.cerradoEn) }}</span></div>
           <div class="fila">
             <span>Dice el sistema</span><span>{{ dinero(corte.montoCalculado) }}</span>
           </div>

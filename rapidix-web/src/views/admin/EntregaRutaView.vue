@@ -10,67 +10,61 @@
  * va en otra ni siquiera aparece abajo, y si otro teléfono se lo llevó entre
  * medias, la API responde 409 y aquí se relee.
  */
-import { computed, onMounted, ref, watch } from "vue";
-import { useRoute } from "vue-router";
-import { ErrorApi, http } from "@/api/http";
-import { useUiStore } from "@/stores/ui";
-import { dinero, nombreEstadoPedido, nombreMetodoPago } from "@/utils/formato";
-import SkeletonList from "@/components/SkeletonList.vue";
-import EntregaModal from "./rutas/EntregaModal.vue";
-import NoEntregadoModal from "./rutas/NoEntregadoModal.vue";
-import { nombreEntrega, TITULO_PASO } from "./rutas/etiquetas";
-import { cobraEnEfectivo } from "./rutas/cobro";
-import type {
-  DetalleEntregaRuta,
-  PedidoEnRuta,
-  ResultadoEntrega,
-} from "@/api/tipos";
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
+import { ErrorApi, http } from '@/api/http'
+import { useUiStore } from '@/stores/ui'
+import { dinero, fechaNumerica, nombreEstadoPedido, nombreMetodoPago } from '@/utils/formato'
+import SkeletonList from '@/components/SkeletonList.vue'
+import EntregaModal from './rutas/EntregaModal.vue'
+import NoEntregadoModal from './rutas/NoEntregadoModal.vue'
+import { nombreEntrega, TITULO_PASO } from './rutas/etiquetas'
+import { cobraEnEfectivo } from './rutas/cobro'
+import type { DetalleEntregaRuta, PedidoEnRuta, ResultadoEntrega } from '@/api/tipos'
 
-const route = useRoute();
-const ui = useUiStore();
+const route = useRoute()
+const ui = useUiStore()
 
-const detalle = ref<DetalleEntregaRuta | null>(null);
-const cargando = ref(true);
-const moviendo = ref<string | null>(null);
+const detalle = ref<DetalleEntregaRuta | null>(null)
+const cargando = ref(true)
+const moviendo = ref<string | null>(null)
 /**
  * La hoja guarda el id y no el pedido: al dar un paso desde ella se relee y la
  * hoja sigue abierta con el pedido ya en su nuevo estado.
  */
-const enHoja = ref<string | null>(null);
-const noEntregando = ref<PedidoEnRuta | null>(null);
+const enHoja = ref<string | null>(null)
+const noEntregando = ref<PedidoEnRuta | null>(null)
 
 const entregando = computed(() => {
-  if (!enHoja.value || !detalle.value) return null;
-  const { pedidos, disponibles } = detalle.value;
-  return (
-    [...pedidos, ...disponibles].find((p) => p.id === enHoja.value) ?? null
-  );
-});
+  if (!enHoja.value || !detalle.value) return null
+  const { pedidos, disponibles } = detalle.value
+  return [...pedidos, ...disponibles].find((p) => p.id === enHoja.value) ?? null
+})
 
-let peticion = 0;
+let peticion = 0
 
 async function cargar(conEsqueleto = true): Promise<void> {
-  const numero = ++peticion;
-  if (conEsqueleto) cargando.value = true;
+  const numero = ++peticion
+  if (conEsqueleto) cargando.value = true
   try {
     const respuesta = await http.get<DetalleEntregaRuta>(
       `/admin/rutas/entregas/${String(route.params.id)}`,
-    );
-    if (numero !== peticion) return;
-    detalle.value = respuesta;
+    )
+    if (numero !== peticion) return
+    detalle.value = respuesta
   } catch (fallo) {
-    if (numero === peticion) ui.errorDeApi(fallo);
+    if (numero === peticion) ui.errorDeApi(fallo)
   } finally {
-    if (numero === peticion) cargando.value = false;
+    if (numero === peticion) cargando.value = false
   }
 }
 
-onMounted(() => cargar());
+onMounted(() => cargar())
 // De una entrega a otra (p. ej. desde la etiqueta de un pedido) sin salir de la vista.
 watch(
   () => route.params.id,
   () => cargar(),
-);
+)
 
 /**
  * Se puede mover algo si la entrega es de la jornada viva y la jornada no se
@@ -82,14 +76,14 @@ const puedeMover = computed(
     detalle.value.abierta &&
     detalle.value.jornada !== null &&
     detalle.value.jornada.finalizadaEn === null,
-);
+)
 
 const avisoBloqueo = computed(() => {
-  if (!detalle.value || puedeMover.value) return "";
+  if (!detalle.value || puedeMover.value) return ''
   if (!detalle.value.abierta)
-    return "Esta entrega es de una jornada que ya se cortó: solo se consulta.";
-  return "Finalizaste las entregas de hoy: reanúdalas en Rutas para mover esta entrega.";
-});
+    return 'Esta entrega es de una jornada que ya se cortó: solo se consulta.'
+  return 'Finalizaste las entregas de hoy: reanúdalas en Rutas para mover esta entrega.'
+})
 
 // ------------------------------------------------------------------
 // Acciones
@@ -102,88 +96,82 @@ async function mover(
   cuerpo: Record<string, unknown>,
   exito: (actualizado: PedidoEnRuta) => string,
 ): Promise<void> {
-  if (moviendo.value) return;
-  moviendo.value = pedido.id;
+  if (moviendo.value) return
+  moviendo.value = pedido.id
   try {
     const actualizado = await http.post<PedidoEnRuta>(
       `/admin/rutas/pedidos/${pedido.id}/${ruta}`,
       cuerpo,
-    );
-    ui.exito(exito(actualizado));
+    )
+    ui.exito(exito(actualizado))
   } catch (fallo) {
     // Un 409 casi siempre es que otro teléfono se llevó el pedido o que
     // Finanzas lo movió: se avisa y se relee para enseñar lo vigente.
-    ui.errorDeApi(fallo);
-    if (!(fallo instanceof ErrorApi) || fallo.estado !== 409) return;
+    ui.errorDeApi(fallo)
+    if (!(fallo instanceof ErrorApi) || fallo.estado !== 409) return
   } finally {
-    moviendo.value = null;
+    moviendo.value = null
   }
-  await cargar(false);
+  await cargar(false)
 }
 
 /** «Recolectado»: sube el pedido al camión, en esta entrega. */
 function recolectar(pedido: PedidoEnRuta): void {
-  if (!detalle.value) return;
-  const entrega = detalle.value.entrega;
+  if (!detalle.value) return
+  const entrega = detalle.value.entrega
   void mover(
     pedido,
-    "recolectar",
+    'recolectar',
     { entregaId: entrega.id },
     () => `${pedido.folio} → ${nombreEntrega(entrega)}`,
-  );
+  )
 }
 
 function enRuta(pedido: PedidoEnRuta): void {
   void mover(
     pedido,
-    "en-ruta",
+    'en-ruta',
     {},
-    (actualizado) =>
-      `${pedido.folio} → ${nombreEstadoPedido(actualizado.estado)}`,
-  );
+    (actualizado) => `${pedido.folio} → ${nombreEstadoPedido(actualizado.estado)}`,
+  )
 }
 
 /** Lo baja del camión: vuelve a bodega y queda libre para otra entrega. */
 function quitar(pedido: PedidoEnRuta): void {
-  void mover(
-    pedido,
-    "quitar-de-entrega",
-    {},
-    () => `${pedido.folio} regresó a bodega`,
-  );
+  void mover(pedido, 'quitar-de-entrega', {}, () => `${pedido.folio} regresó a bodega`)
 }
 
 function alEntregar(resultado: ResultadoEntrega): void {
-  const { entrega } = resultado;
-  const cobrado = dinero(entrega.importeEntregado);
+  const { entrega } = resultado
+  const cobrado = dinero(entrega.importeEntregado)
   ui.exito(
     entrega.parcial
       ? `Entrega parcial: ${entrega.piezasEntregadas} pieza(s) por ${cobrado}, ` +
           `${entrega.piezasDevueltas} siguen en tu camión.`
       : `${resultado.pedido.folio} entregado · ${cobrado}`,
-  );
-  enHoja.value = null;
-  void cargar(false);
+  )
+  enHoja.value = null
+  void cargar(false)
 }
 
 /** Un paso dado desde la hoja: el mismo que el botón de la tabla. */
-function pasoDesdeHoja(estado: "RECOLECTADO" | "EN_RUTA"): void {
-  const pedido = entregando.value;
-  if (!pedido) return;
-  if (estado === "RECOLECTADO") recolectar(pedido);
-  else enRuta(pedido);
+function pasoDesdeHoja(estado: 'RECOLECTADO' | 'EN_RUTA'): void {
+  const pedido = entregando.value
+  if (!pedido) return
+  if (estado === 'RECOLECTADO') recolectar(pedido)
+  else enRuta(pedido)
 }
 
 function alNoEntregar(): void {
-  noEntregando.value = null;
-  void cargar(false);
+  noEntregando.value = null
+  void cargar(false)
 }
 
 /** Desde la hoja de entrega: la incidencia es el mismo «No entregado». */
 function reportarIncidencia(): void {
-  const pedido = entregando.value;
-  enHoja.value = null;
-  if (pedido) noEntregando.value = pedido;
+  const pedido = entregando.value
+  enHoja.value = null
+  if (pedido) noEntregando.value = pedido
 }
 
 // ------------------------------------------------------------------
@@ -191,12 +179,12 @@ function reportarIncidencia(): void {
 // ------------------------------------------------------------------
 
 function colonia(pedido: PedidoEnRuta): string {
-  const d = pedido.direccion as Record<string, string | null> | null;
-  return d?.colonia || "—";
+  const d = pedido.direccion as Record<string, string | null> | null
+  return d?.colonia || '—'
 }
 
 function faltaPago(pedido: PedidoEnRuta): boolean {
-  return pedido.paso.siguiente !== null && !pedido.pagoCubierto;
+  return pedido.paso.siguiente !== null && !pedido.pagoCubierto
 }
 </script>
 
@@ -210,9 +198,8 @@ function faltaPago(pedido: PedidoEnRuta): boolean {
       <header class="cabeza">
         <p class="titulo">{{ nombreEntrega(detalle.entrega) }}</p>
         <p class="cuenta">
-          {{ detalle.entrega.pedidos }} pedido(s) ·
-          {{ detalle.entrega.recolectados }} en el camión ·
-          {{ detalle.entrega.enRuta }} en ruta ·
+          {{ detalle.entrega.pedidos }} pedido(s) · {{ detalle.entrega.recolectados }} en el camión
+          · {{ detalle.entrega.enRuta }} en ruta ·
           {{ detalle.entrega.entregados }}
           entregado(s)
         </p>
@@ -228,6 +215,7 @@ function faltaPago(pedido: PedidoEnRuta): boolean {
               <th>Pedido</th>
               <th>Colonia</th>
               <th>Cliente</th>
+              <th>Fecha</th>
               <th>Estado</th>
               <th>Cobro</th>
               <th class="num">Total</th>
@@ -237,16 +225,13 @@ function faltaPago(pedido: PedidoEnRuta): boolean {
           <tbody>
             <tr v-for="pedido in detalle.pedidos" :key="pedido.id">
               <td>
-                <button
-                  type="button"
-                  class="folio abre-hoja"
-                  @click="enHoja = pedido.id"
-                >
+                <button type="button" class="folio abre-hoja" @click="enHoja = pedido.id">
                   {{ pedido.folio }} ›
                 </button>
               </td>
               <td>{{ colonia(pedido) }}</td>
-              <td>{{ pedido.clienteNombre ?? "—" }}</td>
+              <td>{{ pedido.clienteNombre ?? '—' }}</td>
+              <td>{{ fechaNumerica(pedido.creadoEn) }}</td>
               <td>
                 <span class="mini-tag">
                   {{ nombreEstadoPedido(pedido.estado, pedido.pago.estado) }}
@@ -256,10 +241,7 @@ function faltaPago(pedido: PedidoEnRuta): boolean {
                 <span v-if="faltaPago(pedido)" class="mini-tag falta-pago">
                   🔒 Falta pago · {{ nombreMetodoPago(pedido.pago.metodo) }}
                 </span>
-                <span
-                  v-else-if="cobraEnEfectivo(pedido)"
-                  class="mini-tag cobrar"
-                >
+                <span v-else-if="cobraEnEfectivo(pedido)" class="mini-tag cobrar">
                   Cobrar {{ dinero(pedido.pago.aPagar) }}
                 </span>
                 <span v-else class="mini-tag pagado">
@@ -273,14 +255,10 @@ function faltaPago(pedido: PedidoEnRuta): boolean {
                     <button
                       type="button"
                       class="btn-primary"
-                      :disabled="
-                        !puedeMover ||
-                        pedido.paso.bloqueo !== null ||
-                        moviendo !== null
-                      "
+                      :disabled="!puedeMover || pedido.paso.bloqueo !== null || moviendo !== null"
                       @click="enRuta(pedido)"
                     >
-                      {{ moviendo === pedido.id ? "…" : TITULO_PASO.EN_RUTA }}
+                      {{ moviendo === pedido.id ? '…' : TITULO_PASO.EN_RUTA }}
                     </button>
                     <button
                       type="button"
@@ -296,15 +274,10 @@ function faltaPago(pedido: PedidoEnRuta): boolean {
                     <button
                       type="button"
                       class="btn-primary"
-                      :disabled="
-                        !puedeMover ||
-                        pedido.paso.bloqueo !== null ||
-                        moviendo !== null
-                      "
+                      :disabled="!puedeMover || pedido.paso.bloqueo !== null || moviendo !== null"
                       @click="enHoja = pedido.id"
                     >
-                      {{ pedido.paso.bloqueo ? "🔒 " : ""
-                      }}{{ TITULO_PASO.ENTREGADO }}
+                      {{ pedido.paso.bloqueo ? '🔒 ' : '' }}{{ TITULO_PASO.ENTREGADO }}
                     </button>
                     <button
                       type="button"
@@ -315,12 +288,7 @@ function faltaPago(pedido: PedidoEnRuta): boolean {
                       No entregado
                     </button>
                   </template>
-                  <p
-                    v-else-if="pedido.estado === 'ENTREGADO'"
-                    class="aviso hecho"
-                  >
-                    ✓ Entregado
-                  </p>
+                  <p v-else-if="pedido.estado === 'ENTREGADO'" class="aviso hecho">✓ Entregado</p>
                 </div>
                 <p v-if="pedido.paso.bloqueo" class="bloqueo">
                   {{ pedido.paso.bloqueo.mensaje }}
@@ -330,9 +298,7 @@ function faltaPago(pedido: PedidoEnRuta): boolean {
           </tbody>
         </table>
       </div>
-      <p v-else class="empty-block">
-        Todavía no tiene pedidos: agrégale de los de abajo.
-      </p>
+      <p v-else class="empty-block">Todavía no tiene pedidos: agrégale de los de abajo.</p>
 
       <!-- Lo que espera en bodega: «Recolectado» lo sube a esta entrega. -->
       <template v-if="detalle.abierta">
@@ -344,6 +310,7 @@ function faltaPago(pedido: PedidoEnRuta): boolean {
                 <th>Pedido</th>
                 <th>Colonia</th>
                 <th>Cliente</th>
+                <th>Fecha</th>
                 <th>Cobro</th>
                 <th class="num">Total</th>
                 <th>Acción</th>
@@ -352,24 +319,18 @@ function faltaPago(pedido: PedidoEnRuta): boolean {
             <tbody>
               <tr v-for="pedido in detalle.disponibles" :key="pedido.id">
                 <td>
-                  <button
-                    type="button"
-                    class="folio abre-hoja"
-                    @click="enHoja = pedido.id"
-                  >
+                  <button type="button" class="folio abre-hoja" @click="enHoja = pedido.id">
                     {{ pedido.folio }} ›
                   </button>
                 </td>
                 <td>{{ colonia(pedido) }}</td>
-                <td>{{ pedido.clienteNombre ?? "—" }}</td>
+                <td>{{ pedido.clienteNombre ?? '—' }}</td>
+                <td>{{ fechaNumerica(pedido.creadoEn) }}</td>
                 <td>
                   <span v-if="faltaPago(pedido)" class="mini-tag falta-pago">
                     🔒 Falta pago · {{ nombreMetodoPago(pedido.pago.metodo) }}
                   </span>
-                  <span
-                    v-else-if="cobraEnEfectivo(pedido)"
-                    class="mini-tag cobrar"
-                  >
+                  <span v-else-if="cobraEnEfectivo(pedido)" class="mini-tag cobrar">
                     Cobrar {{ dinero(pedido.pago.aPagar) }}
                   </span>
                   <span v-else class="mini-tag pagado">
@@ -381,17 +342,12 @@ function faltaPago(pedido: PedidoEnRuta): boolean {
                   <button
                     type="button"
                     class="btn-primary"
-                    :disabled="
-                      !puedeMover ||
-                      pedido.paso.bloqueo !== null ||
-                      moviendo !== null
-                    "
+                    :disabled="!puedeMover || pedido.paso.bloqueo !== null || moviendo !== null"
                     @click="recolectar(pedido)"
                   >
                     <template v-if="moviendo === pedido.id">…</template>
                     <template v-else>
-                      {{ pedido.paso.bloqueo ? "🔒 " : ""
-                      }}{{ TITULO_PASO.RECOLECTADO }}
+                      {{ pedido.paso.bloqueo ? '🔒 ' : '' }}{{ TITULO_PASO.RECOLECTADO }}
                     </template>
                   </button>
                   <p v-if="pedido.paso.bloqueo" class="bloqueo">
