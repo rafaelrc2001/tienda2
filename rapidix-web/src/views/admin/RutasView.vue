@@ -242,6 +242,11 @@ function piezasArriba(pedido: PedidoEnRuta): number {
  * Se leen aparte de los items del pedido porque no son lo mismo: el pedido es
  * el recibo de lo que se compró y esto lo que el camión trae de vuelta.
  */
+/** Le queda la entrega por delante y el dinero todavía no la permite. */
+function faltaPago(pedido: PedidoEnRuta): boolean {
+  return pedido.paso.siguiente !== null && !pedido.pagoCubierto
+}
+
 function sinAceptar(pedido: PedidoEnRuta): RenglonDeCarga[] {
   return pedido.carga.filter((c) => c.cantidadEntregada < c.cantidadCargada)
 }
@@ -341,7 +346,16 @@ function sinAceptar(pedido: PedidoEnRuta): RenglonDeCarga[] {
                 </div>
               </td>
               <td>
-                <span v-if="cobraEnEfectivo(pedido)" class="mini-tag cobrar">
+                <!-- Sin el pago cubierto no se va a poder entregar: se avisa desde
+                     bodega para no cargarlo y salir en balde. -->
+                <span
+                  v-if="faltaPago(pedido)"
+                  class="mini-tag falta-pago"
+                  title="No se podrá entregar hasta que Finanzas lo marque Pagado o le dé Crédito"
+                >
+                  🔒 Falta pago · {{ nombreMetodoPago(pedido.pago.metodo) }}
+                </span>
+                <span v-else-if="cobraEnEfectivo(pedido)" class="mini-tag cobrar">
                   Cobrar {{ dinero(pedido.pago.aPagar) }}
                 </span>
                 <span v-else class="mini-tag pagado">
@@ -398,6 +412,10 @@ function sinAceptar(pedido: PedidoEnRuta): RenglonDeCarga[] {
 
                 <p v-if="pedido.paso.bloqueo" class="bloqueo">
                   {{ pedido.paso.bloqueo.mensaje }}
+                </p>
+                <p v-else-if="faltaPago(pedido)" class="bloqueo">
+                  Aún no está pagado: podrás llevarlo, pero no entregarlo hasta que Finanzas lo
+                  marque Pagado o le dé Crédito.
                 </p>
                 <p
                   v-else-if="
@@ -633,6 +651,11 @@ function sinAceptar(pedido: PedidoEnRuta): RenglonDeCarga[] {
 .mini-tag.cobrar {
   background: var(--amarillo);
   color: var(--ink);
+}
+
+.mini-tag.falta-pago {
+  background: color-mix(in srgb, var(--rojo) 15%, var(--white));
+  color: var(--rojo);
 }
 
 .mini-tag.pagado {

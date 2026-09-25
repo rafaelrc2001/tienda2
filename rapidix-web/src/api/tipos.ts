@@ -464,6 +464,11 @@ export interface PasoPendiente {
 /** Pedido de una pantalla de trabajo (Operaciones, Rutas…). */
 export interface PedidoEnPantalla extends Pedido {
   paso: PasoPendiente
+  /**
+   * Si el dinero ya permite entregarlo (Pagado, Crédito, o efectivo que se
+   * cobra en la puerta). Lo calcula la API con la misma regla del candado.
+   */
+  pagoCubierto: boolean
 }
 
 export type FiltroOperaciones = 'activos' | 'en-ruta' | 'entregados' | 'cancelados'

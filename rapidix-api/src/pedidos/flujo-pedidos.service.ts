@@ -12,6 +12,7 @@ import { actorDe, ActorDeBitacora, registrarEnBitacora } from './bitacora';
 import {
   evaluarAvance,
   NOMBRE_ESTADO_PEDIDO,
+  pagoCubierto,
   PasoPendiente,
   pasoPendiente,
   PedidoEnFlujo,
@@ -31,7 +32,15 @@ export interface BitacoraDto {
 }
 
 /** Un pedido como lo ve una pantalla de trabajo: con su siguiente paso resuelto. */
-export type PedidoEnPantallaDto = PedidoDto & { paso: PasoPendiente };
+export type PedidoEnPantallaDto = PedidoDto & {
+  paso: PasoPendiente;
+  /**
+   * Si hoy se podria entregar por el lado del dinero (`pagoCubierto`). Va
+   * aparte del `paso` porque el candado vive en el ultimo paso, y sin esto el
+   * repartidor lo descubriria en la puerta despues de cargar y salir.
+   */
+  pagoCubierto: boolean;
+};
 
 /** Las pestanas de Operaciones. */
 export enum FiltroOperaciones {
@@ -153,6 +162,7 @@ export class FlujoPedidosService {
         metodoEntrega: pedido.metodoEntrega,
         metodoPago: pedido.pago.metodo,
       }),
+      pagoCubierto: pagoCubierto(pedido.pago.metodo, pedido.pago.estado),
     };
   }
 
