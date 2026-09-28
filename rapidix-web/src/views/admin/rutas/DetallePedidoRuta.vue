@@ -26,7 +26,7 @@ const sinAceptar = computed(() =>
 </script>
 
 <template>
-  <div>
+  <div class="detalle">
     <!-- Lo comprado: es el recibo del pedido y no cambia nunca, ni con una
          entrega parcial. -->
     <table class="tabla-lineas angosta">
@@ -105,8 +105,33 @@ const sinAceptar = computed(() =>
 </template>
 
 <style scoped>
+/*
+ * La tabla de arriba mide 820px y en el teléfono se desplaza de lado: sin esto
+ * el detalle se estiraba a lo ancho de la tabla y el importe quedaba fuera de la
+ * pantalla, lejos de su producto. Se queda fijo a la izquierda, mide lo que su
+ * contenido y no pasa del ancho que se ve (100vw menos los márgenes).
+ */
+.detalle {
+  position: sticky;
+  left: 12px;
+  width: max-content;
+  max-width: min(620px, calc(100vw - 60px));
+}
+
+/* Cantidad, producto e importe juntos, no repartidos a lo ancho. */
 .tabla-lineas.angosta {
-  max-width: 620px;
+  width: auto;
+  min-width: 260px;
+}
+
+.tabla-lineas.angosta td:not(:last-child),
+.tabla-lineas.angosta th:not(:last-child) {
+  padding-right: 14px;
+}
+
+/* El nombre del producto se parte en renglones antes de sacar el importe de la vista. */
+.tabla-lineas.angosta tbody td:not(.num) {
+  white-space: normal;
 }
 
 .evidencia {
