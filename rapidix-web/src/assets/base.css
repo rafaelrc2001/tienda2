@@ -17,6 +17,39 @@ body {
   padding: 0;
 }
 
+/*
+ * Safari en iPhone agranda por su cuenta el texto de los bloques que considera
+ * anchos (las tablas con scroll horizontal, o al girar a horizontal), y lo hace
+ * celda por celda: una misma tabla acaba con letras de tamaños distintos.
+ * Con 100% se respeta el font-size del CSS y el zoom con los dedos sigue funcionando.
+ */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* Safari no hereda la letra en botones y campos: sin esto salen con la del sistema. */
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+
+/*
+ * Safari en iPhone hace zoom al tocar un campo con letra menor a 16px y la
+ * pantalla se queda ampliada. `-webkit-touch-callout` solo existe en iOS, así
+ * que el resto de dispositivos conserva el tamaño del diseño. Va con !important
+ * porque los <style scoped> de cada vista ponen su propio tamaño.
+ */
+@supports (-webkit-touch-callout: none) {
+  input:not([type='checkbox']):not([type='radio']),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
 body {
   font-family: var(--font-body);
   color: var(--ink);
