@@ -507,7 +507,7 @@ function colonia(pedido: PedidoEnRuta): string {
 
       <!-- Lo que espera en bodega: «Recolectado» lo sube a esta entrega. -->
       <template v-if="detalle.abierta">
-        <p class="seccion">Listos para entregar</p>
+        <p class="seccion">Pedidos pendientes por asignar</p>
         <div v-if="detalle.disponibles.length > 0" class="tabla-envoltorio">
           <table class="tabla lineal">
             <thead>
