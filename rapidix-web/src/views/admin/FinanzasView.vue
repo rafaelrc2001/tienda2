@@ -184,9 +184,9 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
             <th>Cliente</th>
             <th>Fecha</th>
             <th>Estado del pedido</th>
+            <th>Estatus de pago</th>
             <th>Método de pago</th>
             <th class="num">Total</th>
-            <th>Estatus de pago</th>
           </tr>
         </thead>
         <tbody>
@@ -219,10 +219,6 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
               <td>
                 <span class="pastilla estado">{{ nombreEstadoPedido(pedido.estado) }}</span>
               </td>
-              <td>
-                {{ iconoMetodo(pedido.pago.metodo) }} {{ nombreMetodoPago(pedido.pago.metodo) }}
-              </td>
-              <td class="num importe">{{ dinero(pedido.total) }}</td>
               <td class="estatus">
                 <!-- Los estatus de pago. El actual se pinta hundido; los bloqueados,
                      con su candado y el motivo debajo. -->
@@ -250,6 +246,10 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
                   levanta un pedido nuevo.
                 </p>
               </td>
+              <td>
+                {{ iconoMetodo(pedido.pago.metodo) }} {{ nombreMetodoPago(pedido.pago.metodo) }}
+              </td>
+              <td class="num importe">{{ dinero(pedido.total) }}</td>
             </tr>
 
             <tr v-if="abierto === pedido.id" class="fila-detalle">
