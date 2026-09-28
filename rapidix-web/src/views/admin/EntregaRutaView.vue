@@ -18,13 +18,12 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ErrorApi, http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
-import { dinero, fechaNumerica, nombreEstadoPedido, nombreMetodoPago } from '@/utils/formato'
+import { dinero, fechaNumerica, nombreEstadoPedido } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
 import EntregaModal from './rutas/EntregaModal.vue'
 import NoEntregadoModal from './rutas/NoEntregadoModal.vue'
 import CorteModal from './rutas/CorteModal.vue'
 import { nombreEntrega, TITULO_PASO } from './rutas/etiquetas'
-import { cobraEnEfectivo } from './rutas/cobro'
 import type { DetalleEntregaRuta, EntregaRuta, PedidoEnRuta, ResultadoEntrega } from '@/api/tipos'
 
 const route = useRoute()
@@ -227,10 +226,6 @@ function colonia(pedido: PedidoEnRuta): string {
   const d = pedido.direccion as Record<string, string | null> | null
   return d?.colonia || '—'
 }
-
-function faltaPago(pedido: PedidoEnRuta): boolean {
-  return pedido.paso.siguiente !== null && !pedido.pagoCubierto
-}
 </script>
 
 <template>
@@ -283,7 +278,6 @@ function faltaPago(pedido: PedidoEnRuta): boolean {
               <th>Cliente</th>
               <th>Fecha</th>
               <th>Estado</th>
-              <th>Cobro</th>
               <th class="num">Total</th>
               <th>Acción</th>
             </tr>
@@ -301,17 +295,6 @@ function faltaPago(pedido: PedidoEnRuta): boolean {
               <td>
                 <span class="mini-tag">
                   {{ nombreEstadoPedido(pedido.estado, pedido.pago.estado) }}
-                </span>
-              </td>
-              <td>
-                <span v-if="faltaPago(pedido)" class="mini-tag falta-pago">
-                  🔒 Falta pago · {{ nombreMetodoPago(pedido.pago.metodo) }}
-                </span>
-                <span v-else-if="cobraEnEfectivo(pedido)" class="mini-tag cobrar">
-                  Cobrar {{ dinero(pedido.pago.aPagar) }}
-                </span>
-                <span v-else class="mini-tag pagado">
-                  {{ nombreMetodoPago(pedido.pago.metodo) }} · no cobras
                 </span>
               </td>
               <td class="num importe">{{ dinero(pedido.total) }}</td>
@@ -377,7 +360,6 @@ function faltaPago(pedido: PedidoEnRuta): boolean {
                 <th>Colonia</th>
                 <th>Cliente</th>
                 <th>Fecha</th>
-                <th>Cobro</th>
                 <th class="num">Total</th>
                 <th>Acción</th>
               </tr>
@@ -392,17 +374,6 @@ function faltaPago(pedido: PedidoEnRuta): boolean {
                 <td>{{ colonia(pedido) }}</td>
                 <td>{{ pedido.clienteNombre ?? '—' }}</td>
                 <td>{{ fechaNumerica(pedido.creadoEn) }}</td>
-                <td>
-                  <span v-if="faltaPago(pedido)" class="mini-tag falta-pago">
-                    🔒 Falta pago · {{ nombreMetodoPago(pedido.pago.metodo) }}
-                  </span>
-                  <span v-else-if="cobraEnEfectivo(pedido)" class="mini-tag cobrar">
-                    Cobrar {{ dinero(pedido.pago.aPagar) }}
-                  </span>
-                  <span v-else class="mini-tag pagado">
-                    {{ nombreMetodoPago(pedido.pago.metodo) }} · no cobras
-                  </span>
-                </td>
                 <td class="num importe">{{ dinero(pedido.total) }}</td>
                 <td class="accion">
                   <button
@@ -532,21 +503,6 @@ function faltaPago(pedido: PedidoEnRuta): boolean {
 }
 .tabla {
   min-width: 820px;
-}
-
-.mini-tag.cobrar {
-  background: var(--amarillo);
-  color: var(--ink);
-}
-
-.mini-tag.pagado {
-  background: var(--cream-2);
-  color: var(--muted);
-}
-
-.mini-tag.falta-pago {
-  background: color-mix(in srgb, var(--rojo) 15%, var(--white));
-  color: var(--rojo);
 }
 
 .aviso {

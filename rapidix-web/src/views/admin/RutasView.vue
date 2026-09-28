@@ -15,13 +15,12 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ErrorApi, http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
-import { dinero, fechaNumerica, nombreEstadoPedido, nombreMetodoPago } from '@/utils/formato'
+import { dinero, fechaNumerica, nombreEstadoPedido } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
 import EvidenciaEntrega from '@/components/EvidenciaEntrega.vue'
 import EntregaModal from './rutas/EntregaModal.vue'
 import NoEntregadoModal from './rutas/NoEntregadoModal.vue'
 import { nombreEntrega, nombreMotivo, TITULO_PASO } from './rutas/etiquetas'
-import { cobraEnEfectivo } from './rutas/cobro'
 import type {
   EntregaRuta,
   FiltroRutas,
@@ -378,7 +377,6 @@ function sinAceptar(pedido: PedidoEnRuta): RenglonDeCarga[] {
             <th>Cliente</th>
             <th>Fecha</th>
             <th>Estado</th>
-            <th>Cobro</th>
             <th class="num">Total</th>
             <th>Acción</th>
           </tr>
@@ -433,30 +431,6 @@ function sinAceptar(pedido: PedidoEnRuta): RenglonDeCarga[] {
                     {{ nombreEntrega(pedido.entrega) }}
                   </RouterLink>
                 </div>
-              </td>
-              <td>
-                <!-- Sin el pago cubierto no se va a poder entregar: se avisa desde
-                     bodega para no cargarlo y salir en balde. -->
-                <span
-                  v-if="faltaPago(pedido)"
-                  class="mini-tag falta-pago"
-                  title="No se podrá entregar hasta que Finanzas lo marque Pagado o le dé Crédito"
-                >
-                  🔒 Falta pago · {{ nombreMetodoPago(pedido.pago.metodo) }}
-                </span>
-                <span v-else-if="cobraEnEfectivo(pedido)" class="mini-tag cobrar">
-                  Cobrar {{ dinero(pedido.pago.aPagar) }}
-                </span>
-                <span v-else class="mini-tag pagado">
-                  {{ nombreMetodoPago(pedido.pago.metodo) }} · no cobras
-                </span>
-                <span
-                  v-if="pedido.pago.pagoCon !== null && pedido.pago.cambio !== null"
-                  class="sub"
-                >
-                  💵 Paga con {{ dinero(pedido.pago.pagoCon) }} · Cambio
-                  {{ dinero(pedido.pago.cambio) }}
-                </span>
               </td>
               <td class="num importe">{{ dinero(pedido.total) }}</td>
               <td class="accion">
@@ -519,7 +493,7 @@ function sinAceptar(pedido: PedidoEnRuta): RenglonDeCarga[] {
             </tr>
 
             <tr v-if="abierto === pedido.id" class="fila-detalle">
-              <td colspan="8">
+              <td colspan="7">
                 <!-- Lo comprado: es el recibo del pedido y no cambia nunca, ni con
                      una entrega parcial. -->
                 <table class="tabla-lineas angosta">
@@ -733,11 +707,6 @@ function sinAceptar(pedido: PedidoEnRuta): RenglonDeCarga[] {
   min-width: 820px;
 }
 
-.mini-tag.cobrar {
-  background: var(--amarillo);
-  color: var(--ink);
-}
-
 /* Las entregas de la jornada, entre la jornada y las pestañas. */
 .entregas {
   margin-bottom: 12px;
@@ -768,16 +737,6 @@ function sinAceptar(pedido: PedidoEnRuta): RenglonDeCarga[] {
   background: color-mix(in srgb, var(--verde) 15%, var(--white));
   color: var(--verde-compra);
   text-decoration: none;
-}
-
-.mini-tag.falta-pago {
-  background: color-mix(in srgb, var(--rojo) 15%, var(--white));
-  color: var(--rojo);
-}
-
-.mini-tag.pagado {
-  background: var(--cream-2);
-  color: var(--muted);
 }
 
 .mini-tag.camion {
