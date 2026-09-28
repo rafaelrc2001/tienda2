@@ -18,13 +18,13 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ErrorApi, http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
-import { dinero, fechaNumerica, nombreEstadoPedido, nombreMetodoPago } from '@/utils/formato'
+import { dinero, fechaNumerica, nombreEstadoPedido } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
 import EntregaModal from './rutas/EntregaModal.vue'
 import NoEntregadoModal from './rutas/NoEntregadoModal.vue'
 import CorteModal from './rutas/CorteModal.vue'
+import DetallePedidoRuta from './rutas/DetallePedidoRuta.vue'
 import { nombreEntrega, TITULO_PASO } from './rutas/etiquetas'
-import { cobraEnEfectivo } from './rutas/cobro'
 import type { DetalleEntregaRuta, EntregaRuta, PedidoEnRuta, ResultadoEntrega } from '@/api/tipos'
 
 const route = useRoute()
@@ -39,6 +39,8 @@ const moviendo = ref<string | null>(null)
  */
 const enHoja = ref<string | null>(null)
 const noEntregando = ref<PedidoEnRuta | null>(null)
+/** El pedido con el detalle desplegado bajo su fila, en cualquiera de las dos tablas. */
+const abierto = ref<string | null>(null)
 const corteAbierto = ref(false)
 const cerrando = ref(false)
 
@@ -223,13 +225,13 @@ function reportarIncidencia(): void {
 // Lectura
 // ------------------------------------------------------------------
 
+function alternar(id: string): void {
+  abierto.value = abierto.value === id ? null : id
+}
+
 function colonia(pedido: PedidoEnRuta): string {
   const d = pedido.direccion as Record<string, string | null> | null
   return d?.colonia || '—'
-}
-
-function faltaPago(pedido: PedidoEnRuta): boolean {
-  return pedido.paso.siguiente !== null && !pedido.pagoCubierto
 }
 </script>
 
@@ -283,84 +285,98 @@ function faltaPago(pedido: PedidoEnRuta): boolean {
               <th>Cliente</th>
               <th>Fecha</th>
               <th>Estado</th>
-              <th>Cobro</th>
               <th class="num">Total</th>
               <th>Acción</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="pedido in detalle.pedidos" :key="pedido.id">
-              <td>
-                <button type="button" class="folio abre-hoja" @click="enHoja = pedido.id">
-                  {{ pedido.folio }} ›
-                </button>
-              </td>
-              <td>{{ colonia(pedido) }}</td>
-              <td>{{ pedido.clienteNombre ?? '—' }}</td>
-              <td>{{ fechaNumerica(pedido.creadoEn) }}</td>
-              <td>
-                <span class="mini-tag">
-                  {{ nombreEstadoPedido(pedido.estado, pedido.pago.estado) }}
-                </span>
-              </td>
-              <td>
-                <span v-if="faltaPago(pedido)" class="mini-tag falta-pago">
-                  🔒 Falta pago · {{ nombreMetodoPago(pedido.pago.metodo) }}
-                </span>
-                <span v-else-if="cobraEnEfectivo(pedido)" class="mini-tag cobrar">
-                  Cobrar {{ dinero(pedido.pago.aPagar) }}
-                </span>
-                <span v-else class="mini-tag pagado">
-                  {{ nombreMetodoPago(pedido.pago.metodo) }} · no cobras
-                </span>
-              </td>
-              <td class="num importe">{{ dinero(pedido.total) }}</td>
-              <td class="accion">
-                <div class="en-linea">
-                  <template v-if="pedido.estado === 'RECOLECTADO'">
-                    <button
-                      type="button"
-                      class="btn-primary"
-                      :disabled="!puedeMover || pedido.paso.bloqueo !== null || moviendo !== null"
-                      @click="enRuta(pedido)"
-                    >
-                      {{ moviendo === pedido.id ? '…' : TITULO_PASO.EN_RUTA }}
-                    </button>
-                    <button
-                      type="button"
-                      class="btn-cancel"
-                      :disabled="!puedeMover || moviendo !== null"
-                      title="Lo baja del camión: vuelve a bodega"
-                      @click="quitar(pedido)"
-                    >
-                      Quitar
-                    </button>
-                  </template>
-                  <template v-else-if="pedido.estado === 'EN_RUTA'">
-                    <button
-                      type="button"
-                      class="btn-primary"
-                      :disabled="!puedeMover || pedido.paso.bloqueo !== null || moviendo !== null"
-                      @click="enHoja = pedido.id"
-                    >
-                      {{ pedido.paso.bloqueo ? '🔒 ' : '' }}{{ TITULO_PASO.ENTREGADO }}
-                    </button>
-                    <button
-                      type="button"
-                      class="btn-cancel"
-                      :disabled="!puedeMover || moviendo !== null"
-                      @click="noEntregando = pedido"
-                    >
-                      No entregado
-                    </button>
-                  </template>
-                  <p v-else-if="pedido.estado === 'ENTREGADO'" class="aviso hecho">✓ Entregado</p>
-                </div>
-                <p v-if="pedido.paso.bloqueo" class="bloqueo">
-                  {{ pedido.paso.bloqueo.mensaje }}
-                </p>
-              </td>
-            </tr>
+            <template v-for="pedido in detalle.pedidos" :key="pedido.id">
+              <tr :class="{ 'con-detalle': abierto === pedido.id }">
+                <td>
+                  <!-- Como en Rutas: la flecha despliega el detalle debajo; el folio sigue
+                       abriendo la hoja del pedido con sus pasos. -->
+                  <button
+                    type="button"
+                    class="chevron"
+                    :class="{ abierto: abierto === pedido.id }"
+                    :aria-expanded="abierto === pedido.id"
+                    :aria-label="`Detalle de ${pedido.folio}`"
+                    @click="alternar(pedido.id)"
+                  >
+                    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                      <path
+                        d="M4 6l4 4 4-4"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      />
+                    </svg>
+                  </button>
+                  <button type="button" class="folio abre-hoja" @click="enHoja = pedido.id">
+                    {{ pedido.folio }}
+                  </button>
+                </td>
+                <td>{{ colonia(pedido) }}</td>
+                <td>{{ pedido.clienteNombre ?? '—' }}</td>
+                <td>{{ fechaNumerica(pedido.creadoEn) }}</td>
+                <td>
+                  <span class="mini-tag">
+                    {{ nombreEstadoPedido(pedido.estado, pedido.pago.estado) }}
+                  </span>
+                </td>
+                <td class="num importe">{{ dinero(pedido.total) }}</td>
+                <td class="accion">
+                  <div class="en-linea">
+                    <template v-if="pedido.estado === 'RECOLECTADO'">
+                      <button
+                        type="button"
+                        class="btn-primary"
+                        :disabled="!puedeMover || pedido.paso.bloqueo !== null || moviendo !== null"
+                        @click="enRuta(pedido)"
+                      >
+                        {{ moviendo === pedido.id ? '…' : TITULO_PASO.EN_RUTA }}
+                      </button>
+                      <button
+                        type="button"
+                        class="btn-cancel"
+                        :disabled="!puedeMover || moviendo !== null"
+                        title="Lo baja del camión: vuelve a bodega"
+                        @click="quitar(pedido)"
+                      >
+                        Quitar
+                      </button>
+                    </template>
+                    <template v-else-if="pedido.estado === 'EN_RUTA'">
+                      <button
+                        type="button"
+                        class="btn-primary"
+                        :disabled="!puedeMover || pedido.paso.bloqueo !== null || moviendo !== null"
+                        @click="enHoja = pedido.id"
+                      >
+                        {{ pedido.paso.bloqueo ? '🔒 ' : '' }}{{ TITULO_PASO.ENTREGADO }}
+                      </button>
+                      <button
+                        type="button"
+                        class="btn-cancel"
+                        :disabled="!puedeMover || moviendo !== null"
+                        @click="noEntregando = pedido"
+                      >
+                        No entregado
+                      </button>
+                    </template>
+                    <p v-else-if="pedido.estado === 'ENTREGADO'" class="aviso hecho">✓ Entregado</p>
+                  </div>
+                  <p v-if="pedido.paso.bloqueo" class="bloqueo">
+                    {{ pedido.paso.bloqueo.mensaje }}
+                  </p>
+                </td>
+              </tr>
+              <tr v-if="abierto === pedido.id" class="fila-detalle">
+                <td colspan="7"><DetallePedidoRuta :pedido="pedido" /></td>
+              </tr>
+            </template>
           </tbody>
         </table>
       </div>
@@ -377,50 +393,64 @@ function faltaPago(pedido: PedidoEnRuta): boolean {
                 <th>Colonia</th>
                 <th>Cliente</th>
                 <th>Fecha</th>
-                <th>Cobro</th>
                 <th class="num">Total</th>
                 <th>Acción</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="pedido in detalle.disponibles" :key="pedido.id">
-                <td>
-                  <button type="button" class="folio abre-hoja" @click="enHoja = pedido.id">
-                    {{ pedido.folio }} ›
-                  </button>
-                </td>
-                <td>{{ colonia(pedido) }}</td>
-                <td>{{ pedido.clienteNombre ?? '—' }}</td>
-                <td>{{ fechaNumerica(pedido.creadoEn) }}</td>
-                <td>
-                  <span v-if="faltaPago(pedido)" class="mini-tag falta-pago">
-                    🔒 Falta pago · {{ nombreMetodoPago(pedido.pago.metodo) }}
-                  </span>
-                  <span v-else-if="cobraEnEfectivo(pedido)" class="mini-tag cobrar">
-                    Cobrar {{ dinero(pedido.pago.aPagar) }}
-                  </span>
-                  <span v-else class="mini-tag pagado">
-                    {{ nombreMetodoPago(pedido.pago.metodo) }} · no cobras
-                  </span>
-                </td>
-                <td class="num importe">{{ dinero(pedido.total) }}</td>
-                <td class="accion">
-                  <button
-                    type="button"
-                    class="btn-primary"
-                    :disabled="!puedeMover || pedido.paso.bloqueo !== null || moviendo !== null"
-                    @click="recolectar(pedido)"
-                  >
-                    <template v-if="moviendo === pedido.id">…</template>
-                    <template v-else>
-                      {{ pedido.paso.bloqueo ? '🔒 ' : '' }}{{ TITULO_PASO.RECOLECTADO }}
-                    </template>
-                  </button>
-                  <p v-if="pedido.paso.bloqueo" class="bloqueo">
-                    {{ pedido.paso.bloqueo.mensaje }}
-                  </p>
-                </td>
-              </tr>
+              <template v-for="pedido in detalle.disponibles" :key="pedido.id">
+                <tr :class="{ 'con-detalle': abierto === pedido.id }">
+                  <td>
+                    <!-- Como en Rutas: la flecha despliega el detalle debajo; el folio sigue
+                         abriendo la hoja del pedido con sus pasos. -->
+                    <button
+                      type="button"
+                      class="chevron"
+                      :class="{ abierto: abierto === pedido.id }"
+                      :aria-expanded="abierto === pedido.id"
+                      :aria-label="`Detalle de ${pedido.folio}`"
+                      @click="alternar(pedido.id)"
+                    >
+                      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                        <path
+                          d="M4 6l4 4 4-4"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        />
+                      </svg>
+                    </button>
+                    <button type="button" class="folio abre-hoja" @click="enHoja = pedido.id">
+                      {{ pedido.folio }}
+                    </button>
+                  </td>
+                  <td>{{ colonia(pedido) }}</td>
+                  <td>{{ pedido.clienteNombre ?? '—' }}</td>
+                  <td>{{ fechaNumerica(pedido.creadoEn) }}</td>
+                  <td class="num importe">{{ dinero(pedido.total) }}</td>
+                  <td class="accion">
+                    <button
+                      type="button"
+                      class="btn-primary"
+                      :disabled="!puedeMover || pedido.paso.bloqueo !== null || moviendo !== null"
+                      @click="recolectar(pedido)"
+                    >
+                      <template v-if="moviendo === pedido.id">…</template>
+                      <template v-else>
+                        {{ pedido.paso.bloqueo ? '🔒 ' : '' }}{{ TITULO_PASO.RECOLECTADO }}
+                      </template>
+                    </button>
+                    <p v-if="pedido.paso.bloqueo" class="bloqueo">
+                      {{ pedido.paso.bloqueo.mensaje }}
+                    </p>
+                  </td>
+                </tr>
+                <tr v-if="abierto === pedido.id" class="fila-detalle">
+                  <td colspan="6"><DetallePedidoRuta :pedido="pedido" /></td>
+                </tr>
+              </template>
             </tbody>
           </table>
         </div>
@@ -532,21 +562,6 @@ function faltaPago(pedido: PedidoEnRuta): boolean {
 }
 .tabla {
   min-width: 820px;
-}
-
-.mini-tag.cobrar {
-  background: var(--amarillo);
-  color: var(--ink);
-}
-
-.mini-tag.pagado {
-  background: var(--cream-2);
-  color: var(--muted);
-}
-
-.mini-tag.falta-pago {
-  background: color-mix(in srgb, var(--rojo) 15%, var(--white));
-  color: var(--rojo);
 }
 
 .aviso {

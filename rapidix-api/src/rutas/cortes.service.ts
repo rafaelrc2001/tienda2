@@ -5,7 +5,12 @@ import { ConfiguracionService } from '../configuracion/configuracion.service';
 import { InventarioService } from '../inventario/inventario.service';
 import { UsuarioAutenticado } from '../auth/jwt-payload';
 import { actorDe, ActorDeBitacora, registrarEnBitacora } from '../pedidos/bitacora';
-import { devueltoDelRenglon, efectivoDelPedido } from './dinero-del-corte';
+import {
+  AlcanceDelCorte,
+  alcanceDelCorte,
+  cuentaDelCorte,
+  planDeDescarga,
+} from './alcance-del-corte';
 import { CerrarCorteDto, RecibirCorteDto, RegistrarAbonoDto } from './dto/corte.dto';
 
 const Decimal = Prisma.Decimal;
@@ -32,19 +37,6 @@ export interface ResumenCorteDto {
   pedidosQueRegresan: number;
   /** Es la ultima entrega viva: su corte cierra tambien la jornada. */
   cierraJornada: boolean;
-}
-
-/**
- * Lo que abarca el corte de una entrega. La ultima entrega viva se lleva
- * ademas lo que no tiene entrega (pedidos cargados antes de que existieran),
- * para que nada quede en el camion al cerrar la jornada.
- */
-interface AlcanceDelCorte {
-  sesionId: string;
-  finalizadaEn: Date | null;
-  cierraJornada: boolean;
-  pedidos: Prisma.PedidoWhereInput;
-  cargas: Prisma.CargaRepartidorWhereInput;
 }
 
 export interface CorteDto {
@@ -251,21 +243,12 @@ export class CortesService {
     const otrasVivas = await tx.entregaRuta.count({
       where: { sesionId: entrega.sesionId, corteId: null, id: { not: entregaId } },
     });
-    const cierraJornada = otrasVivas === 0;
-
-    return {
+    return alcanceDelCorte({
+      entregaId,
       sesionId: entrega.sesionId,
       finalizadaEn: entrega.finalizadaEn,
-      cierraJornada,
-      pedidos: cierraJornada
-        ? { OR: [{ entregaRutaId: entregaId }, { entregaRutaId: null }] }
-        : { entregaRutaId: entregaId },
-      cargas: {
-        sesionId: entrega.sesionId,
-        cerradoEn: null,
-        ...(!cierraJornada && { pedido: { entregaRutaId: entregaId } }),
-      },
-    };
+      otrasVivas,
+    });
   }
 
   /**
@@ -311,8 +294,8 @@ export class CortesService {
   /**
    * Suma lo que el repartidor trae y cuenta lo que regresa.
    *
-   * La aritmetica esta en `dinero-del-corte.ts`, aparte y probada: aqui solo
-   * se juntan las filas. Se usa igual para previsualizar y para cerrar, para
+   * La aritmetica esta en `alcance-del-corte.ts` y `dinero-del-corte.ts`,
+   * aparte y probada: aqui solo se juntan las filas. Se usa igual para previsualizar y para cerrar, para
    * que el numero que vio no sea otro que el que se guarda.
    */
   private async calcular(
@@ -349,38 +332,19 @@ export class CortesService {
       orderBy: { creadoEn: 'asc' },
     });
 
-    let total = new Decimal(0);
-    let piezas = 0;
-    let regresan = 0;
-
-    const detalle = pedidos.map((pedido) => {
-      // Solo el dinero de lo que se entrego: un pedido que vuelve entero no
-      // cobra nada, y su `efectivoDelPedido` sale cero porque no acepto nada.
-      const efectivo =
-        pedido.estado === EstadoPedido.ENTREGADO
-          ? efectivoDelPedido(pedido, pedido.cargas)
-          : new Decimal(0);
-      const devueltas = pedido.cargas.reduce((suma, c) => suma + devueltoDelRenglon(c), 0);
-
-      total = total.add(efectivo);
-      piezas += devueltas;
-      if (pedido.estado !== EstadoPedido.ENTREGADO) regresan++;
-
-      return {
+    const cuenta = cuentaDelCorte(pedidos);
+    return {
+      montoCalculado: cuenta.montoCalculado.toNumber(),
+      pedidos: pedidos.map((pedido, i) => ({
         id: pedido.id,
         folio: pedido.folio,
         clienteNombre: pedido.cliente.nombre,
         estado: pedido.estado,
-        efectivo: efectivo.toNumber(),
-        devueltas,
-      };
-    });
-
-    return {
-      montoCalculado: total.toNumber(),
-      pedidos: detalle,
-      piezasQueRegresan: piezas,
-      pedidosQueRegresan: regresan,
+        efectivo: cuenta.porPedido[i].efectivo.toNumber(),
+        devueltas: cuenta.porPedido[i].devueltas,
+      })),
+      piezasQueRegresan: cuenta.piezasQueRegresan,
+      pedidosQueRegresan: cuenta.pedidosQueRegresan,
       cierraJornada: alcance.cierraJornada,
     };
   }
@@ -408,38 +372,19 @@ export class CortesService {
       },
     });
 
+    const plan = planDeDescarga(cargas, controlInventario);
+
     const ahora = new Date();
-    const porPedido = new Map<
-      string,
-      { folio: string; estado: EstadoPedido; lineas: { productoId: string; cantidad: number }[] }
-    >();
-
-    for (const carga of cargas) {
-      const devueltas = carga.cantidadCargada - carga.cantidadEntregada;
+    for (const cierre of plan.cierres) {
       await tx.cargaRepartidor.update({
-        where: { id: carga.id },
-        data: { cantidadDevuelta: devueltas, cerradoEn: ahora },
+        where: { id: cierre.id },
+        data: { cantidadDevuelta: cierre.cantidadDevuelta, cerradoEn: ahora },
       });
-
-      if (devueltas <= 0) continue;
-      const pedido = porPedido.get(carga.pedidoId) ?? {
-        folio: carga.pedido.folio,
-        estado: carga.pedido.estado,
-        lineas: [],
-      };
-      pedido.lineas.push({ productoId: carga.productoId, cantidad: devueltas });
-      porPedido.set(carga.pedidoId, pedido);
     }
 
-    for (const [pedidoId, pedido] of porPedido) {
-      // Con el control apagado no se toca el saldo, igual que en el checkout:
-      // devolver a una bodega que nadie ha capturado inventaria existencia.
-      // Solo lo rechazado de un pedido entregado se libera: el que no se
-      // entrego vuelve a la cola y sigue apartado para su cliente. Soltarlo
-      // aqui lo venderia a otro y, si luego se cancelara, se devolveria dos
-      // veces.
-      if (controlInventario && pedido.estado === EstadoPedido.ENTREGADO) {
-        await this.inventario.devolverDeRuta(tx, pedidoId, pedido.folio, pedido.lineas, {
+    for (const pedido of plan.pedidos) {
+      if (pedido.liberaInventario) {
+        await this.inventario.devolverDeRuta(tx, pedido.pedidoId, pedido.folio, pedido.lineas, {
           usuarioId: quien.actorId,
           usuarioNombre: quien.actorNombre,
         });
@@ -449,9 +394,9 @@ export class CortesService {
       // porque no es un paso adelante sino la constatacion de que la mercancia
       // volvio: el pedido esta otra vez en bodega esperando camion, y suelta a
       // su repartidor y su entrega para que manana entre a otra.
-      if (pedido.estado !== EstadoPedido.ENTREGADO) {
+      if (pedido.vuelveACola) {
         await tx.pedido.update({
-          where: { id: pedidoId },
+          where: { id: pedido.pedidoId },
           data: {
             estado: EstadoPedido.LISTO_PARA_ENTREGA,
             repartidorId: null,
@@ -460,7 +405,7 @@ export class CortesService {
         });
         await registrarEnBitacora(
           tx,
-          pedidoId,
+          pedido.pedidoId,
           {
             eje: EjeBitacora.PEDIDO,
             estadoAnterior: pedido.estado,
