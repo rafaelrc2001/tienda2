@@ -55,7 +55,8 @@ export class FinanzasCortesController {
   /**
    * Cuenta el dinero y cierra el corte. **Quien recibe no puede ser quien lo
    * cerró** (409 `RECIBE_EL_MISMO`): el que trae el dinero no se lo cuenta a
-   * sí mismo. Contar de menos no bloquea: el faltante queda a la vista.
+   * sí mismo. El administrador sí puede, porque puede ser el único usuario.
+   * Contar de menos no bloquea: el faltante queda a la vista.
    */
   @Post(':id/recibir')
   recibir(
