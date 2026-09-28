@@ -14,7 +14,7 @@ import SkeletonList from '@/components/SkeletonList.vue'
 
 const props = defineProps<{ saldos: SaldoProducto[]; cargando: boolean }>()
 
-type Filtro = 'todos' | 'bajos' | 'cero' | 'descuadre'
+type Filtro = 'todos' | 'bajos' | 'cero'
 
 const busqueda = ref('')
 const filtro = ref<Filtro>('todos')
@@ -23,7 +23,6 @@ const FILTROS: { valor: Filtro; etiqueta: string }[] = [
   { valor: 'todos', etiqueta: 'Todos' },
   { valor: 'bajos', etiqueta: 'Por acabarse' },
   { valor: 'cero', etiqueta: 'Sin existencia' },
-  { valor: 'descuadre', etiqueta: 'Con descuadre' },
 ]
 
 /** Cómo se pinta el saldo de venta de una fila. */
@@ -38,7 +37,6 @@ const visibles = computed<SaldoProducto[]>(() => {
     if (termino && !`${s.nombre} ${s.categoria}`.toLowerCase().includes(termino)) return false
     if (filtro.value === 'bajos') return estado(s) === 'bajo'
     if (filtro.value === 'cero') return s.aptInventario === 0
-    if (filtro.value === 'descuadre') return s.diferencia !== 0
     return true
   })
 })
@@ -47,7 +45,6 @@ const visibles = computed<SaldoProducto[]>(() => {
 const conteo = computed(() => ({
   cero: props.saldos.filter((s) => s.aptInventario === 0).length,
   bajos: props.saldos.filter((s) => estado(s) === 'bajo').length,
-  descuadre: props.saldos.filter((s) => s.diferencia !== 0).length,
 }))
 </script>
 
@@ -68,10 +65,7 @@ const conteo = computed(() => ({
     <div v-if="!cargando" class="avisos">
       <span v-if="conteo.cero > 0" class="aviso cero">{{ conteo.cero }} sin existencia</span>
       <span v-if="conteo.bajos > 0" class="aviso bajo">{{ conteo.bajos }} por acabarse</span>
-      <span v-if="conteo.descuadre > 0" class="aviso descuadre">
-        {{ conteo.descuadre }} con descuadre
-      </span>
-      <span v-if="conteo.cero + conteo.bajos + conteo.descuadre === 0" class="aviso ok">
+      <span v-if="conteo.cero + conteo.bajos === 0" class="aviso ok">
         Todo en orden
       </span>
     </div>
@@ -86,7 +80,6 @@ const conteo = computed(() => ({
             <th>Grupo</th>
             <th class="num">Inventario (físico)</th>
             <th class="num">Apt. venta</th>
-            <th class="num">Diferencia</th>
           </tr>
         </thead>
         <tbody>
@@ -98,9 +91,6 @@ const conteo = computed(() => ({
             <td>{{ saldo.categoria }}</td>
             <td class="num">{{ saldo.inventario }}</td>
             <td class="num" :class="estado(saldo)">{{ saldo.aptInventario }}</td>
-            <td class="num" :class="{ descuadre: saldo.diferencia !== 0 }">
-              {{ saldo.diferencia }}
-            </td>
           </tr>
         </tbody>
       </table>
@@ -168,11 +158,6 @@ const conteo = computed(() => ({
 .aviso.bajo {
   background: rgba(245, 124, 0, 0.18);
   color: var(--gold-dark);
-}
-
-.aviso.descuadre {
-  background: var(--cream-2);
-  color: var(--navy);
 }
 
 .aviso.ok {
@@ -256,11 +241,6 @@ td.num.cero {
 
 td.num.bajo {
   color: var(--gold-dark);
-  font-weight: 700;
-}
-
-td.num.descuadre {
-  color: var(--navy);
   font-weight: 700;
 }
 

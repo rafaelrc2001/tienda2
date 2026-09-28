@@ -33,13 +33,12 @@ import type {
 const ui = useUiStore()
 const router = useRouter()
 
-const PESTANAS: { filtro: FiltroRutas; titulo: string }[] = [
-  { filtro: 'disponibles', titulo: 'En bodega' },
-  { filtro: 'en-camion', titulo: 'Mi camión' },
-  { filtro: 'entregados', titulo: 'Entregados' },
-]
+/**
+ * Aquí solo se listan los pedidos que aún no van en ninguna entrega: lo que
+ * está en el camión o ya se entregó se ve dentro de cada entrega.
+ */
+const FILTRO: FiltroRutas = 'disponibles'
 
-const filtro = ref<FiltroRutas>('disponibles')
 const jornada = ref<Jornada | null>(null)
 const entregas = ref<EntregaRuta[]>([])
 const pedidos = ref<PedidoEnRuta[]>([])
@@ -72,7 +71,7 @@ async function cargar(conEsqueleto = true, silenciosa = false): Promise<void> {
   if (conEsqueleto) cargando.value = true
   try {
     const respuesta = await http.get<TableroRutas>('/admin/rutas', {
-      query: { filtro: filtro.value },
+      query: { filtro: FILTRO },
     })
     if (numero !== peticion) return
     jornada.value = respuesta.jornada
@@ -116,13 +115,6 @@ onBeforeUnmount(() => {
   clearInterval(reloj)
   document.removeEventListener('visibilitychange', recargarSola)
 })
-
-function elegir(nuevo: FiltroRutas): void {
-  if (nuevo === filtro.value) return
-  filtro.value = nuevo
-  abierto.value = null
-  void cargar()
-}
 
 function alternar(id: string): void {
   abierto.value = abierto.value === id ? null : id
@@ -340,20 +332,9 @@ function faltaPago(pedido: PedidoEnRuta): boolean {
       </div>
     </section>
 
-    <div class="subtab-row" role="tablist">
-      <button
-        v-for="p in PESTANAS"
-        :key="p.filtro"
-        type="button"
-        role="tab"
-        class="subtab"
-        :class="{ active: filtro === p.filtro }"
-        :aria-selected="filtro === p.filtro"
-        @click="elegir(p.filtro)"
-      >
-        {{ p.titulo }}<template v-if="conteos"> · {{ conteos[p.filtro] }}</template>
-      </button>
-    </div>
+    <p class="entregas-titulo">
+      Pedidos pendientes por asignar<template v-if="conteos"> · {{ conteos[FILTRO] }}</template>
+    </p>
 
     <SkeletonList v-if="cargando" :cantidad="3" />
 
@@ -491,15 +472,7 @@ function faltaPago(pedido: PedidoEnRuta): boolean {
       </table>
     </div>
 
-    <p v-else class="empty-block">
-      {{
-        filtro === 'disponibles'
-          ? 'No hay pedidos esperando camión. 🎉'
-          : filtro === 'en-camion'
-            ? 'Tu camión está vacío.'
-            : 'Todavía no has entregado nada en esta jornada.'
-      }}
-    </p>
+    <p v-else class="empty-block">No hay pedidos esperando camión. 🎉</p>
 
     <EntregaModal
       v-if="entregando"
@@ -605,10 +578,6 @@ function faltaPago(pedido: PedidoEnRuta): boolean {
   flex: 1;
   padding: 9px 8px;
   font-size: 12px;
-}
-
-.subtab-row {
-  margin: 0 0 12px;
 }
 
 .tabla {
