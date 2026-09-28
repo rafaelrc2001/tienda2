@@ -2,61 +2,38 @@
 /**
  * Administración → Rutas: la pantalla del repartidor.
  *
- * Todo cuelga de su jornada, así que la API la manda junto con los pedidos y
- * aquí se pinta arriba, fija: mientras no la haya iniciado no se puede cargar
- * el camión, y el botón lo dice en vez de esperar al 409.
+ * Todo cuelga de su jornada, así que la API la manda junto con las entregas y
+ * aquí se pinta arriba, fija: mientras no la haya iniciado no se pueden crear
+ * entregas, y el botón lo dice en vez de esperar al 409.
  *
- * Como en Operaciones, la pantalla no decide nada: cada pedido llega con su
- * `paso` calculado por la API y aquí solo se enciende el botón o se enseña el
- * candado. Lo propio de Rutas es lo que va encima del camión —la carga— y lo
- * que se cuenta en la puerta del cliente.
+ * Los pedidos ya no se listan aquí: se agregan, se cargan y se entregan desde
+ * dentro de cada entrega, que es la que dice con quién sale el camión.
  */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ErrorApi, http } from '@/api/http'
+import { http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
-import { dinero, fechaNumerica, nombreEstadoPedido } from '@/utils/formato'
+import { fechaNumerica } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
-import EntregaModal from './rutas/EntregaModal.vue'
-import NoEntregadoModal from './rutas/NoEntregadoModal.vue'
-import DetallePedidoRuta from './rutas/DetallePedidoRuta.vue'
-import { nombreEntrega, TITULO_PASO } from './rutas/etiquetas'
-import type {
-  EntregaRuta,
-  FiltroRutas,
-  Jornada,
-  PedidoEnRuta,
-  ResultadoEntrega,
-  TableroRutas,
-} from '@/api/tipos'
+import { nombreEntrega } from './rutas/etiquetas'
+import type { EntregaRuta, FiltroRutas, Jornada, TableroRutas } from '@/api/tipos'
 
 const ui = useUiStore()
 const router = useRouter()
 
-/**
- * Aquí solo se listan los pedidos que aún no van en ninguna entrega: lo que
- * está en el camión o ya se entregó se ve dentro de cada entrega.
- */
+/** El tablero pide un filtro de pedidos; aquí solo se usan la jornada y las entregas. */
 const FILTRO: FiltroRutas = 'disponibles'
 
 const jornada = ref<Jornada | null>(null)
 const entregas = ref<EntregaRuta[]>([])
-const pedidos = ref<PedidoEnRuta[]>([])
-const conteos = ref<Record<FiltroRutas, number> | null>(null)
 const cargando = ref(true)
-const moviendo = ref<string | null>(null)
-const abierto = ref<string | null>(null)
 
-/** Las hojas: contar la entrega, explicar el intento fallido y crear una entrega. */
-const enHoja = ref<string | null>(null)
-/** Por id: al dar un paso desde la hoja se relee y la hoja sigue con el pedido al día. */
-const entregando = computed(() => pedidos.value.find((p) => p.id === enHoja.value) ?? null)
-const noEntregando = ref<PedidoEnRuta | null>(null)
+/** La hoja de «Crear entrega». */
 const creandoEntrega = ref(false)
 const nombreNueva = ref('')
 const enviandoEntrega = ref(false)
 
-/** Cambiar de pestaña rápido deja respuestas viejas en el aire: gana la última. */
+/** Una recarga automática puede cruzarse con otra: gana la última. */
 let peticion = 0
 
 const trabajando = computed(() => jornada.value !== null && jornada.value.finalizadaEn === null)
@@ -76,8 +53,6 @@ async function cargar(conEsqueleto = true, silenciosa = false): Promise<void> {
     if (numero !== peticion) return
     jornada.value = respuesta.jornada
     entregas.value = respuesta.entregas
-    pedidos.value = respuesta.pedidos
-    conteos.value = respuesta.conteos
   } catch (fallo) {
     if (numero === peticion && !silenciosa) ui.errorDeApi(fallo)
   } finally {
@@ -93,13 +68,12 @@ async function cargar(conEsqueleto = true, silenciosa = false): Promise<void> {
 const CADA_MS = 60_000
 
 /**
- * Finanzas puede marcar Pagado —o dar Crédito— mientras el repartidor está en
- * bodega, y sin releer seguiría viendo «Falta pago» hasta recargar a mano. Se
- * relee al volver a la pestaña y cada minuto, solo con la pantalla visible y
- * nunca a media acción: la respuesta pisaría lo que está moviendo.
+ * Los contadores de cada entrega cambian mientras el repartidor está en la
+ * calle: se relee al volver a la pestaña y cada minuto, solo con la pantalla
+ * visible.
  */
 function recargarSola(): void {
-  if (document.visibilityState !== 'visible' || moviendo.value) return
+  if (document.visibilityState !== 'visible') return
   void cargar(false, true)
 }
 
@@ -116,10 +90,6 @@ onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', recargarSola)
 })
 
-function alternar(id: string): void {
-  abierto.value = abierto.value === id ? null : id
-}
-
 // ------------------------------------------------------------------
 // La jornada
 // ------------------------------------------------------------------
@@ -128,16 +98,12 @@ function alternar(id: string): void {
 async function abrirJornada(): Promise<void> {
   try {
     jornada.value = await http.post<Jornada>('/admin/rutas/jornada')
-    ui.exito('Jornada iniciada. Ya puedes cargar el camión.')
+    ui.exito('Jornada iniciada. Ya puedes crear tus entregas.')
   } catch (fallo) {
     ui.errorDeApi(fallo)
   }
   await cargar(false)
 }
-
-// ------------------------------------------------------------------
-// El camión
-// ------------------------------------------------------------------
 
 // ------------------------------------------------------------------
 // Las entregas
@@ -164,95 +130,6 @@ async function crearEntrega(): Promise<void> {
   } finally {
     enviandoEntrega.value = false
   }
-}
-
-/**
- * Salir a ruta, o abrir la hoja de entrega. Subir al camión ya no se hace
- * aquí: se hace dentro de una entrega, que es la que dice con quién sale.
- */
-async function avanzar(pedido: PedidoEnRuta): Promise<void> {
-  const destino = pedido.paso.siguiente
-  if (!destino || moviendo.value) return
-  if (destino === 'ENTREGADO') {
-    enHoja.value = pedido.id
-    return
-  }
-  if (destino !== 'EN_RUTA') return
-
-  moviendo.value = pedido.id
-  try {
-    const actualizado = await http.post<PedidoEnRuta>(
-      `/admin/rutas/pedidos/${pedido.id}/en-ruta`,
-      {},
-    )
-    ui.exito(`${pedido.folio} → ${nombreEstadoPedido(actualizado.estado)}`)
-  } catch (fallo) {
-    // Un 409 casi siempre es que otro compañero se llevó el pedido o que
-    // Finanzas lo movió: se avisa y se recarga para enseñar lo vigente.
-    ui.errorDeApi(fallo)
-    if (!(fallo instanceof ErrorApi) || fallo.estado !== 409) return
-  } finally {
-    moviendo.value = null
-  }
-  // Recolectar y salir a ruta cambian de pestaña al pedido: se relee entero.
-  await cargar(false)
-}
-
-function alEntregar(resultado: ResultadoEntrega): void {
-  const { entrega } = resultado
-  const cobrado = dinero(entrega.importeEntregado)
-  ui.exito(
-    entrega.parcial
-      ? `Entrega parcial: ${entrega.piezasEntregadas} pieza(s) por ${cobrado}, ` +
-          `${entrega.piezasDevueltas} siguen en tu camión.`
-      : `${resultado.pedido.folio} entregado · ${cobrado}`,
-  )
-  enHoja.value = null
-  void cargar(false)
-}
-
-/** El intento fallido quedó guardado: se cierra la hoja y se relee. */
-function alNoEntregar(): void {
-  noEntregando.value = null
-  void cargar(false)
-}
-
-function abrirNoEntregado(pedido: PedidoEnRuta): void {
-  noEntregando.value = pedido
-}
-
-/** Desde la hoja de entrega: la incidencia es el mismo «No entregado». */
-function reportarIncidencia(): void {
-  const pedido = entregando.value
-  enHoja.value = null
-  if (pedido) abrirNoEntregado(pedido)
-}
-
-/** Desde la hoja solo se sale a ruta: recolectar es de dentro de una entrega. */
-function pasoDesdeHoja(): void {
-  if (entregando.value) void avanzar(entregando.value)
-}
-
-// ------------------------------------------------------------------
-// Lectura de la tarjeta
-// ------------------------------------------------------------------
-
-/** La colonia de la dirección congelada en el pedido. */
-function colonia(pedido: PedidoEnRuta): string {
-  const d = pedido.direccion as Record<string, string | null> | null
-  return d?.colonia || '—'
-}
-
-/** Lo que sigue arriba del camión de ese pedido. */
-function piezasArriba(pedido: PedidoEnRuta): number {
-  return pedido.carga
-    .filter((c) => c.enCamion)
-    .reduce((suma, c) => suma + c.cantidadCargada - c.cantidadEntregada, 0)
-}
-
-/** Le queda la entrega por delante y el dinero todavía no la permite. */
-function faltaPago(pedido: PedidoEnRuta): boolean {
-  return pedido.paso.siguiente !== null && !pedido.pagoCubierto
 }
 </script>
 
@@ -288,8 +165,10 @@ function faltaPago(pedido: PedidoEnRuta): boolean {
       </div>
     </section>
 
+    <SkeletonList v-if="cargando" :cantidad="3" />
+
     <!-- Las entregas de la jornada: cada una es un viaje con sus pedidos. -->
-    <section v-if="entregas.length > 0" class="entregas">
+    <section v-else-if="entregas.length > 0" class="entregas">
       <p class="entregas-titulo">Mis entregas</p>
       <div class="tabla-envoltorio">
         <table class="tabla lineal">
@@ -332,166 +211,9 @@ function faltaPago(pedido: PedidoEnRuta): boolean {
       </div>
     </section>
 
-    <p class="entregas-titulo">
-      Pedidos pendientes por asignar<template v-if="conteos"> · {{ conteos[FILTRO] }}</template>
+    <p v-else-if="trabajando" class="empty-block">
+      Aún no tienes entregas: créala y agrégale sus pedidos.
     </p>
-
-    <SkeletonList v-if="cargando" :cantidad="3" />
-
-    <div v-else-if="pedidos.length > 0" class="tabla-envoltorio">
-      <table class="tabla lineal">
-        <thead>
-          <tr>
-            <th>Folio</th>
-            <th>Colonia</th>
-            <th>Cliente</th>
-            <th>Fecha</th>
-            <th>Estado</th>
-            <th class="num">Total</th>
-            <th>Acción</th>
-          </tr>
-        </thead>
-        <tbody>
-          <template v-for="pedido in pedidos" :key="pedido.id">
-            <tr :class="{ 'con-detalle': abierto === pedido.id }">
-              <td>
-                <!-- Como en Operaciones y Finanzas: la flecha despliega el detalle debajo;
-                     el folio sigue abriendo la hoja del pedido con sus pasos. -->
-                <button
-                  type="button"
-                  class="chevron"
-                  :class="{ abierto: abierto === pedido.id }"
-                  :aria-expanded="abierto === pedido.id"
-                  :aria-label="`Detalle de ${pedido.folio}`"
-                  @click="alternar(pedido.id)"
-                >
-                  <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-                    <path
-                      d="M4 6l4 4 4-4"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    />
-                  </svg>
-                </button>
-                <button type="button" class="folio abre-hoja" @click="enHoja = pedido.id">
-                  {{ pedido.folio }}
-                </button>
-              </td>
-              <!-- Como en Operaciones: la colonia agrupa lo que va para el mismo rumbo;
-                   la dirección completa está en la hoja del pedido. -->
-              <td>{{ colonia(pedido) }}</td>
-              <td class="cliente">{{ pedido.clienteNombre ?? '—' }}</td>
-              <td>{{ fechaNumerica(pedido.creadoEn) }}</td>
-              <td>
-                <div class="en-linea">
-                  <span class="mini-tag">
-                    {{ nombreEstadoPedido(pedido.estado, pedido.pago.estado) }}
-                  </span>
-                  <span v-if="piezasArriba(pedido) > 0" class="mini-tag camion">
-                    {{ piezasArriba(pedido) }} pieza(s) arriba
-                  </span>
-                  <RouterLink
-                    v-if="pedido.entrega"
-                    :to="`/admin/rutas/entregas/${pedido.entrega.id}`"
-                    class="mini-tag entrega"
-                  >
-                    {{ nombreEntrega(pedido.entrega) }}
-                  </RouterLink>
-                </div>
-              </td>
-              <td class="num importe">{{ dinero(pedido.total) }}</td>
-              <td class="accion">
-                <!-- El paso que le toca a Rutas, o por qué no se puede dar. -->
-                <div class="en-linea">
-                  <!-- Subir al camión es de una entrega: se hace desde dentro de ella. -->
-                  <p v-if="pedido.paso.siguiente === 'RECOLECTADO'" class="aviso">
-                    📦 Agrégalo desde una de tus entregas.
-                  </p>
-                  <template v-else-if="pedido.paso.siguiente && pedido.paso.seccion === 'rutas'">
-                    <button
-                      type="button"
-                      class="btn-primary"
-                      :disabled="
-                        !trabajando || pedido.paso.bloqueo !== null || moviendo === pedido.id
-                      "
-                      @click="avanzar(pedido)"
-                    >
-                      <template v-if="moviendo === pedido.id">…</template>
-                      <template v-else>
-                        {{ pedido.paso.bloqueo ? '🔒 ' : ''
-                        }}{{ TITULO_PASO[pedido.paso.siguiente] }}
-                      </template>
-                    </button>
-                    <button
-                      v-if="pedido.estado === 'EN_RUTA'"
-                      type="button"
-                      class="btn-cancel"
-                      :disabled="!trabajando || moviendo === pedido.id"
-                      @click="abrirNoEntregado(pedido)"
-                    >
-                      No entregado
-                    </button>
-                  </template>
-                  <p v-else-if="pedido.paso.siguiente" class="aviso">
-                    🏭 Lo está surtiendo Operaciones.
-                  </p>
-                  <p v-else class="aviso hecho">✓ Entregado · entra en tu corte</p>
-                </div>
-
-                <p v-if="pedido.paso.bloqueo" class="bloqueo">
-                  {{ pedido.paso.bloqueo.mensaje }}
-                </p>
-                <p v-else-if="faltaPago(pedido)" class="bloqueo">
-                  Aún no está pagado: podrás llevarlo, pero no entregarlo hasta que Finanzas lo
-                  marque Pagado o le dé Crédito.
-                </p>
-                <p
-                  v-else-if="
-                    jornada &&
-                    !trabajando &&
-                    pedido.paso.siguiente &&
-                    pedido.paso.seccion === 'rutas'
-                  "
-                  class="bloqueo"
-                >
-                  Tu jornada está finalizada: reanúdala para seguir.
-                </p>
-              </td>
-            </tr>
-
-            <tr v-if="abierto === pedido.id" class="fila-detalle">
-              <td colspan="7">
-                <DetallePedidoRuta :pedido="pedido" />
-              </td>
-            </tr>
-          </template>
-        </tbody>
-      </table>
-    </div>
-
-    <p v-else class="empty-block">No hay pedidos esperando camión. 🎉</p>
-
-    <EntregaModal
-      v-if="entregando"
-      :key="`${entregando.id}-${entregando.estado}`"
-      :pedido="entregando"
-      :puede-mover="trabajando"
-      :moviendo="moviendo !== null"
-      @cerrar="enHoja = null"
-      @entregado="alEntregar"
-      @incidencia="reportarIncidencia"
-      @paso="pasoDesdeHoja"
-    />
-
-    <NoEntregadoModal
-      v-if="noEntregando"
-      :pedido="noEntregando"
-      @cerrar="noEntregando = null"
-      @guardado="alNoEntregar"
-    />
 
     <!-- «Crear entrega»: el número lo pone la API; el nombre ayuda a reconocerla. -->
     <div v-if="creandoEntrega" class="modal-overlay" @click.self="creandoEntrega = false">
@@ -584,11 +306,6 @@ function faltaPago(pedido: PedidoEnRuta): boolean {
   min-width: 820px;
 }
 
-/* Las entregas de la jornada, entre la jornada y las pestañas. */
-.entregas {
-  margin-bottom: 12px;
-}
-
 .entregas-titulo {
   margin: 0 0 6px;
   font-family: var(--font-heading);
@@ -608,35 +325,6 @@ function faltaPago(pedido: PedidoEnRuta): boolean {
 .mini-tag.viva {
   background: color-mix(in srgb, var(--verde) 15%, var(--white));
   color: var(--verde-compra);
-}
-
-.mini-tag.entrega {
-  background: color-mix(in srgb, var(--verde) 15%, var(--white));
-  color: var(--verde-compra);
-  text-decoration: none;
-}
-
-.mini-tag.camion {
-  background: var(--verde);
-  color: var(--white);
-}
-
-.aviso {
-  margin: 0;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--muted);
-}
-
-.aviso.hecho {
-  color: var(--verde-dark);
-}
-
-.bloqueo {
-  margin: 6px 0 0;
-  font-size: 11.5px;
-  font-weight: 600;
-  color: var(--orange-dark);
 }
 
 .modal-texto {

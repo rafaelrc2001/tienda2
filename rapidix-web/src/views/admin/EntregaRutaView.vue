@@ -13,6 +13,9 @@
  * Que un pedido no quede en dos entregas lo garantiza la API: un pedido que ya
  * va en otra ni siquiera aparece abajo, y si otro teléfono se lo llevó entre
  * medias, la API responde 409 y aquí se relee.
+ *
+ * El camioncito de la barra naranja abre el inventario del camión: por
+ * producto, lo recolectado, lo entregado y la diferencia que sigue arriba.
  */
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
@@ -25,6 +28,7 @@ import NoEntregadoModal from './rutas/NoEntregadoModal.vue'
 import CorteModal from './rutas/CorteModal.vue'
 import DetallePedidoRuta from './rutas/DetallePedidoRuta.vue'
 import { nombreEntrega, TITULO_PASO } from './rutas/etiquetas'
+import { inventarioDelCamion } from './rutas/camion'
 import type { DetalleEntregaRuta, EntregaRuta, PedidoEnRuta, ResultadoEntrega } from '@/api/tipos'
 
 const route = useRoute()
@@ -43,6 +47,11 @@ const noEntregando = ref<PedidoEnRuta | null>(null)
 const abierto = ref<string | null>(null)
 const corteAbierto = ref(false)
 const cerrando = ref(false)
+/** El inventario del camión, que se abre y se cierra con el camioncito de la barra. */
+const viendoCamion = ref(false)
+
+/** Se recalcula con cada relectura: tras entregar, la diferencia ya baja. */
+const camion = computed(() => (detalle.value ? inventarioDelCamion(detalle.value.pedidos) : []))
 
 const entregando = computed(() => {
   if (!enHoja.value || !detalle.value) return null
@@ -237,6 +246,32 @@ function colonia(pedido: PedidoEnRuta): string {
 
 <template>
   <div class="pantalla">
+    <!-- El camioncito, en el extremo derecho de la barra, como la libreta de Operaciones. -->
+    <Teleport defer to="#topbar-acciones">
+      <button
+        type="button"
+        class="boton-camion"
+        :class="{ activa: viendoCamion }"
+        :aria-pressed="viendoCamion"
+        :title="viendoCamion ? 'Cerrar el inventario del camión' : 'Lo que llevas en el camión'"
+        aria-label="Inventario del camión"
+        @click="viendoCamion = !viendoCamion"
+      >
+        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+          <path
+            d="M14 17V6a1 1 0 0 0-1-1H3a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h1.5M9.5 17h5M19.5 17H21a1 1 0 0 0 1-1v-4l-3-4h-5"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+          <circle cx="7" cy="17.5" r="2" fill="none" stroke="currentColor" stroke-width="1.8" />
+          <circle cx="17" cy="17.5" r="2" fill="none" stroke="currentColor" stroke-width="1.8" />
+        </svg>
+      </button>
+    </Teleport>
+
     <RouterLink to="/admin/rutas" class="admin-back-inline">← Rutas</RouterLink>
 
     <SkeletonList v-if="cargando" :cantidad="3" />
@@ -274,6 +309,37 @@ function colonia(pedido: PedidoEnRuta): string {
         </div>
       </header>
 
+      <!-- Lo que va en el camión, por producto: lo que subió, lo que se quedó con
+           los clientes y la diferencia que sigue arriba (y regresa en el corte). -->
+      <section v-if="viendoCamion" class="camion" aria-live="polite">
+        <p class="camion-titulo">🚚 Tu camión en esta entrega</p>
+        <table v-if="camion.length > 0" class="camion-tabla">
+          <thead>
+            <tr>
+              <th>Producto</th>
+              <th class="num">Recolectado</th>
+              <th class="num">Entregado</th>
+              <th class="num">Diferencia</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="producto in camion" :key="producto.productoId">
+              <td>
+                {{ producto.nombre }} <span class="camion-unidad">{{ producto.unidad }}</span>
+              </td>
+              <td class="num">{{ producto.recolectado }}</td>
+              <td class="num">{{ producto.entregado }}</td>
+              <td class="num">
+                <strong :class="{ arriba: producto.diferencia > 0 }">
+                  {{ producto.diferencia }}
+                </strong>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <p v-else class="camion-vacio">Todavía no has subido nada al camión.</p>
+      </section>
+
       <!-- Los pedidos de esta entrega, con el paso que les toca. -->
       <p class="seccion">Pedidos de esta entrega</p>
       <div v-if="detalle.pedidos.length > 0" class="tabla-envoltorio">
@@ -293,7 +359,7 @@ function colonia(pedido: PedidoEnRuta): string {
             <template v-for="pedido in detalle.pedidos" :key="pedido.id">
               <tr :class="{ 'con-detalle': abierto === pedido.id }">
                 <td>
-                  <!-- Como en Rutas: la flecha despliega el detalle debajo; el folio sigue
+                  <!-- Como en Operaciones: la flecha despliega el detalle debajo; el folio sigue
                        abriendo la hoja del pedido con sus pasos. -->
                   <button
                     type="button"
@@ -401,7 +467,7 @@ function colonia(pedido: PedidoEnRuta): string {
               <template v-for="pedido in detalle.disponibles" :key="pedido.id">
                 <tr :class="{ 'con-detalle': abierto === pedido.id }">
                   <td>
-                    <!-- Como en Rutas: la flecha despliega el detalle debajo; el folio sigue
+                    <!-- Como en Operaciones: la flecha despliega el detalle debajo; el folio sigue
                          abriendo la hoja del pedido con sus pasos. -->
                     <button
                       type="button"
@@ -549,6 +615,86 @@ function colonia(pedido: PedidoEnRuta): string {
   color: var(--muted);
 }
 
+/* El camioncito va sobre la barra naranja: blanco, y relleno cuando está abierto. */
+.boton-camion {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1.5px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--white);
+  cursor: pointer;
+}
+
+.boton-camion.activa {
+  background: var(--white);
+  color: var(--orange-dark);
+}
+
+/* El inventario: con su propio scroll para no comerse la pantalla. */
+.camion {
+  max-height: 40vh;
+  overflow-y: auto;
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  background: var(--white);
+  border: 1.5px solid var(--verde);
+  border-radius: var(--radius-md);
+  font-size: 12.5px;
+  color: var(--ink);
+}
+
+.camion-titulo {
+  margin: 0 0 6px;
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.camion-tabla {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.camion-tabla th {
+  padding: 4px 6px;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+}
+
+.camion-tabla td {
+  padding: 5px 6px;
+  border-bottom: 1px dashed var(--line);
+}
+
+.camion-tabla .num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.camion-unidad {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* Lo que sigue arriba es lo que hay que cuidar: en naranja. */
+.camion-tabla .arriba {
+  color: var(--orange-dark);
+}
+
+.camion-vacio {
+  margin: 0;
+  color: var(--muted);
+}
+
 .seccion {
   margin: 0 0 6px;
   font-family: var(--font-heading);
@@ -557,9 +703,11 @@ function colonia(pedido: PedidoEnRuta): string {
   color: var(--ink);
 }
 
+/* Entre una sección y el título de la siguiente, el mismo respiro corto. */
 .tabla-envoltorio {
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
+
 .tabla {
   min-width: 820px;
 }
@@ -582,7 +730,14 @@ function colonia(pedido: PedidoEnRuta): string {
   color: var(--orange-dark);
 }
 
+/* El vacío global trae 30px por arriba: aquí va pegado a su título, como la tabla. */
 .empty-block {
-  margin-bottom: 16px;
+  margin: 0 0 14px;
+  padding: 12px 0;
+}
+
+/* Lo último de la pantalla no deja hueco abajo. */
+.pantalla > :last-child {
+  margin-bottom: 0;
 }
 </style>
