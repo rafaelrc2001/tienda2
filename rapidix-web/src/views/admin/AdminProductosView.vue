@@ -1,10 +1,11 @@
 <script setup lang="ts">
 /**
- * Administración → Productos: una pantalla, tres ventanas.
+ * Administración → Productos: una pantalla, cuatro ventanas.
  *
- * - **Productos** es el catálogo: qué se vende y a cuánto (HU-A01).
- * - **Inventario** es el saldo de bodega, de solo lectura.
+ * - **Inventario** es el saldo de bodega, de solo lectura. Es la que abre.
  * - **Movimientos** es lo único que mueve ese saldo, y siempre con bitácora.
+ * - **Productos** es el catálogo: qué se vende y a cuánto (HU-A01).
+ * - **Familias** ordena ese catálogo.
  *
  * El saldo lo carga esta pantalla y no cada ventana porque Inventario y
  * Movimientos leen exactamente el mismo dato: tenerlo en dos sitios sería
@@ -21,16 +22,17 @@ import TabMovimientos from './productos/TabMovimientos.vue'
 
 type Ventana = 'productos' | 'familias' | 'inventario' | 'movimientos'
 
+// Primero la bodega, que es lo que se consulta a diario; el catálogo después.
 const VENTANAS: { clave: Ventana; etiqueta: string }[] = [
-  { clave: 'productos', etiqueta: 'Productos' },
-  { clave: 'familias', etiqueta: 'Familias' },
   { clave: 'inventario', etiqueta: 'Inventario' },
   { clave: 'movimientos', etiqueta: 'Movimientos' },
+  { clave: 'productos', etiqueta: 'Productos' },
+  { clave: 'familias', etiqueta: 'Familias' },
 ]
 
 const ui = useUiStore()
 
-const ventana = ref<Ventana>('productos')
+const ventana = ref<Ventana>('inventario')
 const saldos = ref<SaldoProducto[]>([])
 const cargandoSaldos = ref(false)
 
@@ -42,7 +44,7 @@ const cargandoSaldos = ref(false)
  * de ahí se queda montada: cambiar de pestaña no puede borrar las cantidades
  * que alguien llevaba capturadas.
  */
-const abiertas = ref<Set<Ventana>>(new Set(['productos']))
+const abiertas = ref<Set<Ventana>>(new Set())
 
 async function cargarSaldos(): Promise<void> {
   cargandoSaldos.value = true
@@ -62,12 +64,17 @@ async function cargarSaldos(): Promise<void> {
  * no el que estaba en pantalla al capturar: se releen los saldos, no se
  * parchean en memoria con lo que uno cree haber movido.
  */
-watch(ventana, (actual) => {
-  abiertas.value.add(actual)
-  // Solo las dos ventanas que enseñan saldo lo releen. Familias ordena el
-  // catálogo y no tiene nada que ver con la bodega.
-  if (actual === 'inventario' || actual === 'movimientos') void cargarSaldos()
-})
+watch(
+  ventana,
+  (actual) => {
+    abiertas.value.add(actual)
+    // Solo las dos ventanas que enseñan saldo lo releen. Familias ordena el
+    // catálogo y no tiene nada que ver con la bodega.
+    if (actual === 'inventario' || actual === 'movimientos') void cargarSaldos()
+  },
+  // `immediate` porque la pantalla ya abre en Inventario y necesita el saldo.
+  { immediate: true },
+)
 
 /**
  * Tras registrar, se enseña el saldo ya movido (M-3). Recargarlo es cosa del
@@ -95,12 +102,6 @@ function alRegistrar(): void {
       </button>
     </div>
 
-    <TabProductos v-show="ventana === 'productos'" :activa="ventana === 'productos'" />
-    <TabFamilias
-      v-if="abiertas.has('familias')"
-      v-show="ventana === 'familias'"
-      :activa="ventana === 'familias'"
-    />
     <TabInventario
       v-if="abiertas.has('inventario')"
       v-show="ventana === 'inventario'"
@@ -112,6 +113,16 @@ function alRegistrar(): void {
       v-show="ventana === 'movimientos'"
       :saldos="saldos"
       @registrado="alRegistrar"
+    />
+    <TabProductos
+      v-if="abiertas.has('productos')"
+      v-show="ventana === 'productos'"
+      :activa="ventana === 'productos'"
+    />
+    <TabFamilias
+      v-if="abiertas.has('familias')"
+      v-show="ventana === 'familias'"
+      :activa="ventana === 'familias'"
     />
   </div>
 </template>
