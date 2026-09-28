@@ -78,8 +78,8 @@ const conteo = computed(() => ({
           <tr>
             <th class="col-producto">Producto</th>
             <th>Grupo</th>
-            <th class="num">Inventario (físico)</th>
-            <th class="num">Apt. venta</th>
+            <th class="num">Inventario<br />(físico)</th>
+            <th class="num">Apt.<br />venta</th>
           </tr>
         </thead>
         <tbody>
@@ -194,10 +194,27 @@ const conteo = computed(() => ({
   background: var(--white);
 }
 
+/*
+ * En el móvil las cuatro columnas tienen que caber sin desplazar a los lados,
+ * para leer físico y apt. venta de un vistazo: los encabezados van en dos
+ * renglones y el nombre del producto y el grupo parten línea si no caben.
+ */
+.tabla-inventario .col-producto,
+.tabla-inventario td:nth-child(2) {
+  white-space: normal;
+}
+
+.tabla-inventario tbody .col-producto {
+  min-width: 110px;
+}
+
 .tabla-inventario thead th {
   position: sticky;
   top: 0;
   z-index: 2;
+  white-space: normal;
+  line-height: 1.3;
+  vertical-align: bottom;
   background: var(--cream);
   font-family: var(--font-heading);
   font-weight: 700;
