@@ -147,7 +147,8 @@ export class CortesService {
    *  2. Nace el corte con lo calculado y lo declarado, uno al lado del otro.
    *  3. Los pedidos entregados de la entrega quedan liquidados y atados a el.
    *  4. **Se descarga su parte del camion**: cada renglon abierto escribe lo
-   *     que devuelve y se cierra, y esas piezas vuelven a bodega.
+   *     que devuelve y se cierra. Lo que un cliente rechazo vuelve a estar
+   *     disponible para venta; el fisico no se mueve porque nunca bajo.
    *  5. Lo que no se entrego regresa a "Listo para entrega" y suelta a su
    *     repartidor, para que pueda salir en otra entrega.
    *  6. La entrega queda atada al corte; si era la ultima viva, la jornada
@@ -386,8 +387,8 @@ export class CortesService {
 
   /**
    * Baja del camion lo que queda de la entrega: escribe lo devuelto en cada
-   * renglon, lo cierra, lo reingresa a bodega y devuelve a la cola los pedidos
-   * que no se llegaron a entregar.
+   * renglon, lo cierra, libera para venta lo rechazado en la puerta y devuelve
+   * a la cola los pedidos que no se llegaron a entregar.
    */
   private async descargarCamion(
     tx: Prisma.TransactionClient,
@@ -433,7 +434,11 @@ export class CortesService {
     for (const [pedidoId, pedido] of porPedido) {
       // Con el control apagado no se toca el saldo, igual que en el checkout:
       // devolver a una bodega que nadie ha capturado inventaria existencia.
-      if (controlInventario) {
+      // Solo lo rechazado de un pedido entregado se libera: el que no se
+      // entrego vuelve a la cola y sigue apartado para su cliente. Soltarlo
+      // aqui lo venderia a otro y, si luego se cancelara, se devolveria dos
+      // veces.
+      if (controlInventario && pedido.estado === EstadoPedido.ENTREGADO) {
         await this.inventario.devolverDeRuta(tx, pedidoId, pedido.folio, pedido.lineas, {
           usuarioId: quien.actorId,
           usuarioNombre: quien.actorNombre,

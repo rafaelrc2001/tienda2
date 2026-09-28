@@ -63,6 +63,7 @@ const NOMBRE_MOTIVO: Record<MotivoMovimiento, string> = {
   TRASPASO: 'Traspaso',
   AJUSTE: 'Ajuste',
   DEVOLUCION: 'Devolución',
+  ENTREGA: 'Entrega',
 }
 
 const NOMBRE_AFECTA: Record<AfectaInventario, string> = {

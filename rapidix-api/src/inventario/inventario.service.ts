@@ -139,11 +139,17 @@ export class InventarioService {
     dto: RegistrarMovimientosDto,
     usuario: UsuarioAutenticado | undefined,
   ): Promise<ResumenLoteDto> {
-    // VENTA no se captura a mano: esa salida la escribe el pedido al
-    // confirmarse. Dejarla aqui permitiria descontar dos veces la misma venta.
+    // VENTA y ENTREGA no se capturan a mano: las escribe el pedido al
+    // confirmarse y al entregarse. Dejarlas aqui permitiria descontar dos veces
+    // la misma venta.
     if (dto.motivo === MotivoMovimiento.VENTA) {
       throw new ConflictException(
         'El motivo «Venta» lo registra el pedido al confirmarse, no se captura a mano.',
+      );
+    }
+    if (dto.motivo === MotivoMovimiento.ENTREGA) {
+      throw new ConflictException(
+        'El motivo «Entrega» lo registra el pedido al entregarse, no se captura a mano.',
       );
     }
 
@@ -204,8 +210,9 @@ export class InventarioService {
         cantidad: linea.cantidad,
         tipo: TipoMovimiento.SALIDA,
         // La venta solo compromete lo liberado para venta: la mercancia sigue
-        // en bodega hasta que sale fisicamente. Las devoluciones copian este
-        // alcance, asi que cancelar o regresar del reparto tampoco toca el fisico.
+        // en bodega hasta que sale fisicamente, y eso lo registra
+        // `registrarEntrega()`. Las devoluciones copian este alcance, asi que
+        // cancelar o rechazar en la puerta tampoco toca el fisico.
         afecta: AfectaInventario.APT,
         motivo: MotivoMovimiento.VENTA,
         empleado: 'Venta en línea',
@@ -213,6 +220,69 @@ export class InventarioService {
         pedidoId,
       });
     }
+  }
+
+  /**
+   * Saca del fisico lo que el cliente se llevo, al entregarse el pedido.
+   *
+   * Es el segundo momento de la venta: `registrarVenta()` aparto la mercancia
+   * (APT) y aqui sale de verdad de bodega (FISICO). A domicilio llega lo que
+   * el cliente acepto; en tienda, el pedido entero.
+   *
+   * Como las devoluciones, se deduce de **lo que de verdad paso**: solo sale
+   * del fisico lo que se aparto con una VENTA de solo APT y no ha salido aun.
+   * Asi un pedido hecho con el control apagado —sin VENTA— no descuenta nada,
+   * y uno de antes de separar los dos momentos —que vendio con AMBOS y ya bajo
+   * el fisico— tampoco lo baja dos veces.
+   *
+   * Devuelve cuantas piezas salieron.
+   */
+  async registrarEntrega(
+    tx: Prisma.TransactionClient,
+    pedidoId: string,
+    folio: string,
+    lineas: { productoId: string; cantidad: number }[],
+    quien: { usuarioId: string | null; usuarioNombre: string },
+  ): Promise<number> {
+    const movimientos = await tx.movimientoInventario.findMany({
+      where: { pedidoId, motivo: { in: [MotivoMovimiento.VENTA, MotivoMovimiento.ENTREGA] } },
+      select: { productoId: true, cantidad: true, afecta: true, motivo: true },
+    });
+
+    // Lo apartado que sigue en bodega por este pedido.
+    const enBodega = new Map<string, number>();
+    for (const m of movimientos) {
+      if (m.motivo === MotivoMovimiento.VENTA && m.afecta !== AfectaInventario.APT) continue;
+      const signo = m.motivo === MotivoMovimiento.VENTA ? 1 : -1;
+      enBodega.set(m.productoId, (enBodega.get(m.productoId) ?? 0) + signo * m.cantidad);
+    }
+
+    // Un producto puede venir en varios renglones: sale en un solo movimiento.
+    const porProducto = new Map<string, number>();
+    for (const l of lineas) {
+      porProducto.set(l.productoId, (porProducto.get(l.productoId) ?? 0) + l.cantidad);
+    }
+
+    let piezas = 0;
+    for (const [productoId, entregadas] of porProducto) {
+      const cantidad = Math.min(entregadas, enBodega.get(productoId) ?? 0);
+      if (cantidad <= 0) continue;
+
+      await this.aplicar(tx, {
+        productoId,
+        cantidad,
+        tipo: TipoMovimiento.SALIDA,
+        afecta: AfectaInventario.FISICO,
+        motivo: MotivoMovimiento.ENTREGA,
+        empleado: quien.usuarioNombre,
+        observaciones: `Entrega del pedido ${folio}`,
+        usuarioId: quien.usuarioId,
+        usuarioNombre: quien.usuarioNombre,
+        pedidoId,
+      });
+      piezas += cantidad;
+    }
+    return piezas;
   }
 
   /**
@@ -258,7 +328,11 @@ export class InventarioService {
   }
 
   /**
-   * Regresa a bodega lo que el camion no entrego, al cerrar el corte.
+   * Libera para venta lo que el cliente rechazo en la puerta, al cerrar el corte.
+   *
+   * Solo aplica a pedidos ENTREGADOS: lo rechazado ya no es de nadie y vuelve
+   * a estar disponible. Un pedido que no se entrego regresa a "Listo para
+   * entrega" y sigue siendo del cliente, asi que conserva su apartado.
    *
    * A diferencia de `devolverPedido()`, aqui la devolucion es **parcial**: el
    * cliente pudo quedarse con parte del renglon. Por eso las cantidades llegan
@@ -310,7 +384,7 @@ export class InventarioService {
         afecta: pendiente!.afecta,
         motivo: MotivoMovimiento.DEVOLUCION,
         empleado: quien.usuarioNombre,
-        observaciones: `Regresó del reparto del pedido ${folio}`,
+        observaciones: `Rechazado en la entrega del pedido ${folio}`,
         usuarioId: quien.usuarioId,
         usuarioNombre: quien.usuarioNombre,
         pedidoId,

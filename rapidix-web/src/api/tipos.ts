@@ -1117,8 +1117,19 @@ export type TipoMovimiento = 'ENTRADA' | 'SALIDA'
  */
 export type AfectaInventario = 'AMBOS' | 'FISICO' | 'APT'
 
-/** Por qué se movió. Catálogo cerrado, para poder agrupar por causa. */
-export type MotivoMovimiento = 'COMPRA' | 'VENTA' | 'MERMA' | 'TRASPASO' | 'AJUSTE' | 'DEVOLUCION'
+/**
+ * Por qué se movió. Catálogo cerrado, para poder agrupar por causa. `VENTA` y
+ * `ENTREGA` los escribe el pedido: la venta aparta (baja el apt.) y la entrega
+ * saca la mercancía de bodega (baja el físico).
+ */
+export type MotivoMovimiento =
+  | 'COMPRA'
+  | 'VENTA'
+  | 'MERMA'
+  | 'TRASPASO'
+  | 'AJUSTE'
+  | 'DEVOLUCION'
+  | 'ENTREGA'
 
 /** Una fila de la ventana de Inventario. */
 export interface SaldoProducto {

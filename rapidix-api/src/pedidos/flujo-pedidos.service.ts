@@ -6,6 +6,8 @@ import {
 } from '@nestjs/common';
 import { ActorBitacora, EjeBitacora, EstadoPago, EstadoPedido, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { InventarioService } from '../inventario/inventario.service';
+import { ConfiguracionService } from '../configuracion/configuracion.service';
 import { UsuarioAutenticado } from '../auth/jwt-payload';
 import { tieneAcceso } from '../auth/permisos';
 import { actorDe, ActorDeBitacora, registrarEnBitacora } from './bitacora';
@@ -95,6 +97,8 @@ export class FlujoPedidosService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly pedidos: PedidosService,
+    private readonly inventario: InventarioService,
+    private readonly configuracion: ConfiguracionService,
   ) {}
 
   /**
@@ -102,6 +106,9 @@ export class FlujoPedidosService {
    * tienda). Los pasos de Rutas no pasan por aqui: llevan sus propios efectos
    * —repartidor, carga del camion, evidencia de entrega— y los aplica su
    * servicio con `aplicar()`.
+   *
+   * Entregar en tienda es el momento en que la mercancia sale de bodega: con
+   * el control de inventario encendido, el pedido entero baja del fisico.
    */
   async avanzarEnOperaciones(
     id: string,
@@ -109,6 +116,8 @@ export class FlujoPedidosService {
     usuario: UsuarioAutenticado,
     nota?: string,
   ): Promise<PedidoEnPantallaDto> {
+    const controlInventario = (await this.configuracion.obtener()).controlInventario;
+
     await this.prisma.$transaction(async (tx) => {
       const pedido = await FlujoPedidosService.bloquear(tx, id);
       const transicion = FlujoPedidosService.exigirAvance(pedido, destino);
@@ -121,6 +130,17 @@ export class FlujoPedidosService {
         });
       }
       FlujoPedidosService.exigirSeccion(usuario, transicion);
+
+      if (controlInventario && transicion.a === EstadoPedido.ENTREGADO) {
+        const lineas = await tx.pedidoItem.findMany({
+          where: { pedidoId: id },
+          select: { productoId: true, cantidad: true },
+        });
+        await this.inventario.registrarEntrega(tx, id, pedido.folio, lineas, {
+          usuarioId: usuario.sub,
+          usuarioNombre: usuario.nombre,
+        });
+      }
 
       await FlujoPedidosService.aplicar(tx, id, transicion, actorDe(usuario), nota);
     });
