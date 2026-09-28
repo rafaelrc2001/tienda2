@@ -21,6 +21,8 @@ import { actorDe, registrarEnBitacora } from '../pedidos/bitacora';
 import { FlujoPedidosService, PedidoEnPantallaDto } from '../pedidos/flujo-pedidos.service';
 import { NOMBRE_ESTADO_PEDIDO, PedidoEnFlujo } from '../pedidos/flujo';
 import { PedidoDto, PedidosService } from '../pedidos/pedidos.service';
+import { InventarioService } from '../inventario/inventario.service';
+import { ConfiguracionService } from '../configuracion/configuracion.service';
 import { ListasDePrecio, precioUnitario } from '../catalogo/precios';
 import {
   EntregarPedidoDto,
@@ -241,6 +243,8 @@ export class RutasService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly pedidos: PedidosService,
+    private readonly inventario: InventarioService,
+    private readonly configuracion: ConfiguracionService,
   ) {}
 
   // ----------------------------------------------------------------
@@ -758,10 +762,12 @@ export class RutasService {
    *     re-cotizado al volumen que de verdad se lleva.
    *  2. La evidencia (`EntregaPedido`) apunta a las imagenes ya subidas.
    *  3. El paso a ENTREGADO con su renglon de bitacora.
+   *  4. Con el control de inventario encendido, lo aceptado sale del fisico
+   *     (`registrarEntrega`): la venta solo lo habia apartado.
    *
-   * Lo que **no** pasa aqui es la vuelta a bodega: la mercancia devuelta sigue
-   * fisicamente en el camion hasta el corte, y es el corte quien la descarga
-   * (`cantidadDevuelta`, `cerradoEn`) y la reingresa al inventario.
+   * Lo que **no** pasa aqui es la vuelta de lo rechazado: sigue en el camion
+   * hasta el corte, y es el corte quien la descarga (`cantidadDevuelta`,
+   * `cerradoEn`) y la libera para venta.
    */
   async entregar(
     id: string,
@@ -769,6 +775,7 @@ export class RutasService {
     usuario: UsuarioAutenticado,
   ): Promise<ResultadoEntregaDto> {
     let resumen: ResumenEntregaDto;
+    const controlInventario = (await this.configuracion.obtener()).controlInventario;
 
     await this.prisma.$transaction(async (tx) => {
       await this.exigirJornada(tx, usuario.sub, { activa: true });
@@ -824,6 +831,16 @@ export class RutasService {
           code: 'PAGO_INSUFICIENTE',
           message: `El pago recibido no cubre los $${cuenta.aCobrar.toFixed(2)} a cobrar.`,
         });
+      }
+
+      if (controlInventario) {
+        await this.inventario.registrarEntrega(
+          tx,
+          id,
+          pedido.folio,
+          renglones.map((r) => ({ productoId: r.carga.productoId, cantidad: r.cantidadEntregada })),
+          { usuarioId: usuario.sub, usuarioNombre: usuario.nombre },
+        );
       }
 
       await tx.entregaPedido.create({

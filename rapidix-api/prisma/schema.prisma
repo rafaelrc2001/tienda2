@@ -330,11 +330,14 @@ enum AfectaInventario {
 /// puede agrupar por causa, que es justo lo que se le pide a la bitacora.
 enum MotivoMovimiento {
   COMPRA
+  /// El pedido aparta lo vendido: solo baja el saldo de venta (APT).
   VENTA
   MERMA
   TRASPASO
   AJUSTE
   DEVOLUCION
+  /// La mercancia de un pedido sale de verdad al entregarse: solo baja el fisico.
+  ENTREGA
 }
 
 /// Bitacora de bodega. Nadie pisa el saldo de un producto: lo suma o lo resta
