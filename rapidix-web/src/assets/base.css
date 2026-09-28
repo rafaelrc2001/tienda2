@@ -849,14 +849,17 @@ input:checked + .switch-danger-slider {
   color: var(--verde-compra);
 }
 
+/* Las notas y el enlace heredan la letra y el tamaño del detalle: solo cambia
+   el color, para que todo el detalle se lea con un mismo tamaño. */
 .detalle-pedido .nota {
   margin: 6px 0 0;
-  font-size: 12px;
   color: var(--muted);
 }
 
-.detalle-pedido .enlace {
+.tabla .detalle-pedido .enlace {
   margin-top: 8px;
+  font-family: inherit;
+  font-size: inherit;
 }
 
 /* ------------------------------------------------------------------
