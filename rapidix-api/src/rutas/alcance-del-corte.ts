@@ -1,0 +1,178 @@
+import { EstadoPedido, Prisma } from '@prisma/client';
+import {
+  CargaLiquidable,
+  devueltoDelRenglon,
+  efectivoDelPedido,
+  PedidoALiquidar,
+} from './dinero-del-corte';
+
+const Decimal = Prisma.Decimal;
+
+/**
+ * Que abarca el corte de una entrega y que le pasa a cada cosa del camion.
+ *
+ * Funciones puras, sin base de datos: `CortesService` lee las filas, pregunta
+ * aqui y escribe. Separado para probarlo, porque un error aqui no se ve en
+ * pantalla sino en el dinero que se pide y en la mercancia que vuelve.
+ */
+
+/** Lo que el servicio sabe de la entrega antes de cortarla. */
+export interface EntregaACortar {
+  entregaId: string;
+  sesionId: string;
+  finalizadaEn: Date | null;
+  /** Las demas entregas de la jornada que aun no tienen corte. */
+  otrasVivas: number;
+}
+
+/**
+ * Lo que abarca el corte de una entrega. La ultima entrega viva se lleva
+ * ademas lo que no tiene entrega (pedidos cargados antes de que existieran),
+ * para que nada quede en el camion al cerrar la jornada.
+ */
+export interface AlcanceDelCorte {
+  sesionId: string;
+  finalizadaEn: Date | null;
+  cierraJornada: boolean;
+  pedidos: Prisma.PedidoWhereInput;
+  cargas: Prisma.CargaRepartidorWhereInput;
+}
+
+export function alcanceDelCorte(entrega: EntregaACortar): AlcanceDelCorte {
+  const cierraJornada = entrega.otrasVivas === 0;
+  return {
+    sesionId: entrega.sesionId,
+    finalizadaEn: entrega.finalizadaEn,
+    cierraJornada,
+    pedidos: cierraJornada
+      ? { OR: [{ entregaRutaId: entrega.entregaId }, { entregaRutaId: null }] }
+      : { entregaRutaId: entrega.entregaId },
+    cargas: {
+      sesionId: entrega.sesionId,
+      cerradoEn: null,
+      ...(!cierraJornada && { pedido: { entregaRutaId: entrega.entregaId } }),
+    },
+  };
+}
+
+// ------------------------------------------------------------------
+// El dinero y las piezas
+// ------------------------------------------------------------------
+
+/** Un pedido del alcance, con sus renglones abiertos del camion. */
+export interface PedidoDelAlcance extends PedidoALiquidar {
+  id: string;
+  estado: EstadoPedido;
+  cargas: CargaLiquidable[];
+}
+
+export interface CuentaDelCorte {
+  montoCalculado: Prisma.Decimal;
+  /** Por pedido, en el mismo orden en que llegaron. */
+  porPedido: { id: string; efectivo: Prisma.Decimal; devueltas: number }[];
+  piezasQueRegresan: number;
+  /** Pedidos que no se entregaron y vuelven a la cola. */
+  pedidosQueRegresan: number;
+}
+
+/**
+ * Suma lo que el repartidor trae y cuenta lo que regresa.
+ *
+ * Solo el dinero de lo que se entrego: un pedido que vuelve entero no cobra
+ * nada, aunque sea en efectivo y este pendiente de pago.
+ */
+export function cuentaDelCorte(pedidos: PedidoDelAlcance[]): CuentaDelCorte {
+  let total = new Decimal(0);
+  let piezas = 0;
+  let regresan = 0;
+
+  const porPedido = pedidos.map((pedido) => {
+    const entregado = pedido.estado === EstadoPedido.ENTREGADO;
+    const efectivo = entregado ? efectivoDelPedido(pedido, pedido.cargas) : new Decimal(0);
+    const devueltas = pedido.cargas.reduce((suma, c) => suma + devueltoDelRenglon(c), 0);
+
+    total = total.add(efectivo);
+    piezas += devueltas;
+    if (!entregado) regresan++;
+    return { id: pedido.id, efectivo, devueltas };
+  });
+
+  return {
+    montoCalculado: total,
+    porPedido,
+    piezasQueRegresan: piezas,
+    pedidosQueRegresan: regresan,
+  };
+}
+
+// ------------------------------------------------------------------
+// La descarga
+// ------------------------------------------------------------------
+
+/** Un renglon abierto del camion, tal como lo lee la descarga. */
+export interface RenglonADescargar {
+  id: string;
+  pedidoId: string;
+  productoId: string;
+  cantidadCargada: number;
+  cantidadEntregada: number;
+  pedido: { folio: string; estado: EstadoPedido };
+}
+
+export interface PedidoQueRegresa {
+  pedidoId: string;
+  folio: string;
+  estado: EstadoPedido;
+  /** Lo que baja del camion, por producto. */
+  lineas: { productoId: string; cantidad: number }[];
+  /**
+   * Lo rechazado de un pedido entregado vuelve a estar disponible. El que no
+   * se entrego sigue apartado para su cliente: soltarlo lo venderia a otro y,
+   * si luego se cancelara, se devolveria dos veces.
+   */
+  liberaInventario: boolean;
+  /** No se entrego: vuelve a "Listo para entrega" y suelta repartidor y entrega. */
+  vuelveACola: boolean;
+}
+
+export interface PlanDeDescarga {
+  /** Cada renglon se cierra con lo que devuelve, aunque sea cero. */
+  cierres: { id: string; cantidadDevuelta: number }[];
+  /** Solo los pedidos a los que les regresa algo. */
+  pedidos: PedidoQueRegresa[];
+}
+
+/**
+ * Que pasa con cada renglon del camion al cortar.
+ *
+ * Con el control de inventario apagado no se libera nada, igual que en el
+ * checkout: devolver a una bodega que nadie ha capturado inventaria
+ * existencia. El pedido que no se entrego vuelve a la cola igual.
+ */
+export function planDeDescarga(
+  renglones: RenglonADescargar[],
+  controlInventario: boolean,
+): PlanDeDescarga {
+  const cierres: PlanDeDescarga['cierres'] = [];
+  const porPedido = new Map<string, PedidoQueRegresa>();
+
+  for (const renglon of renglones) {
+    const devueltas = renglon.cantidadCargada - renglon.cantidadEntregada;
+    cierres.push({ id: renglon.id, cantidadDevuelta: devueltas });
+    if (devueltas <= 0) continue;
+
+    const entregado = renglon.pedido.estado === EstadoPedido.ENTREGADO;
+    const pedido = porPedido.get(renglon.pedidoId) ?? {
+      pedidoId: renglon.pedidoId,
+      folio: renglon.pedido.folio,
+      estado: renglon.pedido.estado,
+      lineas: [],
+      liberaInventario: controlInventario && entregado,
+      vuelveACola: !entregado,
+    };
+    pedido.lineas.push({ productoId: renglon.productoId, cantidad: devueltas });
+    porPedido.set(renglon.pedidoId, pedido);
+  }
+
+  return { cierres, pedidos: [...porPedido.values()] };
+}

@@ -9,6 +9,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { BuscarMovimientosDto, RegistrarMovimientosDto } from './dto/movimiento.dto';
 import { UsuarioAutenticado } from '../auth/jwt-payload';
+import { devolucionesDeRuta, salidasAlEntregar } from './salidas-del-pedido';
 
 /** Saldo de un producto, tal como lo pinta la ventana de Inventario. */
 export interface SaldoProductoDto {
@@ -246,31 +247,14 @@ export class InventarioService {
   ): Promise<number> {
     const movimientos = await tx.movimientoInventario.findMany({
       where: { pedidoId, motivo: { in: [MotivoMovimiento.VENTA, MotivoMovimiento.ENTREGA] } },
-      select: { productoId: true, cantidad: true, afecta: true, motivo: true },
+      select: { productoId: true, cantidad: true, tipo: true, afecta: true, motivo: true },
     });
 
-    // Lo apartado que sigue en bodega por este pedido.
-    const enBodega = new Map<string, number>();
-    for (const m of movimientos) {
-      if (m.motivo === MotivoMovimiento.VENTA && m.afecta !== AfectaInventario.APT) continue;
-      const signo = m.motivo === MotivoMovimiento.VENTA ? 1 : -1;
-      enBodega.set(m.productoId, (enBodega.get(m.productoId) ?? 0) + signo * m.cantidad);
-    }
-
-    // Un producto puede venir en varios renglones: sale en un solo movimiento.
-    const porProducto = new Map<string, number>();
-    for (const l of lineas) {
-      porProducto.set(l.productoId, (porProducto.get(l.productoId) ?? 0) + l.cantidad);
-    }
-
     let piezas = 0;
-    for (const [productoId, entregadas] of porProducto) {
-      const cantidad = Math.min(entregadas, enBodega.get(productoId) ?? 0);
-      if (cantidad <= 0) continue;
-
+    for (const salida of salidasAlEntregar(movimientos, lineas)) {
       await this.aplicar(tx, {
-        productoId,
-        cantidad,
+        productoId: salida.productoId,
+        cantidad: salida.cantidad,
         tipo: TipoMovimiento.SALIDA,
         afecta: AfectaInventario.FISICO,
         motivo: MotivoMovimiento.ENTREGA,
@@ -280,7 +264,7 @@ export class InventarioService {
         usuarioNombre: quien.usuarioNombre,
         pedidoId,
       });
-      piezas += cantidad;
+      piezas += salida.cantidad;
     }
     return piezas;
   }
@@ -355,33 +339,17 @@ export class InventarioService {
   ): Promise<number> {
     const movimientos = await tx.movimientoInventario.findMany({
       where: { pedidoId, motivo: { in: [MotivoMovimiento.VENTA, MotivoMovimiento.DEVOLUCION] } },
-      select: { productoId: true, cantidad: true, afecta: true, tipo: true },
+      select: { productoId: true, cantidad: true, tipo: true, afecta: true, motivo: true },
     });
 
-    // Lo que sigue fuera de bodega por este pedido: lo que salio menos lo que
-    // ya volvio.
-    const fuera = new Map<string, { piezas: number; afecta: AfectaInventario }>();
-    for (const m of movimientos) {
-      const signo = m.tipo === TipoMovimiento.SALIDA ? 1 : -1;
-      const actual = fuera.get(m.productoId);
-      fuera.set(m.productoId, {
-        piezas: (actual?.piezas ?? 0) + signo * m.cantidad,
-        afecta: actual?.afecta ?? m.afecta,
-      });
-    }
-
     let piezas = 0;
-    for (const linea of lineas) {
-      const pendiente = fuera.get(linea.productoId);
-      const cantidad = Math.min(linea.cantidad, pendiente?.piezas ?? 0);
-      if (cantidad <= 0) continue;
-
+    for (const devolucion of devolucionesDeRuta(movimientos, lineas)) {
       await this.aplicar(tx, {
-        productoId: linea.productoId,
-        cantidad,
+        productoId: devolucion.productoId,
+        cantidad: devolucion.cantidad,
         tipo: TipoMovimiento.ENTRADA,
         // Se deshace con el mismo alcance con el que se hizo la venta.
-        afecta: pendiente!.afecta,
+        afecta: devolucion.afecta,
         motivo: MotivoMovimiento.DEVOLUCION,
         empleado: quien.usuarioNombre,
         observaciones: `Rechazado en la entrega del pedido ${folio}`,
@@ -389,8 +357,7 @@ export class InventarioService {
         usuarioNombre: quien.usuarioNombre,
         pedidoId,
       });
-      fuera.set(linea.productoId, { ...pendiente!, piezas: pendiente!.piezas - cantidad });
-      piezas += cantidad;
+      piezas += devolucion.cantidad;
     }
     return piezas;
   }
