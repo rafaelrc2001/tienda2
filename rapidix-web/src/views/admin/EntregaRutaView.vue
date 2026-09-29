@@ -16,6 +16,9 @@
  * va en otra ni siquiera aparece abajo, y si otro teléfono se lo llevó entre
  * medias, la API responde 409 y aquí se relee.
  *
+ * Bajo la cabecera, los KPIs de esta entrega (entregas, efectivo esperado,
+ * devoluciones), que calcula la API con el mismo alcance que su corte.
+ *
  * El camioncito de la barra naranja abre el inventario del camión: por
  * producto, lo recolectado, lo entregado y la diferencia que sigue arriba.
  * Suma todos los pedidos de la entrega.
@@ -29,9 +32,16 @@ import SkeletonList from '@/components/SkeletonList.vue'
 import EntregaModal from './rutas/EntregaModal.vue'
 import NoEntregadoModal from './rutas/NoEntregadoModal.vue'
 import DetallePedidoRuta from './rutas/DetallePedidoRuta.vue'
+import KpisRuta from './rutas/KpisRuta.vue'
 import { nombreEntrega, TITULO_PASO } from './rutas/etiquetas'
 import { inventarioDelCamion } from './rutas/camion'
-import type { DetalleEntregaRuta, EntregaRuta, PedidoEnRuta, ResultadoEntrega } from '@/api/tipos'
+import type {
+  DetalleEntregaRuta,
+  EntregaRuta,
+  IndicadoresRuta,
+  PedidoEnRuta,
+  ResultadoEntrega,
+} from '@/api/tipos'
 
 const route = useRoute()
 const ui = useUiStore()
@@ -60,15 +70,34 @@ const entregando = computed(() => {
   return [...pedidos, ...disponibles].find((p) => p.id === enHoja.value) ?? null
 })
 
+/** Los KPIs de esta entrega; `null` pinta «—» mientras llegan o si fallan. */
+const indicadores = ref<IndicadoresRuta | null>(null)
+
 let peticion = 0
 
+/**
+ * Relee la entrega y sus KPIs juntos: cada paso (entregar, quitar, no
+ * entregar) mueve las dos cosas. Si los KPIs fallan se quedan en «—» sin
+ * tumbar la pantalla.
+ */
 async function cargar(conEsqueleto = true): Promise<void> {
   const numero = ++peticion
-  if (conEsqueleto) cargando.value = true
+  const id = String(route.params.id)
+  // Con esqueleto puede ser otra entrega: no se enseñan los KPIs de la anterior.
+  if (conEsqueleto) {
+    cargando.value = true
+    indicadores.value = null
+  }
+  void http
+    .get<IndicadoresRuta>(`/admin/rutas/entregas/${id}/indicadores`)
+    .then((respuesta) => {
+      if (numero === peticion) indicadores.value = respuesta
+    })
+    .catch(() => {
+      if (numero === peticion) indicadores.value = null
+    })
   try {
-    const respuesta = await http.get<DetalleEntregaRuta>(
-      `/admin/rutas/entregas/${String(route.params.id)}`,
-    )
+    const respuesta = await http.get<DetalleEntregaRuta>(`/admin/rutas/entregas/${id}`)
     if (numero !== peticion) return
     detalle.value = respuesta
   } catch (fallo) {
@@ -92,26 +121,28 @@ const sinIniciar = computed(
 )
 
 /**
- * Se puede mover algo si la entrega sigue abierta —sin corte, de la jornada
- * viva—, ya se inició y no se ha finalizado. Si no, la pantalla se consulta y
- * dice por qué.
+ * Se puede cargar (recolectar y quitar) si la entrega sigue abierta —sin
+ * corte, de la jornada viva— y no se ha finalizado, aunque no se haya
+ * iniciado: primero se carga el camión y luego se inicia para salir.
  */
-const puedeMover = computed(
+const puedeCargar = computed(
   () =>
     detalle.value !== null &&
     detalle.value.abierta &&
-    detalle.value.entrega.iniciadaEn !== null &&
     detalle.value.entrega.finalizadaEn === null &&
     detalle.value.jornada !== null &&
     detalle.value.jornada.finalizadaEn === null,
 )
+
+/** Salir a ruta, entregar y «No entregado» piden además la entrega iniciada. */
+const puedeMover = computed(() => puedeCargar.value && detalle.value!.entrega.iniciadaEn !== null)
 
 const avisoBloqueo = computed(() => {
   if (!detalle.value || puedeMover.value) return ''
   if (detalle.value.entrega.cortada) return 'Esta entrega ya tiene su corte: solo se consulta.'
   if (!detalle.value.abierta)
     return 'Esta entrega es de una jornada que ya se cortó: solo se consulta.'
-  if (sinIniciar.value) return 'Pulsa «Iniciar entrega» para empezar a cargarla.'
+  if (sinIniciar.value) return 'Carga sus pedidos y pulsa «Iniciar entrega» para salir a ruta.'
   if (detalle.value.entrega.finalizadaEn)
     return 'Finalizaste esta entrega: reanúdala para moverla o haz su corte.'
   return 'Tu jornada está finalizada: pulsa «Reanudar entrega» para seguir.'
@@ -311,7 +342,7 @@ function colonia(pedido: PedidoEnRuta): string {
     <SkeletonList v-if="cargando" :cantidad="3" />
 
     <template v-else-if="detalle">
-      <header class="cabeza" :class="{ cerrada: !puedeMover }">
+      <header class="cabeza" :class="{ cerrada: !puedeCargar }">
         <div class="datos">
           <p class="titulo">
             {{ nombreEntrega(detalle.entrega) }}
@@ -360,6 +391,9 @@ function colonia(pedido: PedidoEnRuta): string {
           </RouterLink>
         </div>
       </header>
+
+      <!-- Los KPIs son de esta entrega, no del día: cada viaje lleva los suyos. -->
+      <KpisRuta :indicadores="indicadores" />
 
       <!-- Lo que va en el camión, por producto: lo que subió, lo que se quedó con
            los clientes y la devolución que sigue arriba (y regresa en el corte). -->
@@ -462,7 +496,7 @@ function colonia(pedido: PedidoEnRuta): string {
                       <button
                         type="button"
                         class="btn-cancel"
-                        :disabled="!puedeMover || moviendo !== null"
+                        :disabled="!puedeCargar || moviendo !== null"
                         title="Lo baja del camión: vuelve a bodega"
                         @click="quitar(pedido)"
                       >
@@ -555,7 +589,7 @@ function colonia(pedido: PedidoEnRuta): string {
                     <button
                       type="button"
                       class="btn-primary"
-                      :disabled="!puedeMover || pedido.paso.bloqueo !== null || moviendo !== null"
+                      :disabled="!puedeCargar || pedido.paso.bloqueo !== null || moviendo !== null"
                       @click="recolectar(pedido)"
                     >
                       <template v-if="moviendo === pedido.id">…</template>
@@ -584,6 +618,7 @@ function colonia(pedido: PedidoEnRuta): string {
       :key="`${entregando.id}-${entregando.estado}`"
       :pedido="entregando"
       :puede-mover="puedeMover"
+      :puede-cargar="puedeCargar"
       recolectar-aqui
       :moviendo="moviendo !== null"
       @cerrar="enHoja = null"

@@ -4,6 +4,7 @@ import {
   esDevolucion,
   esEntregado,
   indicadoresDeRuta,
+  indicadoresDelHistorial,
   intentoDeEntrega,
   productosDeLaLinea,
   RenglonConProducto,
@@ -43,6 +44,19 @@ describe('indicadoresDeRuta', () => {
         cancelado(EstadoPedido.ENTREGADO),
       ]),
     ).toEqual({ pedidos: 3, entregados: 1, devoluciones: 2 });
+  });
+});
+
+describe('indicadoresDelHistorial', () => {
+  it('parcial es entregado; devuelto y cancelado son devolución', () => {
+    expect(
+      indicadoresDelHistorial([
+        ResultadoDelIntento.ENTREGADO,
+        ResultadoDelIntento.PARCIAL,
+        ResultadoDelIntento.DEVUELTO,
+        ResultadoDelIntento.CANCELADO,
+      ]),
+    ).toEqual({ pedidos: 4, entregados: 2, devoluciones: 2 });
   });
 });
 

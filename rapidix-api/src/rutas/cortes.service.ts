@@ -26,6 +26,7 @@ import {
   conteoPorProducto,
   esDevolucion,
   indicadoresDeRuta,
+  indicadoresDelHistorial,
   intentoDeEntrega,
   ProductoDeLaLinea,
   productosDeLaLinea,
@@ -68,10 +69,7 @@ export interface ResumenCorteDto {
   conteo: ConteoDeProducto[];
 }
 
-/**
- * El encabezado de Rutas: todo lo que el repartidor lleva sin liquidar, de
- * todas sus entregas. Es el mismo en las tres pestanas.
- */
+/** El encabezado de cada entrega: sus pedidos y el efectivo que pide su corte. */
 export interface IndicadoresRutaDto {
   pedidos: number;
   entregados: number;
@@ -446,18 +444,37 @@ export class CortesService {
   // ----------------------------------------------------------------
 
   /**
-   * El encabezado de Rutas: todo lo que lleva sin liquidar, de todas sus
-   * entregas. Es la misma cuenta que el corte, sin filtrar por entrega, para
-   * que el efectivo esperado sea la suma exacta de lo que pediran sus cortes.
+   * El encabezado de una entrega. Mientras vive es la misma cuenta que su
+   * corte —el mismo alcance—, para que el efectivo esperado sea justo lo que
+   * pedira. Ya cortada, se lee de como acabo cada pedido en ella y del monto
+   * que quedo escrito en su corte: lo liquidado ya no entra en `calcular`.
    */
-  async indicadores(usuario: UsuarioAutenticado): Promise<IndicadoresRutaDto> {
-    const resumen = await this.calcular(this.prisma, usuario.sub, {
-      pedidos: {},
-      cierraJornada: false,
+  async indicadores(usuario: UsuarioAutenticado, entregaId: string): Promise<IndicadoresRutaDto> {
+    const entrega = await this.prisma.entregaRuta.findFirst({
+      where: { id: entregaId, repartidorId: usuario.sub },
+      select: {
+        corteId: true,
+        sesion: { select: { corteId: true } },
+        corte: { select: { montoCalculado: true } },
+      },
     });
+    if (!entrega) throw new NotFoundException('Entrega no encontrada');
+
+    if (entrega.corteId === null && entrega.sesion.corteId === null) {
+      const alcance = await this.alcance(this.prisma, usuario.sub, entregaId);
+      const resumen = await this.calcular(this.prisma, usuario.sub, alcance);
+      return {
+        ...indicadoresDeRuta(resumen.pedidos),
+        efectivoEsperado: resumen.montoCalculado,
+      };
+    }
+
+    // Una entrega de una jornada cortada entera (cortes de antes) no tiene
+    // corte propio: su dinero quedo en el de la jornada y aqui va en cero.
+    const { pedidos } = await this.detalleHistorial(usuario, entregaId);
     return {
-      ...indicadoresDeRuta(resumen.pedidos),
-      efectivoEsperado: resumen.montoCalculado,
+      ...indicadoresDelHistorial(pedidos.map((p) => p.resultado)),
+      efectivoEsperado: entrega.corte?.montoCalculado.toNumber() ?? 0,
     };
   }
 

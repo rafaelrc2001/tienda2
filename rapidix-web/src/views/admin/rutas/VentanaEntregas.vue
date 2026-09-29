@@ -16,9 +16,6 @@ import SkeletonList from '@/components/SkeletonList.vue'
 import { nombreEntrega } from './etiquetas'
 import type { EntregaRuta, FiltroRutas, TableroRutas } from '@/api/tipos'
 
-/** Cada recarga automática avisa para que el encabezado se refresque con ella. */
-const emit = defineEmits<{ (e: 'recargada'): void }>()
-
 const ui = useUiStore()
 const router = useRouter()
 
@@ -52,7 +49,6 @@ async function cargar(conEsqueleto = true, silenciosa = false): Promise<void> {
     if (numero !== peticion) return
     entregas.value = respuesta.entregas
     error.value = ''
-    if (silenciosa) emit('recargada')
   } catch {
     if (numero === peticion && !silenciosa) error.value = 'No pudimos cargar tus entregas.'
   } finally {

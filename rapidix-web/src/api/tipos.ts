@@ -675,7 +675,7 @@ export interface ConteoDeProducto {
   devolucion: number
 }
 
-/** Respuesta de `GET /admin/rutas/indicadores`: lo que lleva sin liquidar, de todas sus entregas. */
+/** Respuesta de `GET /admin/rutas/entregas/:id/indicadores`: el encabezado de esa entrega. */
 export interface IndicadoresRuta {
   pedidos: number
   entregados: number
