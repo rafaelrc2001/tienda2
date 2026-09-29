@@ -362,7 +362,7 @@ function colonia(pedido: PedidoEnRuta): string {
       </header>
 
       <!-- Lo que va en el camión, por producto: lo que subió, lo que se quedó con
-           los clientes y la diferencia que sigue arriba (y regresa en el corte). -->
+           los clientes y la devolución que sigue arriba (y regresa en el corte). -->
       <section v-if="viendoCamion" class="camion" aria-live="polite">
         <p class="camion-titulo">🚚 Tu camión en esta entrega</p>
         <p v-if="detalle.pedidos.length === 0" class="camion-vacio">
@@ -374,7 +374,7 @@ function colonia(pedido: PedidoEnRuta): string {
               <th>Producto</th>
               <th class="num">Recolectado</th>
               <th class="num">Entregado</th>
-              <th class="num">Diferencia</th>
+              <th class="num">Devolución</th>
             </tr>
           </thead>
           <tbody>
