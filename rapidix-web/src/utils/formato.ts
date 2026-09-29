@@ -85,6 +85,11 @@ export function fechaNumerica(iso: string | null | undefined): string {
   return `${partes.day}/${partes.month}/${partes.year} ${partes.hour}:${partes.minute}`
 }
 
+/** ISO → `21/09/26`. Como `fechaNumerica`, sin la hora. */
+export function fechaDia(iso: string | null | undefined): string {
+  return fechaNumerica(iso).split(' ')[0]
+}
+
 /** `TRANSFERENCIA` → `Transferencia`. Lo que llega del enum de la API, legible. */
 export function nombreMetodoPago(metodo: string): string {
   return metodo === 'TRANSFERENCIA' ? 'Transferencia' : 'Efectivo'

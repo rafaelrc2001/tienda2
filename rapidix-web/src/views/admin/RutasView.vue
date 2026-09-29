@@ -11,7 +11,7 @@ import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
-import { fechaNumerica } from '@/utils/formato'
+import { fechaDia } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
 import { nombreEntrega } from './rutas/etiquetas'
 import type { EntregaRuta, FiltroRutas, TableroRutas } from '@/api/tipos'
@@ -138,6 +138,7 @@ async function crearEntrega(): Promise<void> {
           <thead>
             <tr>
               <th>Entrega</th>
+              <th>Fecha</th>
               <th class="num">Pedidos</th>
               <th class="num">Recolectados</th>
               <th class="num">En ruta</th>
@@ -150,8 +151,8 @@ async function crearEntrega(): Promise<void> {
             <tr v-for="entrega in entregas" :key="entrega.id">
               <td>
                 <span class="folio">{{ nombreEntrega(entrega) }}</span>
-                <span class="sub">{{ fechaNumerica(entrega.creadoEn) }}</span>
               </td>
+              <td>{{ fechaDia(entrega.creadoEn) }}</td>
               <td class="num">{{ entrega.pedidos }}</td>
               <td class="num">{{ entrega.recolectados }}</td>
               <td class="num">{{ entrega.enRuta }}</td>
