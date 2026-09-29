@@ -4,7 +4,8 @@
  *
  * En la cabecera, lo que arranca y cierra la entrega: «Iniciar entrega» —crearla
  * no la arranca, y hasta entonces no se le carga nada—, luego «Finalizar
- * entrega» (o reanudarla) y «Hacer mi corte». Son de cada entrega, no de la
+ * entrega» (o reanudarla) y «Hacer mi corte», que lleva a la pestaña
+ * Liquidación de Rutas con esta entrega elegida. Son de cada entrega, no de la
  * jornada: cada viaje se inicia, se cierra y se liquida por su lado.
  *
  * Arriba, los pedidos de esta entrega con el paso que les toca: «En ruta» (o
@@ -27,7 +28,6 @@ import { dinero, fechaNumerica, nombreEstadoPedido } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
 import EntregaModal from './rutas/EntregaModal.vue'
 import NoEntregadoModal from './rutas/NoEntregadoModal.vue'
-import CorteModal from './rutas/CorteModal.vue'
 import DetallePedidoRuta from './rutas/DetallePedidoRuta.vue'
 import { nombreEntrega, TITULO_PASO } from './rutas/etiquetas'
 import { inventarioDelCamion } from './rutas/camion'
@@ -47,7 +47,6 @@ const enHoja = ref<string | null>(null)
 const noEntregando = ref<PedidoEnRuta | null>(null)
 /** El pedido con el detalle desplegado bajo su fila, en cualquiera de las dos tablas. */
 const abierto = ref<string | null>(null)
-const corteAbierto = ref(false)
 const cerrando = ref(false)
 /** El inventario del camión, que se abre y se cierra con el camioncito de la barra. */
 const viendoCamion = ref(false)
@@ -174,12 +173,6 @@ async function finalizarOReanudar(): Promise<void> {
     cerrando.value = false
   }
   await cargar(false)
-}
-
-/** Cerrar la hoja del corte relee: si llegó a cortar, la entrega ya solo se consulta. */
-function cerrarCorte(): void {
-  corteAbierto.value = false
-  void cargar(false)
 }
 
 // ------------------------------------------------------------------
@@ -355,9 +348,16 @@ function colonia(pedido: PedidoEnRuta): string {
           >
             {{ porReanudar ? 'Reanudar entrega' : 'Finalizar entrega' }}
           </button>
-          <button type="button" class="btn-secondary" @click="corteAbierto = true">
+          <!-- El corte vive en la pestaña Liquidación de Rutas, ya con esta entrega elegida. -->
+          <RouterLink
+            :to="{
+              path: '/admin/rutas',
+              query: { ventana: 'liquidacion', entrega: detalle.entrega.id },
+            }"
+            class="btn-secondary corte"
+          >
             Hacer mi corte
-          </button>
+          </RouterLink>
         </div>
       </header>
 
@@ -597,13 +597,6 @@ function colonia(pedido: PedidoEnRuta): string {
       @cerrar="noEntregando = null"
       @guardado="alNoEntregar"
     />
-    <CorteModal
-      v-if="corteAbierto && detalle"
-      :entrega-id="detalle.entrega.id"
-      :titulo="nombreEntrega(detalle.entrega)"
-      @cortado="cargar(false)"
-      @cerrar="cerrarCorte"
-    />
   </div>
 </template>
 
@@ -650,10 +643,16 @@ function colonia(pedido: PedidoEnRuta): string {
   flex: 1 1 320px;
 }
 
-.cabeza .acciones button {
+.cabeza .acciones button,
+.cabeza .acciones .corte {
   flex: 1;
   padding: 9px 8px;
   font-size: 12px;
+}
+
+.cabeza .acciones .corte {
+  text-align: center;
+  text-decoration: none;
 }
 
 .cabeza .titulo {

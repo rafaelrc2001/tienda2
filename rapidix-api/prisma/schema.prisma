@@ -814,6 +814,7 @@ model EntregaRuta {
   corte        Corte?    @relation(fields: [corteId], references: [id])
 
   pedidos Pedido[]
+  cargas  CargaRepartidor[]
 
   @@unique([sesionId, numero])
   @@index([repartidorId])
@@ -839,6 +840,12 @@ model CargaRepartidor {
 
   repartidorId String
   repartidor   Usuario @relation(fields: [repartidorId], references: [id])
+
+  /// La entrega en la que subio. El pedido suelta su `entregaRutaId` al
+  /// regresar a bodega; el renglon la conserva, y es lo que deja al historial
+  /// decir que pedidos salieron en cada entrega. Null en cargas de antes.
+  entregaRutaId String?
+  entregaRuta   EntregaRuta? @relation(fields: [entregaRutaId], references: [id])
 
   pedidoId     String
   pedido       Pedido     @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
@@ -872,6 +879,7 @@ model CargaRepartidor {
 
   @@index([pedidoId])
   @@index([sesionId])
+  @@index([entregaRutaId])
   @@map("carga_repartidor")
 }
 

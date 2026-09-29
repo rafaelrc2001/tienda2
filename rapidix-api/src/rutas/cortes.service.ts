@@ -1,5 +1,14 @@
 import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { EjeBitacora, EstadoCorte, EstadoPedido, Prisma, RolUsuario } from '@prisma/client';
+import {
+  EjeBitacora,
+  EstadoCorte,
+  EstadoPago,
+  EstadoPedido,
+  MetodoPago,
+  MotivoDevolucion,
+  Prisma,
+  RolUsuario,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConfiguracionService } from '../configuracion/configuracion.service';
 import { InventarioService } from '../inventario/inventario.service';
@@ -12,6 +21,18 @@ import {
   planDeDescarga,
 } from './alcance-del-corte';
 import { CerrarCorteDto, RecibirCorteDto, RegistrarAbonoDto } from './dto/corte.dto';
+import {
+  ConteoDeProducto,
+  conteoPorProducto,
+  esDevolucion,
+  indicadoresDeRuta,
+  intentoDeEntrega,
+  ProductoDeLaLinea,
+  productosDeLaLinea,
+  ResultadoDelIntento,
+  saldoDelCorte,
+  TOLERANCIA,
+} from './liquidacion-de-ruta';
 
 const Decimal = Prisma.Decimal;
 
@@ -21,10 +42,16 @@ export interface PedidoDelCorteDto {
   folio: string;
   clienteNombre: string;
   estado: EstadoPedido;
+  estadoPago: EstadoPago;
+  metodoPago: MetodoPago;
+  /** Regresa a bodega (`esDevolucion`): va en la otra lista de Liquidacion. */
+  devolucion: boolean;
   /** Efectivo que trae por este pedido. Cero en transferencia o crédito. */
   efectivo: number;
   /** Piezas que vuelven a bodega. */
   devueltas: number;
+  /** La linea de productos: lo aceptado en una entrega, lo cargado en una devolucion. */
+  productos: ProductoDeLaLinea[];
 }
 
 /** Lo que el repartidor ve antes de declarar, y lo que queda escrito al cerrar. */
@@ -37,6 +64,55 @@ export interface ResumenCorteDto {
   pedidosQueRegresan: number;
   /** Es la ultima entrega viva: su corte cierra tambien la jornada. */
   cierraJornada: boolean;
+  /** Lo que baja del camion por producto: cargado, entregado y devolucion. */
+  conteo: ConteoDeProducto[];
+}
+
+/**
+ * El encabezado de Rutas: todo lo que el repartidor lleva sin liquidar, de
+ * todas sus entregas. Es el mismo en las tres pestanas.
+ */
+export interface IndicadoresRutaDto {
+  pedidos: number;
+  entregados: number;
+  devoluciones: number;
+  /** La suma de lo que dira cada corte: sale de lo entregado, no del total. */
+  efectivoEsperado: number;
+}
+
+/** Una entrega en el historial del repartidor, con su corte si ya lo tiene. */
+export interface EntregaEnHistorialDto {
+  id: string;
+  numero: number;
+  nombre: string | null;
+  creadoEn: string;
+  iniciadaEn: string | null;
+  finalizadaEn: string | null;
+  /** Los que salieron en ella, incluidos los que regresaron a bodega. */
+  pedidos: number;
+  corte: CorteDto | null;
+}
+
+/** Un pedido tal como salio en una entrega del historial. */
+export interface PedidoEnHistorialDto {
+  id: string;
+  folio: string;
+  clienteNombre: string;
+  total: number;
+  resultado: ResultadoDelIntento;
+  renglones: {
+    nombre: string;
+    unidad: string;
+    cantidad: number;
+    /** `null` mientras el pedido no cierra. */
+    recibido: number | null;
+    motivo: MotivoDevolucion | null;
+  }[];
+}
+
+export interface DetalleHistorialDto {
+  pedidos: PedidoEnHistorialDto[];
+  conteo: ConteoDeProducto[];
 }
 
 export interface CorteDto {
@@ -301,7 +377,7 @@ export class CortesService {
   private async calcular(
     tx: Prisma.TransactionClient,
     repartidorId: string,
-    alcance: AlcanceDelCorte,
+    alcance: Pick<AlcanceDelCorte, 'pedidos' | 'cierraJornada'>,
   ): Promise<ResumenCorteDto> {
     const pedidos = await tx.pedido.findMany({
       where: {
@@ -322,31 +398,216 @@ export class CortesService {
         cargas: {
           where: { cerradoEn: null },
           select: {
+            productoId: true,
             cantidadCargada: true,
             cantidadEntregada: true,
             precioUnitario: true,
             precioEntregado: true,
+            pedidoItem: { select: { nombre: true, unidad: true } },
           },
+          orderBy: { creadoEn: 'asc' },
         },
       },
       orderBy: { creadoEn: 'asc' },
     });
 
     const cuenta = cuentaDelCorte(pedidos);
+    const conNombre = (c: (typeof pedidos)[number]['cargas'][number]) => ({
+      ...c,
+      nombre: c.pedidoItem.nombre,
+      unidad: c.pedidoItem.unidad,
+    });
     return {
       montoCalculado: cuenta.montoCalculado.toNumber(),
-      pedidos: pedidos.map((pedido, i) => ({
-        id: pedido.id,
-        folio: pedido.folio,
-        clienteNombre: pedido.cliente.nombre,
-        estado: pedido.estado,
-        efectivo: cuenta.porPedido[i].efectivo.toNumber(),
-        devueltas: cuenta.porPedido[i].devueltas,
-      })),
+      pedidos: pedidos.map((pedido, i) => {
+        const devolucion = esDevolucion(pedido);
+        return {
+          id: pedido.id,
+          folio: pedido.folio,
+          clienteNombre: pedido.cliente.nombre,
+          estado: pedido.estado,
+          estadoPago: pedido.estadoPago,
+          metodoPago: pedido.metodoPago,
+          devolucion,
+          efectivo: cuenta.porPedido[i].efectivo.toNumber(),
+          devueltas: cuenta.porPedido[i].devueltas,
+          productos: productosDeLaLinea(devolucion, pedido.cargas.map(conNombre)),
+        };
+      }),
       piezasQueRegresan: cuenta.piezasQueRegresan,
       pedidosQueRegresan: cuenta.pedidosQueRegresan,
       cierraJornada: alcance.cierraJornada,
+      conteo: conteoPorProducto(pedidos.flatMap((p) => p.cargas.map(conNombre))),
     };
+  }
+
+  // ----------------------------------------------------------------
+  // Lo que el repartidor consulta
+  // ----------------------------------------------------------------
+
+  /**
+   * El encabezado de Rutas: todo lo que lleva sin liquidar, de todas sus
+   * entregas. Es la misma cuenta que el corte, sin filtrar por entrega, para
+   * que el efectivo esperado sea la suma exacta de lo que pediran sus cortes.
+   */
+  async indicadores(usuario: UsuarioAutenticado): Promise<IndicadoresRutaDto> {
+    const resumen = await this.calcular(this.prisma, usuario.sub, {
+      pedidos: {},
+      cierraJornada: false,
+    });
+    return {
+      ...indicadoresDeRuta(resumen.pedidos),
+      efectivoEsperado: resumen.montoCalculado,
+    };
+  }
+
+  /**
+   * Las entregas del repartidor, de la mas reciente a la mas vieja, con su
+   * corte. Incluye las vivas: el historial dice tambien "sin liquidar".
+   */
+  async historial(
+    usuario: UsuarioAutenticado,
+    limite: number,
+  ): Promise<{ entregas: EntregaEnHistorialDto[] }> {
+    const entregas = await this.prisma.entregaRuta.findMany({
+      where: { repartidorId: usuario.sub },
+      orderBy: { creadoEn: 'desc' },
+      take: limite,
+      include: { corte: { include: INCLUIR_CORTE } },
+    });
+    if (entregas.length === 0) return { entregas: [] };
+
+    // Los que salieron: los que siguen atados a la entrega mas los que ya
+    // regresaron a bodega, que solo recuerda su renglon del camion.
+    const ids = entregas.map((e) => e.id);
+    const [atados, cargados] = await Promise.all([
+      this.prisma.pedido.findMany({
+        where: { entregaRutaId: { in: ids } },
+        select: { id: true, entregaRutaId: true },
+      }),
+      this.prisma.cargaRepartidor.findMany({
+        where: { entregaRutaId: { in: ids } },
+        select: { pedidoId: true, entregaRutaId: true },
+        distinct: ['entregaRutaId', 'pedidoId'],
+      }),
+    ]);
+    const salieron = new Map<string, Set<string>>();
+    for (const [entregaId, pedidoId] of [
+      ...atados.map((p) => [p.entregaRutaId, p.id] as const),
+      ...cargados.map((c) => [c.entregaRutaId, c.pedidoId] as const),
+    ]) {
+      if (!entregaId) continue;
+      const set = salieron.get(entregaId) ?? new Set<string>();
+      set.add(pedidoId);
+      salieron.set(entregaId, set);
+    }
+
+    return {
+      entregas: entregas.map((e) => ({
+        id: e.id,
+        numero: e.numero,
+        nombre: e.nombre,
+        creadoEn: e.creadoEn.toISOString(),
+        iniciadaEn: e.iniciadaEn?.toISOString() ?? null,
+        finalizadaEn: e.finalizadaEn?.toISOString() ?? null,
+        pedidos: salieron.get(e.id)?.size ?? 0,
+        corte: e.corte ? CortesService.aDto(e.corte) : null,
+      })),
+    };
+  }
+
+  /**
+   * Lo que salio en una entrega y como acabo cada pedido ahi, con el conteo de
+   * lo que bajo del camion. Se lee de los renglones del camion y no del pedido:
+   * el pedido que regreso ya no apunta a esta entrega.
+   */
+  async detalleHistorial(
+    usuario: UsuarioAutenticado,
+    entregaId: string,
+  ): Promise<DetalleHistorialDto> {
+    const entrega = await this.prisma.entregaRuta.findFirst({
+      where: { id: entregaId, repartidorId: usuario.sub },
+      select: { id: true },
+    });
+    if (!entrega) throw new NotFoundException('Entrega no encontrada');
+
+    const cargas = await this.prisma.cargaRepartidor.findMany({
+      where: { entregaRutaId: entregaId },
+      orderBy: { creadoEn: 'asc' },
+      select: {
+        pedidoId: true,
+        productoId: true,
+        cantidadCargada: true,
+        cantidadEntregada: true,
+        motivoDevolucion: true,
+        cerradoEn: true,
+        pedidoItem: { select: { nombre: true, unidad: true } },
+        pedido: {
+          select: {
+            folio: true,
+            total: true,
+            estado: true,
+            estadoPago: true,
+            entregaRutaId: true,
+            cliente: { select: { nombre: true } },
+          },
+        },
+      },
+    });
+
+    const porPedido = new Map<string, typeof cargas>();
+    for (const carga of cargas) {
+      porPedido.set(carga.pedidoId, [...(porPedido.get(carga.pedidoId) ?? []), carga]);
+    }
+
+    const pedidos = [...porPedido.entries()].map(([id, suyas]) => {
+      const pedido = suyas[0].pedido;
+      const intento = intentoDeEntrega(pedido, entregaId, suyas);
+      return {
+        id,
+        folio: pedido.folio,
+        clienteNombre: pedido.cliente.nombre,
+        total: pedido.total.toNumber(),
+        resultado: intento.resultado,
+        renglones: intento.renglones.map((r, i) => ({
+          nombre: suyas[i].pedidoItem.nombre,
+          unidad: suyas[i].pedidoItem.unidad,
+          ...r,
+        })),
+      };
+    });
+
+    return {
+      pedidos,
+      conteo: conteoPorProducto(
+        cargas.map((c) => ({ ...c, nombre: c.pedidoItem.nombre, unidad: c.pedidoItem.unidad })),
+      ),
+    };
+  }
+
+  /**
+   * "Completar el faltante" desde el historial del repartidor: el mismo abono
+   * que registra Finanzas, pero solo sobre un corte suyo. Queda con su nombre
+   * y su hora, que es lo que Finanzas revisa.
+   */
+  async abonarPropio(
+    id: string,
+    dto: RegistrarAbonoDto,
+    usuario: UsuarioAutenticado,
+  ): Promise<CorteDto> {
+    const corte = await this.prisma.corte.findUnique({
+      where: { id },
+      select: { repartidorId: true },
+    });
+    if (!corte) throw new NotFoundException('Corte no encontrado');
+    if (corte.repartidorId !== usuario.sub) {
+      throw new ConflictException({
+        statusCode: 409,
+        code: 'CORTE_DE_OTRO',
+        message: 'Ese corte es de otro repartidor.',
+      });
+    }
+    return this.abonar(id, dto, usuario);
   }
 
   /**
@@ -507,24 +768,48 @@ export class CortesService {
    * que hubo un faltante.
    */
   async abonar(id: string, dto: RegistrarAbonoDto, usuario: UsuarioAutenticado): Promise<CorteDto> {
-    const corte = await this.prisma.corte.findUnique({ where: { id } });
-    if (!corte) throw new NotFoundException('Corte no encontrado');
-
-    if (corte.estado !== EstadoCorte.RECIBIDO) {
-      throw new ConflictException({
-        statusCode: 409,
-        code: 'CORTE_SIN_RECIBIR',
-        message: 'Recibe el corte antes de registrar abonos: primero hay que contar el dinero.',
+    await this.prisma.$transaction(async (tx) => {
+      // Bloqueado: dos abonos a la vez leerian el mismo saldo y juntos lo pasarian.
+      await tx.$queryRaw`SELECT id FROM cortes WHERE id = ${id} FOR UPDATE`;
+      const corte = await tx.corte.findUnique({
+        where: { id },
+        include: { abonos: { select: { monto: true } } },
       });
-    }
+      if (!corte) throw new NotFoundException('Corte no encontrado');
 
-    await this.prisma.corteAbono.create({
-      data: {
-        corteId: id,
-        monto: new Decimal(dto.monto),
-        registradoPorId: usuario.sub,
-        nota: dto.nota?.trim() || null,
-      },
+      if (corte.estado !== EstadoCorte.RECIBIDO) {
+        throw new ConflictException({
+          statusCode: 409,
+          code: 'CORTE_SIN_RECIBIR',
+          message: 'Recibe el corte antes de registrar abonos: primero hay que contar el dinero.',
+        });
+      }
+
+      // Un abono salda lo que falta, no crea saldo a favor: lo que sobre es
+      // otro asunto y no tiene donde quedar escrito.
+      const saldo = saldoDelCorte(
+        corte.montoCalculado,
+        corte.montoRecibido,
+        corte.abonos.reduce((suma, a) => suma.add(a.monto), new Decimal(0)),
+      );
+      if (new Decimal(dto.monto).gt(saldo.add(TOLERANCIA))) {
+        throw new ConflictException({
+          statusCode: 409,
+          code: 'ABONO_EXCEDE_FALTANTE',
+          message: saldo.isZero()
+            ? 'Ese corte ya está saldado: no hay nada que abonar.'
+            : `El abono pasa de lo que falta: quedan $${saldo.toFixed(2)}.`,
+        });
+      }
+
+      await tx.corteAbono.create({
+        data: {
+          corteId: id,
+          monto: new Decimal(dto.monto),
+          registradoPorId: usuario.sub,
+          nota: dto.nota?.trim() || null,
+        },
+      });
     });
     return this.detalle(id);
   }
@@ -539,10 +824,7 @@ export class CortesService {
    */
   private static aDto(corte: CorteCompleto): CorteDto {
     const abonado = corte.abonos.reduce((suma, a) => suma.add(a.monto), new Decimal(0));
-    const pendiente =
-      corte.montoRecibido === null
-        ? new Decimal(0)
-        : Decimal.max(0, corte.montoCalculado.sub(corte.montoRecibido).sub(abonado));
+    const pendiente = saldoDelCorte(corte.montoCalculado, corte.montoRecibido, abonado);
 
     return {
       id: corte.id,

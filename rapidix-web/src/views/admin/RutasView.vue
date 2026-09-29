@@ -1,209 +1,121 @@
 <script setup lang="ts">
 /**
- * Administración → Rutas: la pantalla del repartidor.
+ * Administración → Rutas: la pantalla del repartidor, en tres pestañas que son
+ * tres momentos del día.
  *
- * Solo lista las entregas y deja crear otra. La jornada ya no se pinta ni se
- * inicia aquí: la API la abre sola con la primera entrega del día y la cierra
- * el corte de la última. Crear una entrega no la arranca: todo lo demás
- * (iniciarla, pedidos, camión, finalizar, corte) va dentro de cada entrega.
+ *  - **Entregas**, durante el reparto: sus viajes y «Crear entrega».
+ *  - **Liquidación**, al volver a bodega: el corte de una entrega.
+ *  - **Historial**, cualquier día: lo que pasó con cada entrega y lo que debe.
+ *
+ * Encima de las tres, el mismo encabezado con lo que lleva sin liquidar. Cada
+ * pestaña se vuelve a montar —y a pedir sus datos— en cada toque, aunque ya se
+ * hubiera visitado: así nunca enseña datos viejos y no hay que refrescar las
+ * que están escondidas. La pestaña va en la URL para que «Hacer mi corte» de
+ * una entrega pueda llegar directo a su liquidación.
  */
-import { onBeforeUnmount, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { http } from '@/api/http'
-import { useUiStore } from '@/stores/ui'
-import { fechaDia } from '@/utils/formato'
-import SkeletonList from '@/components/SkeletonList.vue'
-import { nombreEntrega } from './rutas/etiquetas'
-import type { EntregaRuta, FiltroRutas, TableroRutas } from '@/api/tipos'
+import KpisRuta from './rutas/KpisRuta.vue'
+import VentanaEntregas from './rutas/VentanaEntregas.vue'
+import VentanaLiquidacion from './rutas/VentanaLiquidacion.vue'
+import VentanaHistorial from './rutas/VentanaHistorial.vue'
+import type { IndicadoresRuta } from '@/api/tipos'
 
-const ui = useUiStore()
+type Ventana = 'entregas' | 'liquidacion' | 'historial'
+
+const VENTANAS: { id: Ventana; titulo: string }[] = [
+  { id: 'entregas', titulo: 'Entregas' },
+  { id: 'liquidacion', titulo: 'Liquidación' },
+  { id: 'historial', titulo: 'Historial' },
+]
+
+const route = useRoute()
 const router = useRouter()
 
-/** El tablero pide un filtro de pedidos; aquí solo se usan las entregas. */
-const FILTRO: FiltroRutas = 'disponibles'
+const ventana = computed<Ventana>(() => {
+  const pedida = route.query.ventana
+  return VENTANAS.some((v) => v.id === pedida) ? (pedida as Ventana) : 'entregas'
+})
+const entregaPedida = computed(() =>
+  typeof route.query.entrega === 'string' ? route.query.entrega : null,
+)
 
-const entregas = ref<EntregaRuta[]>([])
-const cargando = ref(true)
+/** Sube con cada toque de pestaña: cambia la `key` y la pestaña se vuelve a montar. */
+const vuelta = ref(0)
 
-/** La hoja de «Crear entrega». */
-const creandoEntrega = ref(false)
-const nombreNueva = ref('')
-const enviandoEntrega = ref(false)
-
-/** Una recarga automática puede cruzarse con otra: gana la última. */
+const indicadores = ref<IndicadoresRuta | null>(null)
 let peticion = 0
 
-/**
- * `silenciosa` es la recarga automática: sin esqueleto y sin avisar si falla.
- * En la calle la señal va y viene, y un error cada minuto por algo que nadie
- * pidió solo estorba; la siguiente vuelta lo vuelve a intentar.
- */
-async function cargar(conEsqueleto = true, silenciosa = false): Promise<void> {
+/** Si falla, el encabezado se queda en «—»: no tumba la pestaña de abajo. */
+async function cargarIndicadores(): Promise<void> {
   const numero = ++peticion
-  if (conEsqueleto) cargando.value = true
   try {
-    const respuesta = await http.get<TableroRutas>('/admin/rutas', {
-      query: { filtro: FILTRO },
-    })
-    if (numero !== peticion) return
-    entregas.value = respuesta.entregas
-  } catch (fallo) {
-    if (numero === peticion && !silenciosa) ui.errorDeApi(fallo)
-  } finally {
-    if (numero === peticion) cargando.value = false
+    const respuesta = await http.get<IndicadoresRuta>('/admin/rutas/indicadores')
+    if (numero === peticion) indicadores.value = respuesta
+  } catch {
+    // La siguiente pestaña o recarga lo vuelve a intentar.
   }
 }
 
-// ------------------------------------------------------------------
-// Recarga sola
-// ------------------------------------------------------------------
+onMounted(cargarIndicadores)
 
-/** Cada cuánto se relee el tablero mientras la pantalla está a la vista. */
-const CADA_MS = 60_000
-
-/**
- * Los contadores de cada entrega cambian mientras el repartidor está en la
- * calle: se relee al volver a la pestaña y cada minuto, solo con la pantalla
- * visible.
- */
-function recargarSola(): void {
-  if (document.visibilityState !== 'visible') return
-  void cargar(false, true)
-}
-
-let reloj: ReturnType<typeof setInterval> | undefined
-
-onMounted(() => {
-  void cargar()
-  reloj = setInterval(recargarSola, CADA_MS)
-  document.addEventListener('visibilitychange', recargarSola)
-})
-
-onBeforeUnmount(() => {
-  clearInterval(reloj)
-  document.removeEventListener('visibilitychange', recargarSola)
-})
-
-// ------------------------------------------------------------------
-// Las entregas
-// ------------------------------------------------------------------
-
-function abrirCrearEntrega(): void {
-  nombreNueva.value = ''
-  creandoEntrega.value = true
-}
-
-/** Cada entrega se inicia dentro de ella: recién creada queda «Sin iniciar». */
-function estadoEntrega(entrega: EntregaRuta): string {
-  if (entrega.cortada) return 'Cortada'
-  if (entrega.finalizadaEn) return 'Finalizada'
-  return entrega.iniciadaEn ? 'En curso' : 'Sin iniciar'
-}
-
-/** «Crear entrega» y directo a ella, donde está su «Iniciar entrega». */
-async function crearEntrega(): Promise<void> {
-  if (enviandoEntrega.value) return
-  enviandoEntrega.value = true
-  try {
-    const creada = await http.post<EntregaRuta>('/admin/rutas/entregas', {
-      ...(nombreNueva.value.trim() ? { nombre: nombreNueva.value.trim() } : {}),
-    })
-    creandoEntrega.value = false
-    ui.exito(`${nombreEntrega(creada)} creada. Iníciala cuando vayas a cargarla.`)
-    await router.push(`/admin/rutas/entregas/${creada.id}`)
-  } catch (fallo) {
-    ui.errorDeApi(fallo)
-  } finally {
-    enviandoEntrega.value = false
+function abrir(id: Ventana): void {
+  vuelta.value++
+  void cargarIndicadores()
+  if (id !== ventana.value || entregaPedida.value) {
+    void router.replace({ query: id === 'entregas' ? {} : { ventana: id } })
   }
+}
+
+/** La entrega elegida en Liquidación queda en la URL: recargar vuelve a ella. */
+function recordarEntrega(entregaId: string): void {
+  void router.replace({ query: { ventana: 'liquidacion', entrega: entregaId } })
+}
+
+function alCortar(): void {
+  void router.replace({ query: { ventana: 'liquidacion' } })
+  vuelta.value++
+  void cargarIndicadores()
 }
 </script>
 
 <template>
-  <div class="pantalla">
+  <div class="pantalla pantalla-rutas sin-colchon">
     <RouterLink to="/admin" class="admin-back-inline">← Volver al menú</RouterLink>
 
-    <!-- Finalizar y hacer el corte son de cada entrega: están dentro de ella. -->
-    <button type="button" class="btn-primary crear" @click="abrirCrearEntrega">
-      + Crear entrega
-    </button>
+    <div class="subtab-row" role="tablist" aria-label="Rutas">
+      <button
+        v-for="v in VENTANAS"
+        :key="v.id"
+        type="button"
+        role="tab"
+        class="subtab"
+        :class="{ active: ventana === v.id }"
+        :aria-selected="ventana === v.id"
+        :aria-controls="`ventana-${v.id}`"
+        @click="abrir(v.id)"
+      >
+        {{ v.titulo }}
+      </button>
+    </div>
 
-    <SkeletonList v-if="cargando" :cantidad="3" />
+    <KpisRuta :indicadores="indicadores" />
 
-    <!-- Las entregas de la jornada: cada una es un viaje con sus pedidos. -->
-    <section v-else-if="entregas.length > 0" class="entregas">
-      <p class="entregas-titulo">Mis entregas</p>
-      <div class="tabla-envoltorio">
-        <table class="tabla lineal">
-          <thead>
-            <tr>
-              <th>Entrega</th>
-              <th>Fecha</th>
-              <th class="num">Pedidos</th>
-              <th class="num">Recolectados</th>
-              <th class="num">En ruta</th>
-              <th class="num">Entregados</th>
-              <th>Estado</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="entrega in entregas" :key="entrega.id">
-              <td>
-                <span class="folio">{{ nombreEntrega(entrega) }}</span>
-              </td>
-              <td>{{ fechaDia(entrega.creadoEn) }}</td>
-              <td class="num">{{ entrega.pedidos }}</td>
-              <td class="num">{{ entrega.recolectados }}</td>
-              <td class="num">{{ entrega.enRuta }}</td>
-              <td class="num">{{ entrega.entregados }}</td>
-              <td>
-                <span class="mini-tag" :class="{ viva: estadoEntrega(entrega) === 'En curso' }">
-                  {{ estadoEntrega(entrega) }}
-                </span>
-              </td>
-              <td class="accion">
-                <RouterLink :to="`/admin/rutas/entregas/${entrega.id}`" class="btn-secondary abrir">
-                  Abrir →
-                </RouterLink>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-    <p v-else class="empty-block">
-      Aún no tienes entregas: créala y agrégale sus pedidos.
-    </p>
-
-    <!-- «Crear entrega»: el número lo pone la API; el nombre ayuda a reconocerla. -->
-    <div v-if="creandoEntrega" class="modal-overlay" @click.self="creandoEntrega = false">
-      <div class="modal-sheet" role="dialog" aria-label="Crear entrega">
-        <div class="modal-handle" />
-        <p class="modal-title">Crear entrega</p>
-        <p class="modal-texto">
-          Se numera sola. Si quieres, ponle un nombre para reconocerla: la zona o la colonia.
-        </p>
-        <input
-          v-model="nombreNueva"
-          class="form-input"
-          maxlength="80"
-          placeholder="Nombre (opcional), p. ej. Centro"
-          @keyup.enter="crearEntrega"
-        />
-        <div class="modal-actions">
-          <button type="button" class="btn-cancel" @click="creandoEntrega = false">Volver</button>
-          <button
-            type="button"
-            class="btn-primary"
-            :disabled="enviandoEntrega"
-            @click="crearEntrega"
-          >
-            Crear entrega
-          </button>
-        </div>
-      </div>
+    <div :id="`ventana-${ventana}`" role="tabpanel">
+      <VentanaEntregas
+        v-if="ventana === 'entregas'"
+        :key="`entregas-${vuelta}`"
+        @recargada="cargarIndicadores"
+      />
+      <VentanaLiquidacion
+        v-else-if="ventana === 'liquidacion'"
+        :key="`liquidacion-${vuelta}`"
+        :entrega-inicial="entregaPedida"
+        @elegir="recordarEntrega"
+        @cortado="alCortar"
+      />
+      <VentanaHistorial v-else :key="`historial-${vuelta}`" />
     </div>
   </div>
 </template>
@@ -223,49 +135,46 @@ async function crearEntrega(): Promise<void> {
   text-decoration: none;
 }
 
-.crear {
-  display: block;
-  width: 100%;
-  margin-bottom: 12px;
-  padding: 9px 8px;
-  font-size: 12px;
-}
-
-.tabla {
-  min-width: 820px;
-}
-
-.entregas-titulo {
-  margin: 0 0 6px;
-  font-family: var(--font-heading);
-  font-weight: 800;
-  font-size: 13px;
-  color: var(--ink);
-}
-
-.tabla.lineal .abrir {
-  display: inline-block;
-  padding: 4px 12px;
-  font-size: 12px;
-  text-decoration: none;
-  box-shadow: none;
-}
-
-.mini-tag.viva {
-  background: color-mix(in srgb, var(--verde) 15%, var(--white));
-  color: var(--verde-compra);
-}
-
-/* El vacío global trae 30px por arriba: aquí va pegado a la jornada. */
-.empty-block {
-  margin: 0;
-  padding: 12px 0;
-}
-
-.modal-texto {
+.subtab-row {
   margin: 0 0 12px;
-  font-size: 12.5px;
+}
+</style>
+
+<!--
+  Lo que comparten las tres pestañas. Sin `scoped` porque cada pestaña es su
+  propio componente; va colgado de `.pantalla-rutas` para no salirse de aquí.
+-->
+<style>
+.pantalla-rutas .seccion-titulo {
+  margin: 16px 0 6px;
+  font-family: var(--font-heading);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* Cada bloque pinta su propio error, sin tumbar el resto de la pantalla. */
+.pantalla-rutas .error-bloque {
+  margin: 0;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 600;
   color: var(--ink);
-  line-height: 1.45;
+  background: color-mix(in srgb, var(--orange) 10%, var(--white));
+  border-left: 3px solid var(--orange-dark);
+  border-radius: var(--radius-sm);
+}
+
+.pantalla-rutas .error-bloque .enlace {
+  margin-left: 8px;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--terracotta-dark);
+  text-decoration: underline;
+  cursor: pointer;
 }
 </style>

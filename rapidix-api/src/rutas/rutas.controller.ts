@@ -30,8 +30,15 @@ import {
   NoEntregadoDto,
   PrevisualizarEntregaDto,
 } from './dto/entregar-pedido.dto';
-import { CerrarCorteDto } from './dto/corte.dto';
-import { CorteDto, CortesService, ResumenCorteDto } from './cortes.service';
+import { CerrarCorteDto, RegistrarAbonoDto } from './dto/corte.dto';
+import {
+  CorteDto,
+  CortesService,
+  DetalleHistorialDto,
+  EntregaEnHistorialDto,
+  IndicadoresRutaDto,
+  ResumenCorteDto,
+} from './cortes.service';
 import { RequiereSeccion } from '../auth/seccion.decorator';
 import { SoloPersonal } from '../auth/solo-personal.decorator';
 import { UsuarioActual } from '../auth/usuario-actual.decorator';
@@ -63,6 +70,33 @@ export class RutasController {
     @Query('limite', new ParseIntPipe({ optional: true })) limite?: number,
   ): Promise<TableroRutasDto> {
     return this.rutas.tablero(usuario, filtro, Math.min(limite ?? 100, 500));
+  }
+
+  /**
+   * El encabezado de las tres pestanas: lo que lleva sin liquidar, de todas
+   * sus entregas. Aparte del tablero para refrescarlo sin arrastrar pedidos.
+   */
+  @Get('indicadores')
+  indicadores(@UsuarioActual() usuario: UsuarioAutenticado): Promise<IndicadoresRutaDto> {
+    return this.cortes.indicadores(usuario);
+  }
+
+  /** Sus entregas con su corte, de la mas reciente a la mas vieja. */
+  @Get('historial')
+  historial(
+    @UsuarioActual() usuario: UsuarioAutenticado,
+    @Query('limite', new ParseIntPipe({ optional: true })) limite?: number,
+  ): Promise<{ entregas: EntregaEnHistorialDto[] }> {
+    return this.cortes.historial(usuario, Math.min(limite ?? 50, 200));
+  }
+
+  /** Lo que salio en una entrega y como acabo, para desplegarla en el historial. */
+  @Get('entregas/:id/historial')
+  detalleHistorial(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UsuarioActual() usuario: UsuarioAutenticado,
+  ): Promise<DetalleHistorialDto> {
+    return this.cortes.detalleHistorial(usuario, id);
   }
 
   /** "Inicio de entregas". 409 `JORNADA_ABIERTA` si ya estaba trabajando. */
@@ -221,5 +255,19 @@ export class RutasController {
     @UsuarioActual() usuario: UsuarioAutenticado,
   ): Promise<CorteDto> {
     return this.cortes.corregirDeclarado(id, usuario, dto);
+  }
+
+  /**
+   * "Completar el faltante": lo que entrega despues de que Finanzas conto de
+   * menos. 409 `CORTE_SIN_RECIBIR` antes del conteo (ahi se corrige, no se
+   * abona) y `ABONO_EXCEDE_FALTANTE` si pasa de lo que falta.
+   */
+  @Post('cortes/:id/abonos')
+  abonar(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RegistrarAbonoDto,
+    @UsuarioActual() usuario: UsuarioAutenticado,
+  ): Promise<CorteDto> {
+    return this.cortes.abonarPropio(id, dto, usuario);
   }
 }
