@@ -802,6 +802,10 @@ model EntregaRuta {
 
   creadoEn DateTime @default(now())
 
+  /// "Iniciar entrega", pulsado dentro de ella: crearla no la arranca. Mientras
+  /// es null no se le sube ni se le mueve nada.
+  iniciadaEn DateTime?
+
   /// "Finalizar entrega": ya no sale nada mas en ella. Vuelve a null si se
   /// reanuda; mientras no tenga corte sigue siendo la misma entrega.
   finalizadaEn DateTime?

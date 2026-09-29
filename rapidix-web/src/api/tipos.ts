@@ -577,6 +577,8 @@ export interface EntregaRuta {
   recolectados: number
   enRuta: number
   entregados: number
+  /** `null` hasta pulsar «Iniciar entrega» dentro de ella: crearla no la arranca. */
+  iniciadaEn: string | null
   /** «Finalizar entrega»: ya no sale nada más en ella hasta reanudarla. */
   finalizadaEn: string | null
   /** Ya tiene su corte: se consulta, no se mueve. */

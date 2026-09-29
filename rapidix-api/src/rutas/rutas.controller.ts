@@ -89,6 +89,15 @@ export class RutasController {
     return this.rutas.detalleEntrega(id, usuario);
   }
 
+  /** "Iniciar entrega": crearla no la arranca; hasta esto no se le carga nada. */
+  @Post('entregas/:id/iniciar')
+  iniciarEntrega(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UsuarioActual() usuario: UsuarioAutenticado,
+  ): Promise<EntregaRutaDto> {
+    return this.rutas.iniciarEntrega(id, usuario);
+  }
+
   /** "Finalizar entrega": ya no sale nada mas en ella. Sigue viva hasta su corte. */
   @Post('entregas/:id/finalizar')
   finalizarEntrega(

@@ -4,8 +4,8 @@
  *
  * Solo lista las entregas y deja crear otra. La jornada ya no se pinta ni se
  * inicia aquí: la API la abre sola con la primera entrega del día y la cierra
- * el corte de la última. Todo lo demás (pedidos, camión, finalizar, corte) va
- * dentro de cada entrega.
+ * el corte de la última. Crear una entrega no la arranca: todo lo demás
+ * (iniciarla, pedidos, camión, finalizar, corte) va dentro de cada entrega.
  */
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
@@ -93,7 +93,14 @@ function abrirCrearEntrega(): void {
   creandoEntrega.value = true
 }
 
-/** «Crear entrega» y directo a ella: lo siguiente siempre es agregarle pedidos. */
+/** Cada entrega se inicia dentro de ella: recién creada queda «Sin iniciar». */
+function estadoEntrega(entrega: EntregaRuta): string {
+  if (entrega.cortada) return 'Cortada'
+  if (entrega.finalizadaEn) return 'Finalizada'
+  return entrega.iniciadaEn ? 'En curso' : 'Sin iniciar'
+}
+
+/** «Crear entrega» y directo a ella, donde está su «Iniciar entrega». */
 async function crearEntrega(): Promise<void> {
   if (enviandoEntrega.value) return
   enviandoEntrega.value = true
@@ -102,7 +109,7 @@ async function crearEntrega(): Promise<void> {
       ...(nombreNueva.value.trim() ? { nombre: nombreNueva.value.trim() } : {}),
     })
     creandoEntrega.value = false
-    ui.exito(`${nombreEntrega(creada)} creada. Agrégale sus pedidos.`)
+    ui.exito(`${nombreEntrega(creada)} creada. Iníciala cuando vayas a cargarla.`)
     await router.push(`/admin/rutas/entregas/${creada.id}`)
   } catch (fallo) {
     ui.errorDeApi(fallo)
@@ -150,10 +157,8 @@ async function crearEntrega(): Promise<void> {
               <td class="num">{{ entrega.enRuta }}</td>
               <td class="num">{{ entrega.entregados }}</td>
               <td>
-                <span class="mini-tag" :class="{ viva: !entrega.cortada && !entrega.finalizadaEn }">
-                  {{
-                    entrega.cortada ? 'Cortada' : entrega.finalizadaEn ? 'Finalizada' : 'Abierta'
-                  }}
+                <span class="mini-tag" :class="{ viva: estadoEntrega(entrega) === 'En curso' }">
+                  {{ estadoEntrega(entrega) }}
                 </span>
               </td>
               <td class="accion">
@@ -194,7 +199,7 @@ async function crearEntrega(): Promise<void> {
             :disabled="enviandoEntrega"
             @click="crearEntrega"
           >
-            Crear y agregar pedidos
+            Crear entrega
           </button>
         </div>
       </div>

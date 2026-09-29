@@ -2,9 +2,10 @@
 /**
  * Rutas → una entrega: el viaje que se está armando o repartiendo.
  *
- * En la cabecera, lo que cierra la entrega: «Finalizar entrega» (o reanudarla)
- * y «Hacer mi corte». Son de cada entrega, no de la jornada: cada viaje se
- * cierra y se liquida por su lado.
+ * En la cabecera, lo que arranca y cierra la entrega: «Iniciar entrega» —crearla
+ * no la arranca, y hasta entonces no se le carga nada—, luego «Finalizar
+ * entrega» (o reanudarla) y «Hacer mi corte». Son de cada entrega, no de la
+ * jornada: cada viaje se inicia, se cierra y se liquida por su lado.
  *
  * Arriba, los pedidos de esta entrega con el paso que les toca: «En ruta» (o
  * quitarlo mientras no haya salido), «Entregar» y «No entregado». Abajo, lo
@@ -16,7 +17,7 @@
  *
  * El camioncito de la barra naranja abre el inventario del camión: por
  * producto, lo recolectado, lo entregado y la diferencia que sigue arriba.
- * Solo suma los pedidos marcados con su casilla en la tabla.
+ * Suma todos los pedidos de la entrega.
  */
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
@@ -51,37 +52,8 @@ const cerrando = ref(false)
 /** El inventario del camión, que se abre y se cierra con el camioncito de la barra. */
 const viendoCamion = ref(false)
 
-/**
- * Los pedidos marcados con su casilla: solo esos se suman en el inventario del
- * camión. Nace vacío para que el repartidor elija qué revisar, en vez de ver
- * todo sumado de golpe.
- */
-const marcados = ref<Set<string>>(new Set())
-
-function marcar(id: string, marcado: boolean): void {
-  const siguiente = new Set(marcados.value)
-  if (marcado) siguiente.add(id)
-  else siguiente.delete(id)
-  marcados.value = siguiente
-}
-
-const pedidosMarcados = computed(() =>
-  (detalle.value?.pedidos ?? []).filter((p) => marcados.value.has(p.id)),
-)
-
-const todosMarcados = computed(
-  () =>
-    detalle.value !== null &&
-    detalle.value.pedidos.length > 0 &&
-    pedidosMarcados.value.length === detalle.value.pedidos.length,
-)
-
-function marcarTodos(marcado: boolean): void {
-  marcados.value = new Set(marcado ? (detalle.value?.pedidos ?? []).map((p) => p.id) : [])
-}
-
 /** Se recalcula con cada relectura: tras entregar, la diferencia ya baja. */
-const camion = computed(() => inventarioDelCamion(pedidosMarcados.value))
+const camion = computed(() => inventarioDelCamion(detalle.value?.pedidos ?? []))
 
 const entregando = computed(() => {
   if (!enHoja.value || !detalle.value) return null
@@ -111,20 +83,25 @@ onMounted(() => cargar())
 // De una entrega a otra (p. ej. desde la etiqueta de un pedido) sin salir de la vista.
 watch(
   () => route.params.id,
-  () => {
-    marcados.value = new Set()
-    void cargar()
-  },
+  () => void cargar(),
+)
+
+/** Recién creada: solo se ve «Iniciar entrega» en lugar de «Finalizar». */
+const sinIniciar = computed(
+  () =>
+    detalle.value !== null && detalle.value.abierta && detalle.value.entrega.iniciadaEn === null,
 )
 
 /**
  * Se puede mover algo si la entrega sigue abierta —sin corte, de la jornada
- * viva— y no se ha finalizado. Si no, la pantalla se consulta y dice por qué.
+ * viva—, ya se inició y no se ha finalizado. Si no, la pantalla se consulta y
+ * dice por qué.
  */
 const puedeMover = computed(
   () =>
     detalle.value !== null &&
     detalle.value.abierta &&
+    detalle.value.entrega.iniciadaEn !== null &&
     detalle.value.entrega.finalizadaEn === null &&
     detalle.value.jornada !== null &&
     detalle.value.jornada.finalizadaEn === null,
@@ -135,6 +112,7 @@ const avisoBloqueo = computed(() => {
   if (detalle.value.entrega.cortada) return 'Esta entrega ya tiene su corte: solo se consulta.'
   if (!detalle.value.abierta)
     return 'Esta entrega es de una jornada que ya se cortó: solo se consulta.'
+  if (sinIniciar.value) return 'Pulsa «Iniciar entrega» para empezar a cargarla.'
   if (detalle.value.entrega.finalizadaEn)
     return 'Finalizaste esta entrega: reanúdala para moverla o haz su corte.'
   return 'Tu jornada está finalizada: pulsa «Reanudar entrega» para seguir.'
@@ -152,8 +130,27 @@ const porReanudar = computed(
 )
 
 // ------------------------------------------------------------------
-// Cerrar la entrega
+// Iniciar y cerrar la entrega
 // ------------------------------------------------------------------
+
+/** «Iniciar entrega»: desde aquí ya se le suben pedidos. */
+async function iniciar(): Promise<void> {
+  if (!detalle.value || cerrando.value) return
+  cerrando.value = true
+  try {
+    const entrega = await http.post<EntregaRuta>(
+      `/admin/rutas/entregas/${detalle.value.entrega.id}/iniciar`,
+      {},
+    )
+    detalle.value.entrega = entrega
+    ui.exito(`${nombreEntrega(entrega)} iniciada. Agrégale sus pedidos.`)
+  } catch (fallo) {
+    ui.errorDeApi(fallo)
+  } finally {
+    cerrando.value = false
+  }
+  await cargar(false)
+}
 
 /**
  * «Finalizar entrega» y su vuelta atrás. No exige que todo esté entregado: lo
@@ -327,6 +324,7 @@ function colonia(pedido: PedidoEnRuta): string {
             {{ nombreEntrega(detalle.entrega) }}
             <span v-if="detalle.entrega.cortada" class="mini-tag">Cortada</span>
             <span v-else-if="detalle.entrega.finalizadaEn" class="mini-tag">Finalizada</span>
+            <span v-else-if="!detalle.entrega.iniciadaEn" class="mini-tag">Sin iniciar</span>
           </p>
           <p class="cuenta">
             {{ detalle.entrega.pedidos }} pedido(s) · {{ detalle.entrega.recolectados }} en el
@@ -337,9 +335,19 @@ function colonia(pedido: PedidoEnRuta): string {
           <p v-if="avisoBloqueo" class="bloqueo">{{ avisoBloqueo }}</p>
         </div>
 
-        <!-- Lo que cierra esta entrega, y solo esta: cada viaje se liquida por su lado. -->
+        <!-- Lo que arranca y cierra esta entrega, y solo esta: cada viaje va por su lado. -->
         <div v-if="detalle.abierta" class="acciones">
           <button
+            v-if="sinIniciar"
+            type="button"
+            class="btn-primary"
+            :disabled="cerrando"
+            @click="iniciar"
+          >
+            Iniciar entrega
+          </button>
+          <button
+            v-else
             type="button"
             class="btn-secondary"
             :disabled="cerrando"
@@ -357,11 +365,8 @@ function colonia(pedido: PedidoEnRuta): string {
            los clientes y la diferencia que sigue arriba (y regresa en el corte). -->
       <section v-if="viendoCamion" class="camion" aria-live="polite">
         <p class="camion-titulo">🚚 Tu camión en esta entrega</p>
-        <p v-if="pedidosMarcados.length > 0" class="camion-cuenta">
-          Sumando {{ pedidosMarcados.length }} de {{ detalle.pedidos.length }} pedido(s)
-        </p>
-        <p v-if="pedidosMarcados.length === 0" class="camion-vacio">
-          Marca la casilla de los pedidos que quieras sumar aquí.
+        <p v-if="detalle.pedidos.length === 0" class="camion-vacio">
+          Esta entrega todavía no tiene pedidos.
         </p>
         <table v-else-if="camion.length > 0" class="camion-tabla">
           <thead>
@@ -387,7 +392,7 @@ function colonia(pedido: PedidoEnRuta): string {
             </tr>
           </tbody>
         </table>
-        <p v-else class="camion-vacio">Los pedidos marcados todavía no suben al camión.</p>
+        <p v-else class="camion-vacio">Los pedidos de esta entrega todavía no suben al camión.</p>
       </section>
 
       <!-- Los pedidos de esta entrega, con el paso que les toca. -->
@@ -396,17 +401,7 @@ function colonia(pedido: PedidoEnRuta): string {
         <table class="tabla lineal">
           <thead>
             <tr>
-              <th>
-                <!-- Marca o desmarca todos para el inventario del camión. -->
-                <input
-                  type="checkbox"
-                  class="casilla"
-                  :checked="todosMarcados"
-                  aria-label="Sumar todos al camión"
-                  @change="marcarTodos(($event.target as HTMLInputElement).checked)"
-                />
-                Pedido
-              </th>
+              <th>Pedido</th>
               <th>Colonia</th>
               <th>Cliente</th>
               <th>Fecha</th>
@@ -419,14 +414,6 @@ function colonia(pedido: PedidoEnRuta): string {
             <template v-for="pedido in detalle.pedidos" :key="pedido.id">
               <tr :class="{ 'con-detalle': abierto === pedido.id }">
                 <td>
-                  <!-- La casilla decide si el pedido se suma en el inventario del camión. -->
-                  <input
-                    type="checkbox"
-                    class="casilla"
-                    :checked="marcados.has(pedido.id)"
-                    :aria-label="`Sumar ${pedido.folio} al camión`"
-                    @change="marcar(pedido.id, ($event.target as HTMLInputElement).checked)"
-                  />
                   <!-- Como en Operaciones: la flecha despliega el detalle debajo; el folio sigue
                        abriendo la hoja del pedido con sus pasos. -->
                   <button
@@ -761,22 +748,6 @@ function colonia(pedido: PedidoEnRuta): string {
 .camion-vacio {
   margin: 0;
   color: var(--muted);
-}
-
-.camion-cuenta {
-  margin: 0 0 6px;
-  font-size: 11.5px;
-  color: var(--muted);
-}
-
-/* La casilla de cada pedido, antes de la flecha. */
-.casilla {
-  width: 18px;
-  height: 18px;
-  margin: 0 10px 0 0;
-  vertical-align: middle;
-  accent-color: var(--verde);
-  cursor: pointer;
 }
 
 .seccion {
