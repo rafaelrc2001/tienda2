@@ -498,6 +498,7 @@ export class RutasService {
           data: pedido.items.map((item) => ({
             sesionId: jornada.id,
             repartidorId: usuario.sub,
+            entregaRutaId: entrega.id,
             pedidoId: pedido.id,
             pedidoItemId: item.id,
             productoId: item.productoId,

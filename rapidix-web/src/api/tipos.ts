@@ -654,9 +654,78 @@ export interface PedidoDelCorte {
   folio: string
   clienteNombre: string
   estado: EstadoPedido
+  estadoPago: EstadoPago
+  metodoPago: MetodoPago
+  /** Regresa a bodega: cancelado, o se quedó en el camión. */
+  devolucion: boolean
   /** Efectivo que trae por este pedido. Cero en transferencia o crédito. */
   efectivo: number
   devueltas: number
+  /** Lo aceptado en una entrega (sin los renglones en cero); lo cargado en una devolución. */
+  productos: { nombre: string; unidad: string; cantidad: number }[]
+}
+
+/** Lo que baja del camión por producto. `cargado − entregado = devolucion`, siempre. */
+export interface ConteoDeProducto {
+  productoId: string
+  nombre: string
+  unidad: string
+  cargado: number
+  entregado: number
+  devolucion: number
+}
+
+/** Respuesta de `GET /admin/rutas/indicadores`: lo que lleva sin liquidar, de todas sus entregas. */
+export interface IndicadoresRuta {
+  pedidos: number
+  entregados: number
+  devoluciones: number
+  /** Sale de lo entregado, no del total de los pedidos. */
+  efectivoEsperado: number
+}
+
+/** Una entrega del historial del repartidor, con su corte si ya lo tiene. */
+export interface EntregaEnHistorial {
+  id: string
+  numero: number
+  nombre: string | null
+  creadoEn: string
+  iniciadaEn: string | null
+  finalizadaEn: string | null
+  /** Los que salieron en ella, incluidos los que regresaron a bodega. */
+  pedidos: number
+  corte: Corte | null
+}
+
+/** Cómo acabó un pedido en una entrega concreta, que no es su estado de hoy. */
+export type ResultadoDelIntento =
+  | 'ENTREGADO'
+  | 'PARCIAL'
+  | 'EN_CAMION'
+  | 'EN_RUTA'
+  | 'DEVUELTO'
+  | 'CANCELADO'
+
+export interface PedidoEnHistorial {
+  id: string
+  folio: string
+  clienteNombre: string
+  total: number
+  resultado: ResultadoDelIntento
+  renglones: {
+    nombre: string
+    unidad: string
+    cantidad: number
+    /** `null` mientras el pedido no cierra: no es cero. */
+    recibido: number | null
+    motivo: MotivoDevolucion | null
+  }[]
+}
+
+/** Respuesta de `GET /admin/rutas/entregas/:id/historial`. */
+export interface DetalleHistorial {
+  pedidos: PedidoEnHistorial[]
+  conteo: ConteoDeProducto[]
 }
 
 /** Respuesta de `GET /admin/rutas/entregas/:id/corte`: lo que el sistema dice que trae. */
@@ -668,6 +737,8 @@ export interface ResumenCorte {
   pedidosQueRegresan: number
   /** Es la última entrega viva: su corte cierra también la jornada. */
   cierraJornada: boolean
+  /** Lo que baja del camión por producto: cargado, entregado y devolución. */
+  conteo: ConteoDeProducto[]
 }
 
 export type EstadoCorte = 'CERRADO' | 'RECIBIDO'
