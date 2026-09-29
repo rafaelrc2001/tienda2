@@ -517,7 +517,7 @@ export type MotivoDevolucion =
   | 'SIN_QUIEN_RECIBA'
   | 'PRECIO_EQUIVOCADO'
 
-/** La jornada del repartidor. `null` mientras no haya pulsado «Inicio de entregas». */
+/** La jornada del repartidor. `null` hasta que crea su primera entrega del día. */
 export interface Jornada {
   id: string
   iniciadaEn: string
