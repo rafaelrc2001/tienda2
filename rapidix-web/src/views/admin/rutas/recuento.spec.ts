@@ -99,7 +99,7 @@ describe('lo que falta para confirmar', () => {
     const renglones = camion()
     renglones[0].cantidadEntregada = 7
     expect(pendientesParaConfirmar({ ...lista, renglones })).toEqual([
-      'di por qué no se quedó con todo «Tomate bola»',
+      'elige el motivo de rechazo de «Tomate bola»',
     ])
   })
 

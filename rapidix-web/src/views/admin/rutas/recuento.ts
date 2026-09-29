@@ -61,7 +61,7 @@ export function problemaDelRecuento(renglones: RenglonContado[]): string | null 
       )
     }
     if (renglon.cantidadEntregada < renglon.cantidadCargada && !renglon.motivoDevolucion) {
-      return `Di por qué no se quedó con todo «${renglon.nombre}».`
+      return `Elige el motivo de rechazo de «${renglon.nombre}».`
     }
   }
 
@@ -104,7 +104,7 @@ export function pendientesParaConfirmar(hoja: HojaDeEntrega): string[] {
       renglon.cantidadEntregada < renglon.cantidadCargada &&
       !renglon.motivoDevolucion
     ) {
-      pendientes.push(`di por qué no se quedó con todo «${renglon.nombre}»`)
+      pendientes.push(`elige el motivo de rechazo de «${renglon.nombre}»`)
     }
   }
 
