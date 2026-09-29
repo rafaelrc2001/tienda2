@@ -650,7 +650,7 @@ async function entregar(): Promise<void> {
                 v-model="renglon.motivoDevolucion"
                 class="select-input motivo"
               >
-                <option :value="null">¿Por qué no se lo quedó?</option>
+                <option :value="null">Motivo de rechazo</option>
                 <option v-for="m in MOTIVOS" :key="m.valor" :value="m.valor">
                   {{ m.etiqueta }}
                 </option>
