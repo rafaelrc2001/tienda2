@@ -210,7 +210,7 @@ export enum FiltroRutas {
  * cada refresco de un telefono que trabaja en la calle.
  */
 export interface TableroRutasDto {
-  /** `null` mientras no haya pulsado "Inicio de entregas". */
+  /** `null` hasta que crea su primera entrega del dia (que abre la jornada). */
   jornada: JornadaDto | null;
   /** Las entregas de la jornada viva. */
   entregas: EntregaRutaDto[];
@@ -367,7 +367,7 @@ export class RutasService {
    *
    * Con `activa` se exige ademas que no este finalizada. Finalizar ya es cosa
    * de cada entrega; esto queda por las jornadas que se finalizaron enteras
-   * antes de que existieran, y que se reanudan con "Inicio de entregas".
+   * antes de que existieran, y que se reanudan con "Reanudar entrega".
    */
   private async exigirJornada(
     tx: Prisma.TransactionClient,
@@ -381,17 +381,40 @@ export class RutasService {
       throw new ConflictException({
         statusCode: 409,
         code: 'SIN_JORNADA',
-        message: 'Pulsa "Inicio de entregas" antes de cargar el camión.',
+        message: 'Crea una entrega en Rutas antes de cargar el camión.',
       });
     }
     if (opciones.activa && jornada.finalizadaEn) {
       throw new ConflictException({
         statusCode: 409,
         code: 'JORNADA_FINALIZADA',
-        message: 'Tu jornada está finalizada. Vuelve a iniciarla desde Rutas.',
+        message: 'Tu jornada está finalizada. Pulsa «Reanudar entrega» para seguir.',
       });
     }
     return jornada;
+  }
+
+  /**
+   * La jornada viva del repartidor para colgarle una entrega: la abre si no
+   * tiene y la reabre si estaba finalizada. Rutas ya no tiene boton de "Inicio
+   * de entregas": la primera entrega del dia es la que arranca la jornada, y el
+   * corte de la ultima la cierra.
+   *
+   * Dos pulsaciones a la vez chocan con el indice `sesiones_entrega_una_viva`
+   * (P2002), que `crearEntrega` ya traduce a un 409.
+   */
+  private static async asegurarJornada(
+    tx: Prisma.TransactionClient,
+    repartidorId: string,
+  ): Promise<{ id: string }> {
+    const viva = await tx.sesionEntrega.findFirst({
+      where: { repartidorId, corteId: null },
+    });
+    if (!viva) return tx.sesionEntrega.create({ data: { repartidorId } });
+    if (viva.finalizadaEn) {
+      return tx.sesionEntrega.update({ where: { id: viva.id }, data: { finalizadaEn: null } });
+    }
+    return viva;
   }
 
   private async aJornadaDto(sesion: {
@@ -583,7 +606,7 @@ export class RutasService {
   async crearEntrega(usuario: UsuarioAutenticado, nombre?: string): Promise<EntregaRutaDto> {
     try {
       const creada = await this.prisma.$transaction(async (tx) => {
-        const jornada = await this.exigirJornada(tx, usuario.sub, { activa: true });
+        const jornada = await RutasService.asegurarJornada(tx, usuario.sub);
         const ultima = await tx.entregaRuta.aggregate({
           where: { sesionId: jornada.id },
           _max: { numero: true },
@@ -654,10 +677,18 @@ export class RutasService {
     return (await this.resumenesDeEntregas([finalizada]))[0];
   }
 
-  /** La vuelve a abrir mientras no tenga corte: es la misma entrega. */
+  /**
+   * La vuelve a abrir mientras no tenga corte: es la misma entrega. Reabre
+   * tambien su jornada si quedo finalizada entera (de antes de que finalizar
+   * fuera cosa de cada entrega): ya no hay otro boton que la reanude.
+   */
   async reanudarEntrega(id: string, usuario: UsuarioAutenticado): Promise<EntregaRutaDto> {
     const entrega = await RutasService.exigirEntregaPropia(this.prisma, id, usuario.sub);
     RutasService.exigirSinCorte(entrega);
+    await this.prisma.sesionEntrega.updateMany({
+      where: { id: entrega.sesionId, corteId: null, finalizadaEn: { not: null } },
+      data: { finalizadaEn: null },
+    });
     if (!entrega.finalizadaEn) return (await this.resumenesDeEntregas([entrega]))[0];
 
     const reanudada = await this.prisma.entregaRuta.update({

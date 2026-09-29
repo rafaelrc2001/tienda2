@@ -2,29 +2,26 @@
 /**
  * Administración → Rutas: la pantalla del repartidor.
  *
- * Todo cuelga de su jornada, así que la API la manda junto con las entregas y
- * aquí se pinta arriba, fija: mientras no la haya iniciado no se pueden crear
- * entregas, y el botón lo dice en vez de esperar al 409.
- *
- * Los pedidos ya no se listan aquí: se agregan, se cargan y se entregan desde
- * dentro de cada entrega, que es la que dice con quién sale el camión.
+ * Solo lista las entregas y deja crear otra. La jornada ya no se pinta ni se
+ * inicia aquí: la API la abre sola con la primera entrega del día y la cierra
+ * el corte de la última. Todo lo demás (pedidos, camión, finalizar, corte) va
+ * dentro de cada entrega.
  */
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
 import { fechaNumerica } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
 import { nombreEntrega } from './rutas/etiquetas'
-import type { EntregaRuta, FiltroRutas, Jornada, TableroRutas } from '@/api/tipos'
+import type { EntregaRuta, FiltroRutas, TableroRutas } from '@/api/tipos'
 
 const ui = useUiStore()
 const router = useRouter()
 
-/** El tablero pide un filtro de pedidos; aquí solo se usan la jornada y las entregas. */
+/** El tablero pide un filtro de pedidos; aquí solo se usan las entregas. */
 const FILTRO: FiltroRutas = 'disponibles'
 
-const jornada = ref<Jornada | null>(null)
 const entregas = ref<EntregaRuta[]>([])
 const cargando = ref(true)
 
@@ -35,8 +32,6 @@ const enviandoEntrega = ref(false)
 
 /** Una recarga automática puede cruzarse con otra: gana la última. */
 let peticion = 0
-
-const trabajando = computed(() => jornada.value !== null && jornada.value.finalizadaEn === null)
 
 /**
  * `silenciosa` es la recarga automática: sin esqueleto y sin avisar si falla.
@@ -51,7 +46,6 @@ async function cargar(conEsqueleto = true, silenciosa = false): Promise<void> {
       query: { filtro: FILTRO },
     })
     if (numero !== peticion) return
-    jornada.value = respuesta.jornada
     entregas.value = respuesta.entregas
   } catch (fallo) {
     if (numero === peticion && !silenciosa) ui.errorDeApi(fallo)
@@ -91,21 +85,6 @@ onBeforeUnmount(() => {
 })
 
 // ------------------------------------------------------------------
-// La jornada
-// ------------------------------------------------------------------
-
-/** «Inicio de entregas», que también reanuda la que se había finalizado. */
-async function abrirJornada(): Promise<void> {
-  try {
-    jornada.value = await http.post<Jornada>('/admin/rutas/jornada')
-    ui.exito('Jornada iniciada. Ya puedes crear tus entregas.')
-  } catch (fallo) {
-    ui.errorDeApi(fallo)
-  }
-  await cargar(false)
-}
-
-// ------------------------------------------------------------------
 // Las entregas
 // ------------------------------------------------------------------
 
@@ -137,33 +116,10 @@ async function crearEntrega(): Promise<void> {
   <div class="pantalla">
     <RouterLink to="/admin" class="admin-back-inline">← Volver al menú</RouterLink>
 
-    <!-- La jornada manda sobre todo lo demás, así que va arriba y siempre. -->
-    <section class="jornada" :class="{ activa: trabajando }">
-      <div class="estado">
-        <p class="t">
-          <template v-if="trabajando">🛵 Jornada abierta</template>
-          <template v-else-if="jornada">⏸️ Entregas finalizadas</template>
-          <template v-else>🅿️ Sin jornada</template>
-        </p>
-        <p class="s">
-          <template v-if="jornada">
-            Desde {{ fechaNumerica(jornada.iniciadaEn) }} · {{ jornada.piezasEnCamion }} pieza(s) en
-            el camión
-          </template>
-          <template v-else> Pulsa «Inicio de entregas» antes de cargar el camión. </template>
-        </p>
-      </div>
-
-      <div class="acciones">
-        <button v-if="!trabajando" type="button" class="btn-primary" @click="abrirJornada">
-          {{ jornada ? 'Reanudar entregas' : 'Inicio de entregas' }}
-        </button>
-        <!-- Finalizar y hacer el corte son de cada entrega: están dentro de ella. -->
-        <button v-else type="button" class="btn-primary" @click="abrirCrearEntrega">
-          + Crear entrega
-        </button>
-      </div>
-    </section>
+    <!-- Finalizar y hacer el corte son de cada entrega: están dentro de ella. -->
+    <button type="button" class="btn-primary crear" @click="abrirCrearEntrega">
+      + Crear entrega
+    </button>
 
     <SkeletonList v-if="cargando" :cantidad="3" />
 
@@ -211,7 +167,7 @@ async function crearEntrega(): Promise<void> {
       </div>
     </section>
 
-    <p v-else-if="trabajando" class="empty-block">
+    <p v-else class="empty-block">
       Aún no tienes entregas: créala y agrégale sus pedidos.
     </p>
 
@@ -261,43 +217,10 @@ async function crearEntrega(): Promise<void> {
   text-decoration: none;
 }
 
-/* La jornada: lo primero que se mira al abrir la pantalla. */
-.jornada {
-  background: var(--white);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow);
-  border-left: 4px solid var(--line);
-  padding: 12px 14px;
+.crear {
+  display: block;
+  width: 100%;
   margin-bottom: 12px;
-}
-
-.jornada.activa {
-  border-left-color: var(--verde);
-}
-
-.jornada .t {
-  margin: 0;
-  font-family: var(--font-heading);
-  font-weight: 800;
-  font-size: 13.5px;
-  color: var(--ink);
-}
-
-.jornada .s {
-  margin: 3px 0 0;
-  font-size: 11.5px;
-  color: var(--muted);
-  line-height: 1.4;
-}
-
-.jornada .acciones {
-  display: flex;
-  gap: 8px;
-  margin-top: 10px;
-}
-
-.jornada .acciones button {
-  flex: 1;
   padding: 9px 8px;
   font-size: 12px;
 }
@@ -325,6 +248,12 @@ async function crearEntrega(): Promise<void> {
 .mini-tag.viva {
   background: color-mix(in srgb, var(--verde) 15%, var(--white));
   color: var(--verde-compra);
+}
+
+/* El vacío global trae 30px por arriba: aquí va pegado a la jornada. */
+.empty-block {
+  margin: 0;
+  padding: 12px 0;
 }
 
 .modal-texto {

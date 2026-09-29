@@ -137,8 +137,19 @@ const avisoBloqueo = computed(() => {
     return 'Esta entrega es de una jornada que ya se cortó: solo se consulta.'
   if (detalle.value.entrega.finalizadaEn)
     return 'Finalizaste esta entrega: reanúdala para moverla o haz su corte.'
-  return 'Tu jornada está finalizada: reanúdala en Rutas para mover esta entrega.'
+  return 'Tu jornada está finalizada: pulsa «Reanudar entrega» para seguir.'
 })
+
+/**
+ * Toca reanudar si la entrega o su jornada quedaron finalizadas: la API
+ * reabre las dos con el mismo botón, ya que Rutas no tiene otro para la jornada.
+ */
+const porReanudar = computed(
+  () =>
+    detalle.value !== null &&
+    (detalle.value.entrega.finalizadaEn !== null ||
+      (detalle.value.jornada !== null && detalle.value.jornada.finalizadaEn !== null)),
+)
 
 // ------------------------------------------------------------------
 // Cerrar la entrega
@@ -150,7 +161,7 @@ const avisoBloqueo = computed(() => {
  */
 async function finalizarOReanudar(): Promise<void> {
   if (!detalle.value || cerrando.value) return
-  const finalizar = detalle.value.entrega.finalizadaEn === null
+  const finalizar = !porReanudar.value
   cerrando.value = true
   try {
     const entrega = await http.post<EntregaRuta>(
@@ -334,7 +345,7 @@ function colonia(pedido: PedidoEnRuta): string {
             :disabled="cerrando"
             @click="finalizarOReanudar"
           >
-            {{ detalle.entrega.finalizadaEn ? 'Reanudar entrega' : 'Finalizar entrega' }}
+            {{ porReanudar ? 'Reanudar entrega' : 'Finalizar entrega' }}
           </button>
           <button type="button" class="btn-secondary" @click="corteAbierto = true">
             Hacer mi corte
