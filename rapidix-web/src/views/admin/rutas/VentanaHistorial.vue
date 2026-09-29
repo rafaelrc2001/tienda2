@@ -88,8 +88,7 @@ function alCambiarCorte(entregaId: string, corte: Corte): void {
                     :aria-controls="`historial-${entrega.id}`"
                     @click="alternar(entrega.id)"
                   >
-                    <span class="folio">{{ nombreEntrega(entrega) }}</span>
-                    <span class="fecha">{{ fechaNumerica(entrega.creadoEn) }}</span>
+                    <!-- La flecha va primero, como en Operaciones. -->
                     <span
                       class="chevron"
                       :class="{ abierto: abierta === entrega.id }"
@@ -106,6 +105,8 @@ function alCambiarCorte(entregaId: string, corte: Corte): void {
                         />
                       </svg>
                     </span>
+                    <span class="folio">{{ nombreEntrega(entrega) }}</span>
+                    <span class="fecha">{{ fechaNumerica(entrega.creadoEn) }}</span>
                   </button>
                 </td>
               </tr>
@@ -136,13 +137,19 @@ function alCambiarCorte(entregaId: string, corte: Corte): void {
   padding: 0;
 }
 
-.fila-boton {
+/*
+ * Con `.cabecera >` delante le gana a `.tabla.lineal td > button` de base.css,
+ * que encoge los botones de fila a su contenido: sin esto la fecha no llega al
+ * borde y cada fila acaba de un ancho distinto.
+ */
+.historial .cabecera > .fila-boton {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   width: 100%;
   background: none;
   border: 0;
+  border-radius: 0;
   padding: 8px 14px;
   font: inherit;
   color: inherit;
@@ -150,14 +157,29 @@ function alCambiarCorte(entregaId: string, corte: Corte): void {
   cursor: pointer;
 }
 
+/* Un nombre largo se corta con «…» en vez de empujar la fecha. */
+.fila-boton .folio {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Cifras de ancho fijo: las fechas quedan en columna, dígito bajo dígito. */
 .fila-boton .fecha {
   margin-left: auto;
+  flex-shrink: 0;
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
   color: var(--muted);
 }
 
 .fila-boton .chevron {
   margin: 0;
+}
+
+/* El título de la columna arranca donde el nombre, no donde la flecha. */
+.historial > thead > tr > th:first-child {
+  padding-left: 36px;
 }
 
 .empty-block {
