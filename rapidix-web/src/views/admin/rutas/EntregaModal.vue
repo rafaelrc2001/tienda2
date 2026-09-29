@@ -39,15 +39,25 @@ type PasoDeHoja = 'RECOLECTADO' | 'EN_RUTA'
 const props = withDefaults(
   defineProps<{
     pedido: PedidoEnRuta
-    /** Hay jornada viva: sin ella no se mueve nada. */
+    /** La entrega está iniciada y viva: se puede salir a ruta y entregar. */
     puedeMover?: boolean
+    /**
+     * Se puede subir al camión: basta con la entrega viva, sin iniciar. Por
+     * defecto, lo mismo que `puedeMover`.
+     */
+    puedeCargar?: boolean
     /** Recolectar es de una entrega: solo se ofrece desde dentro de una. */
     recolectarAqui?: boolean
     /** El padre está dando un paso: los botones se apagan mientras. */
     moviendo?: boolean
   }>(),
-  { puedeMover: true, recolectarAqui: false, moviendo: false },
+  { puedeMover: true, puedeCargar: undefined, recolectarAqui: false, moviendo: false },
 )
+
+/** Recolectar solo pide la entrega viva; los demás pasos, además iniciada. */
+function sePuede(estado: PasoDeHoja): boolean {
+  return estado === 'RECOLECTADO' ? (props.puedeCargar ?? props.puedeMover) : props.puedeMover
+}
 const emit = defineEmits<{
   (e: 'cerrar'): void
   (e: 'entregado', resultado: ResultadoEntrega): void
@@ -133,7 +143,7 @@ const pasos = computed(() =>
       habilitado:
         toca &&
         props.pedido.paso.bloqueo === null &&
-        props.puedeMover &&
+        sePuede(estado) &&
         !props.moviendo &&
         !fueraDeEntrega,
     }
@@ -145,7 +155,12 @@ const avisoPaso = computed(() => {
   const paso = pasos.value.find((p) => p.toca)
   if (!paso) return ''
   if (props.pedido.paso.bloqueo) return props.pedido.paso.bloqueo.mensaje
-  if (!props.puedeMover) return 'Inicia o reanuda las entregas en Rutas para moverlo.'
+  if (!sePuede(paso.estado)) {
+    // Se puede cargar pero no mover: solo falta iniciarla.
+    return sePuede('RECOLECTADO')
+      ? 'Pulsa «Iniciar entrega» para salir a ruta.'
+      : 'Reanuda la entrega para moverlo.'
+  }
   if (paso.estado === 'RECOLECTADO' && !props.recolectarAqui)
     return 'Para recolectarlo, agrégalo desde una de tus entregas.'
   return ''

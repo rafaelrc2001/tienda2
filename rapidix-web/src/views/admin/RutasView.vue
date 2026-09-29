@@ -7,20 +7,18 @@
  *  - **Liquidación**, al volver a bodega: el corte de una entrega.
  *  - **Historial**, cualquier día: lo que pasó con cada entrega y lo que debe.
  *
- * Encima de las tres, el mismo encabezado con lo que lleva sin liquidar. Cada
+ * Los indicadores (entregas, efectivo, devoluciones) no van aquí sino dentro
+ * de cada entrega: son de un viaje, no del día. Cada
  * pestaña se vuelve a montar —y a pedir sus datos— en cada toque, aunque ya se
  * hubiera visitado: así nunca enseña datos viejos y no hay que refrescar las
  * que están escondidas. La pestaña va en la URL para que «Hacer mi corte» de
  * una entrega pueda llegar directo a su liquidación.
  */
-import { computed, onMounted, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { http } from '@/api/http'
-import KpisRuta from './rutas/KpisRuta.vue'
 import VentanaEntregas from './rutas/VentanaEntregas.vue'
 import VentanaLiquidacion from './rutas/VentanaLiquidacion.vue'
 import VentanaHistorial from './rutas/VentanaHistorial.vue'
-import type { IndicadoresRuta } from '@/api/tipos'
 
 type Ventana = 'entregas' | 'liquidacion' | 'historial'
 
@@ -44,25 +42,8 @@ const entregaPedida = computed(() =>
 /** Sube con cada toque de pestaña: cambia la `key` y la pestaña se vuelve a montar. */
 const vuelta = ref(0)
 
-const indicadores = ref<IndicadoresRuta | null>(null)
-let peticion = 0
-
-/** Si falla, el encabezado se queda en «—»: no tumba la pestaña de abajo. */
-async function cargarIndicadores(): Promise<void> {
-  const numero = ++peticion
-  try {
-    const respuesta = await http.get<IndicadoresRuta>('/admin/rutas/indicadores')
-    if (numero === peticion) indicadores.value = respuesta
-  } catch {
-    // La siguiente pestaña o recarga lo vuelve a intentar.
-  }
-}
-
-onMounted(cargarIndicadores)
-
 function abrir(id: Ventana): void {
   vuelta.value++
-  void cargarIndicadores()
   if (id !== ventana.value || entregaPedida.value) {
     void router.replace({ query: id === 'entregas' ? {} : { ventana: id } })
   }
@@ -76,7 +57,6 @@ function recordarEntrega(entregaId: string): void {
 function alCortar(): void {
   void router.replace({ query: { ventana: 'liquidacion' } })
   vuelta.value++
-  void cargarIndicadores()
 }
 </script>
 
@@ -100,14 +80,8 @@ function alCortar(): void {
       </button>
     </div>
 
-    <KpisRuta :indicadores="indicadores" />
-
     <div :id="`ventana-${ventana}`" role="tabpanel">
-      <VentanaEntregas
-        v-if="ventana === 'entregas'"
-        :key="`entregas-${vuelta}`"
-        @recargada="cargarIndicadores"
-      />
+      <VentanaEntregas v-if="ventana === 'entregas'" :key="`entregas-${vuelta}`" />
       <VentanaLiquidacion
         v-else-if="ventana === 'liquidacion'"
         :key="`liquidacion-${vuelta}`"

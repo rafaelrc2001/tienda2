@@ -477,7 +477,8 @@ export class RutasService {
           message: 'Esa entrega es de una jornada que ya se cortó. Crea una nueva.',
         });
       }
-      RutasService.exigirEntregaViva(entrega);
+      // Se carga antes de iniciar: el inicio es la salida, no la carga.
+      RutasService.exigirEntregaViva(entrega, { paraCargar: true });
 
       const pedido = await this.bloquearParaRutas(tx, id);
       // Antes que el flujo: "va en otra entrega" explica mejor que "no se puede
@@ -557,7 +558,7 @@ export class RutasService {
       await this.exigirJornada(tx, usuario.sub, { activa: true });
       const pedido = await this.bloquearParaRutas(tx, id);
       RutasService.exigirPropio(pedido, usuario);
-      await RutasService.exigirSuEntregaViva(tx, pedido.entregaRutaId);
+      await RutasService.exigirSuEntregaViva(tx, pedido.entregaRutaId, { paraCargar: true });
 
       if (pedido.estado !== EstadoPedido.RECOLECTADO) {
         throw new ConflictException({
@@ -663,8 +664,8 @@ export class RutasService {
 
   /**
    * "Iniciar entrega", dentro de ella: cada viaje arranca por su lado, cuando
-   * el repartidor va a cargarlo, y no al crearlo. Pulsarlo dos veces deja la
-   * misma hora de inicio.
+   * el repartidor ya lo cargo y sale, y no al crearlo. Cargar no lo pide; salir
+   * a ruta y entregar si. Pulsarlo dos veces deja la misma hora de inicio.
    */
   async iniciarEntrega(id: string, usuario: UsuarioAutenticado): Promise<EntregaRutaDto> {
     const entrega = await RutasService.exigirEntregaPropia(this.prisma, id, usuario.sub);
@@ -788,20 +789,27 @@ export class RutasService {
   }
 
   /**
-   * Nada se mueve en una entrega sin iniciar, finalizada o cortada: lo que
-   * salga despues de finalizarla quedaria fuera del corte que ya se iba a hacer.
+   * Nada se mueve en una entrega finalizada o cortada: lo que salga despues de
+   * finalizarla quedaria fuera del corte que ya se iba a hacer.
+   *
+   * Sin iniciar solo se **carga**: el repartidor sube y baja pedidos del camion
+   * y, ya cargado, pulsa "Iniciar entrega" para salir. Por eso `paraCargar`
+   * (recolectar y quitar) no pide inicio; salir a ruta y entregar si.
    */
-  private static exigirEntregaViva(entrega: {
-    corteId: string | null;
-    iniciadaEn: Date | null;
-    finalizadaEn: Date | null;
-  }): void {
+  private static exigirEntregaViva(
+    entrega: {
+      corteId: string | null;
+      iniciadaEn: Date | null;
+      finalizadaEn: Date | null;
+    },
+    { paraCargar = false }: { paraCargar?: boolean } = {},
+  ): void {
     RutasService.exigirSinCorte(entrega);
-    if (entrega.iniciadaEn === null) {
+    if (entrega.iniciadaEn === null && !paraCargar) {
       throw new ConflictException({
         statusCode: 409,
         code: 'ENTREGA_SIN_INICIAR',
-        message: 'Pulsa «Iniciar entrega» antes de cargarla.',
+        message: 'Pulsa «Iniciar entrega» antes de salir a ruta.',
       });
     }
     if (entrega.finalizadaEn === null) return;
@@ -816,10 +824,11 @@ export class RutasService {
   private static async exigirSuEntregaViva(
     tx: Prisma.TransactionClient,
     entregaRutaId: string | null,
+    opciones?: { paraCargar?: boolean },
   ): Promise<void> {
     if (entregaRutaId === null) return;
     const entrega = await tx.entregaRuta.findUniqueOrThrow({ where: { id: entregaRutaId } });
-    RutasService.exigirEntregaViva(entrega);
+    RutasService.exigirEntregaViva(entrega, opciones);
   }
 
   /**

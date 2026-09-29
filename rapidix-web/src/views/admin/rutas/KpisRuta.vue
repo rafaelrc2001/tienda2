@@ -1,8 +1,8 @@
 <script setup lang="ts">
 /**
- * El encabezado de Rutas: lo que el repartidor lleva sin liquidar, de todas sus
- * entregas. Es el mismo en las tres pestañas y se pinta una sola vez, encima
- * de ellas, para que no haya tres cuentas que puedan desincronizarse.
+ * El encabezado de una entrega: cuántos de sus pedidos se entregaron, cuántos
+ * regresan y el efectivo que pide su corte. Es de cada viaje, no del día: vive
+ * dentro de la pantalla de la entrega.
  *
  * El efectivo esperado lo calcula la API con lo que de verdad se entregó —en
  * una entrega parcial el total del pedido cobraría de más—; aquí solo se pinta.
@@ -22,7 +22,7 @@ const exito = computed(() =>
 </script>
 
 <template>
-  <section class="kpis-ruta" aria-label="Resumen de lo que llevas sin liquidar">
+  <section class="kpis-ruta" aria-label="Resumen de esta entrega">
     <div class="kpis">
       <div class="kpi">
         <span class="kpi-label">⊕ Entregas</span>

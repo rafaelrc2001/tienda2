@@ -215,6 +215,23 @@ export function intentoDeEntrega(
   };
 }
 
+/**
+ * Las cuentas del encabezado de una entrega ya cortada, leidas de como acabo
+ * cada pedido en ella: despues del corte los que regresaron ya no apuntan a la
+ * entrega y `indicadoresDeRuta` no los veria. Parcial cuenta como entregado,
+ * igual que antes del corte; lo que siga en el camion (no deberia, tras cortar)
+ * cuenta como devolucion, como en `esDevolucion`.
+ */
+export function indicadoresDelHistorial(resultados: ResultadoDelIntento[]): IndicadoresDeRuta {
+  const entregado = (r: ResultadoDelIntento) =>
+    r === ResultadoDelIntento.ENTREGADO || r === ResultadoDelIntento.PARCIAL;
+  return {
+    pedidos: resultados.length,
+    entregados: resultados.filter(entregado).length,
+    devoluciones: resultados.filter((r) => !entregado(r)).length,
+  };
+}
+
 // ------------------------------------------------------------------
 // Dinero despues del corte
 // ------------------------------------------------------------------

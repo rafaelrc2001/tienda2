@@ -72,15 +72,6 @@ export class RutasController {
     return this.rutas.tablero(usuario, filtro, Math.min(limite ?? 100, 500));
   }
 
-  /**
-   * El encabezado de las tres pestanas: lo que lleva sin liquidar, de todas
-   * sus entregas. Aparte del tablero para refrescarlo sin arrastrar pedidos.
-   */
-  @Get('indicadores')
-  indicadores(@UsuarioActual() usuario: UsuarioAutenticado): Promise<IndicadoresRutaDto> {
-    return this.cortes.indicadores(usuario);
-  }
-
   /** Sus entregas con su corte, de la mas reciente a la mas vieja. */
   @Get('historial')
   historial(
@@ -121,6 +112,19 @@ export class RutasController {
     @UsuarioActual() usuario: UsuarioAutenticado,
   ): Promise<DetalleEntregaRutaDto> {
     return this.rutas.detalleEntrega(id, usuario);
+  }
+
+  /**
+   * El encabezado de la entrega: pedidos, entregados, devoluciones y el
+   * efectivo que pide su corte. Aparte del detalle para refrescarlo sin
+   * arrastrar pedidos.
+   */
+  @Get('entregas/:id/indicadores')
+  indicadores(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UsuarioActual() usuario: UsuarioAutenticado,
+  ): Promise<IndicadoresRutaDto> {
+    return this.cortes.indicadores(usuario, id);
   }
 
   /** "Iniciar entrega": crearla no la arranca; hasta esto no se le carga nada. */
