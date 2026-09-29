@@ -112,6 +112,8 @@ export interface EntregaRutaDto {
   recolectados: number;
   enRuta: number;
   entregados: number;
+  /** `null` hasta que se pulsa "Iniciar entrega" dentro de ella. */
+  iniciadaEn: string | null;
   /** "Finalizar entrega": ya no sale nada mas en ella hasta reanudarla. */
   finalizadaEn: string | null;
   /** Ya tiene su corte: se consulta, no se mueve. */
@@ -600,8 +602,9 @@ export class RutasService {
 
   /**
    * "Crear entrega": un viaje nuevo dentro de la jornada, con el siguiente
-   * numero. El indice unico (sesion, numero) cubre la doble pulsacion: la
-   * segunda choca y se le pide repetir.
+   * numero. Nace sin iniciar: se arranca con "Iniciar entrega" dentro de ella.
+   * El indice unico (sesion, numero) cubre la doble pulsacion: la segunda
+   * choca y se le pide repetir.
    */
   async crearEntrega(usuario: UsuarioAutenticado, nombre?: string): Promise<EntregaRutaDto> {
     try {
@@ -658,6 +661,24 @@ export class RutasService {
   }
 
   /**
+   * "Iniciar entrega", dentro de ella: cada viaje arranca por su lado, cuando
+   * el repartidor va a cargarlo, y no al crearlo. Pulsarlo dos veces deja la
+   * misma hora de inicio.
+   */
+  async iniciarEntrega(id: string, usuario: UsuarioAutenticado): Promise<EntregaRutaDto> {
+    const entrega = await RutasService.exigirEntregaPropia(this.prisma, id, usuario.sub);
+    RutasService.exigirSinCorte(entrega);
+    if (entrega.iniciadaEn) return (await this.resumenesDeEntregas([entrega]))[0];
+
+    const iniciada = await this.prisma.entregaRuta.update({
+      where: { id },
+      data: { iniciadaEn: new Date() },
+    });
+    this.logger.log(`Entrega ${iniciada.numero} iniciada por ${usuario.nombre}`);
+    return (await this.resumenesDeEntregas([iniciada]))[0];
+  }
+
+  /**
    * "Finalizar entrega": ya no sale nada mas en ella, pero sigue viva hasta su
    * corte. No exige que todo este entregado a proposito: lo que no se entrego
    * regresa a bodega al cortarla, y esa es justo la razon de cerrar.
@@ -668,6 +689,14 @@ export class RutasService {
     const entrega = await RutasService.exigirEntregaPropia(this.prisma, id, usuario.sub);
     RutasService.exigirSinCorte(entrega);
     if (entrega.finalizadaEn) return (await this.resumenesDeEntregas([entrega]))[0];
+    // Una sin iniciar no salio nunca: no hay nada que finalizar, solo su corte.
+    if (!entrega.iniciadaEn) {
+      throw new ConflictException({
+        statusCode: 409,
+        code: 'ENTREGA_SIN_INICIAR',
+        message: 'Esa entrega no se ha iniciado: no hay nada que finalizar.',
+      });
+    }
 
     const finalizada = await this.prisma.entregaRuta.update({
       where: { id },
@@ -730,6 +759,7 @@ export class RutasService {
         recolectados: cuantos(EstadoPedido.RECOLECTADO),
         enRuta: cuantos(EstadoPedido.EN_RUTA),
         entregados: cuantos(EstadoPedido.ENTREGADO),
+        iniciadaEn: e.iniciadaEn?.toISOString() ?? null,
         finalizadaEn: e.finalizadaEn?.toISOString() ?? null,
         cortada: e.corteId !== null,
       };
@@ -757,14 +787,22 @@ export class RutasService {
   }
 
   /**
-   * Nada se mueve en una entrega finalizada o cortada: lo que salga despues de
-   * finalizarla quedaria fuera del corte que ya se iba a hacer.
+   * Nada se mueve en una entrega sin iniciar, finalizada o cortada: lo que
+   * salga despues de finalizarla quedaria fuera del corte que ya se iba a hacer.
    */
   private static exigirEntregaViva(entrega: {
     corteId: string | null;
+    iniciadaEn: Date | null;
     finalizadaEn: Date | null;
   }): void {
     RutasService.exigirSinCorte(entrega);
+    if (entrega.iniciadaEn === null) {
+      throw new ConflictException({
+        statusCode: 409,
+        code: 'ENTREGA_SIN_INICIAR',
+        message: 'Pulsa «Iniciar entrega» antes de cargarla.',
+      });
+    }
     if (entrega.finalizadaEn === null) return;
     throw new ConflictException({
       statusCode: 409,
