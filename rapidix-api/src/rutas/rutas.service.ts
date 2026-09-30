@@ -30,7 +30,13 @@ import {
   PrevisualizarEntregaDto,
   RenglonEntregadoDto,
 } from './dto/entregar-pedido.dto';
-import { CargaLiquidable, cuentaDeLaEntrega, traeEfectivo } from './dinero-del-corte';
+import {
+  aPagarDeLoEntregado,
+  CargaLiquidable,
+  cobradoDelRenglon,
+  cuentaDeLaEntrega,
+  traeEfectivo,
+} from './dinero-del-corte';
 
 const Decimal = Prisma.Decimal;
 type Decimal = Prisma.Decimal;
@@ -99,7 +105,31 @@ export type PedidoEnRutaDto = PedidoEnPantallaDto & {
   evidencia: EvidenciaEntregaDto | null;
   /** La entrega en la que va o fue; `null` en bodega. */
   entrega: { id: string; numero: number; nombre: string | null } | null;
+  /** Lo que el cliente se quedo y lo que vale; `null` mientras no se entregue. */
+  entregado: LoEntregadoDto | null;
 };
+
+/**
+ * La cuenta del pedido con lo que de verdad se quedo el cliente.
+ *
+ * El pedido no se toca con una entrega parcial —es el recibo de la compra—,
+ * asi que esto se calcula de la carga con las mismas funciones del corte: el
+ * "A cobrar" que se lee aqui es el efectivo que se liquida.
+ */
+export interface LoEntregadoDto {
+  /** Solo lo aceptado: el renglon que el cliente no quiso entero no aparece. */
+  renglones: {
+    pedidoItemId: string;
+    nombre: string;
+    unidad: string;
+    cantidad: number;
+    importe: number;
+  }[];
+  /** Lo que vale lo aceptado, ya re-cotizado. */
+  productos: number;
+  /** El total menos la billetera y menos lo que no se acepto. */
+  aPagar: number;
+}
 
 /** Una entrega (viaje) del repartidor, con lo que lleva contado en vivo. */
 export interface EntregaRutaDto {
@@ -1173,13 +1203,22 @@ export class RutasService {
         precioEntregado: true,
         motivoDevolucion: true,
         cerradoEn: true,
+        entregaRutaId: true,
         pedidoItem: { select: { nombre: true, unidad: true } },
       },
       orderBy: { creadoEn: 'asc' },
     });
 
     const porPedido = new Map<string, RenglonDeCargaDto[]>();
+    const delIntento = new Map<string, typeof cargas>();
     for (const c of cargas) {
+      // Lo entregado es lo del viaje que lo cerro: el pedido entregado no
+      // suelta su entrega, y los intentos anteriores ya volvieron a bodega.
+      const entregaDelPedido = entregaDe.get(c.pedidoId)?.id;
+      if (entregaDelPedido && c.entregaRutaId === entregaDelPedido) {
+        delIntento.set(c.pedidoId, [...(delIntento.get(c.pedidoId) ?? []), c]);
+      }
+
       const renglones = porPedido.get(c.pedidoId) ?? [];
       renglones.push({
         pedidoItemId: c.pedidoItemId,
@@ -1202,7 +1241,40 @@ export class RutasService {
       carga: porPedido.get(pedido.id) ?? [],
       evidencia: evidencias.get(pedido.id) ?? null,
       entrega: entregaDe.get(pedido.id) ?? null,
+      entregado:
+        pedido.estado === EstadoPedido.ENTREGADO
+          ? RutasService.loEntregado(pedido, delIntento.get(pedido.id) ?? [])
+          : null,
     }));
+  }
+
+  /**
+   * La cuenta de lo que se quedo el cliente. Sin carga (un pedido por
+   * faltante no sube al camion) no hay nada que descontar y se queda en `null`:
+   * manda el pedido tal cual.
+   */
+  private static loEntregado(
+    pedido: PedidoDto,
+    cargas: (CargaLiquidable & {
+      pedidoItemId: string;
+      pedidoItem: { nombre: string; unidad: string };
+    })[],
+  ): LoEntregadoDto | null {
+    if (cargas.length === 0) return null;
+    const productos = cargas.reduce((suma, c) => suma.add(cobradoDelRenglon(c)), new Decimal(0));
+    return {
+      renglones: cargas
+        .filter((c) => c.cantidadEntregada > 0)
+        .map((c) => ({
+          pedidoItemId: c.pedidoItemId,
+          nombre: c.pedidoItem.nombre,
+          unidad: c.pedidoItem.unidad,
+          cantidad: c.cantidadEntregada,
+          importe: cobradoDelRenglon(c).toNumber(),
+        })),
+      productos: productos.toNumber(),
+      aPagar: aPagarDeLoEntregado(new Decimal(pedido.pago.aPagar), cargas).toNumber(),
+    };
   }
 
   /**

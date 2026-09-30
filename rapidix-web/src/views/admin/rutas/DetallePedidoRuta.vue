@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * El detalle que despliega la flecha de un pedido en Rutas: lo comprado, lo
+ * El detalle que despliega la flecha de un pedido en Rutas: lo entregado, lo
  * que el cliente no aceptó y la evidencia de la entrega.
  *
  * Lo comparten el tablero de Rutas y la pantalla de cada entrega: el mismo
@@ -23,12 +23,25 @@ const props = defineProps<{ pedido: PedidoEnRuta }>()
 const sinAceptar = computed(() =>
   props.pedido.carga.filter((c) => c.cantidadEntregada < c.cantidadCargada),
 )
+
+/**
+ * Ya entregado, lo que se quedó el cliente con lo que vale; antes, el pedido
+ * tal como se compró. Los importes los calcula la API con las cuentas del
+ * corte: aquí no se suma nada.
+ */
+const lineas = computed(() =>
+  props.pedido.entregado
+    ? props.pedido.entregado.renglones.map((r) => ({ ...r, id: r.pedidoItemId }))
+    : props.pedido.items.map((i) => ({ ...i, id: i.productoId })),
+)
+const productos = computed(() => props.pedido.entregado?.productos ?? props.pedido.subtotal)
+const aPagar = computed(() => props.pedido.entregado?.aPagar ?? props.pedido.pago.aPagar)
 </script>
 
 <template>
   <div class="detalle">
-    <!-- Lo comprado: es el recibo del pedido y no cambia nunca, ni con una
-         entrega parcial. -->
+    <!-- Lo que se quedó el cliente: con una entrega parcial ya no es lo que
+         compró, y el "A cobrar" baja con lo que no aceptó. -->
     <table class="tabla-lineas angosta">
       <thead>
         <tr>
@@ -38,16 +51,16 @@ const sinAceptar = computed(() =>
         </tr>
       </thead>
       <tbody>
-        <tr v-for="item in pedido.items" :key="item.productoId">
-          <td class="num">{{ item.cantidad }} {{ item.unidad }}</td>
-          <td>{{ item.nombre }}</td>
-          <td class="num">{{ dinero(item.importe) }}</td>
+        <tr v-for="linea in lineas" :key="linea.id">
+          <td class="num">{{ linea.cantidad }} {{ linea.unidad }}</td>
+          <td>{{ linea.nombre }}</td>
+          <td class="num">{{ dinero(linea.importe) }}</td>
         </tr>
       </tbody>
       <tfoot>
         <tr>
           <td colspan="2">Productos</td>
-          <td class="num">{{ dinero(pedido.subtotal) }}</td>
+          <td class="num">{{ dinero(productos) }}</td>
         </tr>
         <tr v-if="pedido.envio > 0">
           <td colspan="2">Envío</td>
@@ -65,9 +78,9 @@ const sinAceptar = computed(() =>
         </tr>
         <tr class="fuerte">
           <td colspan="2">
-            {{ pedido.pago.aPagar > 0 ? 'A cobrar' : 'Cubierto' }}
+            {{ aPagar > 0 ? 'A cobrar' : 'Cubierto' }}
           </td>
-          <td class="num">{{ dinero(pedido.pago.aPagar) }}</td>
+          <td class="num">{{ dinero(aPagar) }}</td>
         </tr>
       </tfoot>
     </table>

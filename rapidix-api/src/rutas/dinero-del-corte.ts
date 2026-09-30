@@ -67,14 +67,21 @@ export function cotizadoDelRenglon(carga: CargaLiquidable): Decimal {
  */
 export function efectivoDelPedido(pedido: PedidoALiquidar, cargas: CargaLiquidable[]): Decimal {
   if (!traeEfectivo(pedido)) return new Decimal(0);
+  return aPagarDeLoEntregado(new Decimal(pedido.total).sub(pedido.pagadoConBilletera), cargas);
+}
 
-  const aPagar = new Decimal(pedido.total).sub(pedido.pagadoConBilletera);
+/**
+ * Lo que el pedido cobra por lo que de verdad se quedo el cliente, sea cual
+ * sea el metodo de pago. Es la cuenta de `efectivoDelPedido` sin preguntar si
+ * el dinero pasa por el repartidor: la usa el detalle del pedido entregado
+ * para que el "A cobrar" que se lee sea el mismo que se liquida.
+ */
+export function aPagarDeLoEntregado(aPagar: Decimal, cargas: CargaLiquidable[]): Decimal {
   const noEntregado = cargas.reduce(
     (suma, carga) => suma.add(cotizadoDelRenglon(carga).sub(cobradoDelRenglon(carga))),
     new Decimal(0),
   );
-
-  return Decimal.max(0, aPagar.sub(noEntregado));
+  return Decimal.max(0, new Decimal(aPagar).sub(noEntregado));
 }
 
 /** Lo que la hoja de entrega le dice al repartidor antes de confirmar. */
