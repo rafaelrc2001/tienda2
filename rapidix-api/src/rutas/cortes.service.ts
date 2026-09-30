@@ -586,7 +586,8 @@ export class CortesService {
       orderBy: { creadoEn: 'asc' },
     });
 
-    // Sin cargas, `efectivoDelPedido` no descuenta nada: el faltante trae su total.
+    // El efectivo sale del total del pedido, que la entrega ya dejo en lo que
+    // el cliente se quedo; el faltante, sin cargas, trae el suyo.
     const cuenta = cuentaDelCorte(pedidos);
     const conNombre = (c: (typeof pedidos)[number]['cargas'][number]) => ({
       ...c,

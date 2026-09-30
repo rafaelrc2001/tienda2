@@ -88,7 +88,8 @@ export function cuentaDelCorte(pedidos: PedidoDelAlcance[]): CuentaDelCorte {
 
   const porPedido = pedidos.map((pedido) => {
     const entregado = pedido.estado === EstadoPedido.ENTREGADO;
-    const efectivo = entregado ? efectivoDelPedido(pedido, pedido.cargas) : new Decimal(0);
+    // El pedido entregado ya vale lo que el cliente se quedo: su total manda.
+    const efectivo = entregado ? efectivoDelPedido(pedido) : new Decimal(0);
     const devueltas = pedido.cargas.reduce((suma, c) => suma + devueltoDelRenglon(c), 0);
 
     total = total.add(efectivo);

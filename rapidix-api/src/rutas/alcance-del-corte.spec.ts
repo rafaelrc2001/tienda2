@@ -39,7 +39,10 @@ describe('alcanceDelCorte', () => {
   });
 });
 
-/** Efectivo pendiente, $100 de mercancía: 10 piezas a $10. */
+/**
+ * Efectivo pendiente, $100 de mercancía: 10 piezas a $10. Entregado, su total
+ * ya es lo que se quedó el cliente, como lo deja la entrega.
+ */
 const pedido = (
   id: string,
   estado: EstadoPedido,
@@ -50,7 +53,7 @@ const pedido = (
   estado,
   metodoPago,
   estadoPago: EstadoPago.PAGO_PENDIENTE,
-  total: D(100),
+  total: D(estado === EstadoPedido.ENTREGADO ? entregadas * 10 : 100),
   pagadoConBilletera: D(0),
   cargas: [
     {
