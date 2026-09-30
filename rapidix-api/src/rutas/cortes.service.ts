@@ -4,6 +4,7 @@ import {
   EstadoCorte,
   EstadoPago,
   EstadoPedido,
+  MetodoEntrega,
   MetodoPago,
   MotivoDevolucion,
   Prisma,
@@ -20,22 +21,29 @@ import {
   cuentaDelCorte,
   planDeDescarga,
 } from './alcance-del-corte';
+import { PedidosService } from '../pedidos/pedidos.service';
 import { CerrarCorteDto, RecibirCorteDto, RegistrarAbonoDto } from './dto/corte.dto';
+import { GenerarFaltanteDto } from './dto/faltante.dto';
 import {
   ConteoDeProducto,
   conteoPorProducto,
   esDevolucion,
+  faltanteQueNoCabe,
   indicadoresDeRuta,
   indicadoresDelHistorial,
   intentoDeEntrega,
   ProductoDeLaLinea,
   productosDeLaLinea,
+  renglonDelFaltante,
   ResultadoDelIntento,
   saldoDelCorte,
   TOLERANCIA,
 } from './liquidacion-de-ruta';
 
 const Decimal = Prisma.Decimal;
+
+/** El "telefono" del cliente "Venta en ruta": no es un numero, nadie entra con el. */
+const TELEFONO_VENTA_EN_RUTA = 'venta-en-ruta';
 
 /** Un pedido dentro del corte: lo que trae de el y lo que regresa. */
 export interface PedidoDelCorteDto {
@@ -47,6 +55,8 @@ export interface PedidoDelCorteDto {
   metodoPago: MetodoPago;
   /** Regresa a bodega (`esDevolucion`): va en la otra lista de Liquidacion. */
   devolucion: boolean;
+  /** Nacio de "Generar pedido x faltante" en esta misma liquidacion. */
+  porFaltante: boolean;
   /** Efectivo que trae por este pedido. Cero en transferencia o crédito. */
   efectivo: number;
   /** Piezas que vuelven a bodega. */
@@ -295,6 +305,152 @@ export class CortesService {
     return this.detalle(corteId);
   }
 
+  /**
+   * "Generar pedido x faltante": el repartidor conto al bajar del camion menos
+   * de lo que el sistema dice que regresa, y lo que falta se le cobra.
+   *
+   * Nace una venta en efectivo a nombre de "Venta en ruta", ya ENTREGADA y en
+   * esta misma entrega, sin liquidar: `calcular` la suma al efectivo del corte
+   * y su producto cuenta como entregado en el conteo. El precio es el de
+   * catalogo (lista 1) y lo pone la API. No se puede pedir mas de lo que
+   * regresa: eso ya se entrego o nunca subio.
+   *
+   * Devuelve el resumen del corte ya con el pedido, para repintar sin otra
+   * peticion.
+   */
+  async generarFaltante(
+    usuario: UsuarioAutenticado,
+    entregaId: string,
+    dto: GenerarFaltanteDto,
+  ): Promise<ResumenCorteDto> {
+    const quien = actorDe(usuario);
+    const controlInventario = (await this.configuracion.obtener()).controlInventario;
+
+    return this.prisma.$transaction(async (tx) => {
+      // La misma jornada bloqueada que el corte: un faltante no puede colarse
+      // mientras otra pestana esta cerrando esta entrega.
+      const entrega = await tx.entregaRuta.findFirst({
+        where: { id: entregaId, repartidorId: usuario.sub },
+        select: { sesionId: true },
+      });
+      if (entrega) {
+        await tx.$queryRaw`SELECT id FROM sesiones_entrega WHERE id = ${entrega.sesionId} FOR UPDATE`;
+      }
+
+      const alcance = await this.alcance(tx, usuario.sub, entregaId);
+      const antes = await this.calcular(tx, usuario.sub, alcance);
+
+      const noCabe = faltanteQueNoCabe(antes.conteo, dto.lineas);
+      if (noCabe) {
+        throw new ConflictException({
+          statusCode: 409,
+          code: 'FALTANTE_EXCEDE_DEVOLUCION',
+          message:
+            noCabe.regresa === 0
+              ? `${noCabe.nombre ?? 'Ese producto'} no regresa del camión: no puede faltar.`
+              : `De ${noCabe.nombre} regresan ${noCabe.regresa}: ` +
+                `no pueden faltar ${noCabe.cantidad}.`,
+        });
+      }
+
+      // Una linea por producto, aunque la pantalla mande el mismo dos veces.
+      const cantidades = new Map<string, number>();
+      for (const l of dto.lineas) {
+        cantidades.set(l.productoId, (cantidades.get(l.productoId) ?? 0) + l.cantidad);
+      }
+      const productos = await tx.producto.findMany({
+        where: { id: { in: [...cantidades.keys()] } },
+        select: {
+          id: true,
+          nombre: true,
+          unidad: true,
+          precioVenta: true,
+          categoria: { select: { nombre: true } },
+        },
+      });
+      const lineas = productos.map((p) => ({
+        productoId: p.id,
+        nombre: p.nombre,
+        categoria: p.categoria.nombre,
+        unidad: p.unidad,
+        precioUnitario: p.precioVenta,
+        cantidad: cantidades.get(p.id)!,
+      }));
+      const total = lineas.reduce(
+        (suma, l) => suma.add(new Decimal(l.precioUnitario).mul(l.cantidad)),
+        new Decimal(0),
+      );
+
+      const cliente = await this.clienteVentaEnRuta(tx);
+      const folio = await PedidosService.siguienteFolio(tx);
+      const pedido = await tx.pedido.create({
+        data: {
+          folio,
+          clienteId: cliente.id,
+          subtotal: total,
+          envio: 0,
+          total,
+          metodoPago: MetodoPago.EFECTIVO,
+          estadoPago: EstadoPago.PAGO_PENDIENTE,
+          // Sin envio: la mercancia ya iba en el camion.
+          metodoEntrega: MetodoEntrega.TIENDA,
+          estado: EstadoPedido.ENTREGADO,
+          direccion: {},
+          repartidorId: usuario.sub,
+          entregaRutaId: entregaId,
+          porFaltante: true,
+          items: { create: lineas },
+        },
+      });
+
+      if (controlInventario) {
+        await this.inventario.registrarFaltanteDeRuta(tx, pedido.id, folio, lineas, {
+          usuarioId: quien.actorId,
+          usuarioNombre: quien.actorNombre,
+        });
+      }
+
+      const nota = 'Faltante al liquidar la entrega: lo paga el repartidor en su corte.';
+      await registrarEnBitacora(
+        tx,
+        pedido.id,
+        {
+          eje: EjeBitacora.PEDIDO,
+          estadoAnterior: null,
+          estadoNuevo: EstadoPedido.ENTREGADO,
+          nota,
+        },
+        quien,
+      );
+      await registrarEnBitacora(
+        tx,
+        pedido.id,
+        { eje: EjeBitacora.PAGO, estadoAnterior: null, estadoNuevo: EstadoPago.PAGO_PENDIENTE },
+        quien,
+      );
+
+      this.logger.log(
+        `Pedido por faltante ${folio} de ${usuario.nombre} (entrega ${entregaId}): ` +
+          `$${total.toFixed(2)}`,
+      );
+      return this.calcular(tx, usuario.sub, alcance);
+    });
+  }
+
+  /**
+   * El cliente a cuyo nombre quedan los pedidos por faltante. Se crea la
+   * primera vez que hace falta. Su telefono no es un numero, asi que nadie
+   * puede entrar con el, y no recibe campanias.
+   */
+  private async clienteVentaEnRuta(tx: Prisma.TransactionClient): Promise<{ id: string }> {
+    return tx.cliente.upsert({
+      where: { telefono: TELEFONO_VENTA_EN_RUTA },
+      update: {},
+      create: { nombre: 'Venta en ruta', telefono: TELEFONO_VENTA_EN_RUTA, notificaciones: false },
+      select: { id: true },
+    });
+  }
+
   /** La entrega que se corta y lo que abarca, o el 404/409 que lo impide. */
   private async alcance(
     tx: Prisma.TransactionClient,
@@ -392,7 +548,10 @@ export class CortesService {
         estadoPago: true,
         total: true,
         pagadoConBilletera: true,
+        porFaltante: true,
         cliente: { select: { nombre: true } },
+        // Solo los lee el pedido por faltante, que no tiene renglones de camion.
+        items: { select: { productoId: true, nombre: true, unidad: true, cantidad: true } },
         cargas: {
           where: { cerradoEn: null },
           select: {
@@ -409,12 +568,19 @@ export class CortesService {
       orderBy: { creadoEn: 'asc' },
     });
 
+    // Sin cargas, `efectivoDelPedido` no descuenta nada: el faltante trae su total.
     const cuenta = cuentaDelCorte(pedidos);
     const conNombre = (c: (typeof pedidos)[number]['cargas'][number]) => ({
       ...c,
       nombre: c.pedidoItem.nombre,
       unidad: c.pedidoItem.unidad,
     });
+    // El pedido por faltante no subio al camion: sus productos cuentan como
+    // entregados y bajan la devolucion en lo que ya se cobro.
+    const renglones = (pedido: (typeof pedidos)[number]) =>
+      pedido.porFaltante
+        ? pedido.items.map(renglonDelFaltante)
+        : pedido.cargas.map(conNombre);
     return {
       montoCalculado: cuenta.montoCalculado.toNumber(),
       pedidos: pedidos.map((pedido, i) => {
@@ -427,15 +593,16 @@ export class CortesService {
           estadoPago: pedido.estadoPago,
           metodoPago: pedido.metodoPago,
           devolucion,
+          porFaltante: pedido.porFaltante,
           efectivo: cuenta.porPedido[i].efectivo.toNumber(),
           devueltas: cuenta.porPedido[i].devueltas,
-          productos: productosDeLaLinea(devolucion, pedido.cargas.map(conNombre)),
+          productos: productosDeLaLinea(devolucion, renglones(pedido)),
         };
       }),
       piezasQueRegresan: cuenta.piezasQueRegresan,
       pedidosQueRegresan: cuenta.pedidosQueRegresan,
       cierraJornada: alcance.cierraJornada,
-      conteo: conteoPorProducto(pedidos.flatMap((p) => p.cargas.map(conNombre))),
+      conteo: conteoPorProducto(pedidos.flatMap(renglones)),
     };
   }
 

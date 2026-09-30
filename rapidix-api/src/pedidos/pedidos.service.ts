@@ -539,8 +539,9 @@ export class PedidosService {
   /**
    * Folio legible y sin colisiones, servido por una secuencia de Postgres. Va sin guion
    * porque es la referencia de la transferencia y algunos bancos no aceptan guiones.
+   * Publico porque el pedido por faltante de Rutas saca su folio de la misma secuencia.
    */
-  private static async siguienteFolio(tx: Prisma.TransactionClient): Promise<string> {
+  static async siguienteFolio(tx: Prisma.TransactionClient): Promise<string> {
     const filas = await tx.$queryRaw<{ nextval: bigint }[]>`SELECT nextval('pedidos_folio_seq')`;
     return `ORD${String(filas[0].nextval).padStart(6, '0')}`;
   }
