@@ -564,6 +564,27 @@ export interface PedidoEnRuta extends PedidoEnPantalla {
   evidencia: EvidenciaEntrega | null
   /** La entrega en la que va o fue; `null` en bodega. */
   entrega: { id: string; numero: number; nombre: string | null } | null
+  /** Lo que el cliente se quedó y lo que vale; `null` mientras no se entregue. */
+  entregado: LoEntregado | null
+}
+
+/**
+ * La cuenta del pedido con lo que de verdad se quedó el cliente. El pedido no
+ * cambia con una entrega parcial; esto sale de la carga con las cuentas del
+ * corte, así que su `aPagar` es el efectivo que se liquida.
+ */
+export interface LoEntregado {
+  /** Solo lo aceptado. */
+  renglones: {
+    pedidoItemId: string
+    nombre: string
+    unidad: string
+    cantidad: number
+    importe: number
+  }[]
+  productos: number
+  /** El total menos la billetera y menos lo que no se aceptó. */
+  aPagar: number
 }
 
 /** Una entrega (viaje) del repartidor, con lo que lleva contado por la API. */

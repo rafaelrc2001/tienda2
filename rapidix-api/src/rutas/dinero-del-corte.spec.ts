@@ -1,5 +1,6 @@
 import { EstadoPago, MetodoPago, Prisma } from '@prisma/client';
 import {
+  aPagarDeLoEntregado,
   CargaLiquidable,
   cobradoDelRenglon,
   cuentaDeLaEntrega,
@@ -41,6 +42,19 @@ describe('traeEfectivo', () => {
 
   it('una transferencia nunca pasa por sus manos', () => {
     expect(traeEfectivo({ ...enEfectivo, metodoPago: MetodoPago.TRANSFERENCIA })).toBe(false);
+  });
+});
+
+describe('aPagarDeLoEntregado', () => {
+  it('descuenta lo no aceptado sea cual sea el método de pago', () => {
+    // El caso de la pantalla: $78 de producto + $20 de envío y deja 1 de 2 leches de $24.
+    const leche: CargaLiquidable = {
+      cantidadCargada: 2,
+      cantidadEntregada: 1,
+      precioUnitario: D(24),
+      precioEntregado: null,
+    };
+    expect(aPagarDeLoEntregado(D(98), [leche]).toNumber()).toBe(74);
   });
 });
 
