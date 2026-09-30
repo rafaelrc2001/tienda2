@@ -262,6 +262,24 @@ export class CortesService {
         },
       });
 
+      // Lo cobrado como faltante en esta entrega, por producto. Se lee antes de
+      // liquidar: despues ya no se distingue de lo de otros cortes.
+      const itemsFaltantes = await tx.pedidoItem.findMany({
+        where: {
+          pedido: {
+            ...alcance.pedidos,
+            repartidorId: usuario.sub,
+            porFaltante: true,
+            liquidado: false,
+          },
+        },
+        select: { productoId: true, cantidad: true },
+      });
+      const faltantes = new Map<string, number>();
+      for (const item of itemsFaltantes) {
+        faltantes.set(item.productoId, (faltantes.get(item.productoId) ?? 0) + item.cantidad);
+      }
+
       // Lo entregado entra al corte como dinero. `liquidado` es lo que impide
       // que vuelva a contarse manana: el filtro de "entregados" lo mira.
       const ahora = new Date();
@@ -275,7 +293,7 @@ export class CortesService {
         data: { liquidado: true, liquidadoEn: ahora, corteId: corte.id },
       });
 
-      await this.descargarCamion(tx, alcance.cargas, quien, controlInventario);
+      await this.descargarCamion(tx, alcance.cargas, quien, controlInventario, faltantes);
 
       await tx.entregaRuta.update({
         where: { id: entregaId },
@@ -804,6 +822,8 @@ export class CortesService {
     donde: Prisma.CargaRepartidorWhereInput,
     quien: ActorDeBitacora,
     controlInventario: boolean,
+    /** Lo ya cobrado como faltante: no bajo del camion y no se libera. */
+    faltantes: ReadonlyMap<string, number>,
   ): Promise<void> {
     const cargas = await tx.cargaRepartidor.findMany({
       where: donde,
@@ -817,7 +837,7 @@ export class CortesService {
       },
     });
 
-    const plan = planDeDescarga(cargas, controlInventario);
+    const plan = planDeDescarga(cargas, controlInventario, faltantes);
 
     const ahora = new Date();
     for (const cierre of plan.cierres) {

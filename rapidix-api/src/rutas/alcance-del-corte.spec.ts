@@ -179,4 +179,33 @@ describe('planDeDescarga', () => {
       { productoId: 'frijol', cantidad: 4 },
     ]);
   });
+
+  it('lo cobrado como faltante no se libera: solo lo que de verdad bajó', () => {
+    // Rechazaron 7 y bajó 1: los 6 del faltante no vuelven a venta.
+    const plan = planDeDescarga(
+      [renglon('c1', 'a', EstadoPedido.ENTREGADO, 7, 0)],
+      true,
+      new Map([['arroz', 6]]),
+    );
+    expect(plan.cierres).toEqual([{ id: 'c1', cantidadDevuelta: 7 }]);
+    expect(plan.pedidos[0].lineas).toEqual([{ productoId: 'arroz', cantidad: 1 }]);
+  });
+
+  it('el faltante se reparte entre los rechazados y no pasa a los que vuelven a la cola', () => {
+    const plan = planDeDescarga(
+      [
+        renglon('c1', 'a', EstadoPedido.ENTREGADO, 3, 1),
+        renglon('c2', 'b', EstadoPedido.ENTREGADO, 4, 0),
+        renglon('c3', 'c', EstadoPedido.EN_RUTA, 5, 0),
+      ],
+      true,
+      new Map([['arroz', 5]]),
+    );
+    // a rechazó 2 y b 4: se descuentan 2 de a (queda sin líneas) y 3 de b.
+    expect(plan.pedidos.map((p) => [p.pedidoId, p.lineas])).toEqual([
+      ['a', []],
+      ['b', [{ productoId: 'arroz', cantidad: 1 }]],
+      ['c', [{ productoId: 'arroz', cantidad: 5 }]],
+    ]);
+  });
 });

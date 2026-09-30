@@ -148,10 +148,17 @@ export interface PlanDeDescarga {
  * Con el control de inventario apagado no se libera nada, igual que en el
  * checkout: devolver a una bodega que nadie ha capturado inventaria
  * existencia. El pedido que no se entrego vuelve a la cola igual.
+ *
+ * `faltantes` es lo que ya se cobro con "Generar pedido x faltante", por
+ * producto: esas piezas no bajaron del camion, asi que no se liberan para
+ * venta. Se descuentan primero de lo rechazado en la puerta, que es lo unico
+ * que se libera; lo que sobre venia de pedidos que vuelven a la cola, que no
+ * liberan nada.
  */
 export function planDeDescarga(
   renglones: RenglonADescargar[],
   controlInventario: boolean,
+  faltantes: ReadonlyMap<string, number> = new Map(),
 ): PlanDeDescarga {
   const cierres: PlanDeDescarga['cierres'] = [];
   const porPedido = new Map<string, PedidoQueRegresa>();
@@ -172,6 +179,19 @@ export function planDeDescarga(
     };
     pedido.lineas.push({ productoId: renglon.productoId, cantidad: devueltas });
     porPedido.set(renglon.pedidoId, pedido);
+  }
+
+  const porDescontar = new Map(faltantes);
+  for (const pedido of porPedido.values()) {
+    if (!pedido.liberaInventario) continue;
+    pedido.lineas = pedido.lineas
+      .map((linea) => {
+        const pendiente = porDescontar.get(linea.productoId) ?? 0;
+        const falta = Math.min(pendiente, linea.cantidad);
+        porDescontar.set(linea.productoId, pendiente - falta);
+        return { ...linea, cantidad: linea.cantidad - falta };
+      })
+      .filter((linea) => linea.cantidad > 0);
   }
 
   return { cierres, pedidos: [...porPedido.values()] };
