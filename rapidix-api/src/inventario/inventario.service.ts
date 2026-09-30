@@ -227,12 +227,13 @@ export class InventarioService {
    * Descuenta el pedido por faltante: la mercancia que salio en el camion y no
    * regreso al liquidar.
    *
-   * Va con AMBOS, venta y salida en un solo movimiento, porque ese producto
-   * nunca bajo del fisico —solo baja al entregarse— y lo que se aparto para
-   * el pedido que regresa sigue siendo de su cliente, o el corte lo libera si
-   * fue rechazado en la puerta. En los dos casos lo que falta ya no esta ni en
-   * bodega ni disponible. Al cancelarlo, `devolverPedido()` lo deshace con el
-   * mismo alcance.
+   * Solo baja el FISICO: ese producto salio en el camion sin descontarse —el
+   * fisico baja al entregarse— y no volvio. El saldo de venta no se toca aqui:
+   * esas piezas ya estaban apartadas, para el pedido que regresa o para el
+   * que las rechazo en la puerta, y lo apartado suele estar en cero. Lo
+   * rechazado lo libera el corte, y el corte ya no libera lo cobrado como
+   * faltante (`planDeDescarga`). Al cancelarlo, `devolverPedido()` lo deshace
+   * con el mismo alcance.
    */
   async registrarFaltanteDeRuta(
     tx: Prisma.TransactionClient,
@@ -246,7 +247,7 @@ export class InventarioService {
         productoId: linea.productoId,
         cantidad: linea.cantidad,
         tipo: TipoMovimiento.SALIDA,
-        afecta: AfectaInventario.AMBOS,
+        afecta: AfectaInventario.FISICO,
         motivo: MotivoMovimiento.VENTA,
         empleado: quien.usuarioNombre,
         observaciones: `Faltante de ruta, pedido ${folio}`,
