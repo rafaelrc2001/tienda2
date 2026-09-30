@@ -318,7 +318,6 @@ async function finalizar(): Promise<void> {
             <thead>
               <tr>
                 <th>Pedido</th>
-                <th>Productos</th>
                 <th class="num">Efectivo</th>
               </tr>
             </thead>
@@ -356,7 +355,7 @@ async function finalizar(): Promise<void> {
                       </div>
                     </div>
                   </td>
-                  <td class="productos">{{ lineaDeProductos(pedido) || '—' }}</td>
+                  <!-- Sin columna de productos: el detalle de la flecha ya los desglosa. -->
                   <td class="num">
                     <span v-if="cobroDelPedido(pedido) === 'en-linea'" class="chip">
                       Pagado en línea
@@ -368,7 +367,7 @@ async function finalizar(): Promise<void> {
                   </td>
                 </tr>
                 <tr v-if="abierto === pedido.id && completos.has(pedido.id)" class="fila-detalle">
-                  <td colspan="3"><DetallePedidoRuta :pedido="completos.get(pedido.id)!" /></td>
+                  <td colspan="2"><DetallePedidoRuta :pedido="completos.get(pedido.id)!" /></td>
                 </tr>
               </template>
             </tbody>
