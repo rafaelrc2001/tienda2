@@ -3,11 +3,13 @@ import {
   conteoPorProducto,
   esDevolucion,
   esEntregado,
+  faltanteQueNoCabe,
   indicadoresDeRuta,
   indicadoresDelHistorial,
   intentoDeEntrega,
   productosDeLaLinea,
   RenglonConProducto,
+  renglonDelFaltante,
   ResultadoDelIntento,
   saldoDelCorte,
 } from './liquidacion-de-ruta';
@@ -98,6 +100,40 @@ describe('conteoPorProducto', () => {
         devolucion: 4,
       },
     ]);
+  });
+
+  it('el faltante ya cobrado cuenta como entregado y baja la devolución', () => {
+    const conteo = conteoPorProducto([
+      renglon('que', 'Queso', 8, 4),
+      renglonDelFaltante({ productoId: 'que', nombre: 'Queso', unidad: 'pza', cantidad: 2 }),
+    ]);
+    expect(conteo[0]).toMatchObject({ cargado: 8, entregado: 6, devolucion: 2 });
+  });
+});
+
+describe('faltanteQueNoCabe', () => {
+  const conteo = conteoPorProducto([renglon('que', 'Queso', 8, 4), renglon('pan', 'Pan', 3, 3)]);
+
+  it('cabe lo que no pasa de lo que regresa', () => {
+    expect(faltanteQueNoCabe(conteo, [{ productoId: 'que', cantidad: 4 }])).toBeNull();
+  });
+
+  it('no cabe más de lo que regresa, sumando renglones repetidos', () => {
+    expect(
+      faltanteQueNoCabe(conteo, [
+        { productoId: 'que', cantidad: 3 },
+        { productoId: 'que', cantidad: 2 },
+      ]),
+    ).toMatchObject({ productoId: 'que', cantidad: 5, regresa: 4 });
+  });
+
+  it('no cabe un producto que no regresa o que no iba en el camión', () => {
+    expect(faltanteQueNoCabe(conteo, [{ productoId: 'pan', cantidad: 1 }])).toMatchObject({
+      regresa: 0,
+    });
+    expect(faltanteQueNoCabe(conteo, [{ productoId: 'otro', cantidad: 1 }])).toMatchObject({
+      nombre: null,
+    });
   });
 });
 

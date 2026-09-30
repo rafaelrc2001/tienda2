@@ -11,22 +11,34 @@
  * al repartidor no repone el dinero, y la diferencia queda escrita para
  * Finanzas. Cerrar es también lo que descarga el camión: los pedidos que no se
  * entregaron vuelven a «Listo para entrega» y salen otro día.
+ *
+ * Al bajar del camión captura lo que de verdad devuelve. Si trae menos de lo
+ * que el sistema dice, «Generar pedido x faltante» lo vuelve una venta
+ * entregada en esta misma entrega y su importe se suma al efectivo a liquidar.
  */
 import { computed, onMounted, ref } from 'vue'
 import { ErrorApi, http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
-import { dinero } from '@/utils/formato'
+import { dinero, fechaDia } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
+import DetallePedidoRuta from './DetallePedidoRuta.vue'
 import TablaConteo from './TablaConteo.vue'
 import { nombreEntrega } from './etiquetas'
 import {
   centavos,
   cobroDelPedido,
+  diferenciasDelConteo,
   lineaDelArqueo,
   lineaDeProductos,
   montoCapturado,
 } from './liquidacion'
-import type { EntregaRuta, ResumenCorte, TableroRutas } from '@/api/tipos'
+import type {
+  DetalleEntregaRuta,
+  EntregaRuta,
+  PedidoEnRuta,
+  ResumenCorte,
+  TableroRutas,
+} from '@/api/tipos'
 
 const props = defineProps<{
   /** La entrega que se abre al llegar, p. ej. desde «Hacer mi corte» de una entrega. */
@@ -55,6 +67,29 @@ const declarado = ref('')
 const notas = ref('')
 const confirmando = ref(false)
 const enviando = ref(false)
+
+/**
+ * El pedido completo, para el detalle que abre la flecha. El corte solo trae
+ * lo que cuenta dinero; esto sale del detalle de la entrega y, si no llega, la
+ * flecha no aparece: no es motivo para no poder liquidar.
+ */
+const completos = ref(new Map<string, PedidoEnRuta>())
+const abierto = ref<string | null>(null)
+
+/** Lo que el repartidor cuenta al bajar, por producto. Texto: vacío es «sin contar». */
+const contados = ref<Record<string, string>>({})
+const confirmandoFaltante = ref(false)
+const generando = ref(false)
+
+/** Lo contado de menos. La tabla no deja capturar de más, así que no hay sobrante. */
+const faltantes = computed(() =>
+  diferenciasDelConteo(resumen.value?.conteo ?? [], contados.value).filter((d) => d.faltan > 0),
+)
+
+/** `2 Pz de Queso Fresco, 1 gr de Tasajo`: lo que se va a cobrar, dicho antes de cobrarlo. */
+const fraseDelFaltante = computed(() =>
+  faltantes.value.map((f) => `${f.faltan} ${f.unidad} de ${f.nombre}`).join(', '),
+)
 
 const entrega = computed(() => vivas.value.find((e) => e.id === elegida.value) ?? null)
 
@@ -96,11 +131,16 @@ async function elegir(id: string, avisar = true): Promise<void> {
   resumen.value = null
   declarado.value = ''
   notas.value = ''
+  contados.value = {}
+  abierto.value = null
   error.value = ''
   cargandoCorte.value = true
   if (avisar) emit('elegir', id)
   try {
-    const respuesta = await http.get<ResumenCorte>(`/admin/rutas/entregas/${id}/corte`)
+    const [respuesta] = await Promise.all([
+      http.get<ResumenCorte>(`/admin/rutas/entregas/${id}/corte`),
+      cargarCompletos(id, numero),
+    ])
     if (numero === peticion) resumen.value = respuesta
   } catch (fallo) {
     if (numero === peticion)
@@ -110,6 +150,45 @@ async function elegir(id: string, avisar = true): Promise<void> {
           : 'No pudimos calcular tu corte. Inténtalo otra vez.'
   } finally {
     if (numero === peticion) cargandoCorte.value = false
+  }
+}
+
+async function cargarCompletos(id: string, numero: number): Promise<void> {
+  try {
+    const detalle = await http.get<DetalleEntregaRuta>(`/admin/rutas/entregas/${id}`)
+    if (numero === peticion) completos.value = new Map(detalle.pedidos.map((p) => [p.id, p]))
+  } catch {
+    if (numero === peticion) completos.value = new Map()
+  }
+}
+
+function alternar(id: string): void {
+  abierto.value = abierto.value === id ? null : id
+}
+
+/**
+ * El faltante se vuelve pedido. La API pone el precio y devuelve el corte ya
+ * con él: el efectivo a liquidar sube y la devolución baja a lo que se contó.
+ */
+async function generarFaltante(): Promise<void> {
+  const id = elegida.value
+  if (!id || faltantes.value.length === 0) return
+  const numero = peticion
+  generando.value = true
+  try {
+    const respuesta = await http.post<ResumenCorte>(`/admin/rutas/entregas/${id}/faltante`, {
+      lineas: faltantes.value.map((f) => ({ productoId: f.productoId, cantidad: f.faltan })),
+    })
+    confirmandoFaltante.value = false
+    if (numero !== peticion) return
+    resumen.value = respuesta
+    ui.exito('Pedido por faltante generado: ya se suma a tu efectivo a liquidar.')
+    await cargarCompletos(id, numero)
+  } catch (fallo) {
+    confirmandoFaltante.value = false
+    ui.errorDeApi(fallo)
+  } finally {
+    generando.value = false
   }
 }
 
@@ -175,24 +254,52 @@ async function finalizar(): Promise<void> {
     </p>
 
     <template v-else>
-      <!-- Con varias entregas vivas, cuál se corta: cada una va por su lado. -->
-      <div v-if="vivas.length > 1" class="elegir" role="tablist" aria-label="Entrega a liquidar">
-        <button
-          v-for="e in vivas"
-          :key="e.id"
-          type="button"
-          role="tab"
-          class="pill"
-          :class="{ active: e.id === elegida }"
-          :aria-selected="e.id === elegida"
-          @click="elegir(e.id)"
-        >
-          {{ nombreEntrega(e) }} · {{ estadoDe(e) }}
-        </button>
+      <!-- Cuál se corta, en lista como en Entregas: cada una va por su lado y la
+           elegida queda marcada. Su corte se pinta debajo. -->
+      <p class="seccion-titulo">Entregas por liquidar</p>
+      <div class="tabla-envoltorio">
+        <table class="tabla lineal entregas">
+          <thead>
+            <tr>
+              <th>Entrega</th>
+              <th>Fecha</th>
+              <th class="num">Pedidos</th>
+              <th class="num">Entregados</th>
+              <th>Estado</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="e in vivas" :key="e.id" :class="{ elegida: e.id === elegida }">
+              <td>
+                <span class="folio">{{ nombreEntrega(e) }}</span>
+              </td>
+              <td>{{ fechaDia(e.creadoEn) }}</td>
+              <td class="num">{{ e.pedidos }}</td>
+              <td class="num">{{ e.entregados }}</td>
+              <td>
+                <span class="mini-tag" :class="{ viva: estadoDe(e) === 'En curso' }">
+                  {{ estadoDe(e) }}
+                </span>
+              </td>
+              <td class="accion">
+                <span v-if="e.id === elegida" class="en-curso">✓ Liquidando</span>
+                <button
+                  v-else
+                  type="button"
+                  class="btn-secondary abrir"
+                  :disabled="enviando || generando"
+                  @click="elegir(e.id)"
+                >
+                  Liquidar →
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
-      <p v-else-if="entrega" class="de-entrega">
-        {{ nombreEntrega(entrega) }} · {{ estadoDe(entrega) }}
-      </p>
+
+      <p v-if="entrega" class="seccion-titulo">Liquidación de {{ nombreEntrega(entrega) }}</p>
 
       <SkeletonList v-if="cargandoCorte" :cantidad="2" />
 
@@ -216,20 +323,54 @@ async function finalizar(): Promise<void> {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="pedido in entregados" :key="pedido.id">
-                <td class="pedido">
-                  <span class="folio">📦 {{ pedido.folio }}</span>
-                  <span class="sub cliente">{{ pedido.clienteNombre }}</span>
-                </td>
-                <td class="productos">{{ lineaDeProductos(pedido) || '—' }}</td>
-                <td class="num">
-                  <span v-if="cobroDelPedido(pedido) === 'en-linea'" class="chip">
-                    Pagado en línea
-                  </span>
-                  <span v-else-if="cobroDelPedido(pedido) === 'credito'" class="chip">Crédito</span>
-                  <span v-else class="importe">{{ dinero(pedido.efectivo) }}</span>
-                </td>
-              </tr>
+              <template v-for="pedido in entregados" :key="pedido.id">
+                <tr :class="{ 'con-detalle': abierto === pedido.id }">
+                  <td class="pedido">
+                    <div class="con-flecha">
+                      <!-- La flecha va primero, como en Operaciones: abre el detalle. -->
+                      <button
+                        v-if="completos.has(pedido.id)"
+                        type="button"
+                        class="chevron"
+                        :class="{ abierto: abierto === pedido.id }"
+                        :aria-expanded="abierto === pedido.id"
+                        :aria-label="`Detalle de ${pedido.folio}`"
+                        @click="alternar(pedido.id)"
+                      >
+                        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                          <path
+                            d="M4 6l4 4 4-4"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                          />
+                        </svg>
+                      </button>
+                      <div>
+                        <span class="folio">📦 {{ pedido.folio }}</span>
+                        <span class="sub cliente">
+                          {{ pedido.clienteNombre }}{{ pedido.porFaltante ? ' · Faltante' : '' }}
+                        </span>
+                      </div>
+                    </div>
+                  </td>
+                  <td class="productos">{{ lineaDeProductos(pedido) || '—' }}</td>
+                  <td class="num">
+                    <span v-if="cobroDelPedido(pedido) === 'en-linea'" class="chip">
+                      Pagado en línea
+                    </span>
+                    <span v-else-if="cobroDelPedido(pedido) === 'credito'" class="chip">
+                      Crédito
+                    </span>
+                    <span v-else class="importe">{{ dinero(pedido.efectivo) }}</span>
+                  </td>
+                </tr>
+                <tr v-if="abierto === pedido.id && completos.has(pedido.id)" class="fila-detalle">
+                  <td colspan="3"><DetallePedidoRuta :pedido="completos.get(pedido.id)!" /></td>
+                </tr>
+              </template>
             </tbody>
           </table>
         </div>
@@ -250,18 +391,47 @@ async function finalizar(): Promise<void> {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="pedido in devueltos" :key="pedido.id">
-                  <td class="pedido">
-                    <span class="folio">📦 {{ pedido.folio }}</span>
-                    <span class="sub cliente">{{ pedido.clienteNombre }}</span>
-                  </td>
-                  <td class="productos">{{ lineaDeProductos(pedido) || '—' }}</td>
-                  <td class="num">
-                    <span class="chip rojo">
-                      {{ pedido.estadoPago === 'CANCELADO' ? 'Cancelado' : 'Devolución' }}
-                    </span>
-                  </td>
-                </tr>
+                <template v-for="pedido in devueltos" :key="pedido.id">
+                  <tr :class="{ 'con-detalle': abierto === pedido.id }">
+                    <td class="pedido">
+                      <div class="con-flecha">
+                        <button
+                          v-if="completos.has(pedido.id)"
+                          type="button"
+                          class="chevron"
+                          :class="{ abierto: abierto === pedido.id }"
+                          :aria-expanded="abierto === pedido.id"
+                          :aria-label="`Detalle de ${pedido.folio}`"
+                          @click="alternar(pedido.id)"
+                        >
+                          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                            <path
+                              d="M4 6l4 4 4-4"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="2"
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                            />
+                          </svg>
+                        </button>
+                        <div>
+                          <span class="folio">📦 {{ pedido.folio }}</span>
+                          <span class="sub cliente">{{ pedido.clienteNombre }}</span>
+                        </div>
+                      </div>
+                    </td>
+                    <td class="productos">{{ lineaDeProductos(pedido) || '—' }}</td>
+                    <td class="num">
+                      <span class="chip rojo">
+                        {{ pedido.estadoPago === 'CANCELADO' ? 'Cancelado' : 'Devolución' }}
+                      </span>
+                    </td>
+                  </tr>
+                  <tr v-if="abierto === pedido.id && completos.has(pedido.id)" class="fila-detalle">
+                    <td colspan="3"><DetallePedidoRuta :pedido="completos.get(pedido.id)!" /></td>
+                  </tr>
+                </template>
               </tbody>
             </table>
           </div>
@@ -270,7 +440,23 @@ async function finalizar(): Promise<void> {
         <!-- El conteo físico de lo que baja del camión. -->
         <template v-if="resumen.conteo.length > 0">
           <p class="seccion-titulo">Producto en ruta / a devolver</p>
-          <TablaConteo :conteo="resumen.conteo" />
+          <TablaConteo v-model:contados="contados" :conteo="resumen.conteo" />
+          <p class="ayuda-conteo">
+            En «Devuelto» captura lo que de verdad bajas del camión, hasta lo que dice «Devolución».
+            Lo que no bajó queda en «Faltante».
+          </p>
+          <!-- Solo con faltante: «Devuelto» no deja capturar de más, así que no hay sobrante. -->
+          <div v-if="faltantes.length > 0" class="descuadre" aria-live="polite">
+            <p>Faltan {{ fraseDelFaltante }}.</p>
+            <button
+              type="button"
+              class="btn-primary"
+              :disabled="generando"
+              @click="confirmandoFaltante = true"
+            >
+              Generar pedido x faltante
+            </button>
+          </div>
         </template>
 
         <!-- El arqueo: lo que dice el sistema contra lo que él entrega. -->
@@ -324,6 +510,31 @@ async function finalizar(): Promise<void> {
       </template>
     </template>
 
+    <!-- El faltante se cobra: se dice qué entra al pedido antes de crearlo. -->
+    <div v-if="confirmandoFaltante" class="modal-overlay" @click.self="confirmandoFaltante = false">
+      <div class="modal-sheet" role="dialog" aria-label="Generar pedido por faltante">
+        <div class="modal-handle" />
+        <p class="modal-title">¿Generar pedido x faltante?</p>
+        <p class="modal-texto">
+          Se crea un pedido en efectivo por {{ fraseDelFaltante }}, a precio de catálogo. Queda
+          entregado en esta entrega y su importe se suma a tu efectivo a liquidar.
+        </p>
+        <div class="modal-actions">
+          <button
+            type="button"
+            class="btn-cancel"
+            :disabled="generando"
+            @click="confirmandoFaltante = false"
+          >
+            Volver
+          </button>
+          <button type="button" class="btn-primary" :disabled="generando" @click="generarFaltante">
+            {{ generando ? 'Generando…' : 'Sí, generar' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- La confirmación, en una frase: cuántos, cuánto, el descuadre y qué regresa. -->
     <div v-if="confirmando" class="modal-overlay" @click.self="confirmando = false">
       <div class="modal-sheet" role="dialog" aria-label="Confirmar la liquidación">
@@ -349,24 +560,33 @@ async function finalizar(): Promise<void> {
 </template>
 
 <style scoped>
-.elegir {
-  display: flex;
-  gap: 6px;
-  overflow-x: auto;
-  margin-bottom: 4px;
+/* Las mismas columnas y botón que la lista de Entregas. */
+.tabla.lineal.entregas .abrir {
+  display: inline-block;
+  padding: 4px 12px;
+  font-size: 12px;
+  box-shadow: none;
 }
 
-.elegir .pill {
-  flex: none;
-  padding: 7px 12px;
+/* La que se está liquidando: marcada, para saber de cuál es el corte de abajo. */
+.tabla.lineal.entregas > tbody > tr.elegida > td {
+  background: var(--cream-2);
 }
 
-.de-entrega {
-  margin: 0;
+.tabla.lineal.entregas > tbody > tr.elegida .folio {
+  color: var(--terracotta-dark);
+}
+
+.en-curso {
   font-family: var(--font-heading);
-  font-weight: 800;
-  font-size: 14px;
-  color: var(--ink);
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--terracotta-dark);
+}
+
+.mini-tag.viva {
+  background: color-mix(in srgb, var(--verde) 15%, var(--white));
+  color: var(--verde-compra);
 }
 
 .tabla.lista {
@@ -375,6 +595,16 @@ async function finalizar(): Promise<void> {
 
 .lista .pedido {
   white-space: nowrap;
+}
+
+/* La flecha a la izquierda del folio y el cliente, centrada con los dos. */
+.con-flecha {
+  display: flex;
+  align-items: center;
+}
+
+.con-flecha .chevron {
+  flex: none;
 }
 
 /* Un nombre largo se recorta en vez de empujar el monto fuera. */
@@ -407,6 +637,33 @@ async function finalizar(): Promise<void> {
 
 .chip.rojo {
   color: var(--rojo);
+}
+
+.ayuda-conteo {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* El descuadre, en el mismo bloque crema que las zonas de captura. */
+.descuadre {
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: var(--cream-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--orange-dark);
+}
+
+.descuadre p {
+  margin: 0 0 6px;
+}
+
+.descuadre .btn-primary {
+  width: 100%;
+  margin-top: 4px;
 }
 
 .vacio {

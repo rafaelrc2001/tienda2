@@ -3,16 +3,19 @@ import {
   accionDelCorte,
   centavos,
   cobroDelPedido,
+  diferenciasDelConteo,
   errorDelAbono,
   errorDelDeclarado,
   estadoEnHistorial,
   faltanteDe,
   lineaDelArqueo,
+  limitarDevuelto,
   lineaDeProductos,
   montoCapturado,
+  piezasCapturadas,
   porcentajeDeExito,
 } from './liquidacion'
-import type { Corte, EntregaEnHistorial, PedidoDelCorte } from '@/api/tipos'
+import type { ConteoDeProducto, Corte, EntregaEnHistorial, PedidoDelCorte } from '@/api/tipos'
 
 const corte = (cambios: Partial<Corte> = {}): Corte => ({
   id: 'c1',
@@ -42,6 +45,7 @@ const pedido = (cambios: Partial<PedidoDelCorte> = {}): PedidoDelCorte => ({
   estadoPago: 'PAGO_PENDIENTE',
   metodoPago: 'EFECTIVO',
   devolucion: false,
+  porFaltante: false,
   efectivo: 50,
   devueltas: 0,
   productos: [
@@ -146,5 +150,44 @@ describe('historial', () => {
   it('centavos redondea sin colas', () => {
     expect(centavos(0.1 + 0.2 - 0.3)).toBe(0)
     expect(centavos(-10.004)).toBe(-10)
+  })
+})
+
+describe('conteo de lo que baja del camión', () => {
+  const producto = (productoId: string, devolucion: number): ConteoDeProducto => ({
+    productoId,
+    nombre: productoId,
+    unidad: 'pza',
+    cargado: 8,
+    entregado: 8 - devolucion,
+    devolucion,
+  })
+
+  it('solo acepta piezas enteras', () => {
+    expect(piezasCapturadas(' 3 ')).toBe(3)
+    expect(piezasCapturadas('')).toBeNull()
+    expect(piezasCapturadas('1.5')).toBeNull()
+    expect(piezasCapturadas('-1')).toBeNull()
+  })
+
+  it('el campo vacío no es diferencia; contar de menos es faltante y de más, negativo', () => {
+    const conteo = [producto('queso', 4), producto('pan', 2), producto('caldo', 0)]
+    expect(diferenciasDelConteo(conteo, { queso: '2', pan: '', caldo: '1' })).toEqual([
+      { productoId: 'queso', nombre: 'queso', unidad: 'pza', faltan: 2 },
+      { productoId: 'caldo', nombre: 'caldo', unidad: 'pza', faltan: -1 },
+    ])
+  })
+
+  it('«Devuelto» solo acepta dígitos y se topa en la devolución', () => {
+    expect(limitarDevuelto('3', 4)).toBe('3')
+    expect(limitarDevuelto('9', 4)).toBe('4')
+    expect(limitarDevuelto('1a.5', 20)).toBe('15')
+    expect(limitarDevuelto('-', 4)).toBe('')
+    expect(limitarDevuelto('007', 4)).toBe('4')
+    expect(limitarDevuelto('02', 4)).toBe('2')
+  })
+
+  it('lo que cuadra no aparece', () => {
+    expect(diferenciasDelConteo([producto('queso', 4)], { queso: '4' })).toEqual([])
   })
 })

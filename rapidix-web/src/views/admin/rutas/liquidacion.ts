@@ -8,7 +8,13 @@
  * equivocado aquí hace que el repartidor crea que le falta dinero que sí trae.
  */
 import { dinero } from '@/utils/formato'
-import type { Corte, EntregaEnHistorial, PedidoDelCorte, ResultadoDelIntento } from '@/api/tipos'
+import type {
+  ConteoDeProducto,
+  Corte,
+  EntregaEnHistorial,
+  PedidoDelCorte,
+  ResultadoDelIntento,
+} from '@/api/tipos'
 
 /** Por debajo de medio centavo dos montos son el mismo. */
 export const TOLERANCIA = 0.005
@@ -73,6 +79,58 @@ export function cobroDelPedido(
   if (pedido.metodoPago !== 'EFECTIVO' || pedido.estadoPago === 'PAGADO') return 'en-linea'
   if (pedido.estadoPago === 'CREDITO') return 'credito'
   return 'efectivo'
+}
+
+// ------------------------------------------------------------------
+// Lo que baja del camión
+// ------------------------------------------------------------------
+
+/** Lo que el campo «Devuelto» trae como piezas enteras, o `null` si está vacío o no vale. */
+export function piezasCapturadas(valor: string | null | undefined): number | null {
+  const texto = (valor ?? '').trim()
+  return /^\d+$/.test(texto) ? Number(texto) : null
+}
+
+/**
+ * Lo que se deja escribir en «Devuelto»: solo dígitos y nunca más de lo que
+ * regresa. Traer de más no es algo que haya que cobrar ni registrar, así que
+ * se topa en la devolución en vez de avisar. Vacío sigue siendo «sin contar».
+ */
+export function limitarDevuelto(valor: string, devolucion: number): string {
+  const digitos = valor.replace(/\D/g, '')
+  if (digitos === '') return ''
+  return String(Math.min(Number(digitos), devolucion))
+}
+
+/** Un producto cuyo conteo no cuadra con lo que el sistema dice que regresa. */
+export interface DiferenciaDeConteo {
+  productoId: string
+  nombre: string
+  unidad: string
+  /** Positivo: bajó de menos (faltante). Negativo: bajó de más. */
+  faltan: number
+}
+
+/**
+ * Lo que el repartidor contó contra la devolución del sistema, producto por
+ * producto. El campo vacío no es diferencia: no se ha contado todavía.
+ */
+export function diferenciasDelConteo(
+  conteo: ConteoDeProducto[],
+  contados: Record<string, string>,
+): DiferenciaDeConteo[] {
+  return conteo.flatMap((p) => {
+    const contado = piezasCapturadas(contados[p.productoId])
+    if (contado === null || contado === p.devolucion) return []
+    return [
+      {
+        productoId: p.productoId,
+        nombre: p.nombre,
+        unidad: p.unidad,
+        faltan: p.devolucion - contado,
+      },
+    ]
+  })
 }
 
 // ------------------------------------------------------------------

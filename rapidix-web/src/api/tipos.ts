@@ -658,6 +658,8 @@ export interface PedidoDelCorte {
   metodoPago: MetodoPago
   /** Regresa a bodega: cancelado, o se quedó en el camión. */
   devolucion: boolean
+  /** Nació de «Generar pedido x faltante» en esta liquidación. */
+  porFaltante: boolean
   /** Efectivo que trae por este pedido. Cero en transferencia o crédito. */
   efectivo: number
   devueltas: number

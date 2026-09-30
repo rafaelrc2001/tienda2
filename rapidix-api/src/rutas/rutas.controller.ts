@@ -31,6 +31,7 @@ import {
   PrevisualizarEntregaDto,
 } from './dto/entregar-pedido.dto';
 import { CerrarCorteDto, RegistrarAbonoDto } from './dto/corte.dto';
+import { GenerarFaltanteDto } from './dto/faltante.dto';
 import {
   CorteDto,
   CortesService,
@@ -164,6 +165,20 @@ export class RutasController {
     @UsuarioActual() usuario: UsuarioAutenticado,
   ): Promise<ResumenCorteDto> {
     return this.cortes.previsualizar(usuario, id);
+  }
+
+  /**
+   * "Generar pedido x faltante": lo que el repartidor conto de menos al bajar
+   * del camion se vuelve una venta entregada en esta entrega y entra a su
+   * corte. Devuelve el resumen del corte ya con el pedido.
+   */
+  @Post('entregas/:id/faltante')
+  generarFaltante(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: GenerarFaltanteDto,
+    @UsuarioActual() usuario: UsuarioAutenticado,
+  ): Promise<ResumenCorteDto> {
+    return this.cortes.generarFaltante(usuario, id, dto);
   }
 
   /**

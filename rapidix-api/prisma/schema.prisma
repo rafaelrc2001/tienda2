@@ -645,6 +645,10 @@ model Pedido {
   /// El primer corte en el que entro; no se sobrescribe si vuelve a salir.
   corteId      String?
   corte        Corte?    @relation(fields: [corteId], references: [id])
+  /// Nacio al liquidar una entrega por mercancia que no regreso del camion: es
+  /// una venta al cliente "Venta en ruta" que el repartidor paga en su corte.
+  /// No tiene renglones de camion; su producto cuenta como entregado.
+  porFaltante  Boolean   @default(false)
 
   /// Cashback que gana el pedido, ya con el multiplicador de la billetera. Se
   /// calcula y congela al crearlo, pero no entra a la billetera hasta que el

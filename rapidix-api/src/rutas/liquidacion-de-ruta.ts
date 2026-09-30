@@ -115,6 +115,51 @@ export function conteoPorProducto(renglones: RenglonConProducto[]): ConteoDeProd
   );
 }
 
+/**
+ * Un renglon del pedido por faltante, visto como renglon del camion: no subio
+ * nada de mas (cargado cero) y lo que falta cuenta como entregado. Asi el
+ * conteo baja la devolucion en lo que ya se cobro y `cargado - entregado`
+ * sigue siendo lo que tiene que bajar del camion.
+ */
+export function renglonDelFaltante(item: {
+  productoId: string;
+  nombre: string;
+  unidad: string;
+  cantidad: number;
+}): RenglonConProducto {
+  return {
+    productoId: item.productoId,
+    nombre: item.nombre,
+    unidad: item.unidad,
+    cantidadCargada: 0,
+    cantidadEntregada: item.cantidad,
+  };
+}
+
+/**
+ * El primer renglon del faltante que no cabe en lo que regresa, o `null` si
+ * todos caben. Un faltante es mercancia que debia bajar y no bajo: no puede
+ * ser de un producto que no viene de vuelta ni pasar de lo que regresa, o se
+ * cobraria dos veces lo que ya se entrego.
+ */
+export function faltanteQueNoCabe(
+  conteo: ConteoDeProducto[],
+  lineas: { productoId: string; cantidad: number }[],
+): { productoId: string; cantidad: number; regresa: number; nombre: string | null } | null {
+  const pedidas = new Map<string, number>();
+  for (const linea of lineas) {
+    pedidas.set(linea.productoId, (pedidas.get(linea.productoId) ?? 0) + linea.cantidad);
+  }
+  for (const [productoId, cantidad] of pedidas) {
+    const producto = conteo.find((c) => c.productoId === productoId);
+    const regresa = producto?.devolucion ?? 0;
+    if (cantidad > regresa) {
+      return { productoId, cantidad, regresa, nombre: producto?.nombre ?? null };
+    }
+  }
+  return null;
+}
+
 export interface ProductoDeLaLinea {
   nombre: string;
   unidad: string;
