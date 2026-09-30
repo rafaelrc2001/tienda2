@@ -177,11 +177,12 @@ export class RecomendacionesService {
       this.prisma.pedido.findFirst({
         where: noCancelado,
         orderBy: { creadoEn: 'desc' },
-        select: { items: { select: { productoId: true } } },
+        // Un renglon en cero es algo que no acepto en la puerta: no lo consume.
+        select: { items: { where: { cantidad: { gt: 0 } }, select: { productoId: true } } },
       }),
       this.prisma.pedidoItem.groupBy({
         by: ['productoId'],
-        where: { pedido: noCancelado },
+        where: { pedido: noCancelado, cantidad: { gt: 0 } },
         _count: { _all: true },
       }),
     ]);

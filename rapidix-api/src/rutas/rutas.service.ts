@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  ConfiguracionNegocio,
   EjeBitacora,
   EstadoPago,
   EntregaRuta,
@@ -24,6 +25,7 @@ import { PedidoDto, PedidosService } from '../pedidos/pedidos.service';
 import { InventarioService } from '../inventario/inventario.service';
 import { ConfiguracionService } from '../configuracion/configuracion.service';
 import { ListasDePrecio, precioUnitario } from '../catalogo/precios';
+import { CashbackService } from '../cashback/cashback.service';
 import {
   EntregarPedidoDto,
   NoEntregadoDto,
@@ -31,9 +33,8 @@ import {
   RenglonEntregadoDto,
 } from './dto/entregar-pedido.dto';
 import {
-  aPagarDeLoEntregado,
+  ajusteDeEntrega,
   CargaLiquidable,
-  cobradoDelRenglon,
   cuentaDeLaEntrega,
   traeEfectivo,
 } from './dinero-del-corte';
@@ -105,31 +106,7 @@ export type PedidoEnRutaDto = PedidoEnPantallaDto & {
   evidencia: EvidenciaEntregaDto | null;
   /** La entrega en la que va o fue; `null` en bodega. */
   entrega: { id: string; numero: number; nombre: string | null } | null;
-  /** Lo que el cliente se quedo y lo que vale; `null` mientras no se entregue. */
-  entregado: LoEntregadoDto | null;
 };
-
-/**
- * La cuenta del pedido con lo que de verdad se quedo el cliente.
- *
- * El pedido no se toca con una entrega parcial —es el recibo de la compra—,
- * asi que esto se calcula de la carga con las mismas funciones del corte: el
- * "A cobrar" que se lee aqui es el efectivo que se liquida.
- */
-export interface LoEntregadoDto {
-  /** Solo lo aceptado: el renglon que el cliente no quiso entero no aparece. */
-  renglones: {
-    pedidoItemId: string;
-    nombre: string;
-    unidad: string;
-    cantidad: number;
-    importe: number;
-  }[];
-  /** Lo que vale lo aceptado, ya re-cotizado. */
-  productos: number;
-  /** El total menos la billetera y menos lo que no se acepto. */
-  aPagar: number;
-}
 
 /** Una entrega (viaje) del repartidor, con lo que lleva contado en vivo. */
 export interface EntregaRutaDto {
@@ -167,8 +144,9 @@ export interface ResumenEntregaDto {
   /** Lo que el cliente no acepto. Sigue en el camion hasta el corte. */
   piezasDevueltas: number;
   /**
-   * Lo que se cobra por lo que quedo en casa del cliente, ya con los precios
-   * re-cotizados. **No es el total del pedido**: ese no se toca nunca.
+   * Lo que vale lo que quedo en casa del cliente, ya con los precios
+   * re-cotizados. Son solo los productos: el total del pedido suma ademas el
+   * envio y resta el cupon.
    */
   importeEntregado: number;
   parcial: boolean;
@@ -277,6 +255,7 @@ export class RutasService {
     private readonly pedidos: PedidosService,
     private readonly inventario: InventarioService,
     private readonly configuracion: ConfiguracionService,
+    private readonly cashback: CashbackService,
   ) {}
 
   // ----------------------------------------------------------------
@@ -873,6 +852,8 @@ export class RutasService {
    *  3. El paso a ENTREGADO con su renglon de bitacora.
    *  4. Con el control de inventario encendido, lo aceptado sale del fisico
    *     (`registrarEntrega`): la venta solo lo habia apartado.
+   *  5. Si fue parcial, el pedido queda como se entrego (`dejarComoSeEntrego`):
+   *     sus renglones, su total y el cashback que gana.
    *
    * Lo que **no** pasa aqui es la vuelta de lo rechazado: sigue en el camion
    * hasta el corte, y es el corte quien la descarga (`cantidadDevuelta`,
@@ -884,7 +865,8 @@ export class RutasService {
     usuario: UsuarioAutenticado,
   ): Promise<ResultadoEntregaDto> {
     let resumen: ResumenEntregaDto;
-    const controlInventario = (await this.configuracion.obtener()).controlInventario;
+    const config = await this.configuracion.obtener();
+    const controlInventario = config.controlInventario;
 
     await this.prisma.$transaction(async (tx) => {
       await this.exigirJornada(tx, usuario.sub, { activa: true });
@@ -902,7 +884,7 @@ export class RutasService {
 
       let entregadas = 0;
       let devueltas = 0;
-      const liquidables: CargaLiquidable[] = [];
+      const liquidables: (CargaEnCamion & CargaLiquidable)[] = [];
 
       for (const { carga, cantidadEntregada, motivoDevolucion } of renglones) {
         const precioEntregado = RutasService.recotizar(
@@ -941,6 +923,8 @@ export class RutasService {
           message: `El pago recibido no cubre los $${cuenta.aCobrar.toFixed(2)} a cobrar.`,
         });
       }
+
+      await this.dejarComoSeEntrego(tx, id, liquidables, config);
 
       if (controlInventario) {
         await this.inventario.registrarEntrega(
@@ -1000,6 +984,136 @@ export class RutasService {
       pedido: await this.pedidoConCarga(id),
       entrega: resumen!,
     };
+  }
+
+  /**
+   * El pedido pasa a ser lo que se entrego: si pidio 10 y acepto 5, el pedido
+   * dice 5, al precio que toca por 5, y su total baja en lo que no se llevo.
+   * Lo que se cargo y lo que se rechazo sigue contado en los renglones del
+   * camion, que es donde vive la historia del intento.
+   *
+   * Con el total cambian las cuentas que colgaban de el, en la misma
+   * transaccion:
+   *  - el cashback se recalcula con el % congelado al comprar, sobre lo que se
+   *    quedo; si ya estaba acreditado se retira la diferencia (nunca mas del
+   *    saldo, como al cancelar);
+   *  - la billetera que ya no hace falta vuelve al cliente;
+   *  - `totalGastado` baja lo mismo que el total y el nivel se recalcula.
+   *
+   * Una entrega completa no toca nada.
+   */
+  private async dejarComoSeEntrego(
+    tx: Prisma.TransactionClient,
+    pedidoId: string,
+    liquidables: (CargaEnCamion & CargaLiquidable)[],
+    config: Pick<ConfiguracionNegocio, 'montoMinimoCashback' | 'multiplicadorCashback'>,
+  ): Promise<void> {
+    const cambiados = liquidables.filter(
+      (c) => c.cantidadEntregada !== c.cantidadCargada || c.precioEntregado !== null,
+    );
+    if (cambiados.length === 0) return;
+
+    for (const c of cambiados) {
+      await tx.pedidoItem.update({
+        where: { id: c.pedidoItemId },
+        data: {
+          cantidad: c.cantidadEntregada,
+          precioUnitario: c.precioEntregado ?? c.precioUnitario,
+        },
+      });
+    }
+
+    const pedido = await tx.pedido.findUniqueOrThrow({
+      where: { id: pedidoId },
+      select: {
+        folio: true,
+        clienteId: true,
+        subtotal: true,
+        total: true,
+        pagadoConBilletera: true,
+        pagoCon: true,
+        porcentajeCashback: true,
+        cashbackGenerado: true,
+        cashbackAcreditadoEn: true,
+        items: {
+          select: {
+            precioUnitario: true,
+            cantidad: true,
+            producto: { select: { aplicaCashback: true } },
+          },
+        },
+      },
+    });
+
+    const ajuste = ajusteDeEntrega(pedido, liquidables);
+    const base = pedido.items
+      .filter((i) => i.producto.aplicaCashback)
+      .reduce((suma, i) => suma.add(i.precioUnitario.mul(i.cantidad)), new Decimal(0));
+    // Nunca sube: la re-cotizacion podria dar un unitario mayor, pero el
+    // cliente no gana premio por llevarse menos.
+    const cashback = Decimal.min(
+      pedido.cashbackGenerado,
+      CashbackService.aBilletera(
+        CashbackService.calcular(base, pedido.porcentajeCashback, config.montoMinimoCashback),
+        config.multiplicadorCashback,
+      ),
+    );
+    const aPagar = ajuste.total.sub(ajuste.pagadoConBilletera);
+
+    await tx.pedido.update({
+      where: { id: pedidoId },
+      data: {
+        subtotal: Decimal.max(0, pedido.subtotal.sub(ajuste.noEntregado)),
+        total: ajuste.total,
+        pagadoConBilletera: ajuste.pagadoConBilletera,
+        // El cambio que se aviso al comprar era sobre el total de entonces.
+        cambio: pedido.pagoCon ? Decimal.max(0, pedido.pagoCon.sub(aPagar)) : null,
+        cashbackGenerado: cashback,
+      },
+    });
+
+    // El saldo se bloquea antes de tocarlo, igual que en el checkout.
+    const filas = await tx.$queryRaw<{ saldoCashback: Prisma.Decimal }[]>`
+      SELECT "saldoCashback" FROM clientes WHERE id = ${pedido.clienteId} FOR UPDATE
+    `;
+    let saldo = new Decimal(filas[0]?.saldoCashback ?? 0);
+
+    if (ajuste.billeteraDevuelta.greaterThan(0)) {
+      await tx.movimientoCashback.create({
+        data: {
+          clienteId: pedido.clienteId,
+          pedidoId,
+          monto: ajuste.billeteraDevuelta,
+          concepto: `Devolución de billetera: el pedido ${pedido.folio} se entregó incompleto`,
+        },
+      });
+      saldo = saldo.add(ajuste.billeteraDevuelta);
+    }
+
+    const sobra = pedido.cashbackGenerado.sub(cashback);
+    if (pedido.cashbackAcreditadoEn && sobra.greaterThan(0)) {
+      const retirable = Decimal.min(sobra, Decimal.max(saldo, 0));
+      if (retirable.greaterThan(0)) {
+        await tx.movimientoCashback.create({
+          data: {
+            clienteId: pedido.clienteId,
+            pedidoId,
+            monto: retirable.negated(),
+            concepto: `Cashback ajustado: el pedido ${pedido.folio} se entregó incompleto`,
+          },
+        });
+        saldo = saldo.sub(retirable);
+      }
+    }
+
+    const cliente = await tx.cliente.update({
+      where: { id: pedido.clienteId },
+      data: {
+        saldoCashback: saldo,
+        totalGastado: { decrement: pedido.total.sub(ajuste.total) },
+      },
+    });
+    await this.cashback.recalcularNivel(tx, pedido.clienteId, cliente.totalGastado);
   }
 
   /**
@@ -1203,22 +1317,13 @@ export class RutasService {
         precioEntregado: true,
         motivoDevolucion: true,
         cerradoEn: true,
-        entregaRutaId: true,
         pedidoItem: { select: { nombre: true, unidad: true } },
       },
       orderBy: { creadoEn: 'asc' },
     });
 
     const porPedido = new Map<string, RenglonDeCargaDto[]>();
-    const delIntento = new Map<string, typeof cargas>();
     for (const c of cargas) {
-      // Lo entregado es lo del viaje que lo cerro: el pedido entregado no
-      // suelta su entrega, y los intentos anteriores ya volvieron a bodega.
-      const entregaDelPedido = entregaDe.get(c.pedidoId)?.id;
-      if (entregaDelPedido && c.entregaRutaId === entregaDelPedido) {
-        delIntento.set(c.pedidoId, [...(delIntento.get(c.pedidoId) ?? []), c]);
-      }
-
       const renglones = porPedido.get(c.pedidoId) ?? [];
       renglones.push({
         pedidoItemId: c.pedidoItemId,
@@ -1241,40 +1346,7 @@ export class RutasService {
       carga: porPedido.get(pedido.id) ?? [],
       evidencia: evidencias.get(pedido.id) ?? null,
       entrega: entregaDe.get(pedido.id) ?? null,
-      entregado:
-        pedido.estado === EstadoPedido.ENTREGADO
-          ? RutasService.loEntregado(pedido, delIntento.get(pedido.id) ?? [])
-          : null,
     }));
-  }
-
-  /**
-   * La cuenta de lo que se quedo el cliente. Sin carga (un pedido por
-   * faltante no sube al camion) no hay nada que descontar y se queda en `null`:
-   * manda el pedido tal cual.
-   */
-  private static loEntregado(
-    pedido: PedidoDto,
-    cargas: (CargaLiquidable & {
-      pedidoItemId: string;
-      pedidoItem: { nombre: string; unidad: string };
-    })[],
-  ): LoEntregadoDto | null {
-    if (cargas.length === 0) return null;
-    const productos = cargas.reduce((suma, c) => suma.add(cobradoDelRenglon(c)), new Decimal(0));
-    return {
-      renglones: cargas
-        .filter((c) => c.cantidadEntregada > 0)
-        .map((c) => ({
-          pedidoItemId: c.pedidoItemId,
-          nombre: c.pedidoItem.nombre,
-          unidad: c.pedidoItem.unidad,
-          cantidad: c.cantidadEntregada,
-          importe: cobradoDelRenglon(c).toNumber(),
-        })),
-      productos: productos.toNumber(),
-      aPagar: aPagarDeLoEntregado(new Decimal(pedido.pago.aPagar), cargas).toNumber(),
-    };
   }
 
   /**

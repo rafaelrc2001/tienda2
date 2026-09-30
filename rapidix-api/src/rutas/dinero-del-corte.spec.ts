@@ -1,6 +1,6 @@
 import { EstadoPago, MetodoPago, Prisma } from '@prisma/client';
 import {
-  aPagarDeLoEntregado,
+  ajusteDeEntrega,
   CargaLiquidable,
   cobradoDelRenglon,
   cuentaDeLaEntrega,
@@ -45,59 +45,55 @@ describe('traeEfectivo', () => {
   });
 });
 
-describe('aPagarDeLoEntregado', () => {
-  it('descuenta lo no aceptado sea cual sea el método de pago', () => {
-    // El caso de la pantalla: $78 de producto + $20 de envío y deja 1 de 2 leches de $24.
+describe('ajusteDeEntrega', () => {
+  const total = (pedido: PedidoALiquidar, cargas: CargaLiquidable[]) =>
+    ajusteDeEntrega(pedido, cargas).total.toNumber();
+
+  it('entrega completa: el pedido no cambia', () => {
+    const ajuste = ajusteDeEntrega(enEfectivo, [diezPiezas]);
+    expect(ajuste.total.toNumber()).toBe(300);
+    expect(ajuste.noEntregado.toNumber()).toBe(0);
+    expect(ajuste.billeteraDevuelta.toNumber()).toBe(0);
+  });
+
+  it('el caso de la pantalla: $78 + $20 de envío y deja 1 de 2 leches de $24', () => {
     const leche: CargaLiquidable = {
       cantidadCargada: 2,
       cantidadEntregada: 1,
       precioUnitario: D(24),
       precioEntregado: null,
     };
-    expect(aPagarDeLoEntregado(D(98), [leche]).toNumber()).toBe(74);
-  });
-});
-
-describe('efectivoDelPedido', () => {
-  it('entrega completa: trae lo que el pedido iba a cobrar', () => {
-    expect(efectivoDelPedido(enEfectivo, [diezPiezas]).toNumber()).toBe(300);
+    expect(total({ ...enEfectivo, total: D(98) }, [leche])).toBe(74);
   });
 
-  it('descuenta el saldo de billetera que el cliente ya había pagado', () => {
-    const conBilletera = { ...enEfectivo, pagadoConBilletera: D(50) };
-    expect(efectivoDelPedido(conBilletera, [diezPiezas]).toNumber()).toBe(250);
-  });
-
-  it('lo que el cliente no aceptó no se cobra', () => {
+  it('lo que el cliente no aceptó sale del total', () => {
     // Acepta 8 de 10 y sigue en el mismo escalón: se descuentan 2 x $17.
     const ocho: CargaLiquidable = { ...diezPiezas, cantidadEntregada: 8 };
-    expect(efectivoDelPedido(enEfectivo, [ocho]).toNumber()).toBe(300 - 34);
+    expect(total(enEfectivo, [ocho])).toBe(300 - 34);
   });
 
-  it('una parcial cobra el precio re-cotizado, no el del pedido', () => {
-    // Acepta 4: pierde el volumen y cada pieza pasa a $19.95. Se cobran
+  it('una parcial vale al precio re-cotizado, no al del pedido', () => {
+    // Acepta 4: pierde el volumen y cada pieza pasa a $19.95. Vale
     // 4 x 19.95 = 79.80 de los 170 que cotizaba el renglón.
     const cuatro: CargaLiquidable = {
       ...diezPiezas,
       cantidadEntregada: 4,
       precioEntregado: D(19.95),
     };
-    expect(efectivoDelPedido(enEfectivo, [cuatro]).toNumber()).toBe(300 - 170 + 79.8);
+    expect(total(enEfectivo, [cuatro])).toBe(300 - 170 + 79.8);
   });
 
   it('el envío y el descuento no se tocan aunque se devuelva todo', () => {
     // Pedido de $170 de mercancía + $30 de envío = $200. No acepta nada:
     // queda el envío, porque el viaje se hizo.
-    const soloEnvio = { ...enEfectivo, total: D(200) };
     const nada: CargaLiquidable = { ...diezPiezas, cantidadEntregada: 0 };
-    expect(efectivoDelPedido(soloEnvio, [nada]).toNumber()).toBe(30);
+    expect(total({ ...enEfectivo, total: D(200) }, [nada])).toBe(30);
   });
 
-  it('nunca baja de cero: una devolución grande no vuelve acreedor al repartidor', () => {
+  it('nunca baja de cero', () => {
     // El cupón dejó el total por debajo del valor de la mercancía.
-    const conCupon = { ...enEfectivo, total: D(100) };
     const nada: CargaLiquidable = { ...diezPiezas, cantidadEntregada: 0 };
-    expect(efectivoDelPedido(conCupon, [nada]).toNumber()).toBe(0);
+    expect(total({ ...enEfectivo, total: D(100) }, [nada])).toBe(0);
   });
 
   it('suma todos los renglones del pedido', () => {
@@ -107,23 +103,42 @@ describe('efectivoDelPedido', () => {
       precioUnitario: D(45),
       precioEntregado: null,
     };
-    expect(efectivoDelPedido(enEfectivo, [diezPiezas, otro]).toNumber()).toBe(300 - 45);
-  });
-
-  it('un pedido a crédito no trae nada, aunque se haya entregado entero', () => {
-    const credito = { ...enEfectivo, estadoPago: EstadoPago.CREDITO };
-    expect(efectivoDelPedido(credito, [diezPiezas]).toNumber()).toBe(0);
+    expect(total(enEfectivo, [diezPiezas, otro])).toBe(300 - 45);
   });
 
   it('trabaja con decimales sin arrastrar el error del binario', () => {
-    const centavos = { ...enEfectivo, total: D(26.5) };
     const carga: CargaLiquidable = {
       cantidadCargada: 3,
       cantidadEntregada: 2,
       precioUnitario: D(8.1),
       precioEntregado: null,
     };
-    expect(efectivoDelPedido(centavos, [carga]).toNumber()).toBe(18.4);
+    expect(total({ ...enEfectivo, total: D(26.5) }, [carga])).toBe(18.4);
+  });
+
+  it('la billetera que ya no hace falta vuelve al cliente', () => {
+    // Pagó $250 con billetera y el pedido baja a $130: le vuelven $120.
+    const nada: CargaLiquidable = { ...diezPiezas, cantidadEntregada: 0 };
+    const ajuste = ajusteDeEntrega({ ...enEfectivo, pagadoConBilletera: D(250) }, [nada]);
+    expect(ajuste.total.toNumber()).toBe(130);
+    expect(ajuste.pagadoConBilletera.toNumber()).toBe(130);
+    expect(ajuste.billeteraDevuelta.toNumber()).toBe(120);
+  });
+});
+
+describe('efectivoDelPedido', () => {
+  it('trae el total del pedido, que ya es lo que se entregó', () => {
+    expect(efectivoDelPedido(enEfectivo).toNumber()).toBe(300);
+  });
+
+  it('descuenta el saldo de billetera que el cliente ya había pagado', () => {
+    const conBilletera = { ...enEfectivo, pagadoConBilletera: D(50) };
+    expect(efectivoDelPedido(conBilletera).toNumber()).toBe(250);
+  });
+
+  it('un pedido a crédito no trae nada', () => {
+    const credito = { ...enEfectivo, estadoPago: EstadoPago.CREDITO };
+    expect(efectivoDelPedido(credito).toNumber()).toBe(0);
   });
 });
 
@@ -143,7 +158,10 @@ describe('cuentaDeLaEntrega', () => {
     const ocho: CargaLiquidable = { ...diezPiezas, cantidadEntregada: 8 };
     const cuenta = cuentaDeLaEntrega(enEfectivo, [ocho], D(300));
     expect(cuenta.productos.toNumber()).toBe(136);
-    expect(cuenta.aCobrar.toNumber()).toBe(efectivoDelPedido(enEfectivo, [ocho]).toNumber());
+    // Lo mismo que leerá el corte del pedido ya ajustado.
+    const ajustado = { ...enEfectivo, ...ajusteDeEntrega(enEfectivo, [ocho]) };
+    expect(cuenta.aCobrar.toNumber()).toBe(efectivoDelPedido(ajustado).toNumber());
+    expect(cuenta.aCobrar.toNumber()).toBe(266);
     expect(cuenta.cambio?.toNumber()).toBe(34);
     expect(cuenta.cubre).toBe(true);
   });

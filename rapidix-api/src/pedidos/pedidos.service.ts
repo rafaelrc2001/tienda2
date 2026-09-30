@@ -573,7 +573,8 @@ export class PedidosService {
     const pedido = await this.prisma.pedido.findFirst({
       where: { clienteId, estadoPago: { not: EstadoPago.CANCELADO } },
       orderBy: { creadoEn: 'desc' },
-      include: { items: true },
+      // Lo que no acepto en la puerta (renglon en cero) no se propone repetir.
+      include: { items: { where: { cantidad: { gt: 0 } } } },
     });
     if (!pedido) return null;
 
@@ -719,15 +720,19 @@ export class PedidosService {
       metodoEntrega: pedido.metodoEntrega,
       direccion: PedidosService.direccionLeida(pedido.direccion),
       cupon: pedido.cupon ? { code: pedido.cupon.code, titulo: pedido.cupon.title } : null,
-      items: pedido.items.map((i) => ({
-        productoId: i.productoId,
-        nombre: i.nombre,
-        categoria: i.categoria,
-        unidad: i.unidad,
-        precioUnitario: i.precioUnitario.toNumber(),
-        cantidad: i.cantidad,
-        importe: i.precioUnitario.mul(i.cantidad).toNumber(),
-      })),
+      // El renglon que el cliente no acepto en la puerta queda en cero: el
+      // pedido es lo que se entrego y ese producto ya no forma parte de el.
+      items: pedido.items
+        .filter((i) => i.cantidad > 0)
+        .map((i) => ({
+          productoId: i.productoId,
+          nombre: i.nombre,
+          categoria: i.categoria,
+          unidad: i.unidad,
+          precioUnitario: i.precioUnitario.toNumber(),
+          cantidad: i.cantidad,
+          importe: i.precioUnitario.mul(i.cantidad).toNumber(),
+        })),
       creadoEn: pedido.creadoEn.toISOString(),
     };
   }

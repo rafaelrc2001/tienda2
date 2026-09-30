@@ -55,33 +55,55 @@ export function cotizadoDelRenglon(carga: CargaLiquidable): Decimal {
 }
 
 /**
- * El efectivo que trae por un pedido.
+ * El efectivo que trae por un pedido: lo que cobra (`total` menos lo que ya
+ * pago con su billetera), si ese dinero pasa por sus manos.
  *
- * Se parte de lo que el pedido iba a cobrar (`total` menos lo que ya pago con
- * su billetera) y se descuenta lo que el cliente no acepto, a los precios que
- * correspondan: los del pedido para lo que se cotizo, el re-cotizado para lo
- * que si se llevo. Envio, recargo y descuento no se tocan —el viaje se hizo y
- * el cupon se uso— y el resultado nunca baja de cero: una devolucion grande no
- * convierte al repartidor en acreedor, eso lo arregla Finanzas con el pedido
- * delante.
+ * No descuenta nada de lo no aceptado porque ya viene descontado: la entrega
+ * deja el pedido como se entrego (`ajusteDeEntrega`). Restarlo aqui otra vez
+ * lo cobraria de menos.
  */
-export function efectivoDelPedido(pedido: PedidoALiquidar, cargas: CargaLiquidable[]): Decimal {
+export function efectivoDelPedido(pedido: PedidoALiquidar): Decimal {
   if (!traeEfectivo(pedido)) return new Decimal(0);
-  return aPagarDeLoEntregado(new Decimal(pedido.total).sub(pedido.pagadoConBilletera), cargas);
+  return Decimal.max(0, new Decimal(pedido.total).sub(pedido.pagadoConBilletera));
+}
+
+/** Como queda el dinero del pedido tras una entrega. */
+export interface AjusteDeEntrega {
+  /** Lo que valia lo que el cliente no acepto, a los precios que correspondan. */
+  noEntregado: Decimal;
+  total: Decimal;
+  /** Lo que queda pagado con billetera: nunca mas que el total nuevo. */
+  pagadoConBilletera: Decimal;
+  /** El saldo de billetera que ya no hace falta y vuelve al cliente. */
+  billeteraDevuelta: Decimal;
 }
 
 /**
- * Lo que el pedido cobra por lo que de verdad se quedo el cliente, sea cual
- * sea el metodo de pago. Es la cuenta de `efectivoDelPedido` sin preguntar si
- * el dinero pasa por el repartidor: la usa el detalle del pedido entregado
- * para que el "A cobrar" que se lee sea el mismo que se liquida.
+ * El pedido pasa a valer lo que el cliente se quedo.
+ *
+ * Se descuenta lo que no acepto a los precios que correspondan: los del pedido
+ * para lo que se cotizo, el re-cotizado para lo que si se llevo (quien pide 10
+ * al precio de 10 y acepta 6 no compro 10). Envio, recargo y descuento no se
+ * tocan —el viaje se hizo y el cupon se uso— y el total nunca baja de cero.
+ * Si baja de lo que ya pago con su billetera, el sobrante le vuelve: el
+ * repartidor no cobra nada y el cliente no pierde saldo por algo que no se llevo.
  */
-export function aPagarDeLoEntregado(aPagar: Decimal, cargas: CargaLiquidable[]): Decimal {
+export function ajusteDeEntrega(
+  pedido: Pick<PedidoALiquidar, 'total' | 'pagadoConBilletera'>,
+  cargas: CargaLiquidable[],
+): AjusteDeEntrega {
   const noEntregado = cargas.reduce(
     (suma, carga) => suma.add(cotizadoDelRenglon(carga).sub(cobradoDelRenglon(carga))),
     new Decimal(0),
   );
-  return Decimal.max(0, new Decimal(aPagar).sub(noEntregado));
+  const total = Decimal.max(0, new Decimal(pedido.total).sub(noEntregado));
+  const pagadoConBilletera = Decimal.min(pedido.pagadoConBilletera, total);
+  return {
+    noEntregado,
+    total,
+    pagadoConBilletera,
+    billeteraDevuelta: new Decimal(pedido.pagadoConBilletera).sub(pagadoConBilletera),
+  };
 }
 
 /** Lo que la hoja de entrega le dice al repartidor antes de confirmar. */
@@ -99,9 +121,10 @@ export interface CuentaDeLaEntrega {
 /**
  * La cuenta de la entrega, con lo que el repartidor lleva contado.
  *
- * Sale de `efectivoDelPedido` y no de sumar aparte: si la hoja pidiera un
- * numero y el corte otro, el repartidor cobraria uno y le faltaria el otro.
- * Sin efectivo que cobrar (transferencia, pagado, credito) siempre cubre.
+ * Es `efectivoDelPedido` sobre el pedido ya ajustado, que es justo lo que
+ * leera el corte: si la hoja pidiera un numero y el corte otro, el repartidor
+ * cobraria uno y le faltaria el otro. Sin efectivo que cobrar (transferencia,
+ * pagado, credito) siempre cubre.
  */
 export function cuentaDeLaEntrega(
   pedido: PedidoALiquidar,
@@ -112,7 +135,7 @@ export function cuentaDeLaEntrega(
     (suma, carga) => suma.add(cobradoDelRenglon(carga)),
     new Decimal(0),
   );
-  const aCobrar = efectivoDelPedido(pedido, cargas);
+  const aCobrar = efectivoDelPedido({ ...pedido, ...ajusteDeEntrega(pedido, cargas) });
 
   if (aCobrar.isZero()) return { productos, aCobrar, cambio: null, cubre: true };
   const cubre = pagoRecibido !== null && pagoRecibido.greaterThanOrEqualTo(aCobrar);
