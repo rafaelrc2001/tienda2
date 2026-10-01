@@ -53,7 +53,7 @@ onMounted(cargar)
     <template v-else>
       <p class="seccion-titulo">Entregas por liquidar</p>
       <div class="tabla-envoltorio">
-        <table class="tabla lineal dos-fijas">
+        <table class="tabla lineal una-fija">
           <thead>
             <tr>
               <th>Entrega</th>
