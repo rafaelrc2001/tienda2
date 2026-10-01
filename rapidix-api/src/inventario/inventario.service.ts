@@ -9,7 +9,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { BuscarMovimientosDto, RegistrarMovimientosDto } from './dto/movimiento.dto';
 import { UsuarioAutenticado } from '../auth/jwt-payload';
-import { devolucionesDeRuta, salidasAlEntregar } from './salidas-del-pedido';
+import { devolucionesDeRuta, LineaAMover, salidasAlEntregar } from './salidas-del-pedido';
 
 /** Saldo de un producto, tal como lo pinta la ventana de Inventario. */
 export interface SaldoProductoDto {
@@ -21,6 +21,8 @@ export interface SaldoProductoDto {
   inventario: number;
   /** Lo liberado para venta. */
   aptInventario: number;
+  /** Lo que va arriba de los camiones ahora mismo. Sigue contando en el fisico. */
+  inventarioEnRuta: number;
   /**
    * Fisico menos apartado. Es el numero que delata un descuadre: si no hay
    * nada en cuarentena deberia ser cero.
@@ -397,9 +399,67 @@ export class InventarioService {
     return piezas;
   }
 
+  // ----------------------------------------------------------------
+  // En ruta
+  // ----------------------------------------------------------------
+
+  /**
+   * Suma al saldo en ruta lo que sube al camion, al recolectar un pedido.
+   *
+   * A diferencia de los otros dos saldos, este no pasa por `aplicar()` ni deja
+   * renglon en la bitacora: no es un movimiento de bodega —el fisico no cambia
+   * hasta que el pedido se entrega— y su historial ya esta escrito, renglon
+   * por renglon, en `carga_repartidor`.
+   *
+   * Tampoco mira `controlInventario`: cuenta lo que va en los camiones, y eso
+   * se sabe aunque nadie haya capturado todavia la existencia de bodega. Si
+   * dependiera del interruptor, encenderlo o apagarlo con un camion en la
+   * calle dejaria el saldo descuadrado.
+   */
+  async subirARuta(tx: Prisma.TransactionClient, lineas: LineaAMover[]): Promise<void> {
+    await InventarioService.moverEnRuta(tx, lineas, 1);
+  }
+
+  /**
+   * Resta del saldo en ruta lo que deja de ir en el camion: lo que el cliente
+   * se quedo, el pedido que se quita antes de salir y lo que el corte descarga.
+   */
+  async bajarDeRuta(tx: Prisma.TransactionClient, lineas: LineaAMover[]): Promise<void> {
+    await InventarioService.moverEnRuta(tx, lineas, -1);
+  }
+
+  /**
+   * Suma o resta, nunca pisa: igual que los otros saldos, y por lo mismo.
+   *
+   * El `GREATEST` es la unica diferencia con `aplicar()`: alla una salida sin
+   * saldo se rechaza, aqui se queda en cero. Este saldo es informativo, y un
+   * descuadre suyo no puede ser lo que impida cerrar una entrega en la puerta
+   * del cliente.
+   */
+  private static async moverEnRuta(
+    tx: Prisma.TransactionClient,
+    lineas: LineaAMover[],
+    signo: 1 | -1,
+  ): Promise<void> {
+    // Un producto que viene en varios renglones se mueve en un solo UPDATE.
+    const porProducto = new Map<string, number>();
+    for (const l of lineas) {
+      if (l.cantidad <= 0) continue;
+      porProducto.set(l.productoId, (porProducto.get(l.productoId) ?? 0) + l.cantidad);
+    }
+    for (const [productoId, cantidad] of porProducto) {
+      await tx.$executeRaw`
+        UPDATE productos
+        SET "inventarioEnRuta" = GREATEST("inventarioEnRuta" + ${signo * cantidad}, 0)
+        WHERE id = ${productoId}
+      `;
+    }
+  }
+
   /**
    * Aplica **un** movimiento y deja su renglon. Es el unico sitio donde
-   * cambian `inventario` y `aptInventario`.
+   * cambian `inventario` y `aptInventario` (`inventarioEnRuta` va por
+   * `moverEnRuta()`).
    *
    * La condicion de saldo viaja dentro del `WHERE` del propio `UPDATE`, no en
    * un `SELECT` previo: Postgres serializa los UPDATE sobre la misma fila, asi
@@ -513,6 +573,7 @@ export class InventarioService {
       unidad: p.unidad,
       inventario: p.inventario,
       aptInventario: p.aptInventario,
+      inventarioEnRuta: p.inventarioEnRuta,
       diferencia: p.inventario - p.aptInventario,
       agotado: p.agotado,
     };

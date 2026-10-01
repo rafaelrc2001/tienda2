@@ -1214,6 +1214,8 @@ export interface SaldoProducto {
   unidad: string
   inventario: number
   aptInventario: number
+  /** Lo que va arriba de los camiones ahora mismo. Sigue contando en el físico. */
+  inventarioEnRuta: number
   /** Físico menos apartado: lo que delata un descuadre. */
   diferencia: number
   agotado: boolean

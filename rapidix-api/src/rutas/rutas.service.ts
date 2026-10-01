@@ -457,7 +457,7 @@ export class RutasService {
    * "Recolectado": el pedido sube al camion de quien pulsa, dentro de una de
    * sus entregas.
    *
-   * Cuatro efectos en la misma transaccion, ademas del paso:
+   * Cinco efectos en la misma transaccion, ademas del paso:
    *
    *  1. El pedido se queda con su repartidor. El primero que lo toma es el
    *     dueno; los demas ya no lo ven disponible.
@@ -465,7 +465,8 @@ export class RutasService {
    *     puede ir en dos entregas a la vez.
    *  3. Cada renglon del pedido abre su fila de `CargaRepartidor` con el precio
    *     congelado, que es lo que luego se compara con lo que el cliente acepte.
-   *  4. El paso y su renglon de bitacora, por el camino de siempre.
+   *  4. Sus piezas suman al saldo en ruta de cada producto (`subirARuta`).
+   *  5. El paso y su renglon de bitacora, por el camino de siempre.
    */
   async recolectar(
     id: string,
@@ -528,6 +529,7 @@ export class RutasService {
         }
         throw fallo;
       }
+      await this.inventario.subirARuta(tx, pedido.items);
 
       await FlujoPedidosService.aplicar(
         tx,
@@ -580,6 +582,16 @@ export class RutasService {
         });
       }
 
+      // Lo que baja del saldo en ruta se lee de las filas antes de borrarlas:
+      // es lo que de verdad subio, no lo que hoy diga el pedido.
+      const cargas = await tx.cargaRepartidor.findMany({
+        where: { pedidoId: id, cerradoEn: null },
+        select: { productoId: true, cantidadCargada: true },
+      });
+      await this.inventario.bajarDeRuta(
+        tx,
+        cargas.map((c) => ({ productoId: c.productoId, cantidad: c.cantidadCargada })),
+      );
       await tx.cargaRepartidor.deleteMany({ where: { pedidoId: id, cerradoEn: null } });
       await tx.pedido.update({
         where: { id },
@@ -854,6 +866,7 @@ export class RutasService {
    *     (`registrarEntrega`): la venta solo lo habia apartado.
    *  5. Si fue parcial, el pedido queda como se entrego (`dejarComoSeEntrego`):
    *     sus renglones, su total y el cashback que gana.
+   *  6. Lo aceptado deja de contar en el saldo en ruta (`bajarDeRuta`).
    *
    * Lo que **no** pasa aqui es la vuelta de lo rechazado: sigue en el camion
    * hasta el corte, y es el corte quien la descarga (`cantidadDevuelta`,
@@ -925,6 +938,13 @@ export class RutasService {
       }
 
       await this.dejarComoSeEntrego(tx, id, liquidables, config);
+
+      // Lo aceptado ya no va en el camion. Lo rechazado sigue en ruta hasta
+      // que el corte lo descargue.
+      await this.inventario.bajarDeRuta(
+        tx,
+        renglones.map((r) => ({ productoId: r.carga.productoId, cantidad: r.cantidadEntregada })),
+      );
 
       if (controlInventario) {
         await this.inventario.registrarEntrega(

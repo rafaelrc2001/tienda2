@@ -856,6 +856,17 @@ export class CortesService {
       });
     }
 
+    // Todo lo que seguia arriba deja de ir en ruta, haya vuelto a bodega o se
+    // haya cobrado como faltante: el saldo en ruta cuenta renglones abiertos y
+    // aqui se cierran todos. No depende de `controlInventario`.
+    await this.inventario.bajarDeRuta(
+      tx,
+      cargas.map((c) => ({
+        productoId: c.productoId,
+        cantidad: c.cantidadCargada - c.cantidadEntregada,
+      })),
+    );
+
     for (const pedido of plan.pedidos) {
       if (pedido.liberaInventario) {
         await this.inventario.devolverDeRuta(tx, pedido.pedidoId, pedido.folio, pedido.lineas, {

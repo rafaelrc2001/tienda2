@@ -260,6 +260,14 @@ model Producto {
   /// No tiene por que coincidir con `inventario`. Mercancia en cuarentena ya
   /// llego a la bodega —suma al fisico— pero todavia no se puede vender.
   aptInventario Int @default(0)
+  /// Lo que va arriba de los camiones ahora mismo: sube al recolectar un
+  /// pedido y baja cuando el cliente se lo queda o regresa a bodega.
+  ///
+  /// No se resta de `inventario`: el fisico baja al entregarse, asi que lo que
+  /// va en ruta sigue contando en el. Este saldo solo dice cuanto de ese
+  /// fisico no esta en el estante. Es la suma de `cantidadCargada -
+  /// cantidadEntregada` de los renglones abiertos de `carga_repartidor`.
+  inventarioEnRuta Int @default(0)
 
   /// Precio escalonado (HU-08). `precioVenta` es la lista 1 y vale desde la
   /// primera pieza; `piso2`/`precio2` y `piso3`/`precio3` son las listas 2 y 3:
