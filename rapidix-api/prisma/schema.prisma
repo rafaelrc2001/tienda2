@@ -253,7 +253,7 @@ model Producto {
   /// el negocio si clasifico como destino.
   rol RolProducto @default(RUTINA)
 
-  /// Lo que hay fisicamente en bodega.
+  /// Lo que hay fisicamente en bodega. Lo que sube a un camion sale de aqui.
   inventario    Int @default(0)
   /// Lo liberado para venta: es lo que el cliente puede comprar.
   ///
@@ -263,10 +263,11 @@ model Producto {
   /// Lo que va arriba de los camiones ahora mismo: sube al recolectar un
   /// pedido y baja cuando el cliente se lo queda o regresa a bodega.
   ///
-  /// No se resta de `inventario`: el fisico baja al entregarse, asi que lo que
-  /// va en ruta sigue contando en el. Este saldo solo dice cuanto de ese
-  /// fisico no esta en el estante. Es la suma de `cantidadCargada -
-  /// cantidadEntregada` de los renglones abiertos de `carga_repartidor`.
+  /// Lo que esta aqui ya no esta en `inventario`: recolectar saca la mercancia
+  /// del fisico (movimiento RUTA) y la pasa a este saldo, y lo que regresa
+  /// vuelve al fisico. Asi cada pieza esta en un solo sitio. Es la suma de
+  /// `cantidadCargada - cantidadEntregada` de los renglones abiertos de
+  /// `carga_repartidor`, y se lleva aunque `controlInventario` este apagado.
   inventarioEnRuta Int @default(0)
 
   /// Precio escalonado (HU-08). `precioVenta` es la lista 1 y vale desde la
@@ -344,8 +345,11 @@ enum MotivoMovimiento {
   TRASPASO
   AJUSTE
   DEVOLUCION
-  /// La mercancia de un pedido sale de verdad al entregarse: solo baja el fisico.
+  /// Entrega en tienda: el cliente se lo lleva sin pasar por un camion.
   ENTREGA
+  /// La mercancia sube a un camion (SALIDA) o baja de el (ENTRADA). Solo
+  /// mueve el fisico: lo que esta arriba lo cuenta `inventarioEnRuta`.
+  RUTA
 }
 
 /// Bitacora de bodega. Nadie pisa el saldo de un producto: lo suma o lo resta

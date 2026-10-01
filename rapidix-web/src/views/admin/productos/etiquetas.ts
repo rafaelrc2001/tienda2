@@ -44,9 +44,10 @@ export const AFECTA: { valor: AfectaInventario; etiqueta: string; ayuda: string 
 ]
 
 /**
- * Motivos que se capturan a mano. `VENTA` no está: esa salida la escribe el
- * pedido al confirmarse, y ofrecerla aquí sería invitar a descontar dos veces
- * la misma venta.
+ * Motivos que se capturan a mano. `VENTA`, `ENTREGA` y `RUTA` no están: esos
+ * movimientos los escribe el pedido al confirmarse, al entregarse en tienda y
+ * al subir o bajar del camión, y ofrecerlos aquí sería invitar a descontar dos
+ * veces la misma venta.
  */
 export const MOTIVOS_CAPTURA: { valor: MotivoMovimiento; etiqueta: string }[] = [
   { valor: 'COMPRA', etiqueta: 'Compra' },
@@ -64,6 +65,7 @@ const NOMBRE_MOTIVO: Record<MotivoMovimiento, string> = {
   AJUSTE: 'Ajuste',
   DEVOLUCION: 'Devolución',
   ENTREGA: 'Entrega',
+  RUTA: 'Ruta',
 }
 
 const NOMBRE_AFECTA: Record<AfectaInventario, string> = {

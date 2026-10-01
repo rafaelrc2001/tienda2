@@ -145,6 +145,7 @@ describe('planDeDescarga', () => {
         lineas: [{ productoId: 'arroz', cantidad: 3 }],
         liberaInventario: true,
         vuelveACola: false,
+        alFisico: [{ productoId: 'arroz', cantidad: 3 }],
       },
     ]);
   });
@@ -152,6 +153,67 @@ describe('planDeDescarga', () => {
   it('el que no se entregó vuelve a la cola y conserva su apartado', () => {
     const plan = planDeDescarga([renglon('c1', 'b', EstadoPedido.EN_RUTA, 10, 0)], true);
     expect(plan.pedidos[0]).toMatchObject({ liberaInventario: false, vuelveACola: true });
+  });
+
+  it('el que no se entregó vuelve entero al físico aunque no se libere para venta', () => {
+    const plan = planDeDescarga([renglon('c1', 'b', EstadoPedido.EN_RUTA, 4, 0)], true);
+    expect(plan.pedidos[0].alFisico).toEqual([{ productoId: 'arroz', cantidad: 4 }]);
+  });
+
+  it('con el control apagado nada vuelve al físico', () => {
+    const plan = planDeDescarga(
+      [
+        renglon('c1', 'a', EstadoPedido.ENTREGADO, 10, 7),
+        renglon('c2', 'b', EstadoPedido.RECOLECTADO, 5, 0),
+      ],
+      false,
+    );
+    expect(plan.pedidos.map((p) => p.alFisico)).toEqual([[], []]);
+  });
+
+  it('lo cobrado como faltante no vuelve al físico', () => {
+    // Rechazó 1, se contó 0 al bajar y se cobró como faltante: no regresa nada.
+    const plan = planDeDescarga(
+      [renglon('c1', 'a', EstadoPedido.ENTREGADO, 4, 3)],
+      true,
+      new Map([['arroz', 1]]),
+    );
+    expect(plan.pedidos[0].alFisico).toEqual([]);
+  });
+
+  it('el faltante que sobra de los rechazados se descuenta de los que regresan enteros', () => {
+    // Bajan 2 rechazados y 5 de un pedido sin entregar; faltan 3. El que
+    // regresa va primero en la lista y aun así el faltante se gasta antes en
+    // el entregado.
+    const plan = planDeDescarga(
+      [
+        renglon('c1', 'c', EstadoPedido.EN_RUTA, 5, 0),
+        renglon('c2', 'a', EstadoPedido.ENTREGADO, 4, 2),
+      ],
+      true,
+      new Map([['arroz', 3]]),
+    );
+    expect(plan.pedidos.map((p) => [p.pedidoId, p.alFisico])).toEqual([
+      ['c', [{ productoId: 'arroz', cantidad: 4 }]],
+      ['a', []],
+    ]);
+    // El que regresa conserva sus líneas enteras: son su pedido, no lo liberado.
+    expect(plan.pedidos[0].lineas).toEqual([{ productoId: 'arroz', cantidad: 5 }]);
+  });
+
+  it('lo que vuelve al físico de cada producto es lo que baja menos el faltante', () => {
+    const plan = planDeDescarga(
+      [
+        renglon('c1', 'a', EstadoPedido.ENTREGADO, 3, 1),
+        renglon('c2', 'b', EstadoPedido.ENTREGADO, 4, 0),
+        renglon('c3', 'c', EstadoPedido.EN_RUTA, 5, 0),
+      ],
+      true,
+      new Map([['arroz', 5]]),
+    );
+    const vuelven = plan.pedidos.flatMap((p) => p.alFisico).reduce((n, l) => n + l.cantidad, 0);
+    // Bajan 2 + 4 + 5 = 11 y faltan 5.
+    expect(vuelven).toBe(6);
   });
 
   it('con el control apagado no libera nada, pero el no entregado vuelve igual', () => {

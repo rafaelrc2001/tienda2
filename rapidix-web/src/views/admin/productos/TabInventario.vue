@@ -111,9 +111,9 @@ const conteo = computed(() => ({
     <p class="nota">
       El saldo no se edita aquí: se mueve en <strong>Movimientos</strong>, que deja constancia de
       quién lo movió y por qué. <em>Físico</em> es lo que hay en bodega; <em>apt. venta</em>, lo que
-      el cliente puede comprar; <em>en ruta</em>, lo que va en los camiones: sube al recolectar un
-      pedido y baja al entregarlo o al regresar en el corte. Sigue contando en el físico hasta que
-      se entrega.
+      el cliente puede comprar; <em>en ruta</em>, lo que va en los camiones. Al recolectar un pedido
+      sus piezas salen del físico y pasan a en ruta; de ahí bajan al entregarse o vuelven al físico
+      al regresar en el corte. Lo que va en ruta ya no cuenta en el físico.
     </p>
   </div>
 </template>

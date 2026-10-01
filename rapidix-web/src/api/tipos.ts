@@ -1193,9 +1193,10 @@ export type TipoMovimiento = 'ENTRADA' | 'SALIDA'
 export type AfectaInventario = 'AMBOS' | 'FISICO' | 'APT'
 
 /**
- * Por qué se movió. Catálogo cerrado, para poder agrupar por causa. `VENTA` y
- * `ENTREGA` los escribe el pedido: la venta aparta (baja el apt.) y la entrega
- * saca la mercancía de bodega (baja el físico).
+ * Por qué se movió. Catálogo cerrado, para poder agrupar por causa. `VENTA`,
+ * `ENTREGA` y `RUTA` los escribe el pedido: la venta aparta (baja el apt.), la
+ * entrega en tienda saca la mercancía de bodega (baja el físico) y la ruta la
+ * sube al camión al recolectar (baja el físico) o la regresa (lo sube).
  */
 export type MotivoMovimiento =
   | 'COMPRA'
@@ -1205,6 +1206,7 @@ export type MotivoMovimiento =
   | 'AJUSTE'
   | 'DEVOLUCION'
   | 'ENTREGA'
+  | 'RUTA'
 
 /** Una fila de la ventana de Inventario. */
 export interface SaldoProducto {
@@ -1214,7 +1216,7 @@ export interface SaldoProducto {
   unidad: string
   inventario: number
   aptInventario: number
-  /** Lo que va arriba de los camiones ahora mismo. Sigue contando en el físico. */
+  /** Lo que va arriba de los camiones ahora mismo. Ya salió del físico al recolectarse. */
   inventarioEnRuta: number
   /** Físico menos apartado: lo que delata un descuadre. */
   diferencia: number

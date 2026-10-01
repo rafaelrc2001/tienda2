@@ -133,17 +133,37 @@ export function diferenciasDelConteo(
   })
 }
 
+/**
+ * Si ya se puede finalizar la liquidación: cada producto que regresa tiene
+ * «Devuelto» capturado y es justo su devolución.
+ *
+ * Vacío no vale —no se ha contado— y contar de menos tampoco: ese faltante se
+ * cobra antes con su pedido, que baja la devolución a lo contado y entonces
+ * cuadra. Lo que no regresa no hay que contarlo. La API lo vuelve a comprobar
+ * (`CONTEO_NO_CUADRA`); esto apaga el botón y ahorra el viaje.
+ */
+export function conteoCompleto(
+  conteo: ConteoDeProducto[],
+  contados: Record<string, string>,
+): boolean {
+  return conteo.every(
+    (p) => p.devolucion <= 0 || piezasCapturadas(contados[p.productoId]) === p.devolucion,
+  )
+}
+
 // ------------------------------------------------------------------
 // Historial
 // ------------------------------------------------------------------
 
-/** El estado de una entrega en el historial. */
+/**
+ * El estado de una entrega en el historial. El corte recién cerrado es
+ * «Liquidado»: es el nombre del estatus, aunque en la base siga siendo
+ * `CERRADO`.
+ */
 export function estadoEnHistorial(entrega: EntregaEnHistorial): string {
   const { corte } = entrega
   if (corte) {
-    return corte.estado === 'RECIBIDO'
-      ? 'Liquidada · corte recibido'
-      : 'Liquidada · corte pendiente de recibir'
+    return corte.estado === 'RECIBIDO' ? 'Liquidada · corte recibido' : 'Liquidado'
   }
   if (entrega.finalizadaEn) return 'Terminada, sin liquidar'
   return entrega.iniciadaEn ? 'En curso' : 'Sin iniciar'

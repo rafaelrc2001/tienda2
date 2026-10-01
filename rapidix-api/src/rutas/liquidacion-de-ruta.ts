@@ -160,6 +160,53 @@ export function faltanteQueNoCabe(
   return null;
 }
 
+/** Un producto cuyo conteo al bajar no es lo que el sistema dice que regresa. */
+export interface ConteoQueNoCuadra {
+  productoId: string;
+  nombre: string;
+  unidad: string;
+  /** Lo que el sistema dice que regresa. */
+  devolucion: number;
+  /** Lo que el repartidor conto. `null` si no lo conto. */
+  devuelto: number | null;
+}
+
+/**
+ * El primer producto que regresa y no se conto, o se conto distinto de lo que
+ * regresa; `null` si todo cuadra.
+ *
+ * Es lo que impide finalizar la liquidacion: lo que vuelve al fisico es la
+ * devolucion del conteo, asi que cerrarla sin contar —o contando de menos sin
+ * cobrar el faltante— meteria al estante mercancia que nadie vio bajar. Un
+ * faltante ya cobrado no estorba: su pedido bajo la devolucion a lo contado.
+ *
+ * Solo se exigen los productos que regresan. Uno que se entrego entero no
+ * tiene nada que contar, venga o no en la lista.
+ */
+export function conteoQueNoCuadra(
+  conteo: ConteoDeProducto[],
+  devueltos: { productoId: string; cantidad: number }[],
+): ConteoQueNoCuadra | null {
+  const contados = new Map<string, number>();
+  for (const d of devueltos) {
+    contados.set(d.productoId, (contados.get(d.productoId) ?? 0) + d.cantidad);
+  }
+  for (const producto of conteo) {
+    if (producto.devolucion <= 0) continue;
+    const devuelto = contados.get(producto.productoId) ?? null;
+    if (devuelto !== producto.devolucion) {
+      return {
+        productoId: producto.productoId,
+        nombre: producto.nombre,
+        unidad: producto.unidad,
+        devolucion: producto.devolucion,
+        devuelto,
+      };
+    }
+  }
+  return null;
+}
+
 export interface ProductoDeLaLinea {
   nombre: string;
   unidad: string;

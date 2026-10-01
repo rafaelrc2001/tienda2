@@ -457,7 +457,7 @@ export class RutasService {
    * "Recolectado": el pedido sube al camion de quien pulsa, dentro de una de
    * sus entregas.
    *
-   * Cinco efectos en la misma transaccion, ademas del paso:
+   * Seis efectos en la misma transaccion, ademas del paso:
    *
    *  1. El pedido se queda con su repartidor. El primero que lo toma es el
    *     dueno; los demas ya no lo ven disponible.
@@ -466,7 +466,10 @@ export class RutasService {
    *  3. Cada renglon del pedido abre su fila de `CargaRepartidor` con el precio
    *     congelado, que es lo que luego se compara con lo que el cliente acepte.
    *  4. Sus piezas suman al saldo en ruta de cada producto (`subirARuta`).
-   *  5. El paso y su renglon de bitacora, por el camino de siempre.
+   *  5. Con el control de inventario encendido, salen del fisico
+   *     (`registrarSalidaARuta`): desde aqui estan en el camion, no en el
+   *     estante. Si el fisico no alcanza, la recoleccion entera se rechaza.
+   *  6. El paso y su renglon de bitacora, por el camino de siempre.
    */
   async recolectar(
     id: string,
@@ -474,6 +477,8 @@ export class RutasService {
     usuario: UsuarioAutenticado,
     nota?: string,
   ): Promise<PedidoEnRutaDto> {
+    const controlInventario = (await this.configuracion.obtener()).controlInventario;
+
     await this.prisma.$transaction(async (tx) => {
       // Dentro de la transaccion: entre la comprobacion y la escritura cabe un
       // corte que deje la jornada liquidada, y la carga colgaria de una jornada
@@ -530,6 +535,12 @@ export class RutasService {
         throw fallo;
       }
       await this.inventario.subirARuta(tx, pedido.items);
+      if (controlInventario) {
+        await this.inventario.registrarSalidaARuta(tx, id, pedido.folio, pedido.items, {
+          usuarioId: usuario.sub,
+          usuarioNombre: usuario.nombre,
+        });
+      }
 
       await FlujoPedidosService.aplicar(
         tx,
@@ -561,10 +572,16 @@ export class RutasService {
    * carga se **borran** en vez de cerrarse: cerrarlas las contaria como
    * devueltas y el corte reingresaria al inventario algo que nunca salio.
    *
+   * Deshace tambien los dos saldos que movio recolectar: las piezas dejan de
+   * contar en ruta (`bajarDeRuta`) y, con el control de inventario encendido,
+   * vuelven al fisico (`registrarRegresoDeRuta`).
+   *
    * Es un retroceso del eje fisico, como el del corte, y por eso no pasa por
    * `TRANSICIONES`: no es un paso adelante sino deshacer la carga.
    */
   async quitarDeEntrega(id: string, usuario: UsuarioAutenticado): Promise<PedidoEnRutaDto> {
+    const controlInventario = (await this.configuracion.obtener()).controlInventario;
+
     await this.prisma.$transaction(async (tx) => {
       await this.exigirJornada(tx, usuario.sub, { activa: true });
       const pedido = await this.bloquearParaRutas(tx, id);
@@ -588,10 +605,16 @@ export class RutasService {
         where: { pedidoId: id, cerradoEn: null },
         select: { productoId: true, cantidadCargada: true },
       });
-      await this.inventario.bajarDeRuta(
-        tx,
-        cargas.map((c) => ({ productoId: c.productoId, cantidad: c.cantidadCargada })),
-      );
+      const bajan = cargas.map((c) => ({ productoId: c.productoId, cantidad: c.cantidadCargada }));
+      await this.inventario.bajarDeRuta(tx, bajan);
+      // Y vuelve al estante lo que recolectar saco del fisico. El apartado no
+      // se toca: el pedido sigue siendo de su cliente.
+      if (controlInventario) {
+        await this.inventario.registrarRegresoDeRuta(tx, id, pedido.folio, bajan, {
+          usuarioId: usuario.sub,
+          usuarioNombre: usuario.nombre,
+        });
+      }
       await tx.cargaRepartidor.deleteMany({ where: { pedidoId: id, cerradoEn: null } });
       await tx.pedido.update({
         where: { id },
@@ -862,15 +885,19 @@ export class RutasService {
    *     re-cotizado al volumen que de verdad se lleva.
    *  2. La evidencia (`EntregaPedido`) apunta a las imagenes ya subidas.
    *  3. El paso a ENTREGADO con su renglon de bitacora.
-   *  4. Con el control de inventario encendido, lo aceptado sale del fisico
-   *     (`registrarEntrega`): la venta solo lo habia apartado.
-   *  5. Si fue parcial, el pedido queda como se entrego (`dejarComoSeEntrego`):
+   *  4. Si fue parcial, el pedido queda como se entrego (`dejarComoSeEntrego`):
    *     sus renglones, su total y el cashback que gana.
-   *  6. Lo aceptado deja de contar en el saldo en ruta (`bajarDeRuta`).
+   *  5. Lo aceptado deja de contar en el saldo en ruta (`bajarDeRuta`).
+   *
+   * **El fisico no se mueve aqui**: salio del estante al recolectar. Se sigue
+   * llamando a `registrarEntrega` solo por el pedido que subio al camion antes
+   * de que existiera la salida a ruta: ese no tiene movimiento RUTA y saca su
+   * fisico en este momento, como antes. Para los demas no encuentra nada que
+   * sacar.
    *
    * Lo que **no** pasa aqui es la vuelta de lo rechazado: sigue en el camion
    * hasta el corte, y es el corte quien la descarga (`cantidadDevuelta`,
-   * `cerradoEn`) y la libera para venta.
+   * `cerradoEn`), la devuelve al fisico y la libera para venta.
    */
   async entregar(
     id: string,
@@ -946,6 +973,7 @@ export class RutasService {
         renglones.map((r) => ({ productoId: r.carga.productoId, cantidad: r.cantidadEntregada })),
       );
 
+      // Solo saca algo de un pedido recolectado antes de la salida a ruta.
       if (controlInventario) {
         await this.inventario.registrarEntrega(
           tx,

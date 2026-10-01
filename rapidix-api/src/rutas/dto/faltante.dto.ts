@@ -24,7 +24,7 @@ export class LineaFaltanteDto {
 
 /**
  * "Generar pedido x faltante": lo que el repartidor conto de menos al bajar
- * del camion. Solo cantidades: el precio lo pone la API con el del catalogo.
+ * del camion. Solo cantidades: el precio lo pone la API con las listas de precio.
  */
 export class GenerarFaltanteDto {
   @IsArray()

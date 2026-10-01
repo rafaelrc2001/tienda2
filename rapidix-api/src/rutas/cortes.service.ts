@@ -22,11 +22,18 @@ import {
   planDeDescarga,
 } from './alcance-del-corte';
 import { PedidosService } from '../pedidos/pedidos.service';
-import { CerrarCorteDto, RecibirCorteDto, RegistrarAbonoDto } from './dto/corte.dto';
+import { precioUnitario } from '../catalogo/precios';
+import {
+  CerrarCorteDto,
+  CorregirDeclaradoDto,
+  RecibirCorteDto,
+  RegistrarAbonoDto,
+} from './dto/corte.dto';
 import { GenerarFaltanteDto } from './dto/faltante.dto';
 import {
   ConteoDeProducto,
   conteoPorProducto,
+  conteoQueNoCuadra,
   esDevolucion,
   faltanteQueNoCabe,
   indicadoresDeRuta,
@@ -219,12 +226,16 @@ export class CortesService {
    * lo declarado, y de ahi solo puede pasar a recibido por Finanzas. Todo pasa
    * en una transaccion:
    *
-   *  1. Se calcula lo que trae de esta entrega, con la jornada bloqueada.
+   *  1. Se calcula lo que trae de esta entrega, con la jornada bloqueada, y
+   *     se comprueba que lo que conto al bajar es lo que regresa
+   *     (`conteoQueNoCuadra`): si no, 409 `CONTEO_NO_CUADRA` y no se cierra
+   *     nada.
    *  2. Nace el corte con lo calculado y lo declarado, uno al lado del otro.
    *  3. Los pedidos entregados de la entrega quedan liquidados y atados a el.
    *  4. **Se descarga su parte del camion**: cada renglon abierto escribe lo
-   *     que devuelve y se cierra. Lo que un cliente rechazo vuelve a estar
-   *     disponible para venta; el fisico no se mueve porque nunca bajo.
+   *     que devuelve y se cierra. Todo lo que baja vuelve al fisico, del que
+   *     salio al recolectarse; lo que un cliente rechazo vuelve ademas a estar
+   *     disponible para venta.
    *  5. Lo que no se entrego regresa a "Listo para entrega" y suelta a su
    *     repartidor, para que pueda salir en otra entrega.
    *  6. La entrega queda atada al corte; si era la ultima viva, la jornada
@@ -252,6 +263,23 @@ export class CortesService {
 
       const alcance = await this.alcance(tx, usuario.sub, entregaId);
       const resumen = await this.calcular(tx, usuario.sub, alcance);
+
+      // Lo que vuelve al fisico es la devolucion del conteo: sin contarla, o
+      // contando de menos sin cobrar el faltante, entraria al estante
+      // mercancia que nadie vio bajar. El dinero que no cuadra no bloquea; la
+      // mercancia si.
+      const descuadre = conteoQueNoCuadra(resumen.conteo, dto.devueltos);
+      if (descuadre) {
+        throw new ConflictException({
+          statusCode: 409,
+          code: 'CONTEO_NO_CUADRA',
+          message:
+            descuadre.devuelto === null
+              ? `Falta contar ${descuadre.nombre}: regresan ${descuadre.devolucion} ${descuadre.unidad}.`
+              : `De ${descuadre.nombre} regresan ${descuadre.devolucion} ${descuadre.unidad} y ` +
+                `contaste ${descuadre.devuelto}. Si faltan, genera antes el pedido por faltante.`,
+        });
+      }
 
       const corte = await tx.corte.create({
         data: {
@@ -329,9 +357,13 @@ export class CortesService {
    *
    * Nace una venta en efectivo a nombre de "Venta en ruta", ya ENTREGADA y en
    * esta misma entrega, sin liquidar: `calcular` la suma al efectivo del corte
-   * y su producto cuenta como entregado en el conteo. El precio es el de
-   * catalogo (lista 1) y lo pone la API. No se puede pedir mas de lo que
-   * regresa: eso ya se entrego o nunca subio.
+   * y su producto cuenta como entregado en el conteo. El precio lo pone la API
+   * con las listas de precio de hoy (`precioUnitario`), segun cuantas piezas
+   * faltan de ese producto. No se puede pedir mas de lo que regresa: eso ya se
+   * entrego o nunca subio.
+   *
+   * No escribe ningun movimiento de inventario, y por eso cancelarlo despues
+   * no devuelve mercancia: lo que falto no esta en bodega.
    *
    * Devuelve el resumen del corte ya con el pedido, para repintar sin otra
    * peticion.
@@ -342,7 +374,6 @@ export class CortesService {
     dto: GenerarFaltanteDto,
   ): Promise<ResumenCorteDto> {
     const quien = actorDe(usuario);
-    const controlInventario = (await this.configuracion.obtener()).controlInventario;
 
     return this.prisma.$transaction(async (tx) => {
       // La misma jornada bloqueada que el corte: un faltante no puede colarse
@@ -383,17 +414,26 @@ export class CortesService {
           nombre: true,
           unidad: true,
           precioVenta: true,
+          piso2: true,
+          precio2: true,
+          piso3: true,
+          precio3: true,
           categoria: { select: { nombre: true } },
         },
       });
-      const lineas = productos.map((p) => ({
-        productoId: p.id,
-        nombre: p.nombre,
-        categoria: p.categoria.nombre,
-        unidad: p.unidad,
-        precioUnitario: p.precioVenta,
-        cantidad: cantidades.get(p.id)!,
-      }));
+      // El precio sale de las listas, con lo que falta de ese producto como
+      // volumen: es la misma cuenta que cobraria esas piezas en un pedido.
+      const lineas = productos.map((p) => {
+        const cantidad = cantidades.get(p.id)!;
+        return {
+          productoId: p.id,
+          nombre: p.nombre,
+          categoria: p.categoria.nombre,
+          unidad: p.unidad,
+          precioUnitario: precioUnitario(p, cantidad),
+          cantidad,
+        };
+      });
       const total = lineas.reduce(
         (suma, l) => suma.add(new Decimal(l.precioUnitario).mul(l.cantidad)),
         new Decimal(0),
@@ -421,12 +461,9 @@ export class CortesService {
         },
       });
 
-      if (controlInventario) {
-        await this.inventario.registrarFaltanteDeRuta(tx, pedido.id, folio, lineas, {
-          usuarioId: quien.actorId,
-          usuarioNombre: quien.actorNombre,
-        });
-      }
+      // No toca el inventario: sus piezas salieron del fisico al recolectarse
+      // y siguen en ruta hasta que el corte cierre los renglones, que ya no
+      // las devuelve al estante ni las libera (`planDeDescarga`).
 
       const nota = 'Faltante al liquidar la entrega: lo paga el repartidor en su corte.';
       await registrarEnBitacora(
@@ -509,7 +546,7 @@ export class CortesService {
   async corregirDeclarado(
     corteId: string,
     usuario: UsuarioAutenticado,
-    dto: CerrarCorteDto,
+    dto: CorregirDeclaradoDto,
   ): Promise<CorteDto> {
     const corte = await this.prisma.corte.findUnique({ where: { id: corteId } });
     if (!corte) throw new NotFoundException('Corte no encontrado');
@@ -823,15 +860,16 @@ export class CortesService {
 
   /**
    * Baja del camion lo que queda de la entrega: escribe lo devuelto en cada
-   * renglon, lo cierra, libera para venta lo rechazado en la puerta y devuelve
-   * a la cola los pedidos que no se llegaron a entregar.
+   * renglon, lo cierra, devuelve al fisico todo lo que baja, libera para venta
+   * lo rechazado en la puerta y devuelve a la cola los pedidos que no se
+   * llegaron a entregar.
    */
   private async descargarCamion(
     tx: Prisma.TransactionClient,
     donde: Prisma.CargaRepartidorWhereInput,
     quien: ActorDeBitacora,
     controlInventario: boolean,
-    /** Lo ya cobrado como faltante: no bajo del camion y no se libera. */
+    /** Lo ya cobrado como faltante: no bajo del camion, asi que ni vuelve al fisico ni se libera. */
     faltantes: ReadonlyMap<string, number>,
   ): Promise<void> {
     const cargas = await tx.cargaRepartidor.findMany({
@@ -868,6 +906,17 @@ export class CortesService {
     );
 
     for (const pedido of plan.pedidos) {
+      // Primero al estante, luego a venta: lo rechazado vuelve a los dos
+      // saldos; el pedido que regresa entero, solo al fisico.
+      if (pedido.alFisico.length > 0) {
+        await this.inventario.registrarRegresoDeRuta(
+          tx,
+          pedido.pedidoId,
+          pedido.folio,
+          pedido.alFisico,
+          { usuarioId: quien.actorId, usuarioNombre: quien.actorNombre },
+        );
+      }
       if (pedido.liberaInventario) {
         await this.inventario.devolverDeRuta(tx, pedido.pedidoId, pedido.folio, pedido.lineas, {
           usuarioId: quien.actorId,

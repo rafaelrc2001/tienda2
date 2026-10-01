@@ -9,7 +9,13 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { BuscarMovimientosDto, RegistrarMovimientosDto } from './dto/movimiento.dto';
 import { UsuarioAutenticado } from '../auth/jwt-payload';
-import { devolucionesDeRuta, LineaAMover, salidasAlEntregar } from './salidas-del-pedido';
+import {
+  devolucionesDeRuta,
+  LineaAMover,
+  regresosDeRuta,
+  salidasAlEntregar,
+  salidasARuta,
+} from './salidas-del-pedido';
 
 /** Saldo de un producto, tal como lo pinta la ventana de Inventario. */
 export interface SaldoProductoDto {
@@ -142,9 +148,9 @@ export class InventarioService {
     dto: RegistrarMovimientosDto,
     usuario: UsuarioAutenticado | undefined,
   ): Promise<ResumenLoteDto> {
-    // VENTA y ENTREGA no se capturan a mano: las escribe el pedido al
-    // confirmarse y al entregarse. Dejarlas aqui permitiria descontar dos veces
-    // la misma venta.
+    // VENTA, ENTREGA y RUTA no se capturan a mano: las escribe el pedido al
+    // confirmarse, al entregarse y al subir o bajar del camion. Dejarlas aqui
+    // permitiria descontar dos veces la misma venta.
     if (dto.motivo === MotivoMovimiento.VENTA) {
       throw new ConflictException(
         'El motivo «Venta» lo registra el pedido al confirmarse, no se captura a mano.',
@@ -153,6 +159,11 @@ export class InventarioService {
     if (dto.motivo === MotivoMovimiento.ENTREGA) {
       throw new ConflictException(
         'El motivo «Entrega» lo registra el pedido al entregarse, no se captura a mano.',
+      );
+    }
+    if (dto.motivo === MotivoMovimiento.RUTA) {
+      throw new ConflictException(
+        'El motivo «Ruta» lo registra el pedido al subir o bajar del camión, no se captura a mano.',
       );
     }
 
@@ -226,52 +237,20 @@ export class InventarioService {
   }
 
   /**
-   * Descuenta el pedido por faltante: la mercancia que salio en el camion y no
-   * regreso al liquidar.
-   *
-   * Solo baja el FISICO: ese producto salio en el camion sin descontarse —el
-   * fisico baja al entregarse— y no volvio. El saldo de venta no se toca aqui:
-   * esas piezas ya estaban apartadas, para el pedido que regresa o para el
-   * que las rechazo en la puerta, y lo apartado suele estar en cero. Lo
-   * rechazado lo libera el corte, y el corte ya no libera lo cobrado como
-   * faltante (`planDeDescarga`). Al cancelarlo, `devolverPedido()` lo deshace
-   * con el mismo alcance.
-   */
-  async registrarFaltanteDeRuta(
-    tx: Prisma.TransactionClient,
-    pedidoId: string,
-    folio: string,
-    lineas: { productoId: string; cantidad: number }[],
-    quien: { usuarioId: string | null; usuarioNombre: string },
-  ): Promise<void> {
-    for (const linea of lineas) {
-      await this.aplicar(tx, {
-        productoId: linea.productoId,
-        cantidad: linea.cantidad,
-        tipo: TipoMovimiento.SALIDA,
-        afecta: AfectaInventario.FISICO,
-        motivo: MotivoMovimiento.VENTA,
-        empleado: quien.usuarioNombre,
-        observaciones: `Faltante de ruta, pedido ${folio}`,
-        usuarioId: quien.usuarioId,
-        usuarioNombre: quien.usuarioNombre,
-        pedidoId,
-      });
-    }
-  }
-
-  /**
    * Saca del fisico lo que el cliente se llevo, al entregarse el pedido.
    *
-   * Es el segundo momento de la venta: `registrarVenta()` aparto la mercancia
-   * (APT) y aqui sale de verdad de bodega (FISICO). A domicilio llega lo que
-   * el cliente acepto; en tienda, el pedido entero.
+   * Es el segundo momento de la venta en tienda: `registrarVenta()` aparto la
+   * mercancia (APT) y aqui sale de verdad de bodega (FISICO), el pedido
+   * entero. A domicilio ese momento es recolectar (`registrarSalidaARuta()`),
+   * asi que al entregarse ya no queda nada que sacar; solo el pedido que subio
+   * al camion antes de que existiera la salida a ruta lo saca aqui, y entonces
+   * llega lo que el cliente acepto.
    *
    * Como las devoluciones, se deduce de **lo que de verdad paso**: solo sale
-   * del fisico lo que se aparto con una VENTA de solo APT y no ha salido aun.
-   * Asi un pedido hecho con el control apagado —sin VENTA— no descuenta nada,
-   * y uno de antes de separar los dos momentos —que vendio con AMBOS y ya bajo
-   * el fisico— tampoco lo baja dos veces.
+   * del fisico lo que se aparto con una VENTA de solo APT y no ha salido aun,
+   * ni con una ENTREGA ni a ruta. Asi un pedido hecho con el control apagado
+   * —sin VENTA— no descuenta nada, y uno de antes de separar los dos momentos
+   * —que vendio con AMBOS y ya bajo el fisico— tampoco lo baja dos veces.
    *
    * Devuelve cuantas piezas salieron.
    */
@@ -282,10 +261,9 @@ export class InventarioService {
     lineas: { productoId: string; cantidad: number }[],
     quien: { usuarioId: string | null; usuarioNombre: string },
   ): Promise<number> {
-    const movimientos = await tx.movimientoInventario.findMany({
-      where: { pedidoId, motivo: { in: [MotivoMovimiento.VENTA, MotivoMovimiento.ENTREGA] } },
-      select: { productoId: true, cantidad: true, tipo: true, afecta: true, motivo: true },
-    });
+    // Con las salidas a ruta: sin ellas un pedido recolectado bajaria el
+    // fisico otra vez en la puerta del cliente.
+    const movimientos = await InventarioService.movimientosDeRuta(tx, pedidoId);
 
     let piezas = 0;
     for (const salida of salidasAlEntregar(movimientos, lineas)) {
@@ -402,6 +380,103 @@ export class InventarioService {
   // ----------------------------------------------------------------
   // En ruta
   // ----------------------------------------------------------------
+
+  /**
+   * Saca del fisico lo que sube al camion, al recolectar un pedido.
+   *
+   * Es el segundo momento de la venta a domicilio: `registrarVenta()` aparto
+   * la mercancia (APT) y aqui deja el estante (FISICO). Desde este instante lo
+   * cuenta `inventarioEnRuta`, que lleva `subirARuta()` por su lado.
+   *
+   * Como las demas cuentas del pedido, se deduce de **lo que de verdad paso**:
+   * solo sale lo apartado con una VENTA de solo APT que sigue en bodega. Un
+   * pedido hecho con el control apagado —sin VENTA— no descuenta nada.
+   *
+   * Si el fisico no alcanza, `aplicar()` lanza y la recoleccion entera se
+   * deshace: no puede subir al camion lo que no esta en el estante.
+   *
+   * Devuelve cuantas piezas salieron.
+   */
+  async registrarSalidaARuta(
+    tx: Prisma.TransactionClient,
+    pedidoId: string,
+    folio: string,
+    lineas: LineaAMover[],
+    quien: { usuarioId: string | null; usuarioNombre: string },
+  ): Promise<number> {
+    const movimientos = await InventarioService.movimientosDeRuta(tx, pedidoId);
+
+    let piezas = 0;
+    for (const salida of salidasARuta(movimientos, lineas)) {
+      await this.aplicar(tx, {
+        productoId: salida.productoId,
+        cantidad: salida.cantidad,
+        tipo: TipoMovimiento.SALIDA,
+        afecta: AfectaInventario.FISICO,
+        motivo: MotivoMovimiento.RUTA,
+        empleado: quien.usuarioNombre,
+        observaciones: `Sale a ruta el pedido ${folio}`,
+        usuarioId: quien.usuarioId,
+        usuarioNombre: quien.usuarioNombre,
+        pedidoId,
+      });
+      piezas += salida.cantidad;
+    }
+    return piezas;
+  }
+
+  /**
+   * Devuelve al fisico lo que baja del camion: el pedido que se quita de la
+   * entrega antes de salir y lo que el corte descarga.
+   *
+   * Solo mueve el FISICO. Lo que un cliente rechazo se libera para venta
+   * aparte, con `devolverDeRuta()`; el pedido que regresa entero sigue siendo
+   * de su cliente y conserva su apartado.
+   *
+   * Nunca entra mas de lo que subio: el tope es lo que el pedido tiene fuera
+   * por RUTA. Uno recolectado con el control apagado, o antes de que existiera
+   * RUTA, no devuelve nada, y descargar dos veces tampoco infla el saldo.
+   *
+   * Devuelve cuantas piezas volvieron.
+   */
+  async registrarRegresoDeRuta(
+    tx: Prisma.TransactionClient,
+    pedidoId: string,
+    folio: string,
+    lineas: LineaAMover[],
+    quien: { usuarioId: string | null; usuarioNombre: string },
+  ): Promise<number> {
+    const movimientos = await InventarioService.movimientosDeRuta(tx, pedidoId);
+
+    let piezas = 0;
+    for (const regreso of regresosDeRuta(movimientos, lineas)) {
+      await this.aplicar(tx, {
+        productoId: regreso.productoId,
+        cantidad: regreso.cantidad,
+        tipo: TipoMovimiento.ENTRADA,
+        afecta: AfectaInventario.FISICO,
+        motivo: MotivoMovimiento.RUTA,
+        empleado: quien.usuarioNombre,
+        observaciones: `Regresa de ruta el pedido ${folio}`,
+        usuarioId: quien.usuarioId,
+        usuarioNombre: quien.usuarioNombre,
+        pedidoId,
+      });
+      piezas += regreso.cantidad;
+    }
+    return piezas;
+  }
+
+  /** Los movimientos del pedido que deciden que hay en el estante y que en el camion. */
+  private static movimientosDeRuta(tx: Prisma.TransactionClient, pedidoId: string) {
+    return tx.movimientoInventario.findMany({
+      where: {
+        pedidoId,
+        motivo: { in: [MotivoMovimiento.VENTA, MotivoMovimiento.ENTREGA, MotivoMovimiento.RUTA] },
+      },
+      select: { productoId: true, cantidad: true, tipo: true, afecta: true, motivo: true },
+    });
+  }
 
   /**
    * Suma al saldo en ruta lo que sube al camion, al recolectar un pedido.
