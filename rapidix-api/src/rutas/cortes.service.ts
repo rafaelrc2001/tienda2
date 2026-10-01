@@ -665,15 +665,23 @@ export class CortesService {
   }
 
   /**
-   * Las entregas del repartidor, de la mas reciente a la mas vieja, con su
-   * corte. Incluye las vivas: el historial dice tambien "sin liquidar".
+   * Las entregas ya liquidadas del repartidor, de la mas reciente a la mas
+   * vieja, con su corte: el pendiente de recibir (todavia se corrige) y el
+   * recibido por Finanzas (se abona lo que falte). Las vivas no entran: estan
+   * en Entregas o en Liquidacion, y repetirlas aqui las ponia en dos pestanas.
+   *
+   * La segunda rama es la entrega de una jornada cortada entera (cortes de
+   * antes): no tiene corte propio, pero tampoco sigue viva.
    */
   async historial(
     usuario: UsuarioAutenticado,
     limite: number,
   ): Promise<{ entregas: EntregaEnHistorialDto[] }> {
     const entregas = await this.prisma.entregaRuta.findMany({
-      where: { repartidorId: usuario.sub },
+      where: {
+        repartidorId: usuario.sub,
+        OR: [{ corteId: { not: null } }, { sesion: { corteId: { not: null } } }],
+      },
       orderBy: { creadoEn: 'desc' },
       take: limite,
       include: { corte: { include: INCLUIR_CORTE } },

@@ -252,6 +252,17 @@ const routes: RouteRecordRaw[] = [
     meta: { seccion: 'rutas', titulo: 'Entrega', volverA: '/admin/rutas' },
   },
   {
+    // El corte de una entrega. Se vuelve a la pestaña Liquidación, de donde se viene.
+    path: '/admin/rutas/liquidacion/:id',
+    name: 'rutas-liquidacion',
+    component: () => import('@/views/admin/LiquidacionEntregaView.vue'),
+    meta: {
+      seccion: 'rutas',
+      titulo: 'Liquidación',
+      volverA: '/admin/rutas?ventana=liquidacion',
+    },
+  },
+  {
     // Se abren desde la casilla de términos del carrito, en otra pestaña.
     path: '/legal/:documento(privacidad|terminos)',
     name: 'legal',

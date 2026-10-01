@@ -723,6 +723,95 @@ input:checked + .switch-danger-slider {
   max-width: 320px;
 }
 
+/*
+ * Columnas fijas a la izquierda (Rutas): en el teléfono la fila no cabe y lo
+ * demás se desplaza por debajo, así cada cifra y cada botón siguen junto a su
+ * pedido o producto. `.una-fija` ancla la primera; `.dos-fijas` también la
+ * segunda, que arranca donde acaba la primera: por eso esa lleva ancho fijo
+ * (`--ancho-fija-1`, que cada tabla ajusta a lo que mide su primer dato).
+ * La fila de detalle, con su `colspan`, no se ancla.
+ */
+.tabla.dos-fijas {
+  --ancho-fija-1: 150px;
+}
+
+.tabla.una-fija > * > tr:not(.fila-detalle) > :is(th, td):first-child,
+.tabla.dos-fijas > * > tr:not(.fila-detalle) > :is(th, td):nth-child(-n + 2) {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+}
+
+.tabla.una-fija > tbody > tr:not(.fila-detalle) > td:first-child,
+.tabla.dos-fijas > tbody > tr:not(.fila-detalle) > td:nth-child(-n + 2),
+.tabla.una-fija > thead > tr > th:first-child,
+.tabla.dos-fijas > thead > tr > th:nth-child(-n + 2) {
+  background: var(--white);
+}
+
+.tabla.lineal.una-fija > thead > tr > th:first-child,
+.tabla.lineal.dos-fijas > thead > tr > th:nth-child(-n + 2),
+.tabla.lineal.una-fija > tbody > tr:not(.fila-detalle):hover > td:first-child,
+.tabla.lineal.dos-fijas > tbody > tr:not(.fila-detalle):hover > td:nth-child(-n + 2) {
+  background: var(--cream-2);
+}
+
+.tabla.dos-fijas > * > tr:not(.fila-detalle) > :is(th, td):first-child {
+  width: var(--ancho-fija-1);
+  min-width: var(--ancho-fija-1);
+  max-width: var(--ancho-fija-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tabla.dos-fijas > * > tr:not(.fila-detalle) > :is(th, td):nth-child(2) {
+  left: var(--ancho-fija-1);
+}
+
+/* La raya marca dónde empieza lo que se desplaza. */
+.tabla.una-fija > * > tr:not(.fila-detalle) > :is(th, td):first-child,
+.tabla.dos-fijas > * > tr:not(.fila-detalle) > :is(th, td):nth-child(2) {
+  box-shadow: inset -1px 0 0 var(--line);
+}
+
+/*
+ * Lo que comparten las pestañas de Rutas y la vista de una liquidación. Vive
+ * aquí y no en `RutasView`: a la liquidación se llega también directo por su
+ * URL, sin haber cargado antes la pantalla de las pestañas.
+ */
+.pantalla-rutas .seccion-titulo {
+  margin: 16px 0 6px;
+  font-family: var(--font-heading);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* Cada bloque pinta su propio error, sin tumbar el resto de la pantalla. */
+.pantalla-rutas .error-bloque {
+  margin: 0;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--orange) 10%, var(--white));
+  border-left: 3px solid var(--orange-dark);
+  border-radius: var(--radius-sm);
+}
+
+.pantalla-rutas .error-bloque .enlace {
+  margin-left: 8px;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--terracotta-dark);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 /* ------------------------------------------------------------------
  * Panel de pedidos: Operaciones y Finanzas se ven igual
  *
