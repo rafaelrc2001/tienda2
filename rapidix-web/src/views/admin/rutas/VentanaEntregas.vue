@@ -139,7 +139,7 @@ async function crearEntrega(): Promise<void> {
     <section v-else-if="entregas.length > 0">
       <p class="seccion-titulo">Mis entregas</p>
       <div class="tabla-envoltorio">
-        <table class="tabla lineal dos-fijas">
+        <table class="tabla lineal una-fija">
           <thead>
             <tr>
               <th>Entrega</th>
