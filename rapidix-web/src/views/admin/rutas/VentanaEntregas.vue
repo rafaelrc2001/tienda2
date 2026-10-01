@@ -1,6 +1,9 @@
 <script setup lang="ts">
 /**
- * Rutas → Entregas: la lista de entregas de la jornada y «Crear entrega».
+ * Rutas → Entregas: las entregas abiertas de la jornada y «Crear entrega».
+ *
+ * Solo las que están sin iniciar o en curso. La finalizada pasa a Liquidación y
+ * la que ya tiene corte a Historial: cada entrega aparece en una sola pestaña.
  *
  * La jornada no se pinta ni se inicia aquí: la API la abre sola con la primera
  * entrega del día y la cierra el corte de la última. Crear una entrega no la
@@ -47,7 +50,7 @@ async function cargar(conEsqueleto = true, silenciosa = false): Promise<void> {
       query: { filtro: FILTRO, limite: 1 },
     })
     if (numero !== peticion) return
-    entregas.value = respuesta.entregas
+    entregas.value = respuesta.entregas.filter((e) => !e.cortada && e.finalizadaEn === null)
     error.value = ''
   } catch {
     if (numero === peticion && !silenciosa) error.value = 'No pudimos cargar tus entregas.'
@@ -97,8 +100,6 @@ function abrirCrearEntrega(): void {
 
 /** Cada entrega se inicia dentro de ella: recién creada queda «Sin iniciar». */
 function estadoEntrega(entrega: EntregaRuta): string {
-  if (entrega.cortada) return 'Cortada'
-  if (entrega.finalizadaEn) return 'Finalizada'
   return entrega.iniciadaEn ? 'En curso' : 'Sin iniciar'
 }
 
@@ -134,11 +135,11 @@ async function crearEntrega(): Promise<void> {
       <button type="button" class="enlace" @click="cargar()">Reintentar</button>
     </p>
 
-    <!-- Las entregas de la jornada: cada una es un viaje con sus pedidos. -->
+    <!-- Las entregas abiertas de la jornada: cada una es un viaje con sus pedidos. -->
     <section v-else-if="entregas.length > 0">
       <p class="seccion-titulo">Mis entregas</p>
       <div class="tabla-envoltorio">
-        <table class="tabla lineal">
+        <table class="tabla lineal dos-fijas">
           <thead>
             <tr>
               <th>Entrega</th>
@@ -177,7 +178,7 @@ async function crearEntrega(): Promise<void> {
       </div>
     </section>
 
-    <p v-else class="empty-block">Aún no tienes entregas: créala y agrégale sus pedidos.</p>
+    <p v-else class="empty-block">No tienes entregas abiertas: crea una y agrégale sus pedidos.</p>
 
     <!-- «Crear entrega»: el número lo pone la API; el nombre ayuda a reconocerla. -->
     <div v-if="creandoEntrega" class="modal-overlay" @click.self="creandoEntrega = false">

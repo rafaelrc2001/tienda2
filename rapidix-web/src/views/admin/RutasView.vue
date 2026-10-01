@@ -11,8 +11,11 @@
  * de cada entrega: son de un viaje, no del día. Cada
  * pestaña se vuelve a montar —y a pedir sus datos— en cada toque, aunque ya se
  * hubiera visitado: así nunca enseña datos viejos y no hay que refrescar las
- * que están escondidas. La pestaña va en la URL para que «Hacer mi corte» de
- * una entrega pueda llegar directo a su liquidación.
+ * que están escondidas. La pestaña va en la URL: al volver de una liquidación
+ * se cae otra vez en Liquidación y no en Entregas.
+ *
+ * Cada entrega está en una sola pestaña, según en qué va: sin iniciar o en
+ * curso en Entregas, finalizada en Liquidación y ya con corte en Historial.
  */
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -35,28 +38,15 @@ const ventana = computed<Ventana>(() => {
   const pedida = route.query.ventana
   return VENTANAS.some((v) => v.id === pedida) ? (pedida as Ventana) : 'entregas'
 })
-const entregaPedida = computed(() =>
-  typeof route.query.entrega === 'string' ? route.query.entrega : null,
-)
 
 /** Sube con cada toque de pestaña: cambia la `key` y la pestaña se vuelve a montar. */
 const vuelta = ref(0)
 
 function abrir(id: Ventana): void {
   vuelta.value++
-  if (id !== ventana.value || entregaPedida.value) {
+  if (id !== ventana.value) {
     void router.replace({ query: id === 'entregas' ? {} : { ventana: id } })
   }
-}
-
-/** La entrega elegida en Liquidación queda en la URL: recargar vuelve a ella. */
-function recordarEntrega(entregaId: string): void {
-  void router.replace({ query: { ventana: 'liquidacion', entrega: entregaId } })
-}
-
-function alCortar(): void {
-  void router.replace({ query: { ventana: 'liquidacion' } })
-  vuelta.value++
 }
 </script>
 
@@ -82,13 +72,7 @@ function alCortar(): void {
 
     <div :id="`ventana-${ventana}`" role="tabpanel">
       <VentanaEntregas v-if="ventana === 'entregas'" :key="`entregas-${vuelta}`" />
-      <VentanaLiquidacion
-        v-else-if="ventana === 'liquidacion'"
-        :key="`liquidacion-${vuelta}`"
-        :entrega-inicial="entregaPedida"
-        @elegir="recordarEntrega"
-        @cortado="alCortar"
-      />
+      <VentanaLiquidacion v-else-if="ventana === 'liquidacion'" :key="`liquidacion-${vuelta}`" />
       <VentanaHistorial v-else :key="`historial-${vuelta}`" />
     </div>
   </div>
@@ -111,44 +95,5 @@ function alCortar(): void {
 
 .subtab-row {
   margin: 0 0 12px;
-}
-</style>
-
-<!--
-  Lo que comparten las tres pestañas. Sin `scoped` porque cada pestaña es su
-  propio componente; va colgado de `.pantalla-rutas` para no salirse de aquí.
--->
-<style>
-.pantalla-rutas .seccion-titulo {
-  margin: 16px 0 6px;
-  font-family: var(--font-heading);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-
-/* Cada bloque pinta su propio error, sin tumbar el resto de la pantalla. */
-.pantalla-rutas .error-bloque {
-  margin: 0;
-  padding: 10px 12px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--ink);
-  background: color-mix(in srgb, var(--orange) 10%, var(--white));
-  border-left: 3px solid var(--orange-dark);
-  border-radius: var(--radius-sm);
-}
-
-.pantalla-rutas .error-bloque .enlace {
-  margin-left: 8px;
-  background: none;
-  border: none;
-  padding: 0;
-  font: inherit;
-  color: var(--terracotta-dark);
-  text-decoration: underline;
-  cursor: pointer;
 }
 </style>

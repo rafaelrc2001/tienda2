@@ -1,15 +1,16 @@
 <script setup lang="ts">
 /**
- * Rutas → Historial: las entregas del repartidor, de la más reciente a la más
- * vieja, con lo que pasó con su dinero.
+ * Rutas → Historial: las entregas ya liquidadas del repartidor, de la más
+ * reciente a la más vieja, con lo que pasó con su dinero.
  *
  * Vive aparte de Liquidación: allí está el corte que se arma hoy y aquí los
  * cerrados. Mezclarlos ponía dos montos distintos en la misma pantalla sin
- * saber cuál era cuál.
+ * saber cuál era cuál. Entran las dos mitades de un corte cerrado: el que
+ * Finanzas aún no recibe —todavía se corrige— y el ya recibido.
  *
- * Cada fila nace cerrada y enseña solo cuál entrega fue y cuándo: con ocho en
- * pantalla, ver todos los montos a la vez era puro scroll. Se despliega en la
- * fila de abajo, como los detalles de Operaciones y Finanzas.
+ * Cada fila nace cerrada y enseña cuál entrega fue, en qué va su corte y
+ * cuándo: con ocho en pantalla, ver todos los montos a la vez era puro scroll.
+ * Se despliega en la fila de abajo, como los detalles de Operaciones y Finanzas.
  */
 import { onMounted, reactive, ref } from 'vue'
 import { ErrorApi, http } from '@/api/http'
@@ -43,6 +44,15 @@ async function cargar(): Promise<void> {
 
 onMounted(cargar)
 
+/**
+ * En qué va el corte, en corto, para la fila cerrada. Sin corte propio es una
+ * entrega de las jornadas que se cortaban enteras: liquidada, sin más.
+ */
+function estadoDelCorte(entrega: EntregaEnHistorial): string {
+  if (!entrega.corte) return 'Liquidada'
+  return entrega.corte.estado === 'RECIBIDO' ? 'Recibida en Finanzas' : 'Por recibir'
+}
+
 function alternar(id: string): void {
   abierta.value = abierta.value === id ? null : id
 }
@@ -63,7 +73,7 @@ function alCambiarCorte(entregaId: string, corte: Corte): void {
     </p>
 
     <p v-else-if="entregas.length === 0" class="empty-block">
-      Todavía no tienes entregas ni cortes registrados.
+      Todavía no tienes entregas liquidadas. Aparecen aquí al cerrar su corte.
     </p>
 
     <template v-else>
@@ -106,6 +116,12 @@ function alCambiarCorte(entregaId: string, corte: Corte): void {
                       </svg>
                     </span>
                     <span class="folio">{{ nombreEntrega(entrega) }}</span>
+                    <span
+                      class="mini-tag"
+                      :class="{ recibida: entrega.corte?.estado === 'RECIBIDO' }"
+                    >
+                      {{ estadoDelCorte(entrega) }}
+                    </span>
                     <span class="fecha">{{ fechaNumerica(entrega.creadoEn) }}</span>
                   </button>
                 </td>
@@ -162,6 +178,15 @@ function alCambiarCorte(entregaId: string, corte: Corte): void {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.fila-boton .mini-tag {
+  flex-shrink: 0;
+}
+
+.mini-tag.recibida {
+  background: color-mix(in srgb, var(--verde) 15%, var(--white));
+  color: var(--verde-compra);
 }
 
 /* Cifras de ancho fijo: las fechas quedan en columna, dígito bajo dígito. */

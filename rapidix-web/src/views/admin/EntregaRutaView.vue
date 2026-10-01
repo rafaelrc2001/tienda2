@@ -4,8 +4,8 @@
  *
  * En la cabecera, lo que arranca y cierra la entrega: «Iniciar entrega» —crearla
  * no la arranca, y hasta entonces no se le carga nada—, luego «Finalizar
- * entrega» (o reanudarla) y «Hacer mi corte», que lleva a la pestaña
- * Liquidación de Rutas con esta entrega elegida. Son de cada entrega, no de la
+ * entrega» (o reanudarla) y «Hacer mi corte», que lleva a la vista de su
+ * liquidación. Son de cada entrega, no de la
  * jornada: cada viaje se inicia, se cierra y se liquida por su lado.
  *
  * Arriba, los pedidos de esta entrega con el paso que les toca: «En ruta» (o
@@ -379,12 +379,9 @@ function colonia(pedido: PedidoEnRuta): string {
           >
             {{ porReanudar ? 'Reanudar entrega' : 'Finalizar entrega' }}
           </button>
-          <!-- El corte vive en la pestaña Liquidación de Rutas, ya con esta entrega elegida. -->
+          <!-- Directo al corte de esta entrega, que tiene su propia vista. -->
           <RouterLink
-            :to="{
-              path: '/admin/rutas',
-              query: { ventana: 'liquidacion', entrega: detalle.entrega.id },
-            }"
+            :to="`/admin/rutas/liquidacion/${detalle.entrega.id}`"
             class="btn-secondary corte"
           >
             Hacer mi corte
@@ -432,7 +429,7 @@ function colonia(pedido: PedidoEnRuta): string {
       <!-- Los pedidos de esta entrega, con el paso que les toca. -->
       <p class="seccion">Pedidos de esta entrega</p>
       <div v-if="detalle.pedidos.length > 0" class="tabla-envoltorio">
-        <table class="tabla lineal">
+        <table class="tabla lineal dos-fijas">
           <thead>
             <tr>
               <th>Pedido</th>
@@ -541,7 +538,7 @@ function colonia(pedido: PedidoEnRuta): string {
       <template v-if="detalle.abierta">
         <p class="seccion">Pedidos pendientes por asignar</p>
         <div v-if="detalle.disponibles.length > 0" class="tabla-envoltorio">
-          <table class="tabla lineal">
+          <table class="tabla lineal dos-fijas">
             <thead>
               <tr>
                 <th>Pedido</th>
