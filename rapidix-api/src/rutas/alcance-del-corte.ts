@@ -134,6 +134,13 @@ export interface PedidoQueRegresa {
   liberaInventario: boolean;
   /** No se entrego: vuelve a "Listo para entrega" y suelta repartidor y entrega. */
   vuelveACola: boolean;
+  /**
+   * Lo que vuelve al estante, por producto: lo que baja del camion menos lo
+   * cobrado como faltante. Aplica igual al rechazado que al pedido que regresa
+   * entero —los dos salieron del fisico al recolectarse—; vacio con el control
+   * de inventario apagado.
+   */
+  alFisico: { productoId: string; cantidad: number }[];
 }
 
 export interface PlanDeDescarga {
@@ -146,15 +153,20 @@ export interface PlanDeDescarga {
 /**
  * Que pasa con cada renglon del camion al cortar.
  *
- * Con el control de inventario apagado no se libera nada, igual que en el
- * checkout: devolver a una bodega que nadie ha capturado inventaria
- * existencia. El pedido que no se entrego vuelve a la cola igual.
+ * Con el control de inventario apagado no se libera ni vuelve nada al fisico,
+ * igual que en el checkout: devolver a una bodega que nadie ha capturado
+ * inventaria existencia. El pedido que no se entrego vuelve a la cola igual.
+ *
+ * Son dos cuentas distintas. **Al fisico** (`alFisico`) vuelve todo lo que
+ * baja del camion, sea de quien sea: salio del estante al recolectarse.
+ * **Para venta** (`lineas` de los que liberan) solo lo que un cliente rechazo
+ * de un pedido entregado; el que regresa entero sigue apartado.
  *
  * `faltantes` es lo que ya se cobro con "Generar pedido x faltante", por
- * producto: esas piezas no bajaron del camion, asi que no se liberan para
- * venta. Se descuentan primero de lo rechazado en la puerta, que es lo unico
- * que se libera; lo que sobre venia de pedidos que vuelven a la cola, que no
- * liberan nada.
+ * producto: esas piezas no bajaron del camion, asi que ni vuelven al fisico ni
+ * se liberan para venta. Se descuentan primero de lo rechazado en la puerta y
+ * lo que sobre de los pedidos que vuelven a la cola, de modo que lo que vuelve
+ * al fisico de cada producto es justo lo que se conto al bajar.
  */
 export function planDeDescarga(
   renglones: RenglonADescargar[],
@@ -177,15 +189,23 @@ export function planDeDescarga(
       lineas: [],
       liberaInventario: controlInventario && entregado,
       vuelveACola: !entregado,
+      alFisico: [],
     };
     pedido.lineas.push({ productoId: renglon.productoId, cantidad: devueltas });
     porPedido.set(renglon.pedidoId, pedido);
   }
 
+  // Los entregados primero: el faltante se gasta antes en lo rechazado, y solo
+  // lo que sobre toca a los pedidos que regresan enteros.
+  const pedidos = [...porPedido.values()];
+  const enOrden = [
+    ...pedidos.filter((p) => !p.vuelveACola),
+    ...pedidos.filter((p) => p.vuelveACola),
+  ];
+
   const porDescontar = new Map(faltantes);
-  for (const pedido of porPedido.values()) {
-    if (!pedido.liberaInventario) continue;
-    pedido.lineas = pedido.lineas
+  for (const pedido of enOrden) {
+    const bajaron = pedido.lineas
       .map((linea) => {
         const pendiente = porDescontar.get(linea.productoId) ?? 0;
         const falta = Math.min(pendiente, linea.cantidad);
@@ -193,7 +213,12 @@ export function planDeDescarga(
         return { ...linea, cantidad: linea.cantidad - falta };
       })
       .filter((linea) => linea.cantidad > 0);
+
+    if (controlInventario) pedido.alFisico = bajaron;
+    // El que no libera conserva sus lineas enteras: son lo que su pedido lleva
+    // de vuelta, no lo que se libera.
+    if (pedido.liberaInventario) pedido.lineas = bajaron;
   }
 
-  return { cierres, pedidos: [...porPedido.values()] };
+  return { cierres, pedidos };
 }

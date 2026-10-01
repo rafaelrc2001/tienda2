@@ -30,7 +30,7 @@ import {
   NoEntregadoDto,
   PrevisualizarEntregaDto,
 } from './dto/entregar-pedido.dto';
-import { CerrarCorteDto, RegistrarAbonoDto } from './dto/corte.dto';
+import { CerrarCorteDto, CorregirDeclaradoDto, RegistrarAbonoDto } from './dto/corte.dto';
 import { GenerarFaltanteDto } from './dto/faltante.dto';
 import {
   CorteDto,
@@ -184,7 +184,8 @@ export class RutasController {
   /**
    * Corta la entrega: liquida lo entregado y **descarga su parte del camión**,
    * que es donde la mercancía devuelta vuelve por fin a bodega. El corte de la
-   * última entrega viva cierra también la jornada.
+   * última entrega viva cierra también la jornada. 409 `CONTEO_NO_CUADRA` si
+   * lo que contó al bajar no es lo que regresa.
    */
   @Post('entregas/:id/corte')
   cerrarCorte(
@@ -270,7 +271,7 @@ export class RutasController {
   @Patch('cortes/:id')
   corregirCorte(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: CerrarCorteDto,
+    @Body() dto: CorregirDeclaradoDto,
     @UsuarioActual() usuario: UsuarioAutenticado,
   ): Promise<CorteDto> {
     return this.cortes.corregirDeclarado(id, usuario, dto);

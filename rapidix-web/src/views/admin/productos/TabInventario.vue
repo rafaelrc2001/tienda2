@@ -80,6 +80,7 @@ const conteo = computed(() => ({
             <th>Grupo</th>
             <th class="num">Inventario<br />(físico)</th>
             <th class="num">Apt.<br />venta</th>
+            <th class="num">En<br />ruta</th>
           </tr>
         </thead>
         <tbody>
@@ -91,6 +92,9 @@ const conteo = computed(() => ({
             <td>{{ saldo.categoria }}</td>
             <td class="num">{{ saldo.inventario }}</td>
             <td class="num" :class="estado(saldo)">{{ saldo.aptInventario }}</td>
+            <td class="num" :class="{ vacio: saldo.inventarioEnRuta === 0 }">
+              {{ saldo.inventarioEnRuta }}
+            </td>
           </tr>
         </tbody>
       </table>
@@ -107,7 +111,9 @@ const conteo = computed(() => ({
     <p class="nota">
       El saldo no se edita aquí: se mueve en <strong>Movimientos</strong>, que deja constancia de
       quién lo movió y por qué. <em>Físico</em> es lo que hay en bodega; <em>apt. venta</em>, lo que
-      el cliente puede comprar.
+      el cliente puede comprar; <em>en ruta</em>, lo que va en los camiones. Al recolectar un pedido
+      sus piezas salen del físico y pasan a en ruta; de ahí bajan al entregarse o vuelven al físico
+      al regresar en el corte. Lo que va en ruta ya no cuenta en el físico.
     </p>
   </div>
 </template>
@@ -195,8 +201,8 @@ const conteo = computed(() => ({
 }
 
 /*
- * En el móvil las cuatro columnas tienen que caber sin desplazar a los lados,
- * para leer físico y apt. venta de un vistazo: los encabezados van en dos
+ * En el móvil las cinco columnas tienen que caber sin desplazar a los lados,
+ * para leer físico, apt. venta y en ruta de un vistazo: los encabezados van en dos
  * renglones y el nombre del producto y el grupo parten línea si no caben.
  */
 .tabla-inventario .col-producto,
@@ -259,6 +265,11 @@ td.num.cero {
 td.num.bajo {
   color: var(--gold-dark);
   font-weight: 700;
+}
+
+/* Casi todos los productos tienen cero en ruta: apagado, resalta el que sí lleva. */
+td.num.vacio {
+  color: var(--muted);
 }
 
 .nota {

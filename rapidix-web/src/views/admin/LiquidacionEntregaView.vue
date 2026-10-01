@@ -10,14 +10,17 @@
  * no contra su memoria—, luego la mercancía que baja y al final lo que él
  * declara.
  *
- * **Que no cuadre no bloquea.** Solo el campo vacío apaga el botón: bloquear
- * al repartidor no repone el dinero, y la diferencia queda escrita para
- * Finanzas. Cerrar es también lo que descarga el camión: los pedidos que no se
- * entregaron vuelven a «Listo para entrega» y salen otro día.
+ * **Que el dinero no cuadre no bloquea.** Solo el campo vacío apaga el botón:
+ * bloquear al repartidor no repone el dinero, y la diferencia queda escrita
+ * para Finanzas. Cerrar es también lo que descarga el camión: los pedidos que
+ * no se entregaron vuelven a «Listo para entrega» y salen otro día.
  *
- * Al bajar del camión captura lo que de verdad devuelve. Si trae menos de lo
- * que el sistema dice, «Generar pedido x faltante» lo vuelve una venta
- * entregada en esta misma entrega y su importe se suma al efectivo a liquidar.
+ * **La mercancía sí bloquea.** Lo que se cuenta al bajar es lo que vuelve al
+ * inventario, así que no se finaliza hasta que cada producto que regresa
+ * tiene su «Devuelto» capturado y no queda faltante. Si trae menos de lo que
+ * el sistema dice, «Generar pedido x faltante» lo vuelve una venta entregada
+ * en esta misma entrega: su importe se suma al efectivo a liquidar y la
+ * devolución baja a lo contado, con lo que el conteo ya cuadra.
  */
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -31,10 +34,12 @@ import { nombreEntrega } from './rutas/etiquetas'
 import {
   centavos,
   cobroDelPedido,
+  conteoCompleto,
   diferenciasDelConteo,
   lineaDelArqueo,
   lineaDeProductos,
   montoCapturado,
+  piezasCapturadas,
 } from './rutas/liquidacion'
 import type { DetalleEntregaRuta, EntregaRuta, PedidoEnRuta, ResumenCorte } from '@/api/tipos'
 
@@ -91,9 +96,36 @@ const sinPedidos = computed(() => (resumen.value?.pedidos.length ?? 0) === 0)
 const capturado = computed(() => montoCapturado(declarado.value))
 const arqueo = computed(() => lineaDelArqueo(resumen.value?.montoCalculado ?? 0, capturado.value))
 
+/** Cada producto que regresa está contado y sin faltante. Sin nada que regrese, también. */
+const conteoListo = computed(() => conteoCompleto(resumen.value?.conteo ?? [], contados.value))
+
+/** Lo que regresa y todavía no tiene su «Devuelto». */
+const sinContar = computed(() =>
+  (resumen.value?.conteo ?? []).filter(
+    (p) => p.devolucion > 0 && piezasCapturadas(contados.value[p.productoId]) === null,
+  ),
+)
+
+/**
+ * Por qué no se puede finalizar todavía, junto al botón apagado. El faltante
+ * va primero: es lo que tiene un paso que dar; lo demás es terminar de contar.
+ */
+const avisoDelConteo = computed(() => {
+  if (conteoListo.value) return ''
+  if (faltantes.value.length > 0)
+    return `Faltan ${fraseDelFaltante.value}: genera el pedido por faltante para poder finalizar.`
+  if (sinContar.value.length > 0)
+    return `Falta contar lo que bajas de ${sinContar.value.map((p) => p.nombre).join(', ')}.`
+  return ''
+})
+
 /** Sin pedidos no hay arqueo que capturar: se cierra en cero. */
 const puedeCerrar = computed(
-  () => resumen.value !== null && !enviando.value && (sinPedidos.value || capturado.value !== null),
+  () =>
+    resumen.value !== null &&
+    !enviando.value &&
+    conteoListo.value &&
+    (sinPedidos.value || capturado.value !== null),
 )
 
 const titulo = computed(() =>
@@ -212,6 +244,11 @@ async function finalizar(): Promise<void> {
   try {
     await http.post(`/admin/rutas/entregas/${String(route.params.id)}/corte`, {
       montoDeclarado: sinPedidos.value ? 0 : capturado.value,
+      // Lo contado al bajar: la API comprueba que es lo que regresa antes de cerrar.
+      devueltos: (resumen.value?.conteo ?? []).flatMap((p) => {
+        const cantidad = piezasCapturadas(contados.value[p.productoId])
+        return cantidad === null ? [] : [{ productoId: p.productoId, cantidad }]
+      }),
       // Se lee al pulsar: la nota se escribe justo antes de cerrar.
       ...(notas.value.trim() ? { notas: notas.value.trim() } : {}),
     })
@@ -389,7 +426,8 @@ async function finalizar(): Promise<void> {
         <TablaConteo v-model:contados="contados" :conteo="resumen.conteo" />
         <p class="ayuda-conteo">
           En «Devuelto» captura lo que de verdad bajas del camión, hasta lo que dice «Devolución».
-          Lo que no bajó queda en «Faltante».
+          Lo que no bajó queda en «Faltante». Para finalizar hay que contar todos los productos y no
+          dejar faltante.
         </p>
         <!-- Solo con faltante: «Devuelto» no deja capturar de más, así que no hay sobrante. -->
         <div v-if="faltantes.length > 0" class="descuadre" aria-live="polite">
@@ -444,6 +482,7 @@ async function finalizar(): Promise<void> {
 
       <!-- Pegada abajo: el degradado la despega de lo que se desplaza debajo. -->
       <div class="barra-cierre">
+        <p v-if="avisoDelConteo" class="aviso-cierre" aria-live="polite">{{ avisoDelConteo }}</p>
         <button
           type="button"
           class="btn-primary"
@@ -461,8 +500,9 @@ async function finalizar(): Promise<void> {
         <div class="modal-handle" />
         <p class="modal-title">¿Generar pedido x faltante?</p>
         <p class="modal-texto">
-          Se crea un pedido en efectivo por {{ fraseDelFaltante }}, a precio de catálogo. Queda
-          entregado en esta entrega y su importe se suma a tu efectivo a liquidar.
+          Se crea un pedido en efectivo por {{ fraseDelFaltante }}, al precio de lista que
+          corresponde a la cantidad. Queda entregado en esta entrega y su importe se suma a tu
+          efectivo a liquidar.
         </p>
         <div class="modal-actions">
           <button
@@ -709,6 +749,14 @@ async function finalizar(): Promise<void> {
 
 .barra-cierre .btn-primary {
   width: 100%;
+}
+
+/* Por qué está apagado el botón, justo encima de él. */
+.aviso-cierre {
+  margin: 0 0 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--orange-dark);
 }
 
 .modal-texto {

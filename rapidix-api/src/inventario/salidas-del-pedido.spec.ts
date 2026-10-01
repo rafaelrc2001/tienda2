@@ -1,5 +1,11 @@
 import { AfectaInventario, MotivoMovimiento, TipoMovimiento } from '@prisma/client';
-import { devolucionesDeRuta, MovimientoDelPedido, salidasAlEntregar } from './salidas-del-pedido';
+import {
+  devolucionesDeRuta,
+  MovimientoDelPedido,
+  regresosDeRuta,
+  salidasAlEntregar,
+  salidasARuta,
+} from './salidas-del-pedido';
 
 /** La venta de hoy: aparta 10 piezas, solo del saldo de venta. */
 const venta = (productoId: string, cantidad: number): MovimientoDelPedido => ({
@@ -26,7 +32,114 @@ const devolucion = (productoId: string, cantidad: number): MovimientoDelPedido =
   motivo: MotivoMovimiento.DEVOLUCION,
 });
 
+/** Sube al camión: sale del físico al recolectar. */
+const aRuta = (productoId: string, cantidad: number): MovimientoDelPedido => ({
+  productoId,
+  cantidad,
+  tipo: TipoMovimiento.SALIDA,
+  afecta: AfectaInventario.FISICO,
+  motivo: MotivoMovimiento.RUTA,
+});
+
+/** Baja del camión: vuelve al físico. */
+const deRuta = (productoId: string, cantidad: number): MovimientoDelPedido => ({
+  ...aRuta(productoId, cantidad),
+  tipo: TipoMovimiento.ENTRADA,
+});
+
+describe('salidasARuta', () => {
+  it('recolectar saca del físico todo lo apartado', () => {
+    expect(salidasARuta([venta('arroz', 4)], [{ productoId: 'arroz', cantidad: 4 }])).toEqual([
+      { productoId: 'arroz', cantidad: 4 },
+    ]);
+  });
+
+  it('con el control apagado —sin VENTA— no saca nada', () => {
+    expect(salidasARuta([], [{ productoId: 'arroz', cantidad: 4 }])).toEqual([]);
+  });
+
+  it('recolectar dos veces no saca de más', () => {
+    const hecho = [venta('arroz', 4), aRuta('arroz', 4)];
+    expect(salidasARuta(hecho, [{ productoId: 'arroz', cantidad: 4 }])).toEqual([]);
+  });
+
+  it('el pedido que regresó de ruta vuelve a salir otro día', () => {
+    const hecho = [venta('arroz', 4), aRuta('arroz', 4), deRuta('arroz', 4)];
+    expect(salidasARuta(hecho, [{ productoId: 'arroz', cantidad: 4 }])).toEqual([
+      { productoId: 'arroz', cantidad: 4 },
+    ]);
+  });
+
+  it('un producto en varios renglones sale en un solo movimiento', () => {
+    expect(
+      salidasARuta(
+        [venta('arroz', 5)],
+        [
+          { productoId: 'arroz', cantidad: 2 },
+          { productoId: 'arroz', cantidad: 3 },
+        ],
+      ),
+    ).toEqual([{ productoId: 'arroz', cantidad: 5 }]);
+  });
+});
+
+describe('regresosDeRuta', () => {
+  it('quitar de la entrega devuelve al físico todo lo que subió', () => {
+    expect(
+      regresosDeRuta(
+        [venta('arroz', 4), aRuta('arroz', 4)],
+        [{ productoId: 'arroz', cantidad: 4 }],
+      ),
+    ).toEqual([{ productoId: 'arroz', cantidad: 4 }]);
+  });
+
+  it('en el corte vuelve solo lo que baja del camión', () => {
+    expect(
+      regresosDeRuta(
+        [venta('arroz', 4), aRuta('arroz', 4)],
+        [{ productoId: 'arroz', cantidad: 1 }],
+      ),
+    ).toEqual([{ productoId: 'arroz', cantidad: 1 }]);
+  });
+
+  it('un pedido recolectado antes de RUTA no devuelve nada: su físico nunca bajó al subir', () => {
+    expect(regresosDeRuta([venta('arroz', 4)], [{ productoId: 'arroz', cantidad: 4 }])).toEqual([]);
+  });
+
+  it('con el control apagado —sin movimientos— no devuelve nada', () => {
+    expect(regresosDeRuta([], [{ productoId: 'arroz', cantidad: 4 }])).toEqual([]);
+  });
+
+  it('descargar dos veces no infla el saldo', () => {
+    const hecho = [venta('arroz', 4), aRuta('arroz', 4), deRuta('arroz', 4)];
+    expect(regresosDeRuta(hecho, [{ productoId: 'arroz', cantidad: 4 }])).toEqual([]);
+  });
+
+  it('nunca vuelve más de lo que sigue arriba, y en un solo movimiento por producto', () => {
+    expect(
+      regresosDeRuta(
+        [venta('arroz', 4), aRuta('arroz', 4), deRuta('arroz', 1)],
+        [
+          { productoId: 'arroz', cantidad: 2 },
+          { productoId: 'arroz', cantidad: 2 },
+        ],
+      ),
+    ).toEqual([{ productoId: 'arroz', cantidad: 3 }]);
+  });
+});
+
 describe('salidasAlEntregar', () => {
+  it('un pedido recolectado ya sacó su físico al subir: entregarlo no saca nada', () => {
+    const hecho = [venta('arroz', 4), aRuta('arroz', 4)];
+    expect(salidasAlEntregar(hecho, [{ productoId: 'arroz', cantidad: 3 }])).toEqual([]);
+  });
+
+  it('un pedido recolectado antes de RUTA sigue sacando su físico al entregarse', () => {
+    expect(salidasAlEntregar([venta('arroz', 4)], [{ productoId: 'arroz', cantidad: 4 }])).toEqual([
+      { productoId: 'arroz', cantidad: 4 },
+    ]);
+  });
+
   it('entrega completa: sale del físico todo lo apartado', () => {
     expect(
       salidasAlEntregar([venta('arroz', 10)], [{ productoId: 'arroz', cantidad: 10 }]),

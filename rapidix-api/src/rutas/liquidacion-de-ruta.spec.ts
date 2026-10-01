@@ -1,6 +1,7 @@
 import { EstadoPago, EstadoPedido, MotivoDevolucion, Prisma } from '@prisma/client';
 import {
   conteoPorProducto,
+  conteoQueNoCuadra,
   esDevolucion,
   esEntregado,
   faltanteQueNoCabe,
@@ -134,6 +135,66 @@ describe('faltanteQueNoCabe', () => {
     expect(faltanteQueNoCabe(conteo, [{ productoId: 'otro', cantidad: 1 }])).toMatchObject({
       nombre: null,
     });
+  });
+});
+
+describe('conteoQueNoCuadra', () => {
+  // Regresan 4 quesos; el pan se entregó entero.
+  const conteo = conteoPorProducto([renglon('que', 'Queso', 8, 4), renglon('pan', 'Pan', 3, 3)]);
+
+  it('cuadra cuando lo contado es justo lo que regresa', () => {
+    expect(conteoQueNoCuadra(conteo, [{ productoId: 'que', cantidad: 4 }])).toBeNull();
+  });
+
+  it('no cuadra un producto que regresa y no se contó', () => {
+    expect(conteoQueNoCuadra(conteo, [])).toEqual({
+      productoId: 'que',
+      nombre: 'Queso',
+      unidad: 'pza',
+      devolucion: 4,
+      devuelto: null,
+    });
+  });
+
+  it('no cuadra contar de menos: ese faltante hay que cobrarlo antes', () => {
+    expect(conteoQueNoCuadra(conteo, [{ productoId: 'que', cantidad: 3 }])).toMatchObject({
+      devolucion: 4,
+      devuelto: 3,
+    });
+  });
+
+  it('no cuadra contar de más', () => {
+    expect(conteoQueNoCuadra(conteo, [{ productoId: 'que', cantidad: 5 }])).toMatchObject({
+      devuelto: 5,
+    });
+  });
+
+  it('contar cero no es lo mismo que no contar, pero tampoco cuadra si regresa algo', () => {
+    expect(conteoQueNoCuadra(conteo, [{ productoId: 'que', cantidad: 0 }])).toMatchObject({
+      devuelto: 0,
+    });
+  });
+
+  it('lo que no regresa no hay que contarlo, venga o no en la lista', () => {
+    expect(
+      conteoQueNoCuadra(conteo, [
+        { productoId: 'que', cantidad: 4 },
+        { productoId: 'pan', cantidad: 0 },
+      ]),
+    ).toBeNull();
+  });
+
+  it('con el faltante ya cobrado cuadra lo que se contó de menos', () => {
+    // Regresaban 4, se contaron 3 y el que falta ya es un pedido.
+    const cobrado = conteoPorProducto([
+      renglon('que', 'Queso', 8, 4),
+      renglonDelFaltante({ productoId: 'que', nombre: 'Queso', unidad: 'pza', cantidad: 1 }),
+    ]);
+    expect(conteoQueNoCuadra(cobrado, [{ productoId: 'que', cantidad: 3 }])).toBeNull();
+  });
+
+  it('una entrega sin nada que regrese cuadra con la lista vacía', () => {
+    expect(conteoQueNoCuadra(conteoPorProducto([renglon('pan', 'Pan', 3, 3)]), [])).toBeNull();
   });
 });
 

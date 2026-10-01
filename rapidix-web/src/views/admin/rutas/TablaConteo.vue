@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * El conteo físico de lo que baja del camión: por producto, lo cargado, lo
+ * El conteo físico de lo que baja del camión: por producto, lo recolectado, lo
  * entregado y la devolución. Es el único momento en que alguien puede
  * contrastarlo contra la caja real, así que va agrupado por producto y no por
  * pedido: el mismo producto repetido en varios renglones no deja comparar.
@@ -47,7 +47,7 @@ function faltante(producto: ConteoDeProducto): number | null {
       <thead>
         <tr>
           <th class="producto">Producto</th>
-          <th class="num">Cargado</th>
+          <th class="num">Recolectado</th>
           <th class="num">Entregado</th>
           <th class="num">Devolución</th>
           <template v-if="contados">

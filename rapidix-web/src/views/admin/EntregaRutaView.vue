@@ -3,10 +3,10 @@
  * Rutas → una entrega: el viaje que se está armando o repartiendo.
  *
  * En la cabecera, lo que arranca y cierra la entrega: «Iniciar entrega» —crearla
- * no la arranca, y hasta entonces no se le carga nada—, luego «Finalizar
- * entrega» (o reanudarla) y «Hacer mi corte», que lleva a la vista de su
- * liquidación. Son de cada entrega, no de la
- * jornada: cada viaje se inicia, se cierra y se liquida por su lado.
+ * no la arranca, y hasta entonces no se le carga nada— y luego «Finalizar
+ * entrega» (o reanudarla). Son de cada entrega, no de la jornada: cada viaje
+ * se inicia y se cierra por su lado. El corte no se hace desde aquí: la
+ * entrega finalizada pasa a la pestaña Liquidación, que es donde se liquida.
  *
  * Arriba, los pedidos de esta entrega con el paso que les toca: «En ruta» (o
  * quitarlo mientras no haya salido), «Entregar» y «No entregado». Abajo, lo
@@ -144,7 +144,7 @@ const avisoBloqueo = computed(() => {
     return 'Esta entrega es de una jornada que ya se cortó: solo se consulta.'
   if (sinIniciar.value) return 'Carga sus pedidos y pulsa «Iniciar entrega» para salir a ruta.'
   if (detalle.value.entrega.finalizadaEn)
-    return 'Finalizaste esta entrega: reanúdala para moverla o haz su corte.'
+    return 'Finalizaste esta entrega: reanúdala para moverla o haz su corte en Liquidación.'
   return 'Tu jornada está finalizada: pulsa «Reanudar entrega» para seguir.'
 })
 
@@ -379,13 +379,6 @@ function colonia(pedido: PedidoEnRuta): string {
           >
             {{ porReanudar ? 'Reanudar entrega' : 'Finalizar entrega' }}
           </button>
-          <!-- Directo al corte de esta entrega, que tiene su propia vista. -->
-          <RouterLink
-            :to="`/admin/rutas/liquidacion/${detalle.entrega.id}`"
-            class="btn-secondary corte"
-          >
-            Hacer mi corte
-          </RouterLink>
         </div>
       </header>
 
@@ -675,16 +668,10 @@ function colonia(pedido: PedidoEnRuta): string {
   flex: 1 1 320px;
 }
 
-.cabeza .acciones button,
-.cabeza .acciones .corte {
+.cabeza .acciones button {
   flex: 1;
   padding: 9px 8px;
   font-size: 12px;
-}
-
-.cabeza .acciones .corte {
-  text-align: center;
-  text-decoration: none;
 }
 
 .cabeza .titulo {

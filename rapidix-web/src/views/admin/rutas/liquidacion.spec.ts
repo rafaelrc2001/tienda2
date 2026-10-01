@@ -3,6 +3,7 @@ import {
   accionDelCorte,
   centavos,
   cobroDelPedido,
+  conteoCompleto,
   diferenciasDelConteo,
   errorDelAbono,
   errorDelDeclarado,
@@ -122,7 +123,7 @@ describe('historial', () => {
     expect(estadoEnHistorial(entrega({ finalizadaEn: '2026-09-28T15:00:00Z' }))).toBe(
       'Terminada, sin liquidar',
     )
-    expect(estadoEnHistorial(entrega({ corte: corte() }))).toMatch(/pendiente de recibir/)
+    expect(estadoEnHistorial(entrega({ corte: corte() }))).toBe('Liquidado')
     expect(estadoEnHistorial(entrega({ corte: corte({ estado: 'RECIBIDO' }) }))).toMatch(/recibido/)
   })
 
@@ -189,5 +190,31 @@ describe('conteo de lo que baja del camión', () => {
 
   it('lo que cuadra no aparece', () => {
     expect(diferenciasDelConteo([producto('queso', 4)], { queso: '4' })).toEqual([])
+  })
+
+  it('el conteo está completo cuando cada producto que regresa se contó entero', () => {
+    const conteo = [producto('queso', 4), producto('pan', 2)]
+    expect(conteoCompleto(conteo, { queso: '4', pan: '2' })).toBe(true)
+  })
+
+  it('un producto sin contar deja el conteo incompleto', () => {
+    const conteo = [producto('queso', 4), producto('pan', 2)]
+    expect(conteoCompleto(conteo, { queso: '4', pan: '' })).toBe(false)
+    expect(conteoCompleto(conteo, { queso: '4' })).toBe(false)
+  })
+
+  it('contar de menos lo deja incompleto: el faltante se cobra antes', () => {
+    expect(conteoCompleto([producto('queso', 4)], { queso: '3' })).toBe(false)
+    // Ya con su pedido por faltante, la devolución bajó a lo contado.
+    expect(conteoCompleto([producto('queso', 3)], { queso: '3' })).toBe(true)
+  })
+
+  it('contar cero vale solo si no regresa nada de ese producto', () => {
+    expect(conteoCompleto([producto('queso', 4)], { queso: '0' })).toBe(false)
+  })
+
+  it('lo que no regresa no hay que contarlo, y sin nada que regrese está completo', () => {
+    expect(conteoCompleto([producto('caldo', 0)], {})).toBe(true)
+    expect(conteoCompleto([], {})).toBe(true)
   })
 })

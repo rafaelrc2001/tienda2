@@ -276,6 +276,7 @@ async function registrar(): Promise<void> {
             {{ m.etiqueta }}
           </option>
           <option value="VENTA">Venta</option>
+          <option value="RUTA">Ruta</option>
         </select>
       </div>
 
