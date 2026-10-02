@@ -78,7 +78,7 @@ const conteo = computed(() => ({
           <tr>
             <th class="col-producto">Producto</th>
             <th>Grupo</th>
-            <th class="num">Inventario<br />(físico)</th>
+            <th class="num">Inv.<br />físico</th>
             <th class="num">Apt.<br />venta</th>
             <th class="num">En<br />ruta</th>
           </tr>
@@ -172,52 +172,65 @@ const conteo = computed(() => ({
 }
 
 /*
- * La tabla se sale de la columna en un móvil: se desplaza dentro de su propia
- * caja, con el encabezado y la columna del producto fijos para no perder de
- * vista de qué fila es el número que se está leyendo.
+ * La tabla no desplaza dentro de su propia caja: una caja con scroll metida en
+ * `.app-screen`, que también desplaza, hace que en el teléfono el dedo mueva a
+ * ratos la tabla y a ratos la página, y la tabla parece flotar sobre el fondo.
+ * Desplaza solo la pantalla y el encabezado se queda pegado arriba de ella.
+ * `overflow: clip` recorta las esquinas redondas sin volverse contenedor de
+ * scroll (con `hidden` el sticky se pegaría a la caja y no a la pantalla).
  */
 .tabla-scroll {
-  overflow: auto;
-  max-height: 62vh;
+  overflow: clip;
   background: var(--white);
   border-radius: 14px;
   box-shadow: var(--shadow);
 }
 
+/*
+ * Sin scroll lateral, las cinco columnas tienen que caber en la columna del
+ * móvil: anchos fijos, poco relleno y el nombre y el grupo parten línea.
+ */
 .tabla-inventario {
   border-collapse: separate;
   border-spacing: 0;
   width: 100%;
+  table-layout: fixed;
   font-size: 12px;
+}
+
+.tabla-inventario .col-producto {
+  width: 32%;
+}
+
+.tabla-inventario thead th:nth-child(2) {
+  width: 23%;
 }
 
 .tabla-inventario th,
 .tabla-inventario td {
-  padding: 9px 12px;
+  padding: 9px 6px;
   text-align: left;
   border-bottom: 1px solid var(--line);
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
   background: var(--white);
 }
 
-/*
- * En el móvil las cinco columnas tienen que caber sin desplazar a los lados,
- * para leer físico, apt. venta y en ruta de un vistazo: los encabezados van en dos
- * renglones y el nombre del producto y el grupo parten línea si no caben.
- */
-.tabla-inventario .col-producto,
-.tabla-inventario td:nth-child(2) {
-  white-space: normal;
+.tabla-inventario th:first-child,
+.tabla-inventario td:first-child {
+  padding-left: 12px;
 }
 
-.tabla-inventario tbody .col-producto {
-  min-width: 110px;
+.tabla-inventario th:last-child,
+.tabla-inventario td:last-child {
+  padding-right: 12px;
 }
 
 .tabla-inventario thead th {
   position: sticky;
   top: 0;
   z-index: 2;
+  overflow-wrap: normal;
   white-space: normal;
   line-height: 1.3;
   vertical-align: bottom;
@@ -231,17 +244,10 @@ const conteo = computed(() => ({
 }
 
 .tabla-inventario .col-producto {
-  position: sticky;
-  left: 0;
-  z-index: 1;
   font-family: var(--font-heading);
   font-weight: 700;
   color: var(--ink);
   box-shadow: 1px 0 0 var(--line);
-}
-
-.tabla-inventario thead .col-producto {
-  z-index: 3;
 }
 
 .unidad {
