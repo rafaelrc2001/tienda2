@@ -76,6 +76,37 @@ describe('cancelar', () => {
   });
 });
 
+describe('cuenta por cobrar', () => {
+  const cxc = pedido({
+    estado: EstadoPedido.ENTREGADO,
+    estadoPago: EstadoPago.CREDITO,
+    enCxc: true,
+  });
+
+  it('no se marca Pagado a mano: se cobra desde CXC', () => {
+    expect(resultado(cxc, EstadoPago.PAGADO)).toBe('PEDIDO_EN_CXC');
+  });
+
+  it('el candado es solo sobre Pagado', () => {
+    expect(resultado(cxc, EstadoPago.PAGO_PENDIENTE)).toBe('cambiar');
+    expect(resultado(cxc, EstadoPago.REEMBOLSADO)).toBe('cambiar');
+  });
+
+  it('un crédito que todavía no es cuenta por cobrar sí se marca Pagado', () => {
+    expect(resultado(pedido({ estadoPago: EstadoPago.CREDITO }), EstadoPago.PAGADO)).toBe(
+      'cambiar',
+    );
+  });
+
+  it('el botón Pagado sale con su candado y los demás no lo heredan', () => {
+    const botones = botonesDePago(cxc);
+    expect(botones.find((b) => b.estado === EstadoPago.PAGADO)?.bloqueo?.codigo).toBe(
+      'PEDIDO_EN_CXC',
+    );
+    expect(botones.find((b) => b.estado === EstadoPago.REEMBOLSADO)?.bloqueo).toBeNull();
+  });
+});
+
 describe('botonesDePago', () => {
   it('devuelve un boton por cada estatus, en el orden del prototipo', () => {
     expect(botonesDePago(pedido()).map((b) => b.estado)).toEqual(ESTADOS_PAGO);

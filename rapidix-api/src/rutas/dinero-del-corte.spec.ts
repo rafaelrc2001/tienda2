@@ -4,6 +4,8 @@ import {
   CargaLiquidable,
   cobradoDelRenglon,
   cuentaDeLaEntrega,
+  destinoAlAceptar,
+  DestinoDelPedido,
   devueltoDelRenglon,
   efectivoDelPedido,
   PedidoALiquidar,
@@ -139,6 +141,49 @@ describe('efectivoDelPedido', () => {
   it('un pedido a crédito no trae nada', () => {
     const credito = { ...enEfectivo, estadoPago: EstadoPago.CREDITO };
     expect(efectivoDelPedido(credito).toNumber()).toBe(0);
+  });
+});
+
+describe('destinoAlAceptar', () => {
+  it('el efectivo cobrado en la puerta queda pagado', () => {
+    expect(destinoAlAceptar(enEfectivo)).toBe(DestinoDelPedido.PAGADO);
+  });
+
+  it('el crédito con saldo es una cuenta por cobrar', () => {
+    expect(destinoAlAceptar({ ...enEfectivo, estadoPago: EstadoPago.CREDITO })).toBe(
+      DestinoDelPedido.CXC,
+    );
+  });
+
+  it('el crédito en transferencia también: lo que cuenta es que debe', () => {
+    expect(
+      destinoAlAceptar({
+        ...enEfectivo,
+        metodoPago: MetodoPago.TRANSFERENCIA,
+        estadoPago: EstadoPago.CREDITO,
+      }),
+    ).toBe(DestinoDelPedido.CXC);
+  });
+
+  it('el crédito cubierto entero con la billetera no debe nada', () => {
+    expect(
+      destinoAlAceptar({
+        ...enEfectivo,
+        estadoPago: EstadoPago.CREDITO,
+        pagadoConBilletera: D(300),
+      }),
+    ).toBeNull();
+  });
+
+  it.each([EstadoPago.PAGADO, EstadoPago.REEMBOLSADO, EstadoPago.CANCELADO, EstadoPago.RETENER])(
+    'un pedido en %s se queda como está',
+    (estadoPago) => {
+      expect(destinoAlAceptar({ ...enEfectivo, estadoPago })).toBeNull();
+    },
+  );
+
+  it('una transferencia pendiente no la trae el repartidor: no se paga sola', () => {
+    expect(destinoAlAceptar({ ...enEfectivo, metodoPago: MetodoPago.TRANSFERENCIA })).toBeNull();
   });
 });
 

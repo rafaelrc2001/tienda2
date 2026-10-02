@@ -1,44 +1,73 @@
 <script setup lang="ts">
 /**
- * Administración → Finanzas → Cortes: recibir el dinero que traen los
- * repartidores.
+ * Administración → Finanzas → Cortes de ruta: aceptar lo que cada repartidor
+ * trae de su entrega.
  *
- * Tres cifras que no son la misma y por eso se pintan juntas: lo que **dice el
- * sistema** que trae, lo que él **declaró** al cerrar y lo que aquí se
- * **cuenta**. La diferencia entre las dos primeras es suya; la que queda
- * después de contar es el saldo que se reclama, y lo que entregue más tarde
- * entra como abono en vez de reescribir los montos del día.
+ * Un corte se acepta en tres pasos y en ese orden, que es el orden en que las
+ * cosas llegan al mostrador:
  *
- * Quien recibe no puede ser quien cerró, salvo el administrador: eso lo impide
- * la API (409 `RECIBE_EL_MISMO`) y aquí solo se enseña su mensaje.
+ *  1. **Entrega de devolución**: la mercancía que regresa. Aceptarla la
+ *     devuelve al inventario; rechazarla deshace la liquidación y el
+ *     repartidor la vuelve a hacer.
+ *  2. **Entrega de efectivo**: se acepta lo que él declaró, sin capturar otra
+ *     cifra, y queda anotado en Ingresos.
+ *  3. **Entrega aceptada**: cierra la revisión. Si el dinero aceptado no cubre
+ *     lo que dice el sistema, el corte queda con adeudo y lo que el repartidor
+ *     traiga después vuelve a pasar por «Aceptar dinero».
+ *
+ * Qué paso toca lo decide `esperaDelCorte()`; aquí solo se apagan los botones
+ * de los que todavía no. La API vuelve a comprobar el orden (409) y que quien
+ * acepta no sea quien liquidó (`RECIBE_EL_MISMO`): de esos solo se enseña el
+ * mensaje.
  */
-import { onMounted, ref } from 'vue'
-import { http } from '@/api/http'
+import { computed, onMounted, ref } from 'vue'
+import { ErrorApi, http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
-import { dinero, fechaHora } from '@/utils/formato'
+import { dinero, fechaHora, nombreEstadoPago, nombreMetodoPago } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
 import { nombreEntrega } from './rutas/etiquetas'
-import type { Corte, FiltroCortes, ListadoCortes } from '@/api/tipos'
+import {
+  abonoPendiente,
+  centavos,
+  esperaDelCorte,
+  faltanteDe,
+  nombreResultado,
+  type EsperaDelCorte,
+} from './rutas/liquidacion'
+import type { Corte, DetalleCorte, FiltroCortes, ListadoCortes } from '@/api/tipos'
 
 const ui = useUiStore()
 
 const PESTANAS: { filtro: FiltroCortes; titulo: string }[] = [
-  { filtro: 'por-recibir', titulo: 'Por recibir' },
-  { filtro: 'recibidos', titulo: 'Recibidos' },
+  { filtro: 'por-aceptar', titulo: 'Por aceptar' },
+  { filtro: 'con-adeudo', titulo: 'Con adeudo' },
+  { filtro: 'cerrados', titulo: 'Cerrados' },
 ]
 
-const filtro = ref<FiltroCortes>('por-recibir')
+const VACIO: Record<FiltroCortes, string> = {
+  'por-aceptar': 'No hay cortes esperando que se acepten. 🎉',
+  'con-adeudo': 'Ningún repartidor debe dinero de sus cortes.',
+  cerrados: 'Todavía no se ha cerrado ningún corte.',
+}
+
+/** Lo que sigue en cada corte, dicho como el botón que hay que pulsar. */
+const SIGUE: Record<EsperaDelCorte, string> = {
+  devolucion: 'Aceptar devolución',
+  dinero: 'Aceptar dinero',
+  entrega: 'Entrega aceptada',
+  abono: 'Aceptar dinero',
+}
+
+const filtro = ref<FiltroCortes>('por-aceptar')
 const cortes = ref<Corte[]>([])
 const conteos = ref<Record<FiltroCortes, number> | null>(null)
 const cargando = ref(true)
 const guardando = ref(false)
-const abierto = ref<string | null>(null)
 
-/** La hoja abierta: contar el dinero de un corte, o abonar sobre lo que faltó. */
-const recibiendo = ref<Corte | null>(null)
-const abonando = ref<Corte | null>(null)
-const monto = ref<number | ''>('')
-const nota = ref('')
+/** El corte abierto y lo que salió en su entrega. Se pide al abrirlo, no antes. */
+const abierto = ref<string | null>(null)
+const detalles = ref<Record<string, DetalleCorte>>({})
+const errorDetalle = ref('')
 
 /** Cambiar de pestaña rápido deja respuestas viejas en el aire: gana la última. */
 let peticion = 0
@@ -53,6 +82,10 @@ async function cargar(conEsqueleto = true): Promise<void> {
     if (numero !== peticion) return
     cortes.value = respuesta.cortes
     conteos.value = respuesta.conteos
+    // Un corte que cambió de pestaña ya no está en la lista: se cierra su detalle.
+    if (abierto.value && !respuesta.cortes.some((c) => c.id === abierto.value)) {
+      abierto.value = null
+    }
   } catch (fallo) {
     if (numero === peticion) ui.errorDeApi(fallo)
   } finally {
@@ -69,76 +102,148 @@ function elegir(nuevo: FiltroCortes): void {
   void cargar()
 }
 
+async function cargarDetalle(id: string): Promise<void> {
+  errorDetalle.value = ''
+  try {
+    const detalle = await http.get<DetalleCorte>(`/admin/finanzas/cortes/${id}`)
+    detalles.value = { ...detalles.value, [id]: detalle }
+  } catch (fallo) {
+    if (abierto.value === id) {
+      errorDetalle.value =
+        fallo instanceof ErrorApi ? fallo.message : 'No pudimos cargar lo que salió en la entrega.'
+    }
+  }
+}
+
 function alternar(id: string): void {
   abierto.value = abierto.value === id ? null : id
+  if (abierto.value) void cargarDetalle(id)
 }
 
-/** Solo se ofrece abrir el detalle si hay algo que enseñar en él. */
-function tieneDetalle(corte: Corte): boolean {
-  return corte.abonos.length > 0 || Boolean(corte.notas)
+function sigue(corte: Corte): string {
+  const espera = esperaDelCorte(corte)
+  if (espera) return SIGUE[espera]
+  return corte.estado === 'CERRADO' ? '—' : 'Espera al repartidor'
 }
 
-function abrirRecibir(corte: Corte): void {
-  // Se propone lo declarado: contar suele confirmarlo, y lo que importa es que
-  // quien cuenta tenga que mirar el número antes de pulsar.
-  monto.value = corte.montoDeclarado
-  nota.value = ''
-  recibiendo.value = corte
+/** Si regresa mercancía: sin nada que bajar, la devolución se acepta igual, pero se dice. */
+function regresaAlgo(detalle: DetalleCorte): boolean {
+  return detalle.conteo.some((p) => p.devolucion > 0)
 }
 
-function abrirAbono(corte: Corte): void {
-  monto.value = corte.saldoPendiente > 0 ? corte.saldoPendiente : ''
-  nota.value = ''
-  abonando.value = corte
+// ------------------------------------------------------------------
+// Aceptar y rechazar
+// ------------------------------------------------------------------
+
+type Paso = 'devolucion' | 'dinero' | 'entrega'
+
+/** La hoja de confirmación abierta: ninguno de los tres pasos se deshace. */
+const confirmando = ref<{ corte: Corte; paso: Paso } | null>(null)
+const rechazando = ref<Corte | null>(null)
+const motivo = ref('')
+const errorMotivo = ref('')
+
+const RUTA: Record<Paso, string> = {
+  devolucion: 'aceptar-devolucion',
+  dinero: 'aceptar-dinero',
+  entrega: 'aceptar-entrega',
 }
 
-async function recibir(): Promise<void> {
-  const corte = recibiendo.value
-  if (!corte || monto.value === '' || monto.value < 0) return
+const TITULO: Record<Paso, string> = {
+  devolucion: 'Aceptar devolución',
+  dinero: 'Aceptar dinero',
+  entrega: 'Entrega aceptada',
+}
+
+const textoConfirmacion = computed(() => {
+  const c = confirmando.value
+  if (!c) return ''
+  if (c.paso === 'devolucion') {
+    return 'La mercancía que regresó vuelve al inventario. Revisa que lo que bajó del camión sea lo de la tabla: después ya no se puede rechazar.'
+  }
+  if (c.paso === 'dinero') {
+    return `Recibes ${dinero(c.corte.dineroPorAceptar ?? 0)} de ${c.corte.repartidorNombre}. Queda anotado en Ingresos y ya no se puede corregir.`
+  }
+  return 'Los pedidos en efectivo quedan pagados y los de crédito pasan a CXC. Si el dinero aceptado no cubre lo que dice el sistema, el corte queda con adeudo.'
+})
+
+function avisoDe(paso: Paso, antes: Corte, despues: Corte): string {
+  const cerrado = despues.estado === 'CERRADO'
+  if (paso === 'devolucion') return 'Devolución aceptada: la mercancía volvió al inventario.'
+  if (paso === 'dinero') {
+    const cuanto = dinero(antes.dineroPorAceptar ?? 0)
+    return cerrado
+      ? `${cuanto} aceptados. El corte queda cerrado.`
+      : `${cuanto} aceptados y anotados en Ingresos.`
+  }
+  return cerrado
+    ? 'Entrega aceptada: el corte queda cerrado.'
+    : `Entrega aceptada. ${despues.repartidorNombre} debe ${dinero(faltanteDe(despues))}.`
+}
+
+async function aceptar(): Promise<void> {
+  const c = confirmando.value
+  if (!c) return
 
   guardando.value = true
   try {
-    const actualizado = await http.post<Corte>(`/admin/finanzas/cortes/${corte.id}/recibir`, {
-      montoRecibido: monto.value,
-      ...(nota.value.trim() ? { notas: nota.value.trim() } : {}),
-    })
-    ui.exito(
-      actualizado.saldoPendiente > 0
-        ? `Corte recibido con ${dinero(actualizado.saldoPendiente)} pendientes.`
-        : `Corte de ${actualizado.repartidorNombre} recibido completo.`,
+    const actualizado = await http.post<Corte>(
+      `/admin/finanzas/cortes/${c.corte.id}/${RUTA[c.paso]}`,
     )
-    recibiendo.value = null
+    cortes.value = cortes.value.map((otro) => (otro.id === actualizado.id ? actualizado : otro))
+    ui.exito(avisoDe(c.paso, c.corte, actualizado))
   } catch (fallo) {
+    // Un 409 aquí suele ser que otra persona lo aceptó entre medias.
     ui.errorDeApi(fallo)
   } finally {
     guardando.value = false
+    confirmando.value = null
   }
-  // El corte cambia de pestaña al recibirse: se relee con sus contadores.
+  await refrescar(c.corte.id)
+}
+
+function abrirRechazo(corte: Corte): void {
+  motivo.value = ''
+  errorMotivo.value = ''
+  rechazando.value = corte
+}
+
+async function rechazar(): Promise<void> {
+  const corte = rechazando.value
+  if (!corte) return
+  if (!motivo.value.trim()) {
+    errorMotivo.value = 'Escribe qué no cuadró: es lo que el repartidor va a leer.'
+    return
+  }
+
+  guardando.value = true
+  try {
+    await http.post<void>(`/admin/finanzas/cortes/${corte.id}/rechazar-devolucion`, {
+      motivo: motivo.value.trim(),
+    })
+    ui.exito(`Devolución rechazada: ${corte.repartidorNombre} tiene que volver a liquidar.`)
+    rechazando.value = null
+  } catch (fallo) {
+    if (fallo instanceof ErrorApi && fallo.estado === 400) {
+      errorMotivo.value = fallo.porCampo(['motivo']).campos.motivo ?? fallo.message
+      return
+    }
+    ui.errorDeApi(fallo)
+    rechazando.value = null
+  } finally {
+    guardando.value = false
+  }
+  await refrescar(corte.id)
+}
+
+/**
+ * Tras cada paso se relee la lista —el corte puede haber cambiado de pestaña o
+ * ya no existir— y, si sigue a la vista, su detalle: «Entrega aceptada» cambia
+ * el pago de sus pedidos.
+ */
+async function refrescar(id: string): Promise<void> {
   await cargar(false)
-}
-
-async function abonar(): Promise<void> {
-  const corte = abonando.value
-  if (!corte || monto.value === '' || monto.value <= 0) return
-
-  guardando.value = true
-  try {
-    const actualizado = await http.post<Corte>(`/admin/finanzas/cortes/${corte.id}/abonos`, {
-      monto: monto.value,
-      ...(nota.value.trim() ? { nota: nota.value.trim() } : {}),
-    })
-    cortes.value = cortes.value.map((c) => (c.id === actualizado.id ? actualizado : c))
-    ui.exito(
-      actualizado.saldoPendiente > 0
-        ? `Abono registrado. Quedan ${dinero(actualizado.saldoPendiente)}.`
-        : 'Abono registrado: el corte queda saldado.',
-    )
-    abonando.value = null
-  } catch (fallo) {
-    ui.errorDeApi(fallo)
-  } finally {
-    guardando.value = false
-  }
+  if (abierto.value === id) await cargarDetalle(id)
 }
 </script>
 
@@ -167,86 +272,228 @@ async function abonar(): Promise<void> {
       <table class="tabla lineal">
         <thead>
           <tr>
+            <th>Reparto</th>
             <th>Repartidor</th>
             <th class="num">Pedidos</th>
             <th class="num">Dice el sistema</th>
             <th class="num">Declaró</th>
-            <th class="num">Diferencia</th>
-            <th class="num">Contado</th>
-            <th class="num">Saldo</th>
-            <th>Acción</th>
+            <th class="num">Aceptado</th>
+            <th class="num">Adeudo</th>
+            <th>Sigue</th>
           </tr>
         </thead>
         <tbody>
           <template v-for="corte in cortes" :key="corte.id">
             <tr :class="{ 'con-detalle': abierto === corte.id }">
               <td>
-                <span class="nombre">🛵 {{ corte.repartidorNombre }}</span>
+                <span class="folio">{{ corte.entrega?.folio ?? 'Sin folio' }}</span>
                 <span class="sub">
                   <template v-if="corte.entrega">{{ nombreEntrega(corte.entrega) }} · </template>
-                  Cerrado {{ fechaHora(corte.cerradoEn) }}
+                  Liquidado {{ fechaHora(corte.cerradoEn) }}
                 </span>
-                <div v-if="tieneDetalle(corte)" class="enlaces">
+                <div class="enlaces">
                   <button type="button" class="enlace" @click="alternar(corte.id)">
-                    {{ abierto === corte.id ? 'Ocultar detalle' : 'Ver detalle' }}
+                    {{ abierto === corte.id ? 'Ocultar corte' : 'Ver corte' }}
                   </button>
                 </div>
               </td>
+              <td class="nombre">🛵 {{ corte.repartidorNombre }}</td>
               <td class="num">{{ corte.pedidos }}</td>
               <td class="num importe">{{ dinero(corte.montoCalculado) }}</td>
               <td class="num">{{ dinero(corte.montoDeclarado) }}</td>
-              <td class="num" :class="{ falta: corte.diferencia < 0 }">
-                {{ dinero(corte.diferencia) }}
-              </td>
               <td class="num">
-                <template v-if="corte.montoRecibido !== null">
-                  {{ dinero(corte.montoRecibido) }}
-                  <span class="sub">{{ corte.recibidoPorNombre ?? '—' }}</span>
+                {{ corte.montoRecibido !== null ? dinero(corte.montoRecibido) : '—' }}
+              </td>
+              <td class="num importe" :class="{ falta: faltanteDe(corte) > 0 }">
+                <template v-if="corte.recibidoEn">
+                  {{ faltanteDe(corte) > 0 ? dinero(faltanteDe(corte)) : 'Sin adeudo' }}
                 </template>
                 <template v-else>—</template>
               </td>
-              <td class="num importe" :class="{ falta: corte.saldoPendiente > 0 }">
-                <template v-if="corte.montoRecibido !== null">
-                  {{ corte.saldoPendiente > 0 ? dinero(corte.saldoPendiente) : 'Saldado' }}
-                </template>
-                <template v-else>—</template>
-              </td>
-              <td class="accion">
-                <button
-                  v-if="corte.estado === 'CERRADO'"
-                  type="button"
-                  class="btn-primary"
-                  @click="abrirRecibir(corte)"
-                >
-                  Contar y recibir
-                </button>
-                <button v-else type="button" class="btn-secondary" @click="abrirAbono(corte)">
-                  Registrar abono
-                </button>
-              </td>
+              <td class="sigue">{{ sigue(corte) }}</td>
             </tr>
 
-            <!-- Los abonos que llegaron después del conteo y las notas del corte. -->
             <tr v-if="abierto === corte.id" class="fila-detalle">
               <td colspan="8">
-                <table v-if="corte.abonos.length > 0" class="tabla-lineas angosta">
-                  <thead>
-                    <tr>
-                      <th>Abono</th>
-                      <th>Registró</th>
-                      <th>Nota</th>
-                      <th class="num">Monto</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="abono in corte.abonos" :key="abono.id">
-                      <td class="fecha">{{ fechaHora(abono.creadoEn) }}</td>
-                      <td>{{ abono.registradoPorNombre }}</td>
-                      <td>{{ abono.nota ?? '—' }}</td>
-                      <td class="num abono">{{ dinero(abono.monto) }}</td>
-                    </tr>
-                  </tbody>
-                </table>
+                <!-- 1. La mercancía que regresa. -->
+                <section class="paso">
+                  <h3 class="paso-titulo">Entrega de devolución</h3>
+                  <template v-if="detalles[corte.id]">
+                    <table v-if="detalles[corte.id].conteo.length > 0" class="tabla-lineas angosta">
+                      <thead>
+                        <tr>
+                          <th>Producto</th>
+                          <th class="num">Recolectado</th>
+                          <th class="num">Entregado</th>
+                          <th class="num">Devolución</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-for="p in detalles[corte.id].conteo" :key="p.productoId">
+                          <td>
+                            {{ p.nombre }} <span class="unidad">{{ p.unidad }}</span>
+                          </td>
+                          <td class="num">{{ p.cargado }}</td>
+                          <td class="num">{{ p.entregado }}</td>
+                          <td class="num fuerte">{{ p.devolucion }}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                    <p v-if="!regresaAlgo(detalles[corte.id])" class="nota">
+                      No regresa mercancía en esta entrega.
+                    </p>
+                  </template>
+                  <p v-else-if="errorDetalle" class="nota falta">{{ errorDetalle }}</p>
+                  <p v-else class="nota">Cargando lo que baja del camión…</p>
+
+                  <p v-if="corte.devolucionAceptadaEn" class="hecho">
+                    ✓ Aceptada por {{ corte.devolucionAceptadaPorNombre ?? '—' }} ·
+                    {{ fechaHora(corte.devolucionAceptadaEn) }}
+                  </p>
+                  <div v-else class="botones">
+                    <button
+                      type="button"
+                      class="btn-primary"
+                      :disabled="guardando"
+                      @click="confirmando = { corte, paso: 'devolucion' }"
+                    >
+                      Aceptar devolución
+                    </button>
+                    <button
+                      type="button"
+                      class="btn-secondary"
+                      :disabled="guardando"
+                      @click="abrirRechazo(corte)"
+                    >
+                      Rechazar
+                    </button>
+                  </div>
+                </section>
+
+                <!-- 2. El dinero: lo declarado primero y, si quedó adeudo, sus abonos. -->
+                <section class="paso">
+                  <h3 class="paso-titulo">Entrega de efectivo</h3>
+                  <table class="tabla-lineas angosta">
+                    <tbody>
+                      <tr>
+                        <td>Dice el sistema</td>
+                        <td class="num">{{ dinero(corte.montoCalculado) }}</td>
+                      </tr>
+                      <tr>
+                        <td>Declaró el repartidor</td>
+                        <td class="num">{{ dinero(corte.montoDeclarado) }}</td>
+                      </tr>
+                      <tr v-if="centavos(corte.diferencia) !== 0">
+                        <td>Diferencia</td>
+                        <td class="num" :class="{ falta: corte.diferencia < 0 }">
+                          {{ dinero(corte.diferencia) }}
+                        </td>
+                      </tr>
+                      <tr v-if="corte.montoRecibido !== null">
+                        <td>
+                          Aceptado por {{ corte.recibidoPorNombre ?? '—' }} ·
+                          {{ fechaHora(corte.recibidoEn) }}
+                        </td>
+                        <td class="num abono">{{ dinero(corte.montoRecibido) }}</td>
+                      </tr>
+                      <tr v-if="corte.recibidoEn" class="fuerte">
+                        <td>Adeudo</td>
+                        <td class="num" :class="{ falta: faltanteDe(corte) > 0 }">
+                          {{ dinero(faltanteDe(corte)) }}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+
+                  <table v-if="corte.abonos.length > 0" class="tabla-lineas angosta">
+                    <thead>
+                      <tr>
+                        <th>Entregó después</th>
+                        <th>Nota</th>
+                        <th>Estatus</th>
+                        <th class="num">Monto</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="abono in corte.abonos" :key="abono.id">
+                        <td class="fecha">{{ fechaHora(abono.creadoEn) }}</td>
+                        <td>{{ abono.nota ?? '—' }}</td>
+                        <td>{{ abono.aceptadoEn ? 'Aceptado' : 'Por aceptar' }}</td>
+                        <td class="num" :class="{ abono: abono.aceptadoEn }">
+                          {{ dinero(abono.monto) }}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+
+                  <div v-if="!corte.recibidoEn || abonoPendiente(corte)" class="botones">
+                    <button
+                      type="button"
+                      class="btn-primary"
+                      :disabled="guardando || !corte.devolucionAceptadaEn"
+                      @click="confirmando = { corte, paso: 'dinero' }"
+                    >
+                      Aceptar dinero · {{ dinero(corte.dineroPorAceptar ?? 0) }}
+                    </button>
+                    <span v-if="!corte.devolucionAceptadaEn" class="espera">
+                      Primero acepta la devolución.
+                    </span>
+                  </div>
+                </section>
+
+                <!-- 3. El cierre de la revisión. -->
+                <section class="paso">
+                  <h3 class="paso-titulo">Entrega aceptada</h3>
+                  <p v-if="corte.entregaAceptadaEn" class="hecho">
+                    ✓ Aceptada por {{ corte.entregaAceptadaPorNombre ?? '—' }} ·
+                    {{ fechaHora(corte.entregaAceptadaEn) }}
+                  </p>
+                  <div v-else class="botones">
+                    <button
+                      type="button"
+                      class="btn-primary"
+                      :disabled="guardando || esperaDelCorte(corte) !== 'entrega'"
+                      @click="confirmando = { corte, paso: 'entrega' }"
+                    >
+                      Entrega aceptada
+                    </button>
+                    <span v-if="esperaDelCorte(corte) !== 'entrega'" class="espera">
+                      Primero acepta la devolución y el dinero.
+                    </span>
+                  </div>
+                </section>
+
+                <!-- Lo que salió en la entrega, para saber de dónde viene cada cifra. -->
+                <section v-if="detalles[corte.id]?.pedidos.length" class="paso">
+                  <h3 class="paso-titulo">Pedidos de la entrega</h3>
+                  <table class="tabla-lineas">
+                    <thead>
+                      <tr>
+                        <th>Pedido</th>
+                        <th>Cliente</th>
+                        <th>Resultado</th>
+                        <th>Pago</th>
+                        <th class="num">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="pedido in detalles[corte.id].pedidos" :key="pedido.id">
+                        <td class="fecha">
+                          {{ pedido.folio }}
+                          <span v-if="pedido.porFaltante" class="unidad">por faltante</span>
+                        </td>
+                        <td>{{ pedido.clienteNombre }}</td>
+                        <td>{{ nombreResultado(pedido.resultado) }}</td>
+                        <td>
+                          {{ nombreMetodoPago(pedido.metodoPago) }} ·
+                          {{ nombreEstadoPago(pedido.estadoPago) }}
+                        </td>
+                        <td class="num">{{ dinero(pedido.total) }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </section>
+
                 <p v-if="corte.notas" class="notas">📝 {{ corte.notas }}</p>
               </td>
             </tr>
@@ -255,100 +502,61 @@ async function abonar(): Promise<void> {
       </table>
     </div>
 
-    <p v-else class="empty-block">
-      {{
-        filtro === 'por-recibir'
-          ? 'No hay cortes esperando que se cuente su dinero. 🎉'
-          : 'Todavía no se ha recibido ningún corte.'
-      }}
-    </p>
+    <p v-else class="empty-block">{{ VACIO[filtro] }}</p>
 
-    <!-- Contar el dinero. Contar de menos no bloquea: el faltante queda a la vista. -->
-    <div v-if="recibiendo" class="modal-overlay" @click.self="recibiendo = null">
-      <div class="modal-sheet" role="dialog" aria-label="Recibir el corte">
+    <!-- Ninguno de los tres pasos se deshace: se confirma antes. -->
+    <div v-if="confirmando" class="modal-overlay" @click.self="confirmando = null">
+      <div class="modal-sheet" role="dialog" :aria-label="TITULO[confirmando.paso]">
         <div class="modal-handle" />
-        <p class="modal-title">Recibir el corte de {{ recibiendo.repartidorNombre }}</p>
-        <p class="modal-texto">
-          El sistema dice {{ dinero(recibiendo.montoCalculado) }} y él declaró
-          {{ dinero(recibiendo.montoDeclarado) }}. Escribe lo que cuentes de verdad: si falta, el
-          corte se recibe igual y lo que entregue después entra como abono.
+        <p class="modal-title">
+          {{ TITULO[confirmando.paso] }} · {{ confirmando.corte.entrega?.folio ?? 'corte' }}
         </p>
-
-        <label class="form-label" for="contado">Dinero contado</label>
-        <input
-          id="contado"
-          v-model.number="monto"
-          class="form-input"
-          type="number"
-          inputmode="decimal"
-          min="0"
-          step="0.01"
-        />
-
-        <textarea
-          v-model="nota"
-          class="form-textarea"
-          rows="2"
-          maxlength="500"
-          placeholder="Nota del conteo (opcional)"
-        />
+        <p class="modal-texto">{{ textoConfirmacion }}</p>
 
         <div class="modal-actions">
-          <button type="button" class="btn-cancel" :disabled="guardando" @click="recibiendo = null">
-            Volver
-          </button>
           <button
             type="button"
-            class="btn-primary"
-            :disabled="guardando || monto === ''"
-            @click="recibir"
+            class="btn-cancel"
+            :disabled="guardando"
+            @click="confirmando = null"
           >
-            {{ guardando ? 'Guardando…' : 'Recibir' }}
+            Volver
+          </button>
+          <button type="button" class="btn-primary" :disabled="guardando" @click="aceptar">
+            {{ guardando ? 'Guardando…' : TITULO[confirmando.paso] }}
           </button>
         </div>
       </div>
     </div>
 
-    <!-- El dinero que llega después del conteo. -->
-    <div v-if="abonando" class="modal-overlay" @click.self="abonando = null">
-      <div class="modal-sheet" role="dialog" aria-label="Registrar un abono">
+    <!-- Rechazar la devolución deshace la liquidación entera. -->
+    <div v-if="rechazando" class="modal-overlay" @click.self="rechazando = null">
+      <div class="modal-sheet" role="dialog" aria-label="Rechazar la devolución">
         <div class="modal-handle" />
-        <p class="modal-title">Abono de {{ abonando.repartidorNombre }}</p>
+        <p class="modal-title">Rechazar la devolución de {{ rechazando.repartidorNombre }}</p>
         <p class="modal-texto">
-          Quedan {{ dinero(abonando.saldoPendiente) }} por entregar. El abono se guarda aparte: los
-          montos del corte son la fotografía de aquel día y no se reescriben.
+          La liquidación se deshace: el corte se borra y la entrega vuelve al repartidor para que
+          cuente de nuevo y la liquide otra vez. No se mueve el inventario.
         </p>
 
-        <label class="form-label" for="abono">Monto que entrega</label>
-        <input
-          id="abono"
-          v-model.number="monto"
-          class="form-input"
-          type="number"
-          inputmode="decimal"
-          min="0.01"
-          step="0.01"
-        />
-
+        <label class="form-label" for="motivo-rechazo">Qué no cuadró</label>
         <textarea
-          v-model="nota"
+          id="motivo-rechazo"
+          v-model="motivo"
           class="form-textarea"
-          rows="2"
+          :class="{ 'is-invalid': errorMotivo }"
+          rows="3"
           maxlength="500"
-          placeholder="De dónde salió (opcional)"
+          placeholder="Ej.: dice que regresan 3 quesos y bajaron 2"
         />
+        <p v-if="errorMotivo" class="form-error">{{ errorMotivo }}</p>
 
         <div class="modal-actions">
-          <button type="button" class="btn-cancel" :disabled="guardando" @click="abonando = null">
+          <button type="button" class="btn-cancel" :disabled="guardando" @click="rechazando = null">
             Volver
           </button>
-          <button
-            type="button"
-            class="btn-primary"
-            :disabled="guardando || monto === '' || monto <= 0"
-            @click="abonar"
-          >
-            {{ guardando ? 'Guardando…' : 'Registrar abono' }}
+          <button type="button" class="btn-primary" :disabled="guardando" @click="rechazar">
+            {{ guardando ? 'Guardando…' : 'Rechazar devolución' }}
           </button>
         </div>
       </div>
@@ -376,19 +584,41 @@ async function abonar(): Promise<void> {
 }
 
 .tabla {
-  min-width: 820px;
+  min-width: 860px;
 }
 
-.nombre {
+.tabla > tbody > tr > td.nombre {
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.tabla > tbody > tr > td.falta,
+.tabla-lineas td.falta,
+.nota.falta {
+  color: var(--rojo);
+}
+
+.tabla > tbody > tr > td.sigue {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* Cada paso es un bloque del detalle, separado del siguiente por una línea. */
+.paso + .paso {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.paso-titulo {
+  margin: 0 0 6px;
   font-family: var(--font-heading);
   font-weight: 800;
   font-size: 12.5px;
   color: var(--ink);
-  white-space: nowrap;
-}
-
-.tabla > tbody > tr > td.falta {
-  color: var(--rojo);
 }
 
 .tabla-lineas.angosta {
@@ -400,14 +630,56 @@ async function abonar(): Promise<void> {
   color: var(--muted);
 }
 
+.tabla-lineas .unidad {
+  color: var(--muted);
+  font-size: 10.5px;
+}
+
+.tabla-lineas td.fuerte {
+  font-family: var(--font-heading);
+  font-weight: 800;
+}
+
 .tabla-lineas .abono {
   font-family: var(--font-heading);
   font-weight: 700;
   color: var(--verde-dark);
 }
 
-.notas {
+.botones {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.botones > button {
+  width: auto;
+  padding: 9px 16px;
+  font-size: 12.5px;
+}
+
+.espera,
+.nota {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.nota {
+  margin: 6px 0 0;
+}
+
+.hecho {
   margin: 8px 0 0;
+  font-size: 12px;
+  font-family: var(--font-heading);
+  font-weight: 700;
+  color: var(--verde-dark);
+}
+
+.notas {
+  margin: 12px 0 0;
   font-size: 12px;
   color: var(--ink);
   line-height: 1.45;

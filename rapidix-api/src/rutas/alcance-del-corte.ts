@@ -26,16 +26,19 @@ export interface EntregaACortar {
 }
 
 /**
- * Lo que abarca el corte de una entrega. La ultima entrega viva se lleva
- * ademas lo que no tiene entrega (pedidos cargados antes de que existieran),
- * para que nada quede en el camion al cerrar la jornada.
+ * Lo que abarca el corte de una entrega. La ultima entrega sin liquidar se
+ * lleva ademas lo que no tiene entrega (pedidos cargados antes de que
+ * existieran), para que nada se quede sin cobrar.
+ *
+ * Es el alcance del **dinero**. La mercancia no baja al liquidar sino cuando
+ * Finanzas acepta la devolucion, y su alcance es `alcanceDeLaDescarga()`.
  */
 export interface AlcanceDelCorte {
   sesionId: string;
   finalizadaEn: Date | null;
+  /** Es la ultima entrega de la jornada que faltaba por liquidar. */
   cierraJornada: boolean;
   pedidos: Prisma.PedidoWhereInput;
-  cargas: Prisma.CargaRepartidorWhereInput;
 }
 
 export function alcanceDelCorte(entrega: EntregaACortar): AlcanceDelCorte {
@@ -47,10 +50,46 @@ export function alcanceDelCorte(entrega: EntregaACortar): AlcanceDelCorte {
     pedidos: cierraJornada
       ? { OR: [{ entregaRutaId: entrega.entregaId }, { entregaRutaId: null }] }
       : { entregaRutaId: entrega.entregaId },
+  };
+}
+
+/** Lo que el servicio sabe de la entrega al aceptar su devolucion. */
+export interface EntregaADescargar {
+  entregaId: string;
+  sesionId: string;
+  /**
+   * Las demas entregas de la jornada que siguen vivas para ella: las que no se
+   * han liquidado y las liquidadas cuya devolucion aun no se acepta. Mientras
+   * quede una, su mercancia sigue arriba y la jornada no puede cerrarse.
+   */
+  otrasVivas: number;
+}
+
+export interface AlcanceDeLaDescarga {
+  /** Con esta devolucion el camion queda vacio: la jornada se cierra. */
+  cierraJornada: boolean;
+  cargas: Prisma.CargaRepartidorWhereInput;
+}
+
+/**
+ * Los renglones del camion que baja "Aceptar devolucion": los de los pedidos
+ * de esa entrega, entregados o no. Un pedido entregado conserva su entrega, y
+ * uno que no se entrego la conserva tambien hasta que esta descarga lo
+ * devuelve a la cola.
+ *
+ * La que cierra la jornada se lleva ademas lo que no tiene entrega, por lo
+ * mismo que el corte: que nada quede en el camion.
+ */
+export function alcanceDeLaDescarga(entrega: EntregaADescargar): AlcanceDeLaDescarga {
+  const cierraJornada = entrega.otrasVivas === 0;
+  return {
+    cierraJornada,
     cargas: {
       sesionId: entrega.sesionId,
       cerradoEn: null,
-      ...(!cierraJornada && { pedido: { entregaRutaId: entrega.entregaId } }),
+      pedido: cierraJornada
+        ? { OR: [{ entregaRutaId: entrega.entregaId }, { entregaRutaId: null }] }
+        : { entregaRutaId: entrega.entregaId },
     },
   };
 }

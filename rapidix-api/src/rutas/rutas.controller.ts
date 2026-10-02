@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   DefaultValuePipe,
+  Delete,
   Get,
   Param,
   ParseEnumPipe,
@@ -267,7 +268,7 @@ export class RutasController {
     return this.rutas.noEntregar(id, dto, usuario);
   }
 
-  /** Corrige lo declarado, mientras Finanzas no lo haya recibido. */
+  /** Corrige lo declarado, mientras Finanzas no haya aceptado el dinero (409 `CORTE_RECIBIDO`). */
   @Patch('cortes/:id')
   corregirCorte(
     @Param('id', ParseUUIDPipe) id: string,
@@ -278,9 +279,11 @@ export class RutasController {
   }
 
   /**
-   * "Completar el faltante": lo que entrega despues de que Finanzas conto de
-   * menos. 409 `CORTE_SIN_RECIBIR` antes del conteo (ahi se corrige, no se
-   * abona) y `ABONO_EXCEDE_FALTANTE` si pasa de lo que falta.
+   * "Entregar dinero": lo que trae despues para cubrir su adeudo. Nace
+   * pendiente y deja el corte en Liquidado hasta que Finanzas lo acepte. 409
+   * `ENTREGA_SIN_ACEPTAR` antes de "Entrega aceptada" (ahi se corrige lo
+   * declarado, no se abona), `ABONO_PENDIENTE` si ya hay uno esperando,
+   * `ABONO_EXCEDE_FALTANTE` si pasa de lo que debe y `CORTE_DE_OTRO`.
    */
   @Post('cortes/:id/abonos')
   abonar(
@@ -289,5 +292,18 @@ export class RutasController {
     @UsuarioActual() usuario: UsuarioAutenticado,
   ): Promise<CorteDto> {
     return this.cortes.abonarPropio(id, dto, usuario);
+  }
+
+  /**
+   * Cancela su abono pendiente, para registrarlo bien. 409 `ABONO_YA_ACEPTADO`
+   * si Finanzas ya lo acepto y `CORTE_DE_OTRO`.
+   */
+  @Delete('cortes/:id/abonos/:abonoId')
+  cancelarAbono(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('abonoId', ParseUUIDPipe) abonoId: string,
+    @UsuarioActual() usuario: UsuarioAutenticado,
+  ): Promise<CorteDto> {
+    return this.cortes.cancelarAbono(id, abonoId, usuario);
   }
 }

@@ -3,10 +3,14 @@
  * Una entrega desplegada en el historial: en qué quedó su dinero, el único
  * botón de dinero que le toca y lo que salió en ella.
  *
- * Los dos botones son trámites distintos y **nunca salen juntos**: antes de que
- * Finanzas cuente se corrige lo declarado (se pisa, es una corrección); después
- * el arqueo ya lo firmaron dos personas y no se toca, y lo que falte se abona
- * aparte, en parcialidades si hace falta.
+ * Los tres botones son trámites distintos y **nunca salen juntos**
+ * (`accionDelCorte`): antes de que Finanzas acepte el dinero se corrige lo
+ * declarado (se pisa, es una corrección); con la entrega aceptada y adeudo se
+ * entrega más dinero, en partes si hace falta; y mientras Finanzas no acepte
+ * esa entrega de dinero, se puede cancelar para hacerla otra vez.
+ *
+ * Lo que Finanzas no ha aceptado **no baja el adeudo**: se dice aparte, con lo
+ * que el corte espera (`esperaDelCorte`), para que no parezca dinero perdido.
  *
  * El detalle se pide al desplegar, no con la lista. La entrega ya liquidada se
  * guarda y no se vuelve a pedir; la que sigue viva cambia y se relee cada vez.
@@ -14,14 +18,16 @@
 import { computed, onMounted, ref } from 'vue'
 import { ErrorApi, http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
-import { dinero, fechaNumerica } from '@/utils/formato'
+import { dinero, fechaHora, fechaNumerica } from '@/utils/formato'
 import TablaConteo from './TablaConteo.vue'
 import { nombreMotivo } from './etiquetas'
 import {
+  abonoPendiente,
   accionDelCorte,
   centavos,
   errorDelAbono,
   errorDelDeclarado,
+  esperaDelCorte,
   estadoEnHistorial,
   faltanteDe,
   montoCapturado,
@@ -51,21 +57,33 @@ const abierto = ref<string | null>(null)
 const corte = computed(() => props.entrega.corte)
 const accion = computed(() => accionDelCorte(corte.value))
 const faltante = computed(() => (corte.value ? faltanteDe(corte.value) : 0))
-const abonado = computed(() => corte.value?.abonos.reduce((suma, a) => suma + a.monto, 0) ?? 0)
-/** Lo contado contra lo declarado: la sorpresa de Finanzas al abrir la bolsa. */
-const alRecibir = computed(() =>
-  corte.value?.montoRecibido == null
-    ? 0
-    : centavos(corte.value.montoRecibido - corte.value.montoDeclarado),
-)
+const pendiente = computed(() => (corte.value ? abonoPendiente(corte.value) : null))
+
+/** Qué falta que Finanzas acepte, dicho al repartidor. Vacío si no espera nada. */
+const espera = computed(() => {
+  const c = corte.value
+  if (!c) return ''
+  switch (esperaDelCorte(c)) {
+    case 'devolucion':
+      return 'Finanzas todavía no acepta tu devolución.'
+    case 'dinero':
+      return 'Finanzas todavía no acepta tu dinero.'
+    case 'entrega':
+      return 'Falta que Finanzas dé la entrega por aceptada.'
+    case 'abono':
+      return `Entregaste ${dinero(pendiente.value?.monto ?? 0)}: falta que Finanzas lo acepte.`
+    default:
+      return ''
+  }
+})
 
 const fechas = computed(() => {
   const e = props.entrega
-  const partes: string[] = []
+  const partes: string[] = [e.folio]
   if (e.iniciadaEn) partes.push(`Inició el ${fechaNumerica(e.iniciadaEn)}`)
   else partes.push(`Creada el ${fechaNumerica(e.creadoEn)}`)
   partes.push(`${e.pedidos} pedido(s)`)
-  if (corte.value) partes.push(`cerró el ${fechaNumerica(corte.value.cerradoEn)}`)
+  if (corte.value) partes.push(`liquidada el ${fechaNumerica(corte.value.cerradoEn)}`)
   return partes.join(' · ')
 })
 
@@ -92,7 +110,7 @@ function parcial(pedido: PedidoEnHistorial): boolean {
 }
 
 // ------------------------------------------------------------------
-// Corregir y completar
+// Corregir, entregar dinero y cancelarlo
 // ------------------------------------------------------------------
 
 const dialogo = ref<'corregir' | 'completar' | null>(null)
@@ -102,7 +120,7 @@ const guardando = ref(false)
 
 function abrir(tipo: 'corregir' | 'completar'): void {
   if (!corte.value) return
-  // Corregir parte de lo declarado; completar, del faltante entero, que es lo normal.
+  // Corregir parte de lo declarado; entregar, del adeudo entero, que es lo normal.
   monto.value = String(tipo === 'corregir' ? corte.value.montoDeclarado : faltante.value)
   errorMonto.value = ''
   dialogo.value = tipo
@@ -130,15 +148,32 @@ async function guardar(): Promise<void> {
     ui.exito(
       dialogo.value === 'corregir'
         ? 'Corregiste lo que declaraste.'
-        : faltanteDe(actualizado) > 0
-          ? `Abono registrado. Te faltan ${dinero(faltanteDe(actualizado))}.`
-          : 'Abono registrado: el faltante queda saldado.',
+        : 'Entrega de dinero registrada. Cuenta contra tu adeudo cuando Finanzas la acepte.',
     )
     dialogo.value = null
     emit('corte', actualizado)
   } catch (fallo) {
-    // Un 409 aquí es que Finanzas lo recibió entre medias o que el saldo cambió.
+    // Un 409 aquí es que Finanzas lo aceptó entre medias o que el adeudo cambió.
     errorMonto.value = fallo instanceof ErrorApi ? fallo.message : 'No se pudo guardar.'
+  } finally {
+    guardando.value = false
+  }
+}
+
+/** Cancela la entrega de dinero que Finanzas todavía no acepta: el dinero sigue siendo suyo. */
+async function cancelarAbono(): Promise<void> {
+  const c = corte.value
+  const abono = pendiente.value
+  if (!c || !abono || guardando.value) return
+
+  guardando.value = true
+  try {
+    const actualizado = await http.delete<Corte>(`/admin/rutas/cortes/${c.id}/abonos/${abono.id}`)
+    ui.exito('Entrega de dinero cancelada.')
+    emit('corte', actualizado)
+  } catch (fallo) {
+    // 409 `ABONO_YA_ACEPTADO`: Finanzas la aceptó mientras tanto.
+    ui.errorDeApi(fallo)
   } finally {
     guardando.value = false
   }
@@ -164,21 +199,36 @@ async function guardar(): Promise<void> {
       </p>
       <p v-else class="dif ok">✓ Cuadró con lo calculado.</p>
 
-      <template v-if="corte.montoRecibido !== null">
-        <div class="linea">
-          <span>Finanzas contó</span><strong>{{ dinero(corte.montoRecibido) }}</strong>
-        </div>
-        <p v-if="alRecibir !== 0" class="dif alerta">
-          Al recibir hubo {{ dinero(Math.abs(alRecibir)) }} {{ alRecibir < 0 ? 'menos' : 'más' }} de
-          lo que declaraste.
-        </p>
-      </template>
-
-      <div v-if="corte.abonos.length > 0" class="linea">
-        <span>Completaste después</span><strong>{{ dinero(abonado) }}</strong>
+      <div v-if="corte.montoRecibido !== null" class="linea">
+        <span>Finanzas aceptó</span><strong>{{ dinero(corte.montoRecibido) }}</strong>
       </div>
-      <p v-if="faltante > 0" class="dif alerta">Te falta entregar {{ dinero(faltante) }}.</p>
-      <p v-else-if="corte.abonos.length > 0" class="dif ok">✓ Faltante saldado.</p>
+
+      <!-- Lo que entregó después, una por una: la que no está aceptada todavía no cuenta. -->
+      <table v-if="corte.abonos.length > 0" class="tabla-lineas abonos">
+        <thead>
+          <tr>
+            <th>Entregaste después</th>
+            <th>Estatus</th>
+            <th class="num">Monto</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="abono in corte.abonos" :key="abono.id">
+            <td>{{ fechaHora(abono.creadoEn) }}</td>
+            <td>{{ abono.aceptadoEn ? 'Aceptado' : 'Por aceptar' }}</td>
+            <td class="num">{{ dinero(abono.monto) }}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <template v-if="corte.recibidoEn">
+        <div class="linea adeudo">
+          <span>Adeudo</span><strong>{{ dinero(faltante) }}</strong>
+        </div>
+        <p v-if="faltante > 0" class="dif alerta">Debes {{ dinero(faltante) }} de esta entrega.</p>
+        <p v-else class="dif ok">✓ No debes nada de esta entrega.</p>
+      </template>
+      <p v-if="espera" class="dif">⏳ {{ espera }}</p>
 
       <p v-if="corte.notas" class="nota">📝 {{ corte.notas }}</p>
     </div>
@@ -198,7 +248,16 @@ async function guardar(): Promise<void> {
       class="btn-primary accion"
       @click="abrir('completar')"
     >
-      ＋ Completar el faltante
+      ＋ Entregar dinero
+    </button>
+    <button
+      v-else-if="accion === 'cancelar' && pendiente"
+      type="button"
+      class="btn-secondary accion"
+      :disabled="guardando"
+      @click="cancelarAbono"
+    >
+      ✕ Cancelar la entrega de {{ dinero(pendiente.monto) }}
     </button>
 
     <!-- Lo que salió en ella. Se pidió al desplegar. -->
@@ -281,25 +340,25 @@ async function guardar(): Promise<void> {
       </template>
     </div>
 
-    <!-- Corregir o completar: un solo campo y lo que el sistema calculó a la vista. -->
+    <!-- Corregir o entregar dinero: un solo campo y lo que el sistema calculó a la vista. -->
     <div v-if="dialogo && corte" class="modal-overlay" @click.self="dialogo = null">
       <div
         class="modal-sheet"
         role="dialog"
-        :aria-label="dialogo === 'corregir' ? 'Corregir lo declarado' : 'Completar el faltante'"
+        :aria-label="dialogo === 'corregir' ? 'Corregir lo declarado' : 'Entregar dinero'"
       >
         <div class="modal-handle" />
         <p class="modal-title">
-          {{ dialogo === 'corregir' ? 'Corregir lo que declaré' : 'Completar el faltante' }}
+          {{ dialogo === 'corregir' ? 'Corregir lo que declaré' : 'Entregar dinero' }}
         </p>
         <p class="modal-texto">
           <template v-if="dialogo === 'corregir'">
             El sistema calculó {{ dinero(corte.montoCalculado) }}. Lo que escribas reemplaza lo que
-            declaraste: puedes corregirlo mientras Finanzas no lo reciba.
+            declaraste: puedes corregirlo mientras Finanzas no lo acepte.
           </template>
           <template v-else>
-            Te faltan {{ dinero(faltante) }}. Puedes entregarlo en partes: cada abono queda
-            registrado aparte, con tu nombre y la hora.
+            Debes {{ dinero(faltante) }}. Puedes entregarlo en partes, una a la vez: cada una baja
+            tu adeudo cuando Finanzas la acepta.
           </template>
         </p>
         <div class="zona-captura">
@@ -380,6 +439,16 @@ async function guardar(): Promise<void> {
 .dif.alerta {
   color: var(--orange-dark);
   font-weight: 600;
+}
+
+.linea.adeudo {
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+
+.abonos {
+  margin: 6px 0;
 }
 
 .nota {

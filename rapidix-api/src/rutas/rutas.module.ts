@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { PedidosModule } from '../pedidos/pedidos.module';
 import { InventarioModule } from '../inventario/inventario.module';
 import { ConfiguracionModule } from '../configuracion/configuracion.module';
+import { IngresosModule } from '../ingresos/ingresos.module';
 import { RutasService } from './rutas.service';
 import { CortesService } from './cortes.service';
 import { RutasController } from './rutas.controller';
@@ -15,10 +16,11 @@ import { EvidenciaController } from './evidencia.controller';
  *
  * Del corte cuelgan las otras dos: la mercancia devuelta vuelve a bodega por
  * `InventarioService`, y `ConfiguracionService` dice si el control de
- * inventario esta encendido para saber si hay que tocar el saldo.
+ * inventario esta encendido para saber si hay que tocar el saldo. El dinero
+ * que Finanzas acepta de un corte queda escrito por `IngresosService`.
  */
 @Module({
-  imports: [PedidosModule, InventarioModule, ConfiguracionModule],
+  imports: [PedidosModule, InventarioModule, ConfiguracionModule, IngresosModule],
   controllers: [RutasController, FinanzasCortesController, EvidenciaController],
   providers: [RutasService, CortesService],
   exports: [RutasService, CortesService],

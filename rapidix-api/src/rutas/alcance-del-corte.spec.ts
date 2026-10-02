@@ -1,5 +1,6 @@
 import { EstadoPago, EstadoPedido, MetodoPago, Prisma } from '@prisma/client';
 import {
+  alcanceDeLaDescarga,
   alcanceDelCorte,
   cuentaDelCorte,
   PedidoDelAlcance,
@@ -12,23 +13,16 @@ const D = (n: number) => new Prisma.Decimal(n);
 describe('alcanceDelCorte', () => {
   const entrega = { entregaId: 'e2', sesionId: 's1', finalizadaEn: null };
 
-  it('con otras entregas vivas: solo sus pedidos y su parte del camión', () => {
+  it('con otras entregas sin liquidar: solo sus pedidos', () => {
     const alcance = alcanceDelCorte({ ...entrega, otrasVivas: 1 });
     expect(alcance.cierraJornada).toBe(false);
     expect(alcance.pedidos).toEqual({ entregaRutaId: 'e2' });
-    expect(alcance.cargas).toEqual({
-      sesionId: 's1',
-      cerradoEn: null,
-      pedido: { entregaRutaId: 'e2' },
-    });
   });
 
-  it('la última viva cierra la jornada y se lleva lo que no tiene entrega', () => {
+  it('la última sin liquidar se lleva lo que no tiene entrega', () => {
     const alcance = alcanceDelCorte({ ...entrega, otrasVivas: 0 });
     expect(alcance.cierraJornada).toBe(true);
     expect(alcance.pedidos).toEqual({ OR: [{ entregaRutaId: 'e2' }, { entregaRutaId: null }] });
-    // Todo lo abierto de la jornada: el camión queda vacío.
-    expect(alcance.cargas).toEqual({ sesionId: 's1', cerradoEn: null });
   });
 
   it('conserva cuándo se finalizó para no pisarlo al cortar', () => {
@@ -36,6 +30,38 @@ describe('alcanceDelCorte', () => {
     expect(alcanceDelCorte({ ...entrega, finalizadaEn, otrasVivas: 0 }).finalizadaEn).toBe(
       finalizadaEn,
     );
+  });
+});
+
+describe('alcanceDeLaDescarga', () => {
+  const entrega = { entregaId: 'e2', sesionId: 's1' };
+
+  it('con otras entregas vivas: solo su parte del camión, y la jornada sigue', () => {
+    const alcance = alcanceDeLaDescarga({ ...entrega, otrasVivas: 1 });
+    expect(alcance.cierraJornada).toBe(false);
+    expect(alcance.cargas).toEqual({
+      sesionId: 's1',
+      cerradoEn: null,
+      pedido: { entregaRutaId: 'e2' },
+    });
+  });
+
+  it('la última viva cierra la jornada y baja también lo que no tiene entrega', () => {
+    const alcance = alcanceDeLaDescarga({ ...entrega, otrasVivas: 0 });
+    expect(alcance.cierraJornada).toBe(true);
+    expect(alcance.cargas).toEqual({
+      sesionId: 's1',
+      cerradoEn: null,
+      pedido: { OR: [{ entregaRutaId: 'e2' }, { entregaRutaId: null }] },
+    });
+  });
+
+  it('nunca baja lo de otra entrega de la misma jornada', () => {
+    // Ni siquiera la que cierra la jornada: lo de otra entrega lo baja su
+    // propia devolución, que es quien lo contó.
+    const { cargas } = alcanceDeLaDescarga({ ...entrega, otrasVivas: 0 });
+    expect(JSON.stringify(cargas)).not.toContain('e1');
+    expect(cargas.pedido).not.toBeUndefined();
   });
 });
 

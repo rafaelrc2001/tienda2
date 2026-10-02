@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  abonoPendiente,
   accionDelCorte,
   centavos,
   cobroDelPedido,
@@ -7,6 +8,7 @@ import {
   diferenciasDelConteo,
   errorDelAbono,
   errorDelDeclarado,
+  esperaDelCorte,
   estadoEnHistorial,
   faltanteDe,
   lineaDelArqueo,
@@ -16,7 +18,13 @@ import {
   piezasCapturadas,
   porcentajeDeExito,
 } from './liquidacion'
-import type { ConteoDeProducto, Corte, EntregaEnHistorial, PedidoDelCorte } from '@/api/tipos'
+import type {
+  AbonoDelCorte,
+  ConteoDeProducto,
+  Corte,
+  EntregaEnHistorial,
+  PedidoDelCorte,
+} from '@/api/tipos'
 
 const corte = (cambios: Partial<Corte> = {}): Corte => ({
   id: 'c1',
@@ -30,9 +38,14 @@ const corte = (cambios: Partial<Corte> = {}): Corte => ({
   saldoPendiente: 0,
   recibidoEn: null,
   recibidoPorNombre: null,
-  estado: 'CERRADO',
+  devolucionAceptadaEn: null,
+  devolucionAceptadaPorNombre: null,
+  entregaAceptadaEn: null,
+  entregaAceptadaPorNombre: null,
+  dineroPorAceptar: 100,
+  estado: 'LIQUIDADO',
   notas: null,
-  entrega: { numero: 1, nombre: null },
+  entrega: { id: 'e1', folio: 'REP000001', numero: 1, nombre: null },
   abonos: [],
   pedidos: 3,
   ...cambios,
@@ -107,6 +120,7 @@ describe('encabezado y liquidación', () => {
 describe('historial', () => {
   const entrega = (cambios: Partial<EntregaEnHistorial> = {}): EntregaEnHistorial => ({
     id: 'e1',
+    folio: 'REP000001',
     numero: 1,
     nombre: null,
     creadoEn: '2026-09-28T09:00:00Z',
@@ -124,19 +138,84 @@ describe('historial', () => {
       'Terminada, sin liquidar',
     )
     expect(estadoEnHistorial(entrega({ corte: corte() }))).toBe('Liquidado')
-    expect(estadoEnHistorial(entrega({ corte: corte({ estado: 'RECIBIDO' }) }))).toMatch(/recibido/)
+    expect(estadoEnHistorial(entrega({ corte: corte({ estado: 'ACEPTADO' }) }))).toBe('Aceptado')
+    expect(estadoEnHistorial(entrega({ corte: corte({ estado: 'CERRADO' }) }))).toBe('Cerrado')
   })
 
-  it('corregir solo antes de recibir; completar solo recibido con saldo; nunca los dos', () => {
+  // El corte en cada punto de su camino por Finanzas.
+  const AHORA = '2026-09-28T21:00:00Z'
+  const abono = (cambios: Partial<AbonoDelCorte> = {}): AbonoDelCorte => ({
+    id: 'a1',
+    monto: 20,
+    registradoPorNombre: 'Ana',
+    nota: null,
+    creadoEn: AHORA,
+    aceptadoEn: null,
+    ...cambios,
+  })
+  const conDevolucion = { devolucionAceptadaEn: AHORA, devolucionAceptadaPorNombre: 'Fin' }
+  const conDinero = {
+    ...conDevolucion,
+    recibidoEn: AHORA,
+    recibidoPorNombre: 'Fin',
+    montoRecibido: 80,
+    dineroPorAceptar: null,
+  }
+  const aceptado = {
+    ...conDinero,
+    entregaAceptadaEn: AHORA,
+    entregaAceptadaPorNombre: 'Fin',
+    estado: 'ACEPTADO' as const,
+    saldoPendiente: 20,
+  }
+
+  it('Finanzas acepta en orden: devolución, dinero, entrega y después los abonos', () => {
+    expect(esperaDelCorte(corte())).toBe('devolucion')
+    expect(esperaDelCorte(corte(conDevolucion))).toBe('dinero')
+    expect(esperaDelCorte(corte(conDinero))).toBe('entrega')
+    expect(esperaDelCorte(corte(aceptado))).toBeNull()
+    expect(esperaDelCorte(corte({ ...aceptado, estado: 'LIQUIDADO', abonos: [abono()] }))).toBe(
+      'abono',
+    )
+    expect(esperaDelCorte(corte({ ...aceptado, estado: 'CERRADO', saldoPendiente: 0 }))).toBeNull()
+  })
+
+  it('se corrige mientras el dinero no esté aceptado, aunque ya bajara la devolución', () => {
     expect(accionDelCorte(null)).toBeNull()
     expect(accionDelCorte(corte())).toBe('corregir')
-    expect(accionDelCorte(corte({ estado: 'RECIBIDO', saldoPendiente: 20 }))).toBe('completar')
-    expect(accionDelCorte(corte({ estado: 'RECIBIDO', saldoPendiente: 0 }))).toBeNull()
+    expect(accionDelCorte(corte(conDevolucion))).toBe('corregir')
   })
 
-  it('un faltante de 0.004 está saldado', () => {
-    expect(faltanteDe(corte({ estado: 'RECIBIDO', saldoPendiente: 0.004 }))).toBe(0)
-    expect(accionDelCorte(corte({ estado: 'RECIBIDO', saldoPendiente: 0.004 }))).toBeNull()
+  it('con el dinero aceptado y la entrega sin aceptar no hay botón', () => {
+    expect(accionDelCorte(corte(conDinero))).toBeNull()
+  })
+
+  it('entrega más dinero solo si debe y ya le aceptaron la entrega', () => {
+    expect(accionDelCorte(corte(aceptado))).toBe('completar')
+    expect(accionDelCorte(corte({ ...aceptado, saldoPendiente: 0 }))).toBeNull()
+  })
+
+  it('con un abono esperando solo puede cancelarlo, no hacer otro', () => {
+    const esperando = corte({ ...aceptado, estado: 'LIQUIDADO', abonos: [abono()] })
+    expect(abonoPendiente(esperando)?.id).toBe('a1')
+    expect(accionDelCorte(esperando)).toBe('cancelar')
+    // El abono sin aceptar no baja el adeudo.
+    expect(faltanteDe(esperando)).toBe(20)
+  })
+
+  it('un abono ya aceptado no está pendiente', () => {
+    const abonado = corte({ ...aceptado, abonos: [abono({ aceptadoEn: AHORA })] })
+    expect(abonoPendiente(abonado)).toBeNull()
+    expect(accionDelCorte(abonado)).toBe('completar')
+  })
+
+  it('un corte cerrado no tiene botón', () => {
+    expect(accionDelCorte(corte({ ...aceptado, estado: 'CERRADO', saldoPendiente: 0 }))).toBeNull()
+  })
+
+  it('un adeudo de 0.004 está saldado', () => {
+    expect(faltanteDe(corte({ ...aceptado, saldoPendiente: 0.004 }))).toBe(0)
+    expect(accionDelCorte(corte({ ...aceptado, saldoPendiente: 0.004 }))).toBeNull()
   })
 
   it('valida lo declarado y el abono', () => {

@@ -55,6 +55,11 @@ export interface PedidoDto {
     cambio: number | null;
     /** Transferencia: lo que el cliente pone como concepto. Es el folio. */
     referencia: string;
+    /**
+     * Es una cuenta por cobrar con saldo: se entrego a credito y aun debe. Se
+     * cobra desde CXC, no marcandolo Pagado.
+     */
+    enCxc: boolean;
   };
   metodoEntrega: MetodoEntrega;
   /** Snapshot de la direccion del pedido; `null` si se recoge en tienda. */
@@ -716,6 +721,9 @@ export class PedidosService {
         pagoCon: pedido.pagoCon?.toNumber() ?? null,
         cambio: pedido.cambio?.toNumber() ?? null,
         referencia: pedido.folio,
+        // En CREDITO una cuenta por cobrar siempre debe: el pago que la deja
+        // en cero la pasa a PAGADO en la misma transaccion.
+        enCxc: pedido.cxcDesde !== null && pedido.estadoPago === EstadoPago.CREDITO,
       },
       metodoEntrega: pedido.metodoEntrega,
       direccion: PedidosService.direccionLeida(pedido.direccion),

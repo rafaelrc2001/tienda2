@@ -12,8 +12,12 @@
  *
  * **Que el dinero no cuadre no bloquea.** Solo el campo vacío apaga el botón:
  * bloquear al repartidor no repone el dinero, y la diferencia queda escrita
- * para Finanzas. Cerrar es también lo que descarga el camión: los pedidos que
- * no se entregaron vuelven a «Listo para entrega» y salen otro día.
+ * para Finanzas.
+ *
+ * **Cerrar ya no descarga el camión.** La mercancía vuelve al inventario —y
+ * los pedidos sin entregar a «Listo para entrega»— cuando Finanzas acepta la
+ * devolución. Si la rechaza, la liquidación se deshace y la entrega vuelve
+ * aquí con el motivo arriba, que es lo que hay que corregir.
  *
  * **La mercancía sí bloquea.** Lo que se cuenta al bajar es lo que vuelve al
  * inventario, así que no se finaliza hasta que cada producto que regresa
@@ -232,8 +236,8 @@ const fraseDeCierre = computed(() => {
   }
   partes.push(
     r.cierraJornada
-      ? 'esto finaliza la entrega y, como es la última abierta, también tu jornada'
-      : 'esto finaliza la entrega',
+      ? 'esto finaliza la entrega; es la última abierta, así que tu jornada se cierra cuando Finanzas acepte la devolución'
+      : 'esto finaliza la entrega; Finanzas tiene que aceptar la devolución y el dinero',
   )
   return partes.join('; ') + '.'
 })
@@ -253,7 +257,7 @@ async function finalizar(): Promise<void> {
       ...(notas.value.trim() ? { notas: notas.value.trim() } : {}),
     })
     confirmando.value = false
-    ui.exito('Corte cerrado. Lo encuentras en Historial mientras Finanzas lo recibe.')
+    ui.exito('Liquidación finalizada. Síguela en Historial mientras Finanzas la acepta.')
     // Ya liquidada no hay nada que hacer aquí: de vuelta a las que faltan.
     await router.replace(VOLVER)
   } catch (fallo) {
@@ -281,8 +285,8 @@ async function finalizar(): Promise<void> {
         <div class="datos">
           <p class="titulo">{{ titulo }}</p>
           <p v-if="entrega" class="cuenta">
-            {{ fechaDia(entrega.creadoEn) }} · {{ entrega.pedidos }} pedido(s) ·
-            {{ entrega.entregados }} entregado(s)
+            {{ entrega.folio }} · {{ fechaDia(entrega.creadoEn) }} · {{ entrega.pedidos }} pedido(s)
+            · {{ entrega.entregados }} entregado(s)
           </p>
         </div>
         <!-- Por si falta algo antes de cortar: reanudarla se hace dentro de ella. -->
@@ -294,6 +298,16 @@ async function finalizar(): Promise<void> {
           Ver entrega
         </RouterLink>
       </header>
+
+      <!-- Finanzas rechazó la devolución: qué no cuadró, antes de volver a contar. -->
+      <div v-if="resumen.rechazoDevolucion" class="rechazo" role="alert">
+        <p class="rechazo-titulo">Finanzas rechazó la devolución de esta entrega</p>
+        <p class="rechazo-motivo">{{ resumen.rechazoDevolucion }}</p>
+        <p class="rechazo-ayuda">
+          La liquidación se deshizo. Revisa lo que bajas del camión y vuelve a finalizarla; si falta
+          entregar algo, reanuda la entrega desde «Ver entrega».
+        </p>
+      </div>
 
       <!-- El dinero que trae, pedido por pedido. -->
       <p class="seccion-titulo">Efectivo a liquidar ({{ entregados.length }})</p>
@@ -596,6 +610,39 @@ async function finalizar(): Promise<void> {
   font-size: 12px;
   text-decoration: none;
   box-shadow: none;
+}
+
+/* El rechazo, en rojo y arriba: es lo primero que tiene que leer. */
+.rechazo {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--rojo) 7%, var(--white));
+  border: 1px solid color-mix(in srgb, var(--rojo) 35%, var(--white));
+  border-left: 4px solid var(--rojo);
+  border-radius: var(--radius-md);
+}
+
+.rechazo p {
+  margin: 0;
+}
+
+.rechazo-titulo {
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 12.5px;
+  color: var(--rojo);
+}
+
+.rechazo-motivo {
+  padding: 4px 0;
+  font-size: 13px;
+  color: var(--ink);
+  white-space: pre-wrap;
+}
+
+.rechazo-ayuda {
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .tabla.lista {

@@ -4,20 +4,22 @@
  * reciente a la más vieja, con lo que pasó con su dinero.
  *
  * Vive aparte de Liquidación: allí está el corte que se arma hoy y aquí los
- * cerrados. Mezclarlos ponía dos montos distintos en la misma pantalla sin
- * saber cuál era cuál. Entran las dos mitades de un corte cerrado: el que
- * Finanzas aún no recibe —todavía se corrige— y el ya recibido.
+ * ya liquidados. Mezclarlos ponía dos montos distintos en la misma pantalla
+ * sin saber cuál era cuál.
  *
- * Cada fila nace cerrada y enseña cuál entrega fue, en qué va su corte y
- * cuándo: con ocho en pantalla, ver todos los montos a la vez era puro scroll.
- * Se despliega en la fila de abajo, como los detalles de Operaciones y Finanzas.
+ * Cada fila nace cerrada y enseña cuál entrega fue, cuándo, el **estatus** de
+ * su corte (Liquidado mientras Finanzas tenga algo por aceptar, Aceptado si ya
+ * lo aceptó y queda adeudo, Cerrado si no debe nada) y el **adeudo**: es lo
+ * que el repartidor viene a buscar. Los demás montos van en la fila de abajo,
+ * que se despliega como los detalles de Operaciones y Finanzas.
  */
 import { onMounted, reactive, ref } from 'vue'
 import { ErrorApi, http } from '@/api/http'
-import { fechaNumerica } from '@/utils/formato'
+import { dinero, fechaNumerica } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
 import DetalleHistorialEntrega from './DetalleHistorialEntrega.vue'
 import { nombreEntrega } from './etiquetas'
+import { faltanteDe, nombreEstadoCorte } from './liquidacion'
 import type { Corte, DetalleHistorial, EntregaEnHistorial } from '@/api/tipos'
 
 const entregas = ref<EntregaEnHistorial[]>([])
@@ -45,19 +47,32 @@ async function cargar(): Promise<void> {
 onMounted(cargar)
 
 /**
- * En qué va el corte, en corto, para la fila cerrada. Sin corte propio es una
- * entrega de las jornadas que se cortaban enteras: liquidada, sin más.
+ * El estatus del corte para la fila cerrada. Sin corte propio es una entrega
+ * de las jornadas que se cortaban enteras: liquidada, sin más.
  */
-function estadoDelCorte(entrega: EntregaEnHistorial): string {
-  if (!entrega.corte) return 'Liquidada'
-  return entrega.corte.estado === 'RECIBIDO' ? 'Recibida en Finanzas' : 'Por recibir'
+function estatus(entrega: EntregaEnHistorial): string {
+  return entrega.corte ? nombreEstadoCorte(entrega.corte.estado) : 'Liquidada'
+}
+
+/**
+ * Lo que debe de esa entrega. Mientras Finanzas no acepte el dinero no hay
+ * adeudo que decir: va una raya, que no es lo mismo que «no debe nada».
+ */
+function adeudo(entrega: EntregaEnHistorial): string {
+  const { corte } = entrega
+  if (!corte || corte.recibidoEn === null) return '—'
+  return faltanteDe(corte) > 0 ? dinero(faltanteDe(corte)) : 'Sin adeudo'
+}
+
+function debe(entrega: EntregaEnHistorial): boolean {
+  return entrega.corte?.recibidoEn != null && faltanteDe(entrega.corte) > 0
 }
 
 function alternar(id: string): void {
   abierta.value = abierta.value === id ? null : id
 }
 
-/** Corregir o abonar devuelve el corte al día: se cambia en su fila y nada más. */
+/** Corregir, entregar dinero o cancelarlo devuelve el corte al día: se cambia en su fila. */
 function alCambiarCorte(entregaId: string, corte: Corte): void {
   entregas.value = entregas.value.map((e) => (e.id === entregaId ? { ...e, corte } : e))
 }
@@ -83,28 +98,32 @@ function alCambiarCorte(entregaId: string, corte: Corte): void {
           <thead>
             <tr>
               <th>Entrega</th>
-              <th class="num">Fecha</th>
+              <th>Fecha</th>
+              <th>Estatus</th>
+              <th class="num">Adeudo</th>
             </tr>
           </thead>
           <tbody>
             <template v-for="entrega in entregas" :key="entrega.id">
-              <tr :class="{ 'con-detalle': abierta === entrega.id }">
-                <!-- El encabezado es el botón: toda la fila despliega. -->
-                <td colspan="2" class="cabecera">
-                  <button
-                    type="button"
-                    class="fila-boton"
-                    :aria-expanded="abierta === entrega.id"
-                    :aria-controls="`historial-${entrega.id}`"
-                    @click="alternar(entrega.id)"
-                  >
+              <!-- Toda la fila despliega; la flecha es el botón que lo dice. -->
+              <tr
+                class="fila"
+                :class="{ 'con-detalle': abierta === entrega.id }"
+                @click="alternar(entrega.id)"
+              >
+                <td>
+                  <div class="con-flecha">
                     <!-- La flecha va primero, como en Operaciones. -->
-                    <span
+                    <button
+                      type="button"
                       class="chevron"
                       :class="{ abierto: abierta === entrega.id }"
-                      aria-hidden="true"
+                      :aria-expanded="abierta === entrega.id"
+                      :aria-controls="`historial-${entrega.id}`"
+                      :aria-label="`Detalle de ${entrega.folio}`"
+                      @click.stop="alternar(entrega.id)"
                     >
-                      <svg viewBox="0 0 16 16" width="14" height="14">
+                      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
                         <path
                           d="M4 6l4 4 4-4"
                           fill="none"
@@ -114,24 +133,27 @@ function alCambiarCorte(entregaId: string, corte: Corte): void {
                           stroke-linejoin="round"
                         />
                       </svg>
-                    </span>
-                    <span class="folio">{{ nombreEntrega(entrega) }}</span>
-                    <span
-                      class="mini-tag"
-                      :class="{ recibida: entrega.corte?.estado === 'RECIBIDO' }"
-                    >
-                      {{ estadoDelCorte(entrega) }}
-                    </span>
-                    <span class="fecha">{{ fechaNumerica(entrega.creadoEn) }}</span>
-                  </button>
+                    </button>
+                    <div>
+                      <span class="folio">{{ entrega.folio }}</span>
+                      <span class="sub">{{ nombreEntrega(entrega) }}</span>
+                    </div>
+                  </div>
                 </td>
+                <td class="fecha">{{ fechaNumerica(entrega.creadoEn) }}</td>
+                <td>
+                  <span class="mini-tag" :class="{ cerrado: entrega.corte?.estado === 'CERRADO' }">
+                    {{ estatus(entrega) }}
+                  </span>
+                </td>
+                <td class="num importe" :class="{ debe: debe(entrega) }">{{ adeudo(entrega) }}</td>
               </tr>
               <tr
                 v-if="abierta === entrega.id"
                 :id="`historial-${entrega.id}`"
                 class="fila-detalle"
               >
-                <td colspan="2">
+                <td colspan="4">
                   <DetalleHistorialEntrega
                     :entrega="entrega"
                     :guardado="guardados.get(entrega.id) ?? null"
@@ -149,62 +171,38 @@ function alCambiarCorte(entregaId: string, corte: Corte): void {
 </template>
 
 <style scoped>
-.historial .cabecera {
-  padding: 0;
+.historial {
+  min-width: 460px;
 }
 
-/*
- * Con `.cabecera >` delante le gana a `.tabla.lineal td > button` de base.css,
- * que encoge los botones de fila a su contenido: sin esto la fecha no llega al
- * borde y cada fila acaba de un ancho distinto.
- */
-.historial .cabecera > .fila-boton {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  background: none;
-  border: 0;
-  border-radius: 0;
-  padding: 8px 14px;
-  font: inherit;
-  color: inherit;
-  text-align: left;
+.historial .fila {
   cursor: pointer;
 }
 
-/* Un nombre largo se corta con «…» en vez de empujar la fecha. */
-.fila-boton .folio {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+/* La flecha a la izquierda del folio y el nombre, centrada con los dos. */
+.con-flecha {
+  display: flex;
+  align-items: center;
 }
 
-.fila-boton .mini-tag {
-  flex-shrink: 0;
-}
-
-.mini-tag.recibida {
-  background: color-mix(in srgb, var(--verde) 15%, var(--white));
-  color: var(--verde-compra);
+.con-flecha .chevron {
+  flex: none;
 }
 
 /* Cifras de ancho fijo: las fechas quedan en columna, dígito bajo dígito. */
-.fila-boton .fecha {
-  margin-left: auto;
-  flex-shrink: 0;
-  font-size: 12px;
+.historial .fecha {
+  white-space: nowrap;
   font-variant-numeric: tabular-nums;
   color: var(--muted);
 }
 
-.fila-boton .chevron {
-  margin: 0;
+.tabla .mini-tag.cerrado {
+  background: color-mix(in srgb, var(--verde) 15%, var(--white));
+  color: var(--verde-compra);
 }
 
-/* El título de la columna arranca donde el nombre, no donde la flecha. */
-.historial > thead > tr > th:first-child {
-  padding-left: 36px;
+.historial > tbody > tr > td.debe {
+  color: var(--rojo);
 }
 
 .empty-block {

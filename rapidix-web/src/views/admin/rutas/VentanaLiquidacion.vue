@@ -5,6 +5,10 @@
  * Aquí solo se elige cuál: «Liquidar» abre el corte en su propia vista. Las que
  * siguen sin iniciar o en curso están en Entregas y las ya cortadas en
  * Historial, así cada entrega aparece en una sola pestaña.
+ *
+ * También vuelve aquí la entrega cuya devolución rechazó Finanzas: su
+ * liquidación se deshizo y hay que hacerla otra vez. Se marca en la lista para
+ * que no parezca una más.
  */
 import { onMounted, ref } from 'vue'
 import { ErrorApi, http } from '@/api/http'
@@ -68,11 +72,17 @@ onMounted(cargar)
             <tr v-for="e in porLiquidar" :key="e.id">
               <td>
                 <span class="folio">{{ nombreEntrega(e) }}</span>
+                <span class="sub">{{ e.folio }}</span>
               </td>
               <td>{{ fechaDia(e.creadoEn) }}</td>
               <td class="num">{{ e.pedidos }}</td>
               <td class="num">{{ e.entregados }}</td>
-              <td><span class="mini-tag">Finalizada</span></td>
+              <td>
+                <span v-if="e.rechazoDevolucion" class="mini-tag rechazada">
+                  Devolución rechazada
+                </span>
+                <span v-else class="mini-tag">Finalizada</span>
+              </td>
               <td class="accion">
                 <RouterLink :to="`/admin/rutas/liquidacion/${e.id}`" class="btn-secondary abrir">
                   Liquidar →
@@ -94,6 +104,10 @@ onMounted(cargar)
   font-size: 12px;
   text-decoration: none;
   box-shadow: none;
+}
+
+.tabla .mini-tag.rechazada {
+  color: var(--rojo);
 }
 
 .empty-block {

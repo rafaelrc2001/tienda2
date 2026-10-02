@@ -1,11 +1,9 @@
-import { EstadoPago, EstadoPedido, MotivoDevolucion, Prisma } from '@prisma/client';
-
-const Decimal = Prisma.Decimal;
-type Decimal = Prisma.Decimal;
+import { EstadoPago, EstadoPedido, MotivoDevolucion } from '@prisma/client';
 
 /**
  * Lo que la pantalla de Rutas le cuenta al repartidor sobre su dia: cuantos
- * pedidos entrego, cuantos regresan, que baja del camion y cuanto debe aun.
+ * pedidos entrego, cuantos regresan y que baja del camion. Cuanto debe aun y
+ * en que estatus queda su corte vive en `estado-del-corte.ts`.
  *
  * Funciones puras, sin base de datos, igual que `alcance-del-corte.ts`: aqui
  * viven las definiciones que el repartidor ve escritas (que es "devolucion",
@@ -322,33 +320,4 @@ export function indicadoresDelHistorial(resultados: ResultadoDelIntento[]): Indi
     entregados: resultados.filter(entregado).length,
     devoluciones: resultados.filter((r) => !entregado(r)).length,
   };
-}
-
-// ------------------------------------------------------------------
-// Dinero despues del corte
-// ------------------------------------------------------------------
-
-/**
- * Por debajo de medio centavo no hay faltante. Los montos son Decimal y no
- * dejan colas, pero las pantallas los reciben como numero: sin esto un
- * redondeo de ellas pintaria un faltante fantasma.
- */
-export const TOLERANCIA = new Decimal('0.005');
-
-/**
- * Lo que falta por entregar de un corte.
- *
- * Se mide contra lo que Finanzas **conto**, no contra lo declarado: falta el
- * dinero que nunca llego a la caja, no el que el repartidor dijo que traia.
- * Sin contar todavia no hay contra que medir, y entregar de mas no deja saldo
- * negativo.
- */
-export function saldoDelCorte(
-  calculado: Decimal,
-  recibido: Decimal | null,
-  abonado: Decimal,
-): Decimal {
-  if (recibido === null) return new Decimal(0);
-  const saldo = calculado.sub(recibido).sub(abonado);
-  return saldo.lte(TOLERANCIA) ? new Decimal(0) : saldo;
 }

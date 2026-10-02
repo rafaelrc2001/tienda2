@@ -428,6 +428,8 @@ export interface Pedido {
     cambio: number | null
     /** Concepto de la transferencia: el folio. */
     referencia: string
+    /** Cuenta por cobrar con saldo: se cobra desde CXC, no marcándolo Pagado. */
+    enCxc: boolean
   }
   metodoEntrega: MetodoEntrega
   /** Copia de la dirección del pedido; `null` si se recoge en tienda. */
@@ -480,7 +482,7 @@ export interface ListadoOperaciones {
 
 /** Por qué Finanzas no puede dejar el pedido en ese estatus. */
 export interface BloqueoPago {
-  codigo: 'PAGO_TERMINAL' | 'MERCANCIA_FUERA' | 'MISMO_ESTADO'
+  codigo: 'PAGO_TERMINAL' | 'MERCANCIA_FUERA' | 'PEDIDO_EN_CXC' | 'MISMO_ESTADO'
   mensaje: string
 }
 
@@ -569,6 +571,8 @@ export interface PedidoEnRuta extends PedidoEnPantalla {
 /** Una entrega (viaje) del repartidor, con lo que lleva contado por la API. */
 export interface EntregaRuta {
   id: string
+  /** Folio de reparto (`REP000123`): lo que la identifica fuera de su jornada. */
+  folio: string
   numero: number
   nombre: string | null
   creadoEn: string
@@ -583,6 +587,11 @@ export interface EntregaRuta {
   finalizadaEn: string | null
   /** Ya tiene su corte: se consulta, no se mueve. */
   cortada: boolean
+  /**
+   * Finanzas rechazó su devolución y la liquidación se deshizo: el motivo y
+   * cuándo. `null` si nunca pasó o si ya se volvió a liquidar.
+   */
+  rechazoDevolucion: { motivo: string; en: string } | null
 }
 
 /** Respuesta de `GET /admin/rutas/entregas/:id`. */
@@ -689,6 +698,8 @@ export interface IndicadoresRuta {
 /** Una entrega del historial del repartidor, con su corte si ya lo tiene. */
 export interface EntregaEnHistorial {
   id: string
+  /** Folio de reparto (`REP000123`). */
+  folio: string
   numero: number
   nombre: string | null
   creadoEn: string
@@ -713,6 +724,10 @@ export interface PedidoEnHistorial {
   folio: string
   clienteNombre: string
   total: number
+  metodoPago: MetodoPago
+  estadoPago: EstadoPago
+  /** Nació de «Generar pedido x faltante»: no subió al camión. */
+  porFaltante: boolean
   resultado: ResultadoDelIntento
   renglones: {
     nombre: string
@@ -737,13 +752,21 @@ export interface ResumenCorte {
   piezasQueRegresan: number
   /** Pedidos que no se entregaron y vuelven a bodega para salir otro día. */
   pedidosQueRegresan: number
-  /** Es la última entrega viva: su corte cierra también la jornada. */
+  /**
+   * Es la última entrega de la jornada que faltaba por liquidar. La jornada no
+   * se cierra aquí, sino cuando Finanzas acepta su devolución.
+   */
   cierraJornada: boolean
   /** Lo que baja del camión por producto: cargado, entregado y devolución. */
   conteo: ConteoDeProducto[]
+  /**
+   * Por qué Finanzas rechazó la devolución la última vez que se liquidó esta
+   * entrega, o `null`. Es lo que el repartidor tiene que corregir.
+   */
+  rechazoDevolucion: string | null
 }
 
-export type EstadoCorte = 'CERRADO' | 'RECIBIDO'
+export type EstadoCorte = 'LIQUIDADO' | 'ACEPTADO' | 'CERRADO'
 
 export interface Corte {
   id: string
@@ -755,30 +778,136 @@ export interface Corte {
   montoRecibido: number | null
   /** Declarado menos calculado: negativo es faltante. */
   diferencia: number
-  /** Lo que falta por entregar tras contar el dinero y sus abonos. */
+  /**
+   * El adeudo del repartidor: lo calculado menos el dinero aceptado y los
+   * abonos aceptados. Cero mientras Finanzas no acepte el dinero.
+   */
   saldoPendiente: number
+  /** Cuándo se aceptó el dinero de la liquidación, y quién. */
   recibidoEn: string | null
   recibidoPorNombre: string | null
+  /** «Aceptar devolución»: cuándo bajó la mercancía del camión, y quién la vio. */
+  devolucionAceptadaEn: string | null
+  devolucionAceptadaPorNombre: string | null
+  /** «Entrega aceptada». */
+  entregaAceptadaEn: string | null
+  entregaAceptadaPorNombre: string | null
+  /**
+   * Lo que «Aceptar dinero» aceptaría ahora: lo declarado si el dinero de la
+   * liquidación sigue sin aceptar, el abono pendiente si lo hay, o `null` si no
+   * hay dinero esperando.
+   */
+  dineroPorAceptar: number | null
   estado: EstadoCorte
   notas: string | null
-  /** La entrega que liquida. `null` en los cortes de jornada entera de antes. */
-  entrega: { numero: number; nombre: string | null } | null
-  abonos: {
-    id: string
-    monto: number
-    registradoPorNombre: string
-    nota: string | null
-    creadoEn: string
-  }[]
+  /**
+   * La entrega que liquida, con su folio de reparto. `null` en los cortes de
+   * jornada entera de antes, que no tienen entrega propia ni por tanto folio.
+   */
+  entrega: { id: string; folio: string; numero: number; nombre: string | null } | null
+  abonos: AbonoDelCorte[]
   pedidos: number
 }
 
-export type FiltroCortes = 'por-recibir' | 'recibidos'
+/** Un dinero que el repartidor entrega después de la liquidación, contra su adeudo. */
+export interface AbonoDelCorte {
+  id: string
+  monto: number
+  registradoPorNombre: string
+  nota: string | null
+  creadoEn: string
+  /** `null` mientras Finanzas no lo acepte: aún no cuenta contra el adeudo. */
+  aceptadoEn: string | null
+}
+
+/** Las pestañas de Cortes de ruta en Finanzas: una por estatus. */
+export type FiltroCortes = 'por-aceptar' | 'con-adeudo' | 'cerrados'
 
 /** Respuesta de `GET /admin/finanzas/cortes`. */
 export interface ListadoCortes {
   cortes: Corte[]
   conteos: Record<FiltroCortes, number>
+}
+
+/** Respuesta de `GET /admin/finanzas/cortes/:id`: el corte con lo que salió y lo que baja. */
+export interface DetalleCorte extends DetalleHistorial {
+  corte: Corte
+}
+
+// ------------------------------------------------------------------
+// Ingresos y cuentas por cobrar (SPEC 04)
+// ------------------------------------------------------------------
+
+/** De dónde viene un ingreso: el dinero de un reparto o el pago de una cuenta por cobrar. */
+export type ConceptoIngreso = 'ENTREGA' | 'CXC'
+
+/** Un renglón del libro de lo que Finanzas aceptó. */
+export interface Ingreso {
+  id: string
+  creadoEn: string
+  concepto: ConceptoIngreso
+  /** Folio de reparto (ENTREGA) o de pedido (CXC). */
+  referencia: string
+  monto: number
+  metodo: MetodoPago
+  nota: string | null
+  /** Quién lo aceptó. */
+  registradoPorNombre: string
+}
+
+/** Respuesta de `GET /admin/finanzas/ingresos`. */
+export interface ListadoIngresos {
+  /** El rango que de verdad se consultó (`AAAA-MM-DD`): sin fechas, hoy. */
+  desde: string
+  hasta: string
+  ingresos: Ingreso[]
+  /** La suma de **todo** el rango, no solo de los renglones que viajan. */
+  total: number
+  /** Cuántos hay en el rango. Si pasa de los que viajan, hay que acotar. */
+  cuantos: number
+}
+
+/** Una cuenta por cobrar: un pedido entregado a crédito, con sus pagos y su saldo. */
+export interface PedidoCxc {
+  id: string
+  folio: string
+  clienteNombre: string
+  clienteTelefono: string
+  /** Desde cuándo es cuenta por cobrar. */
+  cxcDesde: string
+  /** El reparto en que se entregó. `null` si se recogió en tienda. */
+  repartoFolio: string | null
+  estadoPago: EstadoPago
+  total: number
+  pagadoConBilletera: number
+  pagado: number
+  /** Lo que falta. Ya calculado: la pantalla no hace cuentas. */
+  saldo: number
+  productos: {
+    nombre: string
+    unidad: string
+    cantidad: number
+    precioUnitario: number
+    importe: number
+  }[]
+  pagos: {
+    id: string
+    monto: number
+    metodo: MetodoPago
+    nota: string | null
+    registradoPorNombre: string
+    creadoEn: string
+  }[]
+}
+
+export type FiltroCxc = 'con-saldo' | 'cobradas'
+
+/** Respuesta de `GET /admin/finanzas/cxc`. */
+export interface ListadoCxc {
+  pedidos: PedidoCxc[]
+  conteos: Record<FiltroCxc, number>
+  /** Lo que se debe entre **todas** las cuentas con saldo, no solo las que viajan. */
+  porCobrar: number
 }
 
 /** Un renglón de `GET /admin/pedidos/:id/bitacora`. */

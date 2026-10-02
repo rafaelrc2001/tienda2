@@ -7,8 +7,9 @@ import { EstadoPago, EstadoPedido } from '@prisma/client';
  *
  * A diferencia del avance fisico, aqui **no hay secuencia**: Finanzas mueve el
  * pedido de cualquier estado a cualquier otro. Lo unico que existe es un
- * destino terminal (cancelado) y un candado sobre el (la mercancia que ya
- * salio de bodega).
+ * destino terminal (cancelado), un candado sobre el (la mercancia que ya
+ * salio de bodega) y otro sobre "Pagado" (la cuenta por cobrar, que se paga
+ * con sus pagos y no con un boton).
  */
 
 /** Nombre legible de cada estado, para los mensajes y para la interfaz. */
@@ -50,7 +51,8 @@ const FUERA_DE_BODEGA: readonly EstadoPedido[] = [
   EstadoPedido.ENTREGADO,
 ];
 
-export type CodigoBloqueoPago = 'PAGO_TERMINAL' | 'MERCANCIA_FUERA' | 'MISMO_ESTADO';
+export type CodigoBloqueoPago =
+  'PAGO_TERMINAL' | 'MERCANCIA_FUERA' | 'PEDIDO_EN_CXC' | 'MISMO_ESTADO';
 
 export interface BloqueoPago {
   codigo: CodigoBloqueoPago;
@@ -61,6 +63,8 @@ export interface BloqueoPago {
 export interface PedidoEnPago {
   estado: EstadoPedido;
   estadoPago: EstadoPago;
+  /** Es una cuenta por cobrar con saldo: entregado a credito y aun debe. */
+  enCxc?: boolean;
 }
 
 /**
@@ -104,6 +108,20 @@ export function evaluarCambioPago(
         mensaje:
           `El pedido ya salió de bodega: no se puede cancelar. ` +
           'Regístralo como devolución cuando regrese la mercancía.',
+      },
+    };
+  }
+
+  // Una cuenta por cobrar no se paga con un boton: se paga con sus pagos, que
+  // son los que dejan fecha, metodo e ingreso. Marcarla aqui la dejaria
+  // pagada y con saldo a la vez, y ese dinero no estaria en ningun libro.
+  if (destino === EstadoPago.PAGADO && pedido.enCxc) {
+    return {
+      bloqueo: {
+        codigo: 'PEDIDO_EN_CXC',
+        mensaje:
+          'Ese pedido es una cuenta por cobrar: registra su pago en CXC. ' +
+          'Al quedar en cero pasa a Pagado solo.',
       },
     };
   }
