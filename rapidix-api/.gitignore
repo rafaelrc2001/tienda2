@@ -11,3 +11,6 @@ npm-debug.log*
 
 .DS_Store
 *.tsbuildinfo
+
+# Fotos de la base local (scripts/foto-bd.ps1)
+.fotos-bd/
