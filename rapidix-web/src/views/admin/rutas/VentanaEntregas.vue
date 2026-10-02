@@ -156,6 +156,7 @@ async function crearEntrega(): Promise<void> {
             <tr v-for="entrega in entregas" :key="entrega.id">
               <td>
                 <span class="folio">{{ nombreEntrega(entrega) }}</span>
+                <span class="sub">{{ entrega.folio }}</span>
               </td>
               <td>{{ fechaDia(entrega.creadoEn) }}</td>
               <td class="num">{{ entrega.pedidos }}</td>

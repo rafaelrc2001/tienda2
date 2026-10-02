@@ -111,6 +111,8 @@ export type PedidoEnRutaDto = PedidoEnPantallaDto & {
 /** Una entrega (viaje) del repartidor, con lo que lleva contado en vivo. */
 export interface EntregaRutaDto {
   id: string;
+  /** Folio de reparto (`REP000123`): lo que la identifica fuera de su jornada. */
+  folio: string;
   numero: number;
   nombre: string | null;
   creadoEn: string;
@@ -125,6 +127,11 @@ export interface EntregaRutaDto {
   finalizadaEn: string | null;
   /** Ya tiene su corte: se consulta, no se mueve. */
   cortada: boolean;
+  /**
+   * Finanzas rechazo su devolucion y la liquidacion se deshizo: el motivo y
+   * cuando. `null` si nunca paso o si ya se volvio a liquidar.
+   */
+  rechazoDevolucion: { motivo: string; en: string } | null;
 }
 
 /** La pantalla de una entrega: sus pedidos y lo que se le puede agregar. */
@@ -296,9 +303,12 @@ export class RutasService {
   private static filtros(repartidorId: string): Record<FiltroRutas, Prisma.PedidoWhereInput> {
     return {
       [FiltroRutas.DISPONIBLES]: DISPONIBLES,
+      // Sin lo de una entrega ya liquidada: eso sigue arriba hasta que
+      // Finanzas acepte la devolucion, pero ya no es suyo para moverlo.
       [FiltroRutas.EN_CAMION]: {
         repartidorId,
         estado: { in: [EstadoPedido.RECOLECTADO, EstadoPedido.EN_RUTA] },
+        OR: [{ entregaRutaId: null }, { entregaRuta: { corteId: null } }],
       },
       // Sin liquidar: lo ya cortado pertenece a la jornada de aquel dia y se
       // consulta en su corte, no aqui.
@@ -647,6 +657,17 @@ export class RutasService {
   // ----------------------------------------------------------------
 
   /**
+   * Folio de reparto, servido por una secuencia de Postgres igual que el de los
+   * pedidos: legible, sin colisiones y sin guion.
+   */
+  private static async siguienteFolio(tx: Prisma.TransactionClient): Promise<string> {
+    const filas = await tx.$queryRaw<
+      { nextval: bigint }[]
+    >`SELECT nextval('entregas_ruta_folio_seq')`;
+    return `REP${String(filas[0].nextval).padStart(6, '0')}`;
+  }
+
+  /**
    * "Crear entrega": un viaje nuevo dentro de la jornada, con el siguiente
    * numero. Nace sin iniciar: se arranca con "Iniciar entrega" dentro de ella.
    * El indice unico (sesion, numero) cubre la doble pulsacion: la segunda
@@ -662,6 +683,7 @@ export class RutasService {
         });
         return tx.entregaRuta.create({
           data: {
+            folio: await RutasService.siguienteFolio(tx),
             sesionId: jornada.id,
             repartidorId: usuario.sub,
             numero: (ultima._max.numero ?? 0) + 1,
@@ -798,6 +820,7 @@ export class RutasService {
         deEsta.find((c) => c.estado === estado)?._count._all ?? 0;
       return {
         id: e.id,
+        folio: e.folio,
         numero: e.numero,
         nombre: e.nombre,
         creadoEn: e.creadoEn.toISOString(),
@@ -808,6 +831,10 @@ export class RutasService {
         iniciadaEn: e.iniciadaEn?.toISOString() ?? null,
         finalizadaEn: e.finalizadaEn?.toISOString() ?? null,
         cortada: e.corteId !== null,
+        rechazoDevolucion:
+          e.rechazoDevolucion && e.rechazoDevolucionEn
+            ? { motivo: e.rechazoDevolucion, en: e.rechazoDevolucionEn.toISOString() }
+            : null,
       };
     });
   }

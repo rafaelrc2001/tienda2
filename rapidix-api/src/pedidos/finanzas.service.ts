@@ -78,7 +78,11 @@ export class FinanzasService {
   static enPantalla(pedido: PedidoDto): PedidoEnFinanzasDto {
     return {
       ...pedido,
-      botones: botonesDePago({ estado: pedido.estado, estadoPago: pedido.pago.estado }),
+      botones: botonesDePago({
+        estado: pedido.estado,
+        estadoPago: pedido.pago.estado,
+        enCxc: pedido.pago.enCxc,
+      }),
     };
   }
 
@@ -113,10 +117,18 @@ export class FinanzasService {
           pagadoConBilletera: true,
           cashbackGenerado: true,
           cashbackAcreditadoEn: true,
+          cxcDesde: true,
         },
       });
 
-      const resultado = evaluarCambioPago(pedido, destino, Boolean(nota?.trim()));
+      const resultado = evaluarCambioPago(
+        {
+          ...pedido,
+          enCxc: pedido.cxcDesde !== null && pedido.estadoPago === EstadoPago.CREDITO,
+        },
+        destino,
+        Boolean(nota?.trim()),
+      );
       if ('bloqueo' in resultado) {
         throw new ConflictException({
           statusCode: 409,
@@ -142,45 +154,92 @@ export class FinanzasService {
         return;
       }
 
-      // El estado de origen viaja en el `where` como ultima red: si alguien
-      // cambio el pago entre el bloqueo y esto, no se pisa su decision.
-      const { count } = await tx.pedido.updateMany({
-        where: { id, estadoPago: pedido.estadoPago },
-        data: {
-          estadoPago: destino,
-          ...(destino === EstadoPago.PAGADO && { pagoValidadoEn: new Date() }),
-        },
-      });
-      if (count === 0) {
-        throw new ConflictException({
-          statusCode: 409,
-          code: 'PEDIDO_CAMBIO',
-          message: 'El pedido cambió mientras tanto. Actualiza la pantalla.',
-        });
-      }
+      await this.aplicarPago(tx, pedido, destino, quien, nota);
 
-      await registrarEnBitacora(
-        tx,
-        id,
-        {
-          eje: EjeBitacora.PAGO,
-          estadoAnterior: pedido.estadoPago,
-          estadoNuevo: destino,
-          nota,
-        },
-        quien,
-      );
-
-      if (destino === EstadoPago.PAGADO) {
-        // Idempotente: un pedido que ya paso por PAGADO no vuelve a acreditar.
-        await this.cashback.acreditarPedido(tx, id);
-      }
       if (destino === EstadoPago.CANCELADO) {
         await this.deshacer(tx, pedido, quien);
       }
     });
 
     return FinanzasService.enPantalla(await this.pedidos.detalle(id));
+  }
+
+  /**
+   * Deja pagado un pedido desde otra transaccion: la de "Entrega aceptada",
+   * que paga los pedidos en efectivo de un corte, y la del pago que salda una
+   * cuenta por cobrar.
+   *
+   * Es el mismo camino que pulsar "Pagado" en Finanzas —el estatus, su renglon
+   * de bitacora y el cashback—, sin sus candados de pantalla: aqui no decide
+   * una persona, es la consecuencia de un dinero que ya se acepto.
+   *
+   * Idempotente. Un pedido que ya esta pagado no se toca, y uno cancelado
+   * tampoco: su inventario ya volvio y su saldo ya se devolvio. Devuelve si lo
+   * dejo pagado, para quien quiera contarlos.
+   */
+  async marcarPagado(
+    tx: Prisma.TransactionClient,
+    pedidoId: string,
+    quien: ActorDeBitacora,
+    nota?: string,
+  ): Promise<boolean> {
+    await FlujoPedidosService.bloquearFila(tx, pedidoId);
+    const pedido = await tx.pedido.findUniqueOrThrow({
+      where: { id: pedidoId },
+      select: { id: true, estadoPago: true },
+    });
+    if (pedido.estadoPago === EstadoPago.PAGADO || pedido.estadoPago === EstadoPago.CANCELADO) {
+      return false;
+    }
+
+    await this.aplicarPago(tx, pedido, EstadoPago.PAGADO, quien, nota);
+    return true;
+  }
+
+  /**
+   * Escribe el cambio de estatus, con la fila ya bloqueada y la decision ya
+   * tomada: el estatus, su renglon de bitacora y, si queda pagado, el cashback.
+   */
+  private async aplicarPago(
+    tx: Prisma.TransactionClient,
+    pedido: { id: string; estadoPago: EstadoPago },
+    destino: EstadoPago,
+    quien: ActorDeBitacora,
+    nota?: string,
+  ): Promise<void> {
+    // El estado de origen viaja en el `where` como ultima red: si alguien
+    // cambio el pago entre el bloqueo y esto, no se pisa su decision.
+    const { count } = await tx.pedido.updateMany({
+      where: { id: pedido.id, estadoPago: pedido.estadoPago },
+      data: {
+        estadoPago: destino,
+        ...(destino === EstadoPago.PAGADO && { pagoValidadoEn: new Date() }),
+      },
+    });
+    if (count === 0) {
+      throw new ConflictException({
+        statusCode: 409,
+        code: 'PEDIDO_CAMBIO',
+        message: 'El pedido cambió mientras tanto. Actualiza la pantalla.',
+      });
+    }
+
+    await registrarEnBitacora(
+      tx,
+      pedido.id,
+      {
+        eje: EjeBitacora.PAGO,
+        estadoAnterior: pedido.estadoPago,
+        estadoNuevo: destino,
+        nota,
+      },
+      quien,
+    );
+
+    if (destino === EstadoPago.PAGADO) {
+      // Idempotente: un pedido que ya paso por PAGADO no vuelve a acreditar.
+      await this.cashback.acreditarPedido(tx, pedido.id);
+    }
   }
 
   /**

@@ -351,8 +351,8 @@ function colonia(pedido: PedidoEnRuta): string {
             <span v-else-if="!detalle.entrega.iniciadaEn" class="mini-tag">Sin iniciar</span>
           </p>
           <p class="cuenta">
-            {{ detalle.entrega.pedidos }} pedido(s) · {{ detalle.entrega.recolectados }} en el
-            camión · {{ detalle.entrega.enRuta }} en ruta ·
+            {{ detalle.entrega.folio }} · {{ detalle.entrega.pedidos }} pedido(s) ·
+            {{ detalle.entrega.recolectados }} en el camión · {{ detalle.entrega.enRuta }} en ruta ·
             {{ detalle.entrega.entregados }}
             entregado(s)
           </p>

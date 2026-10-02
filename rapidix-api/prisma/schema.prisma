@@ -42,7 +42,13 @@ model Usuario {
   entregas        EntregaPedido[]
   cortes          Corte[]           @relation("CortesDelRepartidor")
   cortesRecibidos Corte[]           @relation("CortesRecibidos")
+  devolucionesAceptadas Corte[]     @relation("DevolucionesAceptadas")
+  entregasAceptadas     Corte[]     @relation("EntregasAceptadas")
   abonos          CorteAbono[]
+  abonosAceptados CorteAbono[]      @relation("AbonosAceptados")
+  // Finanzas: lo que acepto o cobro.
+  ingresos        Ingreso[]
+  pagosPedido     PagoPedido[]
 
   @@map("usuarios")
 }
@@ -671,6 +677,10 @@ model Pedido {
   /// cashback si la entrega es parcial.
   porcentajeCashback   Decimal   @default(0) @db.Decimal(5, 2)
   cashbackAcreditadoEn DateTime?
+  /// Desde cuando es cuenta por cobrar: entregado a credito y con saldo. En
+  /// ruta se estampa al pulsar "Entrega aceptada"; en tienda, al entregarse.
+  /// No se borra al cobrarse: una CXC cobrada sigue siendo historia.
+  cxcDesde             DateTime?
   estado           EstadoPedido @default(CONFIRMADO)
   /// Snapshot de la direccion de envio al momento del pedido.
   direccion        Json
@@ -685,8 +695,10 @@ model Pedido {
   bitacora    BitacoraPedido[]
   cargas      CargaRepartidor[]
   entrega     EntregaPedido?
+  pagos       PagoPedido[]
 
   @@index([clienteId, creadoEn])
+  @@index([cxcDesde])
   @@index([repartidorId])
   @@index([entregaRutaId])
   @@map("pedidos")
@@ -757,12 +769,16 @@ enum MotivoDevolucion {
   PRECIO_EQUIVOCADO
 }
 
-/// Un corte nace cerrado —el repartidor ya no lo toca salvo para corregir lo
-/// declarado— y termina recibido por Finanzas. No existe un "corte abierto":
-/// lo que hace de corte abierto es la sesion de entregas.
+/// Un corte nace liquidado —el repartidor ya no lo toca salvo para corregir lo
+/// declarado— y lo acepta Finanzas. No existe un "corte abierto": lo que hace
+/// de corte abierto es la sesion de entregas.
 enum EstadoCorte {
+  /// El repartidor liquido y Finanzas tiene algo por aceptar.
+  LIQUIDADO
+  /// Finanzas lo acepto.
+  ACEPTADO
+  /// Aceptado y sin que el repartidor deba nada. Terminal.
   CERRADO
-  RECIBIDO
 }
 
 /// La jornada de un repartidor: desde que pulsa "Inicio de entregas" hasta que
@@ -811,6 +827,11 @@ model EntregaRuta {
   repartidorId String
   repartidor   Usuario @relation(fields: [repartidorId], references: [id])
 
+  /// Folio de reparto: REP000123, de la secuencia `entregas_ruta_folio_seq`.
+  /// "Entrega 2" solo dice algo dentro de su jornada; este es el que se
+  /// escribe en un ingreso. Sin guion, como el de los pedidos.
+  folio String @unique
+
   /// Entrega 1, 2, 3... dentro de la jornada.
   numero Int
   /// Opcional: la zona o la colonia, para reconocerla de un vistazo.
@@ -825,9 +846,15 @@ model EntregaRuta {
   /// "Finalizar entrega": ya no sale nada mas en ella. Vuelve a null si se
   /// reanuda; mientras no tenga corte sigue siendo la misma entrega.
   finalizadaEn DateTime?
-  /// Cada entrega se corta por su lado. Mientras es null sigue viva.
+  /// Cada entrega se corta por su lado. Mientras es null sigue sin liquidar.
   corteId      String?
   corte        Corte?    @relation(fields: [corteId], references: [id])
+
+  /// Por que Finanzas rechazo su devolucion la ultima vez. Rechazar deshace la
+  /// liquidacion y borra el corte, asi que el motivo solo puede quedar aqui. Se
+  /// limpia al volver a liquidar.
+  rechazoDevolucion   String?
+  rechazoDevolucionEn DateTime?
 
   pedidos Pedido[]
   cargas  CargaRepartidor[]
@@ -926,8 +953,12 @@ model EntregaPedido {
   @@map("entregas_pedido")
 }
 
-/// El cierre de caja y de camion de un repartidor: cuanto efectivo entrega,
-/// que mercancia regresa y si Finanzas lo recibio.
+/// El cierre de caja y de camion de una entrega: cuanto efectivo entrega el
+/// repartidor, que mercancia regresa y que le ha aceptado Finanzas.
+///
+/// Finanzas acepta por partes y en orden: la devolucion, el dinero y, con las
+/// dos, la entrega. Un `CHECK` exige que los tres datos del dinero aceptado
+/// vayan juntos o no vayan.
 model Corte {
   id           String  @id @default(uuid())
   repartidorId String
@@ -937,17 +968,32 @@ model Corte {
 
   /// Lo que dice el sistema que trae, por lo que entrego en efectivo.
   montoCalculado Decimal @db.Decimal(12, 2)
-  /// Lo que el repartidor declara. Puede corregirlo mientras siga CERRADO.
+  /// Lo que el repartidor declara. Puede corregirlo mientras no se acepte.
   montoDeclarado Decimal @db.Decimal(12, 2)
-  /// Lo que Finanzas conto al recibirlo. Null mientras no lo reciba.
+  /// El dinero aceptado: lo declarado en el momento en que Finanzas lo acepto.
+  /// Null mientras no lo acepte. Lo que entregue despues va en `abonos`.
   montoRecibido  Decimal? @db.Decimal(12, 2)
 
   recibidoEn    DateTime?
   recibidoPorId String?
-  /// Quien lo recibe nunca puede ser quien lo cerro: se comprueba al recibir.
+  /// Quien acepta nunca puede ser quien liquido, salvo el administrador: lo
+  /// cuida el servicio, porque depende del rol.
   recibidoPor   Usuario?  @relation("CortesRecibidos", fields: [recibidoPorId], references: [id])
 
-  estado EstadoCorte @default(CERRADO)
+  /// "Aceptar devolucion": Finanzas vio la mercancia que regreso y ahi se
+  /// descarga el camion. Mientras es null los renglones de carga siguen
+  /// abiertos y nada ha vuelto al inventario. Va antes que el dinero.
+  devolucionAceptadaEn    DateTime?
+  devolucionAceptadaPorId String?
+  devolucionAceptadaPor   Usuario? @relation("DevolucionesAceptadas", fields: [devolucionAceptadaPorId], references: [id])
+
+  /// "Entrega aceptada": con la devolucion y el dinero aceptados. Deja pagados
+  /// los pedidos en efectivo y manda a CXC los de credito.
+  entregaAceptadaEn    DateTime?
+  entregaAceptadaPorId String?
+  entregaAceptadaPor   Usuario? @relation("EntregasAceptadas", fields: [entregaAceptadaPorId], references: [id])
+
+  estado EstadoCorte @default(LIQUIDADO)
   /// Novedades de la jornada, en texto libre.
   notas  String?
 
@@ -955,14 +1001,20 @@ model Corte {
   sesiones SesionEntrega[]
   entregas EntregaRuta[]
   abonos   CorteAbono[]
+  ingresos Ingreso[]
 
   @@index([estado, cerradoEn])
   @@map("cortes")
 }
 
-/// Lo que el repartidor entrega despues, cuando al recibir el corte falto
-/// dinero. Van en filas aparte para no reescribir los montos del corte, que
+/// Lo que el repartidor entrega despues, cuando al aceptar su dinero falto
+/// algo. Van en filas aparte para no reescribir los montos del corte, que
 /// quedan como fotografia de lo que paso ese dia.
+///
+/// Nace pendiente y no cuenta contra el adeudo hasta que Finanzas lo acepta.
+/// **Un corte solo puede tener un abono pendiente**: lo garantiza un indice
+/// unico parcial sobre `corteId WHERE aceptadoEn IS NULL`, escrito en la
+/// migracion porque Prisma no sabe expresarlo.
 model CorteAbono {
   id      String @id @default(uuid())
   corteId String
@@ -976,8 +1028,79 @@ model CorteAbono {
   nota     String?
   creadoEn DateTime @default(now())
 
+  /// Null mientras Finanzas no lo acepte.
+  aceptadoEn    DateTime?
+  aceptadoPorId String?
+  aceptadoPor   Usuario?  @relation("AbonosAceptados", fields: [aceptadoPorId], references: [id])
+  /// El ingreso que dejo al aceptarse.
+  ingreso       Ingreso?
+
   @@index([corteId])
   @@map("cortes_abonos")
+}
+
+/// Por que entro el dinero.
+enum ConceptoIngreso {
+  /// Lo que un repartidor entrega de su entrega: al liquidar o como abono.
+  ENTREGA
+  /// El pago de una cuenta por cobrar.
+  CXC
+}
+
+/// El libro de lo que Finanzas acepto. Solo se escribe, nunca se edita: por
+/// eso sus llaves foraneas son RESTRICT y la referencia va congelada en texto.
+///
+/// El dinero con que se liquida un corte deja un solo ingreso (indice unico
+/// parcial sobre `corteId WHERE corteAbonoId IS NULL`, en la migracion); cada
+/// abono y cada pago de CXC, el suyo.
+model Ingreso {
+  id       String          @id @default(uuid())
+  concepto ConceptoIngreso
+  /// Folio de reparto (ENTREGA) o de pedido (CXC), tal como era al aceptarse.
+  referencia String
+  monto      Decimal    @db.Decimal(12, 2)
+  metodo     MetodoPago
+  nota       String?
+
+  corteId      String?
+  corte        Corte?      @relation(fields: [corteId], references: [id], onDelete: Restrict)
+  /// Si el ingreso es un abono. Uno por abono.
+  corteAbonoId String?     @unique
+  corteAbono   CorteAbono? @relation(fields: [corteAbonoId], references: [id], onDelete: Restrict)
+  /// Si el ingreso es un pago de CXC. Uno por pago.
+  pagoPedidoId String?     @unique
+  pagoPedido   PagoPedido? @relation(fields: [pagoPedidoId], references: [id], onDelete: Restrict)
+
+  /// Quien lo acepto, no quien lo trajo.
+  registradoPorId String
+  registradoPor   Usuario  @relation(fields: [registradoPorId], references: [id])
+  creadoEn        DateTime @default(now())
+
+  @@index([creadoEn])
+  @@index([concepto, creadoEn])
+  @@index([corteId])
+  @@map("ingresos")
+}
+
+/// Un pago recibido por un pedido que es cuenta por cobrar. El saldo del
+/// pedido se calcula en vivo: total menos billetera menos sus pagos.
+model PagoPedido {
+  id       String @id @default(uuid())
+  pedidoId String
+  pedido   Pedido @relation(fields: [pedidoId], references: [id])
+
+  monto  Decimal    @db.Decimal(12, 2)
+  metodo MetodoPago
+  nota   String?
+
+  registradoPorId String
+  registradoPor   Usuario  @relation(fields: [registradoPorId], references: [id])
+  creadoEn        DateTime @default(now())
+
+  ingreso Ingreso?
+
+  @@index([pedidoId])
+  @@map("pagos_pedido")
 }
 
 // ============================================================

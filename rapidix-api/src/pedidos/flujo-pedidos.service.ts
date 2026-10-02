@@ -21,6 +21,7 @@ import {
   Transicion,
 } from './flujo';
 import { PedidoDto, PedidosService } from './pedidos.service';
+import { saldoDelPedido } from './cxc';
 
 export interface BitacoraDto {
   id: string;
@@ -143,8 +144,35 @@ export class FlujoPedidosService {
       }
 
       await FlujoPedidosService.aplicar(tx, id, transicion, actorDe(usuario), nota);
+
+      if (transicion.a === EstadoPedido.ENTREGADO) await FlujoPedidosService.abrirCxc(tx, id);
     });
     return FlujoPedidosService.enPantalla(await this.pedidos.detalle(id));
+  }
+
+  /**
+   * El pedido a credito que se entrega en tienda es cuenta por cobrar desde
+   * ese momento: el cliente ya se llevo la mercancia y debe.
+   *
+   * El de ruta no pasa por aqui: entra a CXC cuando Finanzas acepta su entrega
+   * (`CortesService.aceptarEntrega`), que es cuando se sabe que se entrego de
+   * verdad y cuanto. Uno cubierto entero con la billetera no debe nada.
+   */
+  private static async abrirCxc(tx: Prisma.TransactionClient, id: string): Promise<void> {
+    const pedido = await tx.pedido.findUniqueOrThrow({
+      where: { id },
+      select: {
+        estadoPago: true,
+        total: true,
+        pagadoConBilletera: true,
+        cxcDesde: true,
+        pagos: { select: { monto: true } },
+      },
+    });
+    if (pedido.estadoPago !== EstadoPago.CREDITO || pedido.cxcDesde !== null) return;
+    if (saldoDelPedido(pedido).isZero()) return;
+
+    await tx.pedido.update({ where: { id }, data: { cxcDesde: new Date() } });
   }
 
   /**

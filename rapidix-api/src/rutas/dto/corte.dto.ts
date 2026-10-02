@@ -1,8 +1,9 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
   IsInt,
+  IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
@@ -69,18 +70,17 @@ export class CerrarCorteDto extends CorregirDeclaradoDto {
   devueltos: ProductoDevueltoDto[];
 }
 
-/** Lo que Finanzas conto al recibir el corte. */
-export class RecibirCorteDto {
-  @Type(() => Number)
-  @IsNumber({ maxDecimalPlaces: 2 }, { message: 'El monto no es válido' })
-  @Min(0, { message: 'El monto no puede ser negativo' })
-  @Max(MAXIMO, { message: 'Ese monto no puede ser: revisa la cifra' })
-  montoRecibido: number;
-
-  @IsOptional()
-  @IsString()
+/**
+ * "Rechazar devolucion": por que la mercancia que regreso no es la que el
+ * repartidor conto. Obligatorio, porque es lo unico que le queda al repartidor
+ * para saber que tiene que recontar: el corte rechazado se borra.
+ */
+export class RechazarDevolucionDto {
+  @Transform(({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString({ message: 'Escribe el motivo del rechazo' })
+  @IsNotEmpty({ message: 'Escribe el motivo del rechazo' })
   @MaxLength(500)
-  notas?: string;
+  motivo: string;
 }
 
 /** Lo que el repartidor entrega despues, si al recibir falto dinero. */

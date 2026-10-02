@@ -236,7 +236,19 @@ const routes: RouteRecordRaw[] = [
     path: '/admin/finanzas/cortes',
     name: 'finanzas-cortes',
     component: () => import('@/views/admin/FinanzasCortesView.vue'),
-    meta: { seccion: 'finanzas', titulo: 'Finanzas · Cortes' },
+    meta: { seccion: 'finanzas', titulo: 'Finanzas · Cortes de ruta' },
+  },
+  {
+    path: '/admin/finanzas/ingresos',
+    name: 'finanzas-ingresos',
+    component: () => import('@/views/admin/FinanzasIngresosView.vue'),
+    meta: { seccion: 'finanzas', titulo: 'Finanzas · Ingresos' },
+  },
+  {
+    path: '/admin/finanzas/cxc',
+    name: 'finanzas-cxc',
+    component: () => import('@/views/admin/FinanzasCxcView.vue'),
+    meta: { seccion: 'finanzas', titulo: 'Finanzas · CXC' },
   },
   {
     path: '/admin/rutas',

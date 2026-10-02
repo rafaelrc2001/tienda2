@@ -4,8 +4,13 @@
  *
  * Los siete estatus no llevan orden entre ellos: Finanzas mueve el pedido de
  * cualquiera a cualquiera. Lo único que frena es el candado de lo que ya salió
- * de bodega y el de un pedido cancelado, y los dos los calcula la API: cada
- * pedido llega con sus botones y el motivo de los que no se pueden pulsar.
+ * de bodega, el de un pedido cancelado y el de la cuenta por cobrar —que se
+ * paga con sus pagos en CXC, no con el botón «Pagado»—, y los tres los calcula
+ * la API: cada pedido llega con sus botones y el motivo de los que no se
+ * pueden pulsar.
+ *
+ * De aquí cuelgan las otras tres pantallas del dinero: los cortes de ruta, el
+ * libro de ingresos y las cuentas por cobrar.
  */
 import { onMounted, ref } from 'vue'
 import { ErrorApi, http } from '@/api/http'
@@ -152,10 +157,14 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
   <div class="pantalla-panel sin-colchon">
     <div class="encabezado">
       <RouterLink to="/admin" class="admin-back-inline">← Volver al menú</RouterLink>
-      <!-- El otro eje del dinero: lo que traen los repartidores al cerrar. -->
-      <RouterLink to="/admin/finanzas/cortes" class="admin-back-inline">
-        Cortes de ruta →
-      </RouterLink>
+      <!-- Lo demás del dinero: lo que traen los repartidores, lo aceptado y lo que se debe. -->
+      <nav class="otras" aria-label="Más de Finanzas">
+        <RouterLink to="/admin/finanzas/cortes" class="admin-back-inline">
+          Cortes de ruta →
+        </RouterLink>
+        <RouterLink to="/admin/finanzas/ingresos" class="admin-back-inline">Ingresos →</RouterLink>
+        <RouterLink to="/admin/finanzas/cxc" class="admin-back-inline">CXC →</RouterLink>
+      </nav>
     </div>
 
     <div class="subtab-row" role="tablist">
@@ -241,6 +250,11 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
                   </button>
                 </div>
 
+                <p v-if="pedido.pago.enCxc" class="bloqueo">
+                  Cuenta por cobrar: se paga registrando sus pagos en
+                  <RouterLink to="/admin/finanzas/cxc">CXC</RouterLink>. Al quedar en cero pasa a
+                  Pagado sola.
+                </p>
                 <p v-if="pedido.pago.estado === 'CANCELADO'" class="bloqueo">
                   Pedido cancelado: su inventario regresó a bodega. Si el cliente retoma la compra,
                   levanta un pedido nuevo.
@@ -396,8 +410,15 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
    que Operaciones. Aquí solo va lo propio: la tira de estatus de pago. */
 .encabezado {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
-  gap: 12px;
+  gap: 0 12px;
+}
+
+.otras {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 16px;
 }
 
 .admin-back-inline {

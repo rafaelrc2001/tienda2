@@ -9,9 +9,11 @@
  */
 import { dinero } from '@/utils/formato'
 import type {
+  AbonoDelCorte,
   ConteoDeProducto,
   Corte,
   EntregaEnHistorial,
+  EstadoCorte,
   PedidoDelCorte,
   ResultadoDelIntento,
 } from '@/api/tipos'
@@ -155,32 +157,75 @@ export function conteoCompleto(
 // Historial
 // ------------------------------------------------------------------
 
+const NOMBRE_ESTADO_CORTE: Record<EstadoCorte, string> = {
+  LIQUIDADO: 'Liquidado',
+  ACEPTADO: 'Aceptado',
+  CERRADO: 'Cerrado',
+}
+
+/** El estatus del corte, con el nombre que lleva en Rutas y en Finanzas. */
+export function nombreEstadoCorte(estado: EstadoCorte): string {
+  return NOMBRE_ESTADO_CORTE[estado] ?? estado
+}
+
 /**
- * El estado de una entrega en el historial. El corte recién cerrado es
- * «Liquidado»: es el nombre del estatus, aunque en la base siga siendo
- * `CERRADO`.
+ * El estatus de una entrega en el historial. Con corte es el del corte, tal
+ * cual: lo decide la API y aquí solo se le pone nombre.
  */
 export function estadoEnHistorial(entrega: EntregaEnHistorial): string {
   const { corte } = entrega
-  if (corte) {
-    return corte.estado === 'RECIBIDO' ? 'Liquidada · corte recibido' : 'Liquidado'
-  }
+  if (corte) return nombreEstadoCorte(corte.estado)
   if (entrega.finalizadaEn) return 'Terminada, sin liquidar'
   return entrega.iniciadaEn ? 'En curso' : 'Sin iniciar'
 }
 
-/** Lo que falta por entregar de un corte, ya con la tolerancia. */
+/**
+ * El adeudo del repartidor, ya con la tolerancia. Un abono que Finanzas no ha
+ * aceptado todavía **no** lo baja: ese dinero sigue siendo del repartidor.
+ */
 export function faltanteDe(corte: Corte): number {
   return Math.max(0, centavos(corte.saldoPendiente))
 }
 
+/** El abono que espera a Finanzas. Hay uno a la vez, como mucho. */
+export function abonoPendiente(corte: Corte): AbonoDelCorte | null {
+  return corte.abonos.find((abono) => abono.aceptadoEn === null) ?? null
+}
+
+/** Lo que el corte espera de Finanzas, en el orden en que se acepta. */
+export type EsperaDelCorte = 'devolucion' | 'dinero' | 'entrega' | 'abono'
+
 /**
- * El botón de dinero que toca, como mucho uno. Antes de que Finanzas cuente se
- * **corrige** lo declarado; después ya no se toca y lo que falte se **abona**.
+ * Qué le toca aceptar a Finanzas ahora, o `null` si no espera nada: está
+ * cerrado, o le toca al repartidor traer lo que debe.
+ *
+ * Primero la devolución, luego el dinero, luego la entrega; después de eso lo
+ * único que puede esperar es un abono.
  */
-export function accionDelCorte(corte: Corte | null): 'corregir' | 'completar' | null {
-  if (!corte) return null
-  if (corte.estado === 'CERRADO') return 'corregir'
+export function esperaDelCorte(corte: Corte): EsperaDelCorte | null {
+  if (corte.estado === 'CERRADO') return null
+  if (corte.devolucionAceptadaEn === null) return 'devolucion'
+  if (corte.recibidoEn === null) return 'dinero'
+  if (corte.entregaAceptadaEn === null) return 'entrega'
+  return abonoPendiente(corte) ? 'abono' : null
+}
+
+/**
+ * El botón de dinero que le toca al repartidor, como mucho uno:
+ *
+ *  - **corregir** lo declarado, mientras Finanzas no acepte ese dinero;
+ *  - **completar**: entregar más dinero contra su adeudo, ya con la entrega
+ *    aceptada;
+ *  - **cancelar** el abono que hizo y Finanzas todavía no acepta.
+ *
+ * Entre que se acepta el dinero y se acepta la entrega no hay botón: lo que
+ * deba, si debe, se sabe hasta que Finanzas la da por aceptada.
+ */
+export function accionDelCorte(corte: Corte | null): 'corregir' | 'completar' | 'cancelar' | null {
+  if (!corte || corte.estado === 'CERRADO') return null
+  if (corte.recibidoEn === null) return 'corregir'
+  if (abonoPendiente(corte)) return 'cancelar'
+  if (corte.entregaAceptadaEn === null) return null
   return faltanteDe(corte) > 0 ? 'completar' : null
 }
 
@@ -193,8 +238,8 @@ export function errorDelDeclarado(valor: number | string | null | undefined): st
 }
 
 /**
- * La validación de «Completar el faltante»: más de cero y no más de lo que
- * falta. La API lo vuelve a comprobar; esto solo ahorra el viaje.
+ * La validación de «Entregar dinero»: más de cero y no más de lo que se debe.
+ * La API lo vuelve a comprobar; esto solo ahorra el viaje.
  */
 export function errorDelAbono(valor: number | string | null | undefined, faltante: number): string {
   const monto = montoCapturado(valor)

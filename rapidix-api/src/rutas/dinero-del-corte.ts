@@ -67,6 +67,32 @@ export function efectivoDelPedido(pedido: PedidoALiquidar): Decimal {
   return Decimal.max(0, new Decimal(pedido.total).sub(pedido.pagadoConBilletera));
 }
 
+/** Que le pasa al dinero de un pedido cuando Finanzas acepta su entrega. */
+export enum DestinoDelPedido {
+  /** Su efectivo ya esta aceptado: queda pagado y gana su cashback. */
+  PAGADO = 'PAGADO',
+  /** Se entrego a credito y debe: es una cuenta por cobrar. */
+  CXC = 'CXC',
+}
+
+/**
+ * Lo que "Entrega aceptada" hace con cada pedido entregado del corte, o
+ * `null` si no le toca nada.
+ *
+ *  - El que **trae efectivo** queda pagado. El cliente ya pago en la puerta;
+ *    que el repartidor aun deba parte de ese dinero es un adeudo suyo, no del
+ *    cliente, y no tiene por que frenar su cashback.
+ *  - El que se entrego **a credito** y debe algo pasa a cuenta por cobrar. Uno
+ *    cubierto entero con la billetera no debe nada y no entra.
+ *  - Lo demas —ya pagado en linea, reembolsado, cancelado— se queda como esta.
+ */
+export function destinoAlAceptar(pedido: PedidoALiquidar): DestinoDelPedido | null {
+  if (traeEfectivo(pedido)) return DestinoDelPedido.PAGADO;
+  if (pedido.estadoPago !== EstadoPago.CREDITO) return null;
+  const debe = new Decimal(pedido.total).sub(pedido.pagadoConBilletera);
+  return debe.gt(0) ? DestinoDelPedido.CXC : null;
+}
+
 /** Como queda el dinero del pedido tras una entrega. */
 export interface AjusteDeEntrega {
   /** Lo que valia lo que el cliente no acepto, a los precios que correspondan. */

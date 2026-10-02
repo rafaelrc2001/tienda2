@@ -1,4 +1,4 @@
-import { EstadoPago, EstadoPedido, MotivoDevolucion, Prisma } from '@prisma/client';
+import { EstadoPago, EstadoPedido, MotivoDevolucion } from '@prisma/client';
 import {
   conteoPorProducto,
   conteoQueNoCuadra,
@@ -12,10 +12,7 @@ import {
   RenglonConProducto,
   renglonDelFaltante,
   ResultadoDelIntento,
-  saldoDelCorte,
 } from './liquidacion-de-ruta';
-
-const D = (n: number | string) => new Prisma.Decimal(n);
 
 const vivo = (estado: EstadoPedido) => ({ estado, estadoPago: EstadoPago.PAGO_PENDIENTE });
 const cancelado = (estado: EstadoPedido) => ({ estado, estadoPago: EstadoPago.CANCELADO });
@@ -259,23 +256,5 @@ describe('intentoDeEntrega', () => {
       [{ ...completo, cerradoEn: null }],
     );
     expect(intento.resultado).toBe(ResultadoDelIntento.CANCELADO);
-  });
-});
-
-describe('saldoDelCorte', () => {
-  it('sin contar no hay saldo', () => {
-    expect(saldoDelCorte(D(100), null, D(0)).toNumber()).toBe(0);
-  });
-
-  it('se mide contra lo contado y resta los abonos', () => {
-    expect(saldoDelCorte(D(100), D(70), D(10)).toNumber()).toBe(20);
-  });
-
-  it('medio centavo o menos ya está saldado', () => {
-    expect(saldoDelCorte(D(100), D('99.996'), D(0)).toNumber()).toBe(0);
-  });
-
-  it('entregar de más no deja saldo negativo', () => {
-    expect(saldoDelCorte(D(100), D(120), D(0)).toNumber()).toBe(0);
   });
 });
