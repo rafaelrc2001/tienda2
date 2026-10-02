@@ -312,7 +312,7 @@ async function finalizar(): Promise<void> {
       <!-- El dinero que trae, pedido por pedido. -->
       <p class="seccion-titulo">Efectivo a liquidar ({{ entregados.length }})</p>
       <div v-if="entregados.length > 0" class="tabla-envoltorio">
-        <table class="tabla lista una-fija">
+        <table class="tabla lista cobros">
           <thead>
             <tr>
               <th>Pedido</th>
@@ -669,6 +669,29 @@ async function finalizar(): Promise<void> {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/*
+ * La de efectivo son solo dos columnas: cabe en el teléfono sin desplazarse.
+ * Con el ancho mínimo de la otra tabla y la primera columna fija, el pedido
+ * tapaba el importe. Aquí el pedido se queda con lo que sobra y es el nombre
+ * del cliente el que se recorta, nunca el monto.
+ */
+.tabla.lista.cobros {
+  min-width: 0;
+}
+
+.cobros .pedido {
+  width: 100%;
+  max-width: 0;
+}
+
+.cobros .con-flecha > div {
+  min-width: 0;
+}
+
+.cobros .cliente {
+  max-width: none;
 }
 
 /* Los productos en un solo renglón: el que ocupa dos es uno menos por pantalla. */
