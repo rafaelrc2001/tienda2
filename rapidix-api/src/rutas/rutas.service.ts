@@ -557,7 +557,7 @@ export class RutasService {
         id,
         transicion,
         actorDe(usuario),
-        RutasService.nota(`Subió a la entrega ${entrega.numero}.`, nota),
+        RutasService.nota(`Subió a la entrega ${entrega.folio}.`, nota),
       );
       await tx.pedido.update({
         where: { id },
@@ -566,7 +566,7 @@ export class RutasService {
 
       this.logger.log(
         `Pedido ${pedido.folio} recolectado por ${usuario.nombre} en la entrega ` +
-          `${entrega.numero}: ${pedido.items.length} renglón(es) al camión`,
+          `${entrega.folio}: ${pedido.items.length} renglón(es) al camión`,
       );
     });
 
@@ -691,7 +691,7 @@ export class RutasService {
           },
         });
       });
-      this.logger.log(`Entrega ${creada.numero} creada por ${usuario.nombre}`);
+      this.logger.log(`Entrega ${creada.folio} creada por ${usuario.nombre}`);
       return (await this.resumenesDeEntregas([creada]))[0];
     } catch (fallo) {
       if (fallo instanceof Prisma.PrismaClientKnownRequestError && fallo.code === 'P2002') {
@@ -742,7 +742,7 @@ export class RutasService {
       where: { id },
       data: { iniciadaEn: new Date() },
     });
-    this.logger.log(`Entrega ${iniciada.numero} iniciada por ${usuario.nombre}`);
+    this.logger.log(`Entrega ${iniciada.folio} iniciada por ${usuario.nombre}`);
     return (await this.resumenesDeEntregas([iniciada]))[0];
   }
 
@@ -770,7 +770,7 @@ export class RutasService {
       where: { id },
       data: { finalizadaEn: new Date() },
     });
-    this.logger.log(`Entrega ${finalizada.numero} finalizada por ${usuario.nombre}`);
+    this.logger.log(`Entrega ${finalizada.folio} finalizada por ${usuario.nombre}`);
     return (await this.resumenesDeEntregas([finalizada]))[0];
   }
 
@@ -792,7 +792,7 @@ export class RutasService {
       where: { id },
       data: { finalizadaEn: null },
     });
-    this.logger.log(`Entrega ${reanudada.numero} reanudada por ${usuario.nombre}`);
+    this.logger.log(`Entrega ${reanudada.folio} reanudada por ${usuario.nombre}`);
     return (await this.resumenesDeEntregas([reanudada]))[0];
   }
 

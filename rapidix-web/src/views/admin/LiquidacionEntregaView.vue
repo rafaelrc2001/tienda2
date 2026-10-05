@@ -150,7 +150,7 @@ const puedeCerrar = computed(
 )
 
 const titulo = computed(() =>
-  entrega.value ? `Liquidación de ${nombreEntrega(entrega.value)}` : 'Liquidación',
+  entrega.value ? `Liquidación de ${entrega.value.folio}` : 'Liquidación',
 )
 
 let peticion = 0
@@ -336,8 +336,8 @@ async function finalizar(): Promise<void> {
         <div class="datos">
           <p class="titulo">{{ titulo }}</p>
           <p v-if="entrega" class="cuenta">
-            {{ entrega.folio }} · {{ fechaDia(entrega.creadoEn) }} · {{ entrega.pedidos }} pedido(s)
-            · {{ entrega.entregados }} entregado(s)
+            {{ fechaDia(entrega.creadoEn) }} · {{ entrega.pedidos }} pedido(s) ·
+            {{ entrega.entregados }} entregado(s)
           </p>
         </div>
       </header>
@@ -564,16 +564,11 @@ async function finalizar(): Promise<void> {
       </div>
     </template>
 
-    <!-- El faltante se cobra: se dice qué entra al pedido antes de crearlo. -->
+    <!-- El faltante se cobra: solo se confirma, sin explicación. -->
     <div v-if="confirmandoFaltante" class="modal-overlay" @click.self="confirmandoFaltante = false">
       <div class="modal-sheet" role="dialog" aria-label="Generar pedido por faltante">
         <div class="modal-handle" />
         <p class="modal-title">¿Generar pedido x faltante?</p>
-        <p class="modal-texto">
-          Se crea un pedido en efectivo por {{ fraseDelFaltante }}, al precio de lista que
-          corresponde a la cantidad. Queda entregado en esta entrega y su importe se suma a tu
-          efectivo a liquidar.
-        </p>
         <div class="modal-actions">
           <button
             type="button"
@@ -597,7 +592,6 @@ async function finalizar(): Promise<void> {
         <p class="modal-title">¿Finalizar la liquidación?</p>
         <p class="modal-sub">
           {{ entrega ? nombreEntrega(entrega) : 'Esta entrega' }}
-          <template v-if="entrega"> · {{ entrega.folio }}</template>
         </p>
 
         <p class="resumen-titulo">Efectivo</p>
@@ -925,13 +919,6 @@ async function finalizar(): Promise<void> {
   font-size: 12.5px;
   font-weight: 600;
   color: var(--orange-dark);
-}
-
-.modal-texto {
-  margin: 0 0 12px;
-  font-size: 13px;
-  color: var(--ink);
-  line-height: 1.5;
 }
 
 /* El resumen antes de finalizar: de qué entrega es y sus tablas. */

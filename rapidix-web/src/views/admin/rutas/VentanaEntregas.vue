@@ -29,9 +29,7 @@ const entregas = ref<EntregaRuta[]>([])
 const cargando = ref(true)
 const error = ref('')
 
-/** La hoja de «Crear entrega». */
-const creandoEntrega = ref(false)
-const nombreNueva = ref('')
+/** «Crear entrega» en vuelo: frena la doble pulsación. */
 const enviandoEntrega = ref(false)
 
 /** Una recarga automática puede cruzarse con otra: gana la última. */
@@ -93,25 +91,20 @@ onBeforeUnmount(() => {
 // Las entregas
 // ------------------------------------------------------------------
 
-function abrirCrearEntrega(): void {
-  nombreNueva.value = ''
-  creandoEntrega.value = true
-}
-
 /** Cada entrega se inicia dentro de ella: recién creada queda «Sin iniciar». */
 function estadoEntrega(entrega: EntregaRuta): string {
   return entrega.iniciadaEn ? 'En curso' : 'Sin iniciar'
 }
 
-/** «Crear entrega» y directo a ella, donde está su «Iniciar entrega». */
+/**
+ * «Crear entrega» y directo a ella, donde está su «Iniciar entrega». No pregunta
+ * nada: el folio lo pone la API y es lo único que la identifica.
+ */
 async function crearEntrega(): Promise<void> {
   if (enviandoEntrega.value) return
   enviandoEntrega.value = true
   try {
-    const creada = await http.post<EntregaRuta>('/admin/rutas/entregas', {
-      ...(nombreNueva.value.trim() ? { nombre: nombreNueva.value.trim() } : {}),
-    })
-    creandoEntrega.value = false
+    const creada = await http.post<EntregaRuta>('/admin/rutas/entregas', {})
     ui.exito(`${nombreEntrega(creada)} creada. Iníciala cuando vayas a cargarla.`)
     await router.push(`/admin/rutas/entregas/${creada.id}`)
   } catch (fallo) {
@@ -124,7 +117,12 @@ async function crearEntrega(): Promise<void> {
 
 <template>
   <div>
-    <button type="button" class="btn-primary crear" @click="abrirCrearEntrega">
+    <button
+      type="button"
+      class="btn-primary crear"
+      :disabled="enviandoEntrega"
+      @click="crearEntrega"
+    >
       + Crear entrega
     </button>
 
@@ -155,8 +153,7 @@ async function crearEntrega(): Promise<void> {
           <tbody>
             <tr v-for="entrega in entregas" :key="entrega.id">
               <td>
-                <span class="folio">{{ nombreEntrega(entrega) }}</span>
-                <span class="sub">{{ entrega.folio }}</span>
+                <span class="folio">{{ entrega.folio }}</span>
               </td>
               <td>{{ fechaDia(entrega.creadoEn) }}</td>
               <td class="num">{{ entrega.pedidos }}</td>
@@ -180,35 +177,6 @@ async function crearEntrega(): Promise<void> {
     </section>
 
     <p v-else class="empty-block">No tienes entregas abiertas: crea una y agrégale sus pedidos.</p>
-
-    <!-- «Crear entrega»: el número lo pone la API; el nombre ayuda a reconocerla. -->
-    <div v-if="creandoEntrega" class="modal-overlay" @click.self="creandoEntrega = false">
-      <div class="modal-sheet" role="dialog" aria-label="Crear entrega">
-        <div class="modal-handle" />
-        <p class="modal-title">Crear entrega</p>
-        <p class="modal-texto">
-          Se numera sola. Si quieres, ponle un nombre para reconocerla: la zona o la colonia.
-        </p>
-        <input
-          v-model="nombreNueva"
-          class="form-input"
-          maxlength="80"
-          placeholder="Nombre (opcional), p. ej. Centro"
-          @keyup.enter="crearEntrega"
-        />
-        <div class="modal-actions">
-          <button type="button" class="btn-cancel" @click="creandoEntrega = false">Volver</button>
-          <button
-            type="button"
-            class="btn-primary"
-            :disabled="enviandoEntrega"
-            @click="crearEntrega"
-          >
-            Crear entrega
-          </button>
-        </div>
-      </div>
-    </div>
   </div>
 </template>
 
@@ -242,12 +210,5 @@ async function crearEntrega(): Promise<void> {
 .empty-block {
   margin: 0;
   padding: 12px 0;
-}
-
-.modal-texto {
-  margin: 0 0 12px;
-  font-size: 12.5px;
-  color: var(--ink);
-  line-height: 1.45;
 }
 </style>

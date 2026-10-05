@@ -17,11 +17,13 @@ export const TITULO_PASO: Partial<Record<EstadoPedido, string>> = {
   ENTREGADO: 'Entregar',
 }
 
-/** «Entrega 2 · Centro», o solo el número si no tiene nombre. */
-export function nombreEntrega(entrega: { numero: number; nombre: string | null }): string {
-  return entrega.nombre
-    ? `Entrega ${entrega.numero} · ${entrega.nombre}`
-    : `Entrega ${entrega.numero}`
+/**
+ * «Entrega REP000025»: el folio es lo único que la identifica. El número dentro
+ * de la jornada se repetía entre repartidores y no cuadraba con el folio, así
+ * que ya no se enseña.
+ */
+export function nombreEntrega(entrega: { folio: string }): string {
+  return `Entrega ${entrega.folio}`
 }
 
 const NOMBRE_MOTIVO: Record<MotivoDevolucion, string> = {

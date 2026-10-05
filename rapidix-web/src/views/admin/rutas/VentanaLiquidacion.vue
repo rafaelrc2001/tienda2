@@ -14,7 +14,6 @@ import { onMounted, ref } from 'vue'
 import { ErrorApi, http } from '@/api/http'
 import { fechaDia } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
-import { nombreEntrega } from './etiquetas'
 import type { EntregaRuta, TableroRutas } from '@/api/tipos'
 
 /** Finalizadas y sin corte: las que ya volvieron y falta liquidar. */
@@ -71,8 +70,7 @@ onMounted(cargar)
           <tbody>
             <tr v-for="e in porLiquidar" :key="e.id">
               <td>
-                <span class="folio">{{ nombreEntrega(e) }}</span>
-                <span class="sub">{{ e.folio }}</span>
+                <span class="folio">{{ e.folio }}</span>
               </td>
               <td>{{ fechaDia(e.creadoEn) }}</td>
               <td class="num">{{ e.pedidos }}</td>

@@ -84,8 +84,8 @@ describe('lineaDelArqueo', () => {
   it('faltante y sobrante dejan cerrar igual', () => {
     const falta = lineaDelArqueo(100, 90)
     expect(falta.tono).toBe('alerta')
-    expect(falta.texto).toMatch(/^Faltan \$10\.00\. Puedes cerrar igual/)
-    expect(lineaDelArqueo(100, 100.5).texto).toMatch(/^Sobran \$0\.50/)
+    expect(falta.texto).toBe('Faltan $10.00.')
+    expect(lineaDelArqueo(100, 100.5).texto).toBe('Sobran $0.50.')
   })
 })
 

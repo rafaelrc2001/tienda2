@@ -13,12 +13,11 @@
  * que el repartidor viene a buscar. Los demás montos van en la fila de abajo,
  * que se despliega como los detalles de Operaciones y Finanzas.
  */
-import { onMounted, reactive, ref } from 'vue'
+import { onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ErrorApi, http } from '@/api/http'
 import { dinero, fechaNumerica } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
 import DetalleHistorialEntrega from './DetalleHistorialEntrega.vue'
-import { nombreEntrega } from './etiquetas'
 import { faltanteDe, nombreEstadoCorte } from './liquidacion'
 import type { Corte, DetalleHistorial, EntregaEnHistorial } from '@/api/tipos'
 
@@ -45,6 +44,20 @@ async function cargar(): Promise<void> {
 }
 
 onMounted(cargar)
+
+/**
+ * El ancho a la vista de la tabla. En el teléfono la tabla es más ancha que la
+ * pantalla y se desplaza; el detalle se queda con este ancho para que sus
+ * tarjetas y montos no se corten a la derecha.
+ */
+const envoltorio = ref<HTMLElement | null>(null)
+const anchoVisible = ref(0)
+const observador = new ResizeObserver(([caja]) => (anchoVisible.value = caja.contentRect.width))
+watch(envoltorio, (ahora, antes) => {
+  if (antes) observador.unobserve(antes)
+  if (ahora) observador.observe(ahora)
+})
+onBeforeUnmount(() => observador.disconnect())
 
 /**
  * El estatus del corte para la fila cerrada. Sin corte propio es una entrega
@@ -93,8 +106,11 @@ function alCambiarCorte(entregaId: string, corte: Corte): void {
 
     <template v-else>
       <p class="seccion-titulo">Tus entregas ({{ entregas.length }})</p>
-      <div class="tabla-envoltorio">
-        <table class="tabla lineal historial">
+      <div ref="envoltorio" class="tabla-envoltorio">
+        <table
+          class="tabla lineal historial"
+          :style="anchoVisible ? { '--ancho-detalle': `${anchoVisible - 24}px` } : undefined"
+        >
           <thead>
             <tr>
               <th>Entrega</th>
@@ -136,7 +152,6 @@ function alCambiarCorte(entregaId: string, corte: Corte): void {
                     </button>
                     <div>
                       <span class="folio">{{ entrega.folio }}</span>
-                      <span class="sub">{{ nombreEntrega(entrega) }}</span>
                     </div>
                   </div>
                 </td>
@@ -194,6 +209,14 @@ function alCambiarCorte(entregaId: string, corte: Corte): void {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
   color: var(--muted);
+}
+
+/* El detalle no se desplaza con la tabla: se queda a la vista, con el ancho de
+   la pantalla menos el relleno de su celda. */
+.historial > tbody > .fila-detalle > td > .detalle-historial {
+  position: sticky;
+  left: 12px;
+  width: var(--ancho-detalle, auto);
 }
 
 .tabla .mini-tag.cerrado {

@@ -351,8 +351,8 @@ function colonia(pedido: PedidoEnRuta): string {
             <span v-else-if="!detalle.entrega.iniciadaEn" class="mini-tag">Sin iniciar</span>
           </p>
           <p class="cuenta">
-            {{ detalle.entrega.folio }} · {{ detalle.entrega.pedidos }} pedido(s) ·
-            {{ detalle.entrega.recolectados }} en el camión · {{ detalle.entrega.enRuta }} en ruta ·
+            {{ detalle.entrega.pedidos }} pedido(s) · {{ detalle.entrega.recolectados }} en el
+            camión · {{ detalle.entrega.enRuta }} en ruta ·
             {{ detalle.entrega.entregados }}
             entregado(s)
           </p>
@@ -783,6 +783,12 @@ function colonia(pedido: PedidoEnRuta): string {
 
 .tabla {
   min-width: 820px;
+}
+
+/* La primera columna solo lleva la flecha y el folio (`ORD000123`): con los
+   150px de base sobraba un hueco antes de la colonia. */
+.tabla.dos-fijas {
+  --ancho-fija-1: 124px;
 }
 
 .aviso {

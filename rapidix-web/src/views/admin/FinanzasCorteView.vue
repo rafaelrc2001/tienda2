@@ -30,7 +30,6 @@ import { ErrorApi, http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
 import { dinero, fechaHora, nombreEstadoPago, nombreMetodoPago } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
-import { nombreEntrega } from './rutas/etiquetas'
 import {
   abonoPendiente,
   centavos,
@@ -216,10 +215,7 @@ async function rechazar(): Promise<void> {
       <header class="cabeza">
         <div class="datos">
           <p class="titulo">{{ corte.entrega?.folio ?? 'Corte sin folio' }}</p>
-          <p class="cuenta">
-            🛵 {{ corte.repartidorNombre }}
-            <template v-if="corte.entrega"> · {{ nombreEntrega(corte.entrega) }}</template>
-          </p>
+          <p class="cuenta">🛵 {{ corte.repartidorNombre }}</p>
           <p class="cuenta">
             Liquidado {{ fechaHora(corte.cerradoEn) }} · {{ corte.pedidos }} pedido(s)
           </p>
