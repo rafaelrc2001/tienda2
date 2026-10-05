@@ -705,9 +705,13 @@ input:checked + .switch-danger-slider {
   margin-left: 6px;
 }
 
-/* Botones de fila compactos, a su ancho y sin repartirse la celda. */
+/*
+ * Botones de fila compactos, a su ancho y sin repartirse la celda. La flecha y
+ * el folio que abre la hoja no son botones de acción: con este relleno el folio
+ * ya no cabía en la columna fija de Rutas y se veía «…».
+ */
 .tabla.lineal .en-linea > button:not(.enlace),
-.tabla.lineal td > button:not(.enlace) {
+.tabla.lineal td > button:not(.enlace, .chevron, .abre-hoja) {
   flex: none;
   width: auto;
   padding: 3px 12px;
