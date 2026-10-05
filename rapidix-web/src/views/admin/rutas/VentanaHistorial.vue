@@ -18,7 +18,6 @@ import { ErrorApi, http } from '@/api/http'
 import { dinero, fechaNumerica } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
 import DetalleHistorialEntrega from './DetalleHistorialEntrega.vue'
-import { nombreEntrega } from './etiquetas'
 import { faltanteDe, nombreEstadoCorte } from './liquidacion'
 import type { Corte, DetalleHistorial, EntregaEnHistorial } from '@/api/tipos'
 
@@ -136,7 +135,6 @@ function alCambiarCorte(entregaId: string, corte: Corte): void {
                     </button>
                     <div>
                       <span class="folio">{{ entrega.folio }}</span>
-                      <span class="sub">{{ nombreEntrega(entrega) }}</span>
                     </div>
                   </div>
                 </td>

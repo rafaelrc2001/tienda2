@@ -150,7 +150,7 @@ const puedeCerrar = computed(
 )
 
 const titulo = computed(() =>
-  entrega.value ? `Liquidación de ${nombreEntrega(entrega.value)}` : 'Liquidación',
+  entrega.value ? `Liquidación de ${entrega.value.folio}` : 'Liquidación',
 )
 
 let peticion = 0
@@ -336,8 +336,8 @@ async function finalizar(): Promise<void> {
         <div class="datos">
           <p class="titulo">{{ titulo }}</p>
           <p v-if="entrega" class="cuenta">
-            {{ entrega.folio }} · {{ fechaDia(entrega.creadoEn) }} · {{ entrega.pedidos }} pedido(s)
-            · {{ entrega.entregados }} entregado(s)
+            {{ fechaDia(entrega.creadoEn) }} · {{ entrega.pedidos }} pedido(s) ·
+            {{ entrega.entregados }} entregado(s)
           </p>
         </div>
       </header>
@@ -597,7 +597,6 @@ async function finalizar(): Promise<void> {
         <p class="modal-title">¿Finalizar la liquidación?</p>
         <p class="modal-sub">
           {{ entrega ? nombreEntrega(entrega) : 'Esta entrega' }}
-          <template v-if="entrega"> · {{ entrega.folio }}</template>
         </p>
 
         <p class="resumen-titulo">Efectivo</p>
