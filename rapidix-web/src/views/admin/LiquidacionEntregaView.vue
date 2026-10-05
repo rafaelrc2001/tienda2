@@ -550,28 +550,30 @@ async function finalizar(): Promise<void> {
         <p class="modal-sub">
           {{ entrega ? nombreEntrega(entrega) : 'Esta entrega' }}
           <template v-if="entrega"> · {{ entrega.folio }}</template>
-          · {{ resumen.pedidos.length }} pedido(s)
         </p>
 
         <p class="resumen-titulo">Efectivo</p>
         <div class="tabla-envoltorio">
+          <!-- Con encabezados y una fila, igual que la tabla del conteo de abajo. -->
           <table class="tabla lineal resumen-efectivo">
+            <thead>
+              <tr>
+                <th class="num">Pedidos</th>
+                <th class="num">Calculado</th>
+                <th class="num">Entregas</th>
+                <th class="num">Diferencia</th>
+              </tr>
+            </thead>
             <tbody>
               <tr>
-                <td>Calculado</td>
+                <td class="num">{{ resumen.pedidos.length }}</td>
                 <td class="num">{{ dinero(resumen.montoCalculado) }}</td>
-              </tr>
-              <tr>
-                <td>Entregas</td>
                 <td class="num">
                   <strong>{{ dinero(montoEntregado) }}</strong>
                 </td>
-              </tr>
-              <tr>
-                <td>Diferencia</td>
                 <td class="num">
                   <strong :class="diferenciaDeCierre === 0 ? 'cuadra' : 'descuadra'">
-                    {{ diferenciaDeCierre === 0 ? '✓ Cuadra' : dinero(diferenciaDeCierre) }}
+                    {{ diferenciaDeCierre === 0 ? '✓ 0' : dinero(diferenciaDeCierre) }}
                   </strong>
                 </td>
               </tr>
@@ -896,10 +898,6 @@ async function finalizar(): Promise<void> {
   font-weight: 800;
   font-size: 12.5px;
   color: var(--ink);
-}
-
-.resumen-efectivo td:first-child {
-  width: 99%;
 }
 
 .resumen-efectivo .cuadra {
