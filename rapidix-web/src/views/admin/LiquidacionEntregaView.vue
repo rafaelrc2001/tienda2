@@ -6,7 +6,10 @@
  * largo que acaba en «Finalizar liquidación», y con la lista encima había que
  * bajar a buscar dónde empezaba el corte que se acababa de elegir.
  *
- * Primero lo que el sistema dice que trae —para que cuente contra un número y
+ * Arriba, los mismos KPIs que la pantalla de la entrega y «Reanudar entrega»:
+ * se liquida viendo cómo le fue, sin pasar por la entrega para saberlo.
+ *
+ * Luego lo que el sistema dice que trae —para que cuente contra un número y
  * no contra su memoria—, luego la mercancía que baja y al final lo que él
  * declara.
  *
@@ -33,6 +36,7 @@ import { useUiStore } from '@/stores/ui'
 import { dinero, fechaDia } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
 import DetallePedidoRuta from './rutas/DetallePedidoRuta.vue'
+import KpisRuta from './rutas/KpisRuta.vue'
 import TablaConteo from './rutas/TablaConteo.vue'
 import { nombreEntrega } from './rutas/etiquetas'
 import {
@@ -45,7 +49,13 @@ import {
   montoCapturado,
   piezasCapturadas,
 } from './rutas/liquidacion'
-import type { DetalleEntregaRuta, EntregaRuta, PedidoEnRuta, ResumenCorte } from '@/api/tipos'
+import type {
+  DetalleEntregaRuta,
+  EntregaRuta,
+  IndicadoresRuta,
+  PedidoEnRuta,
+  ResumenCorte,
+} from '@/api/tipos'
 
 const route = useRoute()
 const router = useRouter()
@@ -62,6 +72,13 @@ const entrega = ref<EntregaRuta | null>(null)
 const resumen = ref<ResumenCorte | null>(null)
 const cargando = ref(true)
 const error = ref('')
+
+/**
+ * Los KPIs de la entrega, los mismos que su pantalla: así no hay que ir a
+ * «Ver entrega» para saber cómo le fue. `null` pinta «—» y no impide liquidar.
+ */
+const indicadores = ref<IndicadoresRuta | null>(null)
+const reanudando = ref(false)
 
 /** Texto y no número: el campo vacío es distinto de cero, y vacío es lo único que bloquea. */
 const declarado = ref('')
@@ -147,8 +164,15 @@ async function cargar(): Promise<void> {
   notas.value = ''
   contados.value = {}
   abierto.value = null
+  indicadores.value = null
   error.value = ''
   cargando.value = true
+  void http
+    .get<IndicadoresRuta>(`/admin/rutas/entregas/${id}/indicadores`)
+    .then((respuesta) => {
+      if (numero === peticion) indicadores.value = respuesta
+    })
+    .catch(() => {})
   try {
     const [respuesta] = await Promise.all([
       http.get<ResumenCorte>(`/admin/rutas/entregas/${id}/corte`),
@@ -186,6 +210,25 @@ watch(
 
 function alternar(id: string): void {
   abierto.value = abierto.value === id ? null : id
+}
+
+/**
+ * «Reanudar entrega»: le faltó entregar algo. La entrega deja de estar por
+ * liquidar y vuelve a su pantalla, que es donde se reparte.
+ */
+async function reanudar(): Promise<void> {
+  if (reanudando.value) return
+  const id = String(route.params.id)
+  reanudando.value = true
+  try {
+    const reanudada = await http.post<EntregaRuta>(`/admin/rutas/entregas/${id}/reanudar`, {})
+    ui.exito(`${nombreEntrega(reanudada)} reanudada.`)
+    await router.replace(`/admin/rutas/entregas/${id}`)
+  } catch (fallo) {
+    ui.errorDeApi(fallo)
+  } finally {
+    reanudando.value = false
+  }
 }
 
 /**
@@ -297,15 +340,20 @@ async function finalizar(): Promise<void> {
             · {{ entrega.entregados }} entregado(s)
           </p>
         </div>
-        <!-- Por si falta algo antes de cortar: reanudarla se hace dentro de ella. -->
-        <RouterLink
-          v-if="entrega"
-          :to="`/admin/rutas/entregas/${entrega.id}`"
-          class="btn-secondary ver"
-        >
-          Ver entrega
-        </RouterLink>
       </header>
+
+      <!-- Cómo le fue a la entrega, como en su pantalla, sin tener que ir a ella. -->
+      <KpisRuta :indicadores="indicadores" />
+
+      <!-- Por si falta algo antes de liquidar: la reabre y lleva a repartir. -->
+      <button
+        type="button"
+        class="btn-secondary reanudar"
+        :disabled="reanudando || enviando"
+        @click="reanudar"
+      >
+        {{ reanudando ? 'Reanudando…' : 'Reanudar entrega' }}
+      </button>
 
       <!-- Finanzas rechazó la devolución: qué no cuadró, antes de volver a contar. -->
       <div v-if="resumen.rechazoDevolucion" class="rechazo" role="alert">
@@ -313,7 +361,7 @@ async function finalizar(): Promise<void> {
         <p class="rechazo-motivo">{{ resumen.rechazoDevolucion }}</p>
         <p class="rechazo-ayuda">
           La liquidación se deshizo. Revisa lo que bajas del camión y vuelve a finalizarla; si falta
-          entregar algo, reanuda la entrega desde «Ver entrega».
+          entregar algo, pulsa «Reanudar entrega».
         </p>
       </div>
 
@@ -632,6 +680,8 @@ async function finalizar(): Promise<void> {
   box-shadow: var(--shadow);
   border-left: 4px solid var(--verde);
   padding: 12px 14px;
+  /* Los KPIs debajo, en el mismo orden que la pantalla de la entrega. */
+  margin-bottom: 12px;
 }
 
 .cabeza .datos {
@@ -653,12 +703,11 @@ async function finalizar(): Promise<void> {
   color: var(--muted);
 }
 
-.cabeza .ver {
-  flex: none;
-  padding: 7px 12px;
-  font-size: 12px;
-  text-decoration: none;
-  box-shadow: none;
+/* Bajo los KPIs, a todo lo ancho, como «Finalizar entrega» en la pantalla de la entrega. */
+.reanudar {
+  width: 100%;
+  padding: 9px 8px;
+  font-size: 12.5px;
 }
 
 /* El rechazo, en rojo y arriba: es lo primero que tiene que leer. */
