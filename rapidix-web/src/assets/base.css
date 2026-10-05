@@ -865,10 +865,16 @@ input:checked + .switch-danger-slider {
   border-radius: 999px;
 }
 
+/* Por encima de la columna fija de `.una-fija`, que si no taparía los títulos
+   al bajar; y la esquina, que es las dos cosas, por encima de todo. */
 .tabla.panel > thead > tr > th {
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: 2;
+}
+
+.tabla.panel.una-fija > thead > tr > th:first-child {
+  z-index: 3;
 }
 
 /* Filas con aire, como en la referencia: la acción va en botones, no en enlaces. */

@@ -244,8 +244,9 @@ function marcarTodos(): void {
 
     <SkeletonList v-if="cargando" :cantidad="4" />
 
+    <!-- «Pedido» se queda fija: al desplazar a la derecha se sigue viendo de cuál es la fila. -->
     <div v-else-if="pedidos.length > 0" class="tabla-envoltorio panel">
-      <table class="tabla lineal panel">
+      <table class="tabla lineal panel una-fija">
         <thead>
           <tr>
             <th>
@@ -499,7 +500,10 @@ function marcarTodos(): void {
   cursor: pointer;
 }
 
-.tabla.lineal > tbody > tr.marcado > td {
+/* También la celda fija, que si no se quedaría en blanco: va opaca para tapar
+   lo que se desplaza debajo. */
+.tabla.lineal > tbody > tr.marcado > td,
+.tabla.lineal.una-fija > tbody > tr.marcado:not(.fila-detalle) > td:first-child {
   background: color-mix(in srgb, var(--verde) 10%, var(--white));
 }
 

@@ -39,8 +39,8 @@ export type Tono = 'base' | 'ok' | 'alerta'
 /**
  * La línea del arqueo, que cambia con cada tecla.
  *
- * Que no cuadre **no bloquea**: solo el campo vacío impide cerrar. Por eso el
- * faltante y el sobrante dicen lo mismo —que se puede cerrar y queda escrito—.
+ * Que no cuadre **no bloquea**: solo el campo vacío impide cerrar. El faltante
+ * y el sobrante dicen solo cuánto es la diferencia, sin más explicación.
  */
 export function lineaDelArqueo(
   calculado: number,
@@ -55,7 +55,7 @@ export function lineaDelArqueo(
   if (diferencia === 0) return { texto: '✓ Cuadra con lo calculado.', tono: 'ok' }
   const cuanto = dinero(Math.abs(diferencia))
   return {
-    texto: `${diferencia < 0 ? 'Faltan' : 'Sobran'} ${cuanto}. Puedes cerrar igual: la diferencia queda registrada.`,
+    texto: `${diferencia < 0 ? 'Faltan' : 'Sobran'} ${cuanto}.`,
     tono: 'alerta',
   }
 }

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 /**
- * Una entrega desplegada en el historial: en qué quedó su dinero, el único
- * botón de dinero que le toca y lo que salió en ella.
+ * Una entrega desplegada en el historial: cómo le fue (los mismos KPIs que en
+ * Liquidación), en qué quedó su dinero, el único botón de dinero que le toca y
+ * lo que salió en ella, con el mismo detalle de pedido que al liquidar.
  *
  * Los tres botones son trámites distintos y **nunca salen juntos**
  * (`accionDelCorte`): antes de que Finanzas acepte el dinero se corrige lo
@@ -14,11 +15,15 @@
  *
  * El detalle se pide al desplegar, no con la lista. La entrega ya liquidada se
  * guarda y no se vuelve a pedir; la que sigue viva cambia y se relee cada vez.
+ * Los KPIs y los pedidos completos son un extra: si no llegan, van «—» y los
+ * renglones del camión, y el dinero se consulta igual.
  */
 import { computed, onMounted, ref } from 'vue'
 import { ErrorApi, http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
 import { dinero, fechaHora, fechaNumerica } from '@/utils/formato'
+import DetallePedidoRuta from './DetallePedidoRuta.vue'
+import KpisRuta from './KpisRuta.vue'
 import TablaConteo from './TablaConteo.vue'
 import { nombreMotivo } from './etiquetas'
 import {
@@ -33,7 +38,15 @@ import {
   montoCapturado,
   nombreResultado,
 } from './liquidacion'
-import type { Corte, DetalleHistorial, EntregaEnHistorial, PedidoEnHistorial } from '@/api/tipos'
+import type {
+  Corte,
+  DetalleEntregaRuta,
+  DetalleHistorial,
+  EntregaEnHistorial,
+  IndicadoresRuta,
+  PedidoEnHistorial,
+  PedidoEnRuta,
+} from '@/api/tipos'
 
 const props = defineProps<{
   entrega: EntregaEnHistorial
@@ -53,6 +66,16 @@ const cargando = ref(false)
 const error = ref('')
 /** El pedido con sus renglones a la vista. Abrirlo no pide nada: ya vienen. */
 const abierto = ref<string | null>(null)
+
+/** Los KPIs de la entrega, los mismos que en Liquidación. `null` pinta «—». */
+const indicadores = ref<IndicadoresRuta | null>(null)
+
+/**
+ * El pedido completo, para el mismo detalle que abre la flecha en Liquidación.
+ * Solo los que siguen atados a la entrega: el que regresó a bodega ya no
+ * apunta a ella y enseña sus renglones del camión.
+ */
+const completos = ref(new Map<string, PedidoEnRuta>())
 
 const corte = computed(() => props.entrega.corte)
 const accion = computed(() => accionDelCorte(corte.value))
@@ -87,7 +110,21 @@ const fechas = computed(() => {
   return partes.join(' · ')
 })
 
+/** Los KPIs y los pedidos completos. Que fallen no impide ver el dinero. */
+function cargarComoLiquidacion(): void {
+  const id = props.entrega.id
+  void http
+    .get<IndicadoresRuta>(`/admin/rutas/entregas/${id}/indicadores`)
+    .then((respuesta) => (indicadores.value = respuesta))
+    .catch(() => {})
+  void http
+    .get<DetalleEntregaRuta>(`/admin/rutas/entregas/${id}`)
+    .then((respuesta) => (completos.value = new Map(respuesta.pedidos.map((p) => [p.id, p]))))
+    .catch(() => {})
+}
+
 onMounted(async () => {
+  cargarComoLiquidacion()
   if (props.guardado && corte.value) {
     detalle.value = props.guardado
     return
@@ -184,6 +221,9 @@ async function cancelarAbono(): Promise<void> {
   <div class="detalle-historial">
     <p class="estado">{{ estadoEnHistorial(entrega) }}</p>
     <p class="fechas">{{ fechas }}</p>
+
+    <!-- Cómo le fue a la entrega: las mismas tarjetas que en Liquidación. -->
+    <KpisRuta :indicadores="indicadores" />
 
     <!-- Los montos, en el mismo orden siempre; cada renglón solo si tiene algo que decir. -->
     <div v-if="corte" class="montos">
@@ -299,7 +339,12 @@ async function cancelarAbono(): Promise<void> {
               </tr>
               <tr v-if="abierto === pedido.id" class="renglones">
                 <td colspan="4">
-                  <table class="tabla-lineas">
+                  <!-- El mismo detalle que en Liquidación, si el pedido sigue en la entrega. -->
+                  <DetallePedidoRuta
+                    v-if="completos.has(pedido.id)"
+                    :pedido="completos.get(pedido.id)!"
+                  />
+                  <table v-else class="tabla-lineas">
                     <thead>
                       <tr>
                         <th>Producto</th>

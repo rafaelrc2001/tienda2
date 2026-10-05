@@ -785,6 +785,12 @@ function colonia(pedido: PedidoEnRuta): string {
   min-width: 820px;
 }
 
+/* La primera columna solo lleva la flecha y el folio (`ORD000123`): con los
+   150px de base sobraba un hueco antes de la colonia. */
+.tabla.dos-fijas {
+  --ancho-fija-1: 124px;
+}
+
 .aviso {
   margin: 0;
   font-size: 12px;
