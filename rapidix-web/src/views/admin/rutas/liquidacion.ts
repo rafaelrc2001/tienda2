@@ -199,7 +199,8 @@ export type EsperaDelCorte = 'devolucion' | 'dinero' | 'entrega' | 'abono'
  * Qué le toca aceptar a Finanzas ahora, o `null` si no espera nada: está
  * cerrado, o le toca al repartidor traer lo que debe.
  *
- * Primero la devolución, luego el dinero, luego la entrega; después de eso lo
+ * La devolución y el dinero se aceptan en cualquier orden; con los dos
+ * pendientes se nombra la devolución. Luego la entrega; después de eso lo
  * único que puede esperar es un abono.
  */
 export function esperaDelCorte(corte: Corte): EsperaDelCorte | null {

@@ -15,7 +15,7 @@ Este spec parte ese momento en pasos con dueño:
 
 1. El repartidor **liquida**: cuenta lo que baja y declara su dinero. La entrega queda **Liquidado**. Nada se mueve en el inventario todavía.
 2. Finanzas revisa la mercancía y pulsa **Aceptar devolución** (ahí vuelve al inventario) o la **rechaza** (la liquidación se deshace).
-3. Finanzas cuenta el dinero y pulsa **Aceptar dinero**: nace un **ingreso**.
+3. Finanzas cuenta el dinero y pulsa **Aceptar dinero**: nace un **ingreso**. Los pasos 2 y 3 van en el orden en que lleguen la mercancía y el dinero; con el dinero aceptado, la devolución ya solo se acepta.
 4. Finanzas pulsa **Entrega aceptada**: los pedidos en efectivo quedan pagados, los de crédito entran a **CXC**, y la entrega queda **Cerrado** si el repartidor no debe nada o **Aceptado** si debe.
 5. Si debe, el repartidor **abona** desde su historial (vuelve a Liquidado), Finanzas acepta ese dinero (otro ingreso) y, al cubrirse todo, queda **Cerrado**.
 
@@ -42,7 +42,7 @@ Este spec parte ese momento en pasos con dueño:
 - «Finalizar liquidación» deja de descargar el camión y de cerrar la jornada.
 - «Aceptar devolución»: descarga el camión (lo que hacía el corte en el SPEC 03) y cierra la jornada si era su última entrega.
 - «Rechazar devolución» con motivo: deshace la liquidación y la entrega vuelve a «terminada, sin liquidar».
-- «Aceptar dinero»: acepta lo declarado sin capturar otra cifra y registra el ingreso. Solo tras aceptar la devolución.
+- «Aceptar dinero»: acepta lo declarado sin capturar otra cifra y registra el ingreso. Antes o después de la devolución.
 - «Entrega aceptada»: pedidos en efectivo a Pagado (con su cashback), pedidos a crédito a CXC, estatus Aceptado o Cerrado.
 - Abonos del repartidor: quedan pendientes hasta que Finanzas los acepta; el repartidor puede cancelar el suyo mientras tanto.
 - Rutas → Historial: columna de adeudo y estatus nuevo por entrega.
@@ -189,8 +189,8 @@ Sección `finanzas`, salvo los dos de `rutas`.
 | `GET /admin/finanzas/cortes?filtro=` | `por-aceptar` (LIQUIDADO), `con-adeudo` (ACEPTADO), `cerrados` (CERRADO). Sustituye a `por-recibir` / `recibidos`. | — |
 | `GET /admin/finanzas/cortes/:id` | El corte con su conteo por producto y sus pedidos. | — |
 | `POST /admin/finanzas/cortes/:id/aceptar-devolucion` | Descarga el camión y estampa la aceptación. | `DEVOLUCION_YA_ACEPTADA`, `RECIBE_EL_MISMO` |
-| `POST /admin/finanzas/cortes/:id/rechazar-devolucion` `{ motivo }` | Deshace la liquidación. | `DEVOLUCION_YA_ACEPTADA` |
-| `POST /admin/finanzas/cortes/:id/aceptar-dinero` | Acepta lo declarado o el abono pendiente; crea el ingreso. | `DEVOLUCION_SIN_ACEPTAR`, `SIN_DINERO_POR_ACEPTAR`, `RECIBE_EL_MISMO` |
+| `POST /admin/finanzas/cortes/:id/rechazar-devolucion` `{ motivo }` | Deshace la liquidación. | `DEVOLUCION_YA_ACEPTADA`, `DINERO_YA_ACEPTADO` |
+| `POST /admin/finanzas/cortes/:id/aceptar-dinero` | Acepta lo declarado o el abono pendiente; crea el ingreso. | `SIN_DINERO_POR_ACEPTAR`, `RECIBE_EL_MISMO` |
 | `POST /admin/finanzas/cortes/:id/aceptar-entrega` | Pedidos a Pagado o a CXC; estatus Aceptado o Cerrado. | `DEVOLUCION_SIN_ACEPTAR`, `DINERO_SIN_ACEPTAR`, `ENTREGA_YA_ACEPTADA` |
 | `GET /admin/finanzas/ingresos?desde=&hasta=&concepto=` | Ingresos del rango y su `total`. Por defecto, hoy. | — |
 | `GET /admin/finanzas/cxc?filtro=` | `con-saldo` o `cobradas`, con productos, pagos y saldo. | — |
@@ -265,7 +265,7 @@ Desaparecen `POST /admin/finanzas/cortes/:id/recibir` y `POST /admin/finanzas/co
 
 **Dinero y estatus**
 
-- [ ] «Aceptar dinero» antes de aceptar la devolución responde 409 `DEVOLUCION_SIN_ACEPTAR`.
+- [ ] «Aceptar dinero» funciona antes de aceptar la devolución; después, «Rechazar devolución» responde 409 `DINERO_YA_ACEPTADO`.
 - [ ] Aceptar un corte de $500 declarados crea un ingreso `ENTREGA` de $500 con el folio de reparto, y `montoRecibido` queda en 500.
 - [ ] El repartidor puede corregir lo declarado hasta que el dinero se acepta; después responde 409 `CORTE_RECIBIDO`.
 - [ ] «Entrega aceptada» sin dinero aceptado responde 409 `DINERO_SIN_ACEPTAR`.
@@ -290,7 +290,7 @@ Desaparecen `POST /admin/finanzas/cortes/:id/recibir` y `POST /admin/finanzas/co
 **Pantallas**
 
 - [ ] Cortes de ruta tiene las pestañas Por aceptar, Con adeudo y Cerrados, y cada corte muestra su folio de reparto.
-- [ ] «Aceptar dinero» está deshabilitado hasta aceptar la devolución; «Entrega aceptada», hasta aceptar las dos.
+- [ ] «Aceptar devolución» y «Aceptar dinero» están habilitados a la vez; «Entrega aceptada», hasta aceptar las dos. Con el dinero aceptado, «Rechazar» desaparece.
 - [ ] Rutas → Historial muestra por entrega el estatus (Liquidado, Aceptado, Cerrado) y el adeudo.
 - [ ] Ingresos muestra fecha y hora, concepto, folio y cantidad; el filtro por fechas y concepto cambia la lista y el total, y el total viene de la API.
 - [ ] CXC muestra por pedido sus productos, cómo se cubrió, las fechas de sus pagos y el saldo.
@@ -307,7 +307,7 @@ Desaparecen `POST /admin/finanzas/cortes/:id/recibir` y `POST /admin/finanzas/co
 
 - **Sí:** el camión se descarga al «Aceptar devolución». La mercancía vuelve al inventario cuando alguien distinto del repartidor la vio. **No:** al liquidar, como dejó el SPEC 03 de forma provisional.
 - **Sí:** rechazar la devolución deshace la liquidación entera. Con el camión sin descargar, deshacer es soltar pedidos y borrar el corte. **No:** reabrir solo el conteo; el repartidor no podría reanudar la entrega.
-- **Sí:** primero devolución, luego dinero. Nunca hay un ingreso sobre una liquidación que luego se deshace. **No:** orden libre.
+- **Sí:** devolución y dinero en cualquier orden, porque llegan al mostrador en momentos distintos; con el dinero aceptado la devolución ya no se rechaza, así que nunca hay un ingreso sobre una liquidación que luego se deshace. **No:** primero devolución, luego dinero (frenaba el dinero que ya estaba en la mano).
 - **Sí:** Finanzas acepta lo declarado sin capturar otra cifra. Si no coincide, el repartidor corrige lo declarado. **No:** capturar lo contado, como hoy.
 - **Sí:** se reusan `montoRecibido`, `recibidoEn` y `recibidoPorId` como «dinero aceptado». **No:** renombrarlas; es la misma fotografía y ahorra una migración de datos.
 - **Sí:** tras la primera «Entrega aceptada», el estatus cambia solo al aceptar cada abono. **No:** volver a pulsar el botón.
