@@ -1168,7 +1168,8 @@ export class CortesService {
 
   /**
    * "Aceptar devolucion": Finanzas vio la mercancia que regreso y aqui baja
-   * del camion. Es lo primero que se acepta de un corte; el dinero va despues.
+   * del camion. Se acepta antes o despues que el dinero, segun llegue primero;
+   * los dos van antes de "Entrega aceptada".
    *
    * En una transaccion, con el corte y su jornada bloqueados:
    *
@@ -1391,8 +1392,9 @@ export class CortesService {
    * Los pedidos por faltante que genero se conservan: son ventas entregadas en
    * esa entrega y entraran al corte siguiente.
    *
-   * Solo antes de aceptar la devolucion, y por tanto antes de aceptar el
-   * dinero, que va despues: nunca se deshace una liquidacion con un ingreso.
+   * Solo antes de aceptar la devolucion y antes de aceptar el dinero: nunca se
+   * deshace una liquidacion con un ingreso (la base tampoco dejaria borrar el
+   * corte, `Ingreso.corte` es `Restrict`).
    */
   async rechazarDevolucion(
     id: string,
@@ -1403,7 +1405,11 @@ export class CortesService {
       await tx.$queryRaw`SELECT id FROM cortes WHERE id = ${id} FOR UPDATE`;
       const corte = await tx.corte.findUnique({
         where: { id },
-        select: { devolucionAceptadaEn: true, entregas: { select: { id: true } } },
+        select: {
+          devolucionAceptadaEn: true,
+          recibidoEn: true,
+          entregas: { select: { id: true } },
+        },
       });
       if (!corte) throw new NotFoundException('Corte no encontrado');
 
@@ -1412,6 +1418,14 @@ export class CortesService {
           statusCode: 409,
           code: 'DEVOLUCION_YA_ACEPTADA',
           message: 'La devolución de ese corte ya se aceptó: ya no se puede rechazar.',
+        });
+      }
+      if (corte.recibidoEn !== null) {
+        throw new ConflictException({
+          statusCode: 409,
+          code: 'DINERO_YA_ACEPTADO',
+          message:
+            'El dinero de ese corte ya se aceptó y está en Ingresos: la devolución ya no se puede rechazar.',
         });
       }
 
@@ -1510,9 +1524,12 @@ export class CortesService {
    * y el estatus del corte se vuelve a deducir (`estadoTrasAceptar`): un abono
    * que salda el adeudo lo cierra sin mas pasos.
    *
-   * Solo con la devolucion ya aceptada: asi nunca hay un ingreso sobre una
-   * liquidacion que todavia se puede deshacer. **Quien acepta no puede ser
-   * quien liquido**, salvo el administrador.
+   * No espera a la devolucion: la mercancia y el dinero llegan al mostrador en
+   * momentos distintos y se aceptan en el orden en que lleguen. Lo que si
+   * cambia es que, con el dinero aceptado, la devolucion ya no se puede
+   * rechazar (`rechazarDevolucion`): nunca se deshace una liquidacion con un
+   * ingreso. **Quien acepta no puede ser quien liquido**, salvo el
+   * administrador.
    */
   async aceptarDinero(id: string, usuario: UsuarioAutenticado): Promise<CorteDto> {
     await this.prisma.$transaction(async (tx) => {
@@ -1527,13 +1544,6 @@ export class CortesService {
       });
       if (!corte) throw new NotFoundException('Corte no encontrado');
 
-      if (corte.devolucionAceptadaEn === null) {
-        throw new ConflictException({
-          statusCode: 409,
-          code: 'DEVOLUCION_SIN_ACEPTAR',
-          message: 'Acepta primero la devolución: el dinero se acepta después.',
-        });
-      }
       CortesService.exigirOtraPersona(corte, usuario);
 
       const ahora = new Date();

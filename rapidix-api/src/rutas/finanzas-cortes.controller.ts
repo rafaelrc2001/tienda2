@@ -87,8 +87,9 @@ export class FinanzasCortesController {
    * "Rechazar devolucion": lo que regreso no es lo que se conto. Deshace la
    * liquidacion entera —el corte se borra y la entrega vuelve a "terminada,
    * sin liquidar"— y deja el `motivo` (obligatorio) en la entrega para que el
-   * repartidor lo lea. 409 `DEVOLUCION_YA_ACEPTADA` si ya se acepto. No
-   * devuelve nada: el corte ya no existe.
+   * repartidor lo lea. 409 `DEVOLUCION_YA_ACEPTADA` si ya se acepto y
+   * `DINERO_YA_ACEPTADO` si el dinero ya esta en Ingresos. No devuelve nada:
+   * el corte ya no existe.
    */
   @Post(':id/rechazar-devolucion')
   @HttpCode(HttpStatus.NO_CONTENT)
@@ -102,10 +103,10 @@ export class FinanzasCortesController {
 
   /**
    * "Aceptar dinero": acepta lo que el repartidor declaro —o el abono que
-   * tenga pendiente— sin capturar otra cifra, y lo anota en Ingresos. 409
-   * `DEVOLUCION_SIN_ACEPTAR` si la devolucion va primero y no se ha aceptado,
-   * `SIN_DINERO_POR_ACEPTAR` si no hay nada pendiente y `RECIBE_EL_MISMO` si
-   * quien acepta es quien liquido (salvo el administrador).
+   * tenga pendiente— sin capturar otra cifra, y lo anota en Ingresos. No
+   * espera a la devolucion. 409 `SIN_DINERO_POR_ACEPTAR` si no hay nada
+   * pendiente y `RECIBE_EL_MISMO` si quien acepta es quien liquido (salvo el
+   * administrador).
    */
   @Post(':id/aceptar-dinero')
   @HttpCode(HttpStatus.OK)

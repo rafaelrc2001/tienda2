@@ -7,22 +7,22 @@
  * detalle desplegado bajo la fila la tabla se hacía larguísima y en el
  * teléfono había que desplazarla de lado para llegar a los botones.
  *
- * Un corte se acepta en tres pasos y en ese orden, que es el orden en que las
- * cosas llegan al mostrador:
+ * Un corte se acepta en tres pasos. Los dos primeros, en el orden en que la
+ * mercancía y el dinero lleguen al mostrador, que puede ser cualquiera:
  *
  *  1. **Entrega de devolución**: la mercancía que regresa. Aceptarla la
  *     devuelve al inventario; rechazarla deshace la liquidación y el
- *     repartidor la vuelve a hacer.
+ *     repartidor la vuelve a hacer. Con el dinero ya aceptado no se rechaza:
+ *     nunca se deshace una liquidación con un ingreso.
  *  2. **Entrega de efectivo**: se acepta lo que él declaró, sin capturar otra
  *     cifra, y queda anotado en Ingresos.
- *  3. **Entrega aceptada**: cierra la revisión. Si el dinero aceptado no cubre
- *     lo que dice el sistema, el corte queda con adeudo y lo que el repartidor
- *     traiga después vuelve a pasar por «Aceptar dinero».
+ *  3. **Entrega aceptada**: cierra la revisión, solo con los dos anteriores.
+ *     Si el dinero aceptado no cubre lo que dice el sistema, el corte queda
+ *     con adeudo y lo que el repartidor traiga después vuelve a pasar por
+ *     «Aceptar dinero».
  *
- * Qué paso toca lo decide `esperaDelCorte()`; aquí solo se apagan los botones
- * de los que todavía no. La API vuelve a comprobar el orden (409) y que quien
- * acepta no sea quien liquidó (`RECIBE_EL_MISMO`): de esos solo se enseña el
- * mensaje.
+ * La API vuelve a comprobar el orden (409) y que quien acepta no sea quien
+ * liquidó (`RECIBE_EL_MISMO`): de esos solo se enseña el mensaje.
  */
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -79,6 +79,18 @@ onMounted(() => cargar())
 
 /** Si regresa mercancía: sin nada que bajar, la devolución se acepta igual, pero se dice. */
 const regresaAlgo = computed(() => detalle.value?.conteo.some((p) => p.devolucion > 0) ?? false)
+
+/** Lo que le falta a «Entrega aceptada»: la devolución, el dinero o los dos. */
+const faltaParaEntrega = computed(() => {
+  const c = corte.value
+  if (!c || esperaDelCorte(c) === 'entrega') return ''
+  const devolucion = c.devolucionAceptadaEn === null
+  const dineroPendiente = c.recibidoEn === null
+  if (devolucion && dineroPendiente) return 'Primero acepta la devolución y el dinero.'
+  if (devolucion) return 'Falta aceptar la devolución.'
+  if (dineroPendiente) return 'Falta aceptar el dinero.'
+  return ''
+})
 
 // ------------------------------------------------------------------
 // Aceptar y rechazar
@@ -256,9 +268,18 @@ async function rechazar(): Promise<void> {
             >
               Aceptar devolución
             </button>
-            <button type="button" class="btn-secondary" :disabled="guardando" @click="abrirRechazo">
+            <button
+              v-if="!corte.recibidoEn"
+              type="button"
+              class="btn-secondary"
+              :disabled="guardando"
+              @click="abrirRechazo"
+            >
               Rechazar
             </button>
+            <span v-else class="espera">
+              El dinero ya se aceptó: la devolución ya no se puede rechazar.
+            </span>
           </div>
         </section>
 
@@ -324,14 +345,11 @@ async function rechazar(): Promise<void> {
             <button
               type="button"
               class="btn-primary"
-              :disabled="guardando || !corte.devolucionAceptadaEn"
+              :disabled="guardando"
               @click="confirmando = 'dinero'"
             >
               Aceptar dinero · {{ dinero(corte.dineroPorAceptar ?? 0) }}
             </button>
-            <span v-if="!corte.devolucionAceptadaEn" class="espera">
-              Primero acepta la devolución.
-            </span>
           </div>
         </section>
 
@@ -351,9 +369,7 @@ async function rechazar(): Promise<void> {
             >
               Entrega aceptada
             </button>
-            <span v-if="esperaDelCorte(corte) !== 'entrega'" class="espera">
-              Primero acepta la devolución y el dinero.
-            </span>
+            <span v-if="faltaParaEntrega" class="espera">{{ faltaParaEntrega }}</span>
           </div>
         </section>
 
