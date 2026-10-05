@@ -239,6 +239,13 @@ const routes: RouteRecordRaw[] = [
     meta: { seccion: 'finanzas', titulo: 'Finanzas · Cortes de ruta' },
   },
   {
+    // Un corte: sus tres pasos en pantalla propia, como la entrega en Rutas.
+    path: '/admin/finanzas/cortes/:id',
+    name: 'finanzas-corte',
+    component: () => import('@/views/admin/FinanzasCorteView.vue'),
+    meta: { seccion: 'finanzas', titulo: 'Corte de ruta', volverA: '/admin/finanzas/cortes' },
+  },
+  {
     path: '/admin/finanzas/ingresos',
     name: 'finanzas-ingresos',
     component: () => import('@/views/admin/FinanzasIngresosView.vue'),
