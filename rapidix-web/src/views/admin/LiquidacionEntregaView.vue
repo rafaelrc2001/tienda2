@@ -214,32 +214,40 @@ async function generarFaltante(): Promise<void> {
   }
 }
 
-/** El aviso del diálogo, en una sola frase: es lo que cambia lo que hace mañana. */
-const fraseDeCierre = computed(() => {
+/*
+ * El diálogo es un resumen en tablas, como el conteo de la pantalla: el
+ * efectivo (calculado, entregado, diferencia) y lo que baja del camión. Una
+ * frase larga con todo eso no se leía antes de pulsar.
+ */
+
+/** Lo que se manda al cerrar: sin pedidos, cero. */
+const montoEntregado = computed(() => (sinPedidos.value ? 0 : (capturado.value ?? 0)))
+
+/** Negativo: entrega de menos. Ya en centavos, para no pintar «−$0.00». */
+const diferenciaDeCierre = computed(() =>
+  centavos(montoEntregado.value - (resumen.value?.montoCalculado ?? 0)),
+)
+
+/** Lo que pasa después, debajo de las tablas: lo que cambia lo que hace mañana. */
+const avisosDeCierre = computed(() => {
   const r = resumen.value
-  if (!r) return ''
-  const monto = sinPedidos.value ? 0 : (capturado.value ?? 0)
-  const cual = entrega.value ? nombreEntrega(entrega.value) : 'esta entrega'
-  const partes = [
-    `Vas a liquidar ${r.pedidos.length} pedido(s) de ${cual}`,
-    `entregas ${dinero(monto)} contra ${dinero(r.montoCalculado)} calculados`,
-  ]
-  const diferencia = centavos(monto - r.montoCalculado)
-  if (diferencia !== 0) {
-    partes.push(
-      `⚠ estás entregando ${dinero(Math.abs(diferencia))} ${diferencia < 0 ? 'MENOS' : 'MÁS'} ` +
-        'de lo calculado y la diferencia queda registrada',
+  if (!r) return []
+  const avisos: string[] = []
+  if (diferenciaDeCierre.value !== 0) {
+    avisos.push(
+      `⚠ Estás entregando ${dinero(Math.abs(diferenciaDeCierre.value))} ` +
+        `${diferenciaDeCierre.value < 0 ? 'MENOS' : 'MÁS'} de lo calculado; la diferencia queda registrada.`,
     )
   }
   if (r.pedidosQueRegresan > 0) {
-    partes.push(`${r.pedidosQueRegresan} pedido(s) regresan a bodega y vuelven a salir otro día`)
+    avisos.push(`${r.pedidosQueRegresan} pedido(s) regresan a bodega y vuelven a salir otro día.`)
   }
-  partes.push(
+  avisos.push(
     r.cierraJornada
-      ? 'esto finaliza la entrega; es la última abierta, así que tu jornada se cierra cuando Finanzas acepte la devolución'
-      : 'esto finaliza la entrega; Finanzas tiene que aceptar la devolución y el dinero',
+      ? 'Es la última entrega abierta: tu jornada se cierra cuando Finanzas acepte la devolución.'
+      : 'Finanzas tiene que aceptar la devolución y el dinero.',
   )
-  return partes.join('; ') + '.'
+  return avisos
 })
 
 async function finalizar(): Promise<void> {
@@ -534,12 +542,51 @@ async function finalizar(): Promise<void> {
       </div>
     </div>
 
-    <!-- La confirmación, en una frase: cuántos, cuánto, el descuadre y qué regresa. -->
-    <div v-if="confirmando" class="modal-overlay" @click.self="confirmando = false">
+    <!-- La confirmación, en tablas: el efectivo, lo que baja del camión y qué pasa después. -->
+    <div v-if="confirmando && resumen" class="modal-overlay" @click.self="confirmando = false">
       <div class="modal-sheet" role="dialog" aria-label="Confirmar la liquidación">
         <div class="modal-handle" />
         <p class="modal-title">¿Finalizar la liquidación?</p>
-        <p class="modal-texto">{{ fraseDeCierre }}</p>
+        <p class="modal-sub">
+          {{ entrega ? nombreEntrega(entrega) : 'Esta entrega' }}
+          <template v-if="entrega"> · {{ entrega.folio }}</template>
+          · {{ resumen.pedidos.length }} pedido(s)
+        </p>
+
+        <p class="resumen-titulo">Efectivo</p>
+        <div class="tabla-envoltorio">
+          <table class="tabla lineal resumen-efectivo">
+            <tbody>
+              <tr>
+                <td>Calculado</td>
+                <td class="num">{{ dinero(resumen.montoCalculado) }}</td>
+              </tr>
+              <tr>
+                <td>Entregas</td>
+                <td class="num">
+                  <strong>{{ dinero(montoEntregado) }}</strong>
+                </td>
+              </tr>
+              <tr>
+                <td>Diferencia</td>
+                <td class="num">
+                  <strong :class="diferenciaDeCierre === 0 ? 'cuadra' : 'descuadra'">
+                    {{ diferenciaDeCierre === 0 ? '✓ Cuadra' : dinero(diferenciaDeCierre) }}
+                  </strong>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <template v-if="resumen.conteo.length > 0">
+          <p class="resumen-titulo">Producto en ruta / a devolver</p>
+          <TablaConteo :conteo="resumen.conteo" :contados="contados" solo-lectura />
+        </template>
+
+        <ul class="avisos-cierre">
+          <li v-for="aviso in avisosDeCierre" :key="aviso">{{ aviso }}</li>
+        </ul>
         <div class="modal-actions">
           <button
             type="button"
@@ -834,5 +881,44 @@ async function finalizar(): Promise<void> {
   font-size: 13px;
   color: var(--ink);
   line-height: 1.5;
+}
+
+/* El resumen antes de finalizar: de qué entrega es y sus tablas. */
+.modal-sub {
+  margin: -4px 0 10px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.resumen-titulo {
+  margin: 12px 0 6px;
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 12.5px;
+  color: var(--ink);
+}
+
+.resumen-efectivo td:first-child {
+  width: 99%;
+}
+
+.resumen-efectivo .cuadra {
+  color: var(--verde-dark);
+}
+
+.resumen-efectivo .descuadra {
+  color: var(--orange-dark);
+}
+
+.avisos-cierre {
+  margin: 12px 0;
+  padding-left: 18px;
+  font-size: 12.5px;
+  color: var(--ink);
+  line-height: 1.45;
+}
+
+.avisos-cierre li + li {
+  margin-top: 4px;
 }
 </style>

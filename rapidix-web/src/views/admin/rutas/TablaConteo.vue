@@ -11,13 +11,15 @@
  * Con `contados` (Liquidación) suma dos columnas: «Devuelto», donde se captura
  * lo que de verdad baja —nunca más de la devolución—, y «Faltante», lo que no
  * bajó y se puede cobrar con «Generar pedido x faltante». Sin él (Historial)
- * solo se consulta. La columna del producto se queda fija y las cifras se
- * desplazan debajo: en el teléfono no caben todas.
+ * solo se consulta. Con `contados` y `soloLectura` (el resumen antes de
+ * finalizar) enseña las cinco columnas sin campos: lo capturado como cifra.
+ * La columna del producto se queda fija y las cifras se desplazan debajo: en
+ * el teléfono no caben todas.
  */
 import { limitarDevuelto, piezasCapturadas } from './liquidacion'
 import type { ConteoDeProducto } from '@/api/tipos'
 
-defineProps<{ conteo: ConteoDeProducto[] }>()
+defineProps<{ conteo: ConteoDeProducto[]; soloLectura?: boolean }>()
 
 /** Lo capturado por producto, como texto: vacío es «sin contar», no cero. */
 const contados = defineModel<Record<string, string>>('contados')
@@ -69,8 +71,11 @@ function faltante(producto: ConteoDeProducto): number | null {
           <template v-if="contados">
             <td class="num">
               <!-- Sin devolución no hay nada que contar ni que pueda faltar. -->
+              <span v-if="soloLectura && producto.devolucion > 0">
+                {{ contados[producto.productoId] || '—' }}
+              </span>
               <input
-                v-if="producto.devolucion > 0"
+                v-else-if="producto.devolucion > 0"
                 class="form-input contado"
                 :class="{ descuadra: (faltante(producto) ?? 0) > 0 }"
                 type="text"
