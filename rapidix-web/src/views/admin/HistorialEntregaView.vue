@@ -11,10 +11,9 @@
  * ella. Es la misma petición que la pestaña, así que el corte que se ve aquí
  * es el mismo que allí.
  */
-import { computed, onMounted, ref, watch } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ErrorApi, http } from '@/api/http'
-import { fechaNumerica } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
 import DetalleHistorialEntrega from './rutas/DetalleHistorialEntrega.vue'
 import { nombreEntrega } from './rutas/etiquetas'
@@ -64,19 +63,6 @@ watch(
   () => void cargar(),
 )
 
-const fechas = computed(() => {
-  const e = entrega.value
-  if (!e) return ''
-  const partes: string[] = [
-    e.iniciadaEn
-      ? `Inició el ${fechaNumerica(e.iniciadaEn)}`
-      : `Creada el ${fechaNumerica(e.creadoEn)}`,
-    `${e.pedidos} pedido(s)`,
-  ]
-  if (e.corte) partes.push(`liquidada el ${fechaNumerica(e.corte.cerradoEn)}`)
-  return partes.join(' · ')
-})
-
 /** Corregir, entregar dinero o cancelarlo devuelve el corte al día. */
 function alCambiarCorte(corte: Corte): void {
   if (entrega.value) entrega.value = { ...entrega.value, corte }
@@ -101,7 +87,6 @@ function alCambiarCorte(corte: Corte): void {
             {{ nombreEntrega(entrega) }}
             <span class="mini-tag">{{ estadoEnHistorial(entrega) }}</span>
           </p>
-          <p class="cuenta">{{ fechas }}</p>
         </div>
       </header>
 
@@ -150,11 +135,5 @@ function alCambiarCorte(corte: Corte): void {
   font-weight: 800;
   font-size: 15px;
   color: var(--ink);
-}
-
-.cabeza .cuenta {
-  margin: 3px 0 0;
-  font-size: 12px;
-  color: var(--muted);
 }
 </style>
