@@ -276,7 +276,8 @@ export class PedidosService {
           metodoPago: dto.metodoPago,
           estadoPago,
           pagadoConBilletera: billetera.monto,
-          pagoCon: enEfectivo ? new Decimal(dto.pagoCon as number) : null,
+          // Opcional: sin el, el pedido nace sin monto ni cambio avisados.
+          pagoCon: enEfectivo && dto.pagoCon !== undefined ? new Decimal(dto.pagoCon) : null,
           cambio: enEfectivo ? pago.cambio : null,
           pagoValidadoEn: estadoPago === EstadoPago.PAGADO ? new Date() : null,
           metodoEntrega,

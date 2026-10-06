@@ -758,8 +758,10 @@ export class CarritoService {
    * Revisa el metodo de pago contra lo que queda por cobrar (HU-09 y HU-11).
    *
    * Si la billetera cubre el pedido entero no hay nada que cobrar y cualquier
-   * metodo vale. En efectivo el monto es obligatorio: el repartidor tiene que
-   * saber cuanto cambio llevar, y "exacto" se dice escribiendo el total.
+   * metodo vale. En efectivo el monto es opcional: el cliente no siempre sabe
+   * con cuanto va a pagar al pedir. Si lo dice, tiene que cubrir lo que debe y
+   * sale su cambio; si no, el pedido se confirma igual y el cambio se ve en la
+   * puerta.
    */
   static evaluarPago(
     metodo: MetodoPago | undefined,
@@ -775,12 +777,7 @@ export class CarritoService {
     }
     if (metodo !== MetodoPago.EFECTIVO) return { cambio: null, error: null };
 
-    if (pagoCon === undefined) {
-      return {
-        cambio: null,
-        error: { codigo: 'PAGO_CON_REQUERIDO', mensaje: 'Indica con cuánto vas a pagar' },
-      };
-    }
+    if (pagoCon === undefined) return { cambio: null, error: null };
     const entrega = new Decimal(pagoCon);
     if (entrega.lessThan(aPagar)) {
       return {

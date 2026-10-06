@@ -7,27 +7,22 @@
  * ya liquidados. Mezclarlos ponía dos montos distintos en la misma pantalla
  * sin saber cuál era cuál.
  *
- * Cada fila nace cerrada y enseña cuál entrega fue, cuándo, el **estatus** de
- * su corte (Liquidado mientras Finanzas tenga algo por aceptar, Aceptado si ya
- * lo aceptó y queda adeudo, Cerrado si no debe nada) y el **adeudo**: es lo
- * que el repartidor viene a buscar. Los demás montos van en la fila de abajo,
- * que se despliega como los detalles de Operaciones y Finanzas.
+ * Cada fila enseña cuál entrega fue, cuándo, el **estatus** de su corte
+ * (Liquidado mientras Finanzas tenga algo por aceptar, Aceptado si ya lo
+ * aceptó y queda adeudo, Cerrado si no debe nada) y el **adeudo**: es lo que
+ * el repartidor viene a buscar. Lo demás va en su propia vista, que abre
+ * «Ver →», igual que las otras dos pestañas abren la entrega y su liquidación.
  */
-import { onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { onMounted, ref } from 'vue'
 import { ErrorApi, http } from '@/api/http'
 import { dinero, fechaNumerica } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
-import DetalleHistorialEntrega from './DetalleHistorialEntrega.vue'
 import { faltanteDe, nombreEstadoCorte } from './liquidacion'
-import type { Corte, DetalleHistorial, EntregaEnHistorial } from '@/api/tipos'
+import type { EntregaEnHistorial } from '@/api/tipos'
 
 const entregas = ref<EntregaEnHistorial[]>([])
 const cargando = ref(true)
 const error = ref('')
-const abierta = ref<string | null>(null)
-
-/** Lo que ya se pidió de cada entrega liquidada: no cambia, no se vuelve a pedir. */
-const guardados = reactive(new Map<string, DetalleHistorial>())
 
 async function cargar(): Promise<void> {
   cargando.value = true
@@ -46,22 +41,8 @@ async function cargar(): Promise<void> {
 onMounted(cargar)
 
 /**
- * El ancho a la vista de la tabla. En el teléfono la tabla es más ancha que la
- * pantalla y se desplaza; el detalle se queda con este ancho para que sus
- * tarjetas y montos no se corten a la derecha.
- */
-const envoltorio = ref<HTMLElement | null>(null)
-const anchoVisible = ref(0)
-const observador = new ResizeObserver(([caja]) => (anchoVisible.value = caja.contentRect.width))
-watch(envoltorio, (ahora, antes) => {
-  if (antes) observador.unobserve(antes)
-  if (ahora) observador.observe(ahora)
-})
-onBeforeUnmount(() => observador.disconnect())
-
-/**
- * El estatus del corte para la fila cerrada. Sin corte propio es una entrega
- * de las jornadas que se cortaban enteras: liquidada, sin más.
+ * El estatus del corte. Sin corte propio es una entrega de las jornadas que
+ * se cortaban enteras: liquidada, sin más.
  */
 function estatus(entrega: EntregaEnHistorial): string {
   return entrega.corte ? nombreEstadoCorte(entrega.corte.estado) : 'Liquidada'
@@ -80,15 +61,6 @@ function adeudo(entrega: EntregaEnHistorial): string {
 function debe(entrega: EntregaEnHistorial): boolean {
   return entrega.corte?.recibidoEn != null && faltanteDe(entrega.corte) > 0
 }
-
-function alternar(id: string): void {
-  abierta.value = abierta.value === id ? null : id
-}
-
-/** Corregir, entregar dinero o cancelarlo devuelve el corte al día: se cambia en su fila. */
-function alCambiarCorte(entregaId: string, corte: Corte): void {
-  entregas.value = entregas.value.map((e) => (e.id === entregaId ? { ...e, corte } : e))
-}
 </script>
 
 <template>
@@ -106,78 +78,38 @@ function alCambiarCorte(entregaId: string, corte: Corte): void {
 
     <template v-else>
       <p class="seccion-titulo">Tus entregas ({{ entregas.length }})</p>
-      <div ref="envoltorio" class="tabla-envoltorio">
-        <table
-          class="tabla lineal historial"
-          :style="anchoVisible ? { '--ancho-detalle': `${anchoVisible - 24}px` } : undefined"
-        >
+      <div class="tabla-envoltorio">
+        <table class="tabla lineal una-fija historial">
           <thead>
             <tr>
               <th>Entrega</th>
               <th>Fecha</th>
               <th>Estatus</th>
               <th class="num">Adeudo</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
-            <template v-for="entrega in entregas" :key="entrega.id">
-              <!-- Toda la fila despliega; la flecha es el botón que lo dice. -->
-              <tr
-                class="fila"
-                :class="{ 'con-detalle': abierta === entrega.id }"
-                @click="alternar(entrega.id)"
-              >
-                <td>
-                  <div class="con-flecha">
-                    <!-- La flecha va primero, como en Operaciones. -->
-                    <button
-                      type="button"
-                      class="chevron"
-                      :class="{ abierto: abierta === entrega.id }"
-                      :aria-expanded="abierta === entrega.id"
-                      :aria-controls="`historial-${entrega.id}`"
-                      :aria-label="`Detalle de ${entrega.folio}`"
-                      @click.stop="alternar(entrega.id)"
-                    >
-                      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-                        <path
-                          d="M4 6l4 4 4-4"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="2"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                        />
-                      </svg>
-                    </button>
-                    <div>
-                      <span class="folio">{{ entrega.folio }}</span>
-                    </div>
-                  </div>
-                </td>
-                <td class="fecha">{{ fechaNumerica(entrega.creadoEn) }}</td>
-                <td>
-                  <span class="mini-tag" :class="{ cerrado: entrega.corte?.estado === 'CERRADO' }">
-                    {{ estatus(entrega) }}
-                  </span>
-                </td>
-                <td class="num importe" :class="{ debe: debe(entrega) }">{{ adeudo(entrega) }}</td>
-              </tr>
-              <tr
-                v-if="abierta === entrega.id"
-                :id="`historial-${entrega.id}`"
-                class="fila-detalle"
-              >
-                <td colspan="4">
-                  <DetalleHistorialEntrega
-                    :entrega="entrega"
-                    :guardado="guardados.get(entrega.id) ?? null"
-                    @guardar="(d) => guardados.set(entrega.id, d)"
-                    @corte="(c) => alCambiarCorte(entrega.id, c)"
-                  />
-                </td>
-              </tr>
-            </template>
+            <tr v-for="entrega in entregas" :key="entrega.id">
+              <td>
+                <span class="folio">{{ entrega.folio }}</span>
+              </td>
+              <td class="fecha">{{ fechaNumerica(entrega.creadoEn) }}</td>
+              <td>
+                <span class="mini-tag" :class="{ cerrado: entrega.corte?.estado === 'CERRADO' }">
+                  {{ estatus(entrega) }}
+                </span>
+              </td>
+              <td class="num importe" :class="{ debe: debe(entrega) }">{{ adeudo(entrega) }}</td>
+              <td class="accion">
+                <RouterLink
+                  :to="`/admin/rutas/historial/${entrega.id}`"
+                  class="btn-secondary abrir"
+                >
+                  Ver →
+                </RouterLink>
+              </td>
+            </tr>
           </tbody>
         </table>
       </div>
@@ -187,21 +119,16 @@ function alCambiarCorte(entregaId: string, corte: Corte): void {
 
 <style scoped>
 .historial {
-  min-width: 460px;
+  min-width: 540px;
 }
 
-.historial .fila {
-  cursor: pointer;
-}
-
-/* La flecha a la izquierda del folio y el nombre, centrada con los dos. */
-.con-flecha {
-  display: flex;
-  align-items: center;
-}
-
-.con-flecha .chevron {
-  flex: none;
+/* Las mismas columnas y botón que las listas de Entregas y Liquidación. */
+.tabla.lineal .abrir {
+  display: inline-block;
+  padding: 4px 12px;
+  font-size: 12px;
+  text-decoration: none;
+  box-shadow: none;
 }
 
 /* Cifras de ancho fijo: las fechas quedan en columna, dígito bajo dígito. */
@@ -209,14 +136,6 @@ function alCambiarCorte(entregaId: string, corte: Corte): void {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
   color: var(--muted);
-}
-
-/* El detalle no se desplaza con la tabla: se queda a la vista, con el ancho de
-   la pantalla menos el relleno de su celda. */
-.historial > tbody > .fila-detalle > td > .detalle-historial {
-  position: sticky;
-  left: 12px;
-  width: var(--ancho-detalle, auto);
 }
 
 .tabla .mini-tag.cerrado {

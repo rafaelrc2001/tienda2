@@ -815,13 +815,16 @@ async function confirmar(): Promise<void> {
                 <span class="metodo-detalle">{{ m.detalle }}</span>
               </label>
 
-              <!-- Efectivo (HU-09): con cuánto paga, para que el repartidor lleve cambio. -->
+              <!-- Efectivo (HU-09): con cuánto paga, para que el repartidor lleve cambio.
+                   Opcional: no siempre lo sabe al pedir, y sin él se confirma igual. -->
               <div
                 v-if="m.valor === 'EFECTIVO' && carrito.metodoPago === 'EFECTIVO'"
                 class="detalle-metodo"
               >
                 <div class="zona-captura monto">
-                  <label class="form-label" for="pago-con">¿Con cuánto vas a pagar?</label>
+                  <label class="form-label" for="pago-con">
+                    ¿Con cuánto vas a pagar? (opcional)
+                  </label>
                   <input
                     id="pago-con"
                     v-model="pagoConTexto"

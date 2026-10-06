@@ -49,6 +49,7 @@ import {
 import { abonoPendiente, adeudoDelCorte, estadoTrasAceptar, TOLERANCIA } from './estado-del-corte';
 import { IngresosService } from '../ingresos/ingresos.service';
 import { FinanzasService } from '../pedidos/finanzas.service';
+import { pagadoDelPedido } from '../pedidos/cxc';
 import { destinoAlAceptar, DestinoDelPedido } from './dinero-del-corte';
 
 const Decimal = Prisma.Decimal;
@@ -644,6 +645,8 @@ export class CortesService {
         total: true,
         pagadoConBilletera: true,
         porFaltante: true,
+        // Lo que un cliente a credito abono en la puerta: tambien lo trae el.
+        pagos: { where: { enPuerta: true }, select: { monto: true } },
         cliente: { select: { nombre: true } },
         // Solo los lee el pedido por faltante, que no tiene renglones de camion.
         items: { select: { productoId: true, nombre: true, unidad: true, cantidad: true } },
@@ -665,7 +668,9 @@ export class CortesService {
 
     // El efectivo sale del total del pedido, que la entrega ya dejo en lo que
     // el cliente se quedo; el faltante, sin cargas, trae el suyo.
-    const cuenta = cuentaDelCorte(pedidos);
+    const cuenta = cuentaDelCorte(
+      pedidos.map((pedido) => ({ ...pedido, abonoEnPuerta: pagadoDelPedido(pedido) })),
+    );
     const conNombre = (c: (typeof pedidos)[number]['cargas'][number]) => ({
       ...c,
       nombre: c.pedidoItem.nombre,
@@ -1337,6 +1342,7 @@ export class CortesService {
           total: true,
           pagadoConBilletera: true,
           cxcDesde: true,
+          pagos: { where: { enPuerta: true }, select: { monto: true } },
         },
         orderBy: { creadoEn: 'asc' },
       });
@@ -1347,7 +1353,7 @@ export class CortesService {
       let pagados = 0;
       let aCxc = 0;
       for (const pedido of pedidos) {
-        const destino = destinoAlAceptar(pedido);
+        const destino = destinoAlAceptar({ ...pedido, abonoEnPuerta: pagadoDelPedido(pedido) });
         if (destino === DestinoDelPedido.PAGADO) {
           if (await this.finanzas.marcarPagado(tx, pedido.id, quien, nota)) pagados++;
         } else if (destino === DestinoDelPedido.CXC && pedido.cxcDesde === null) {

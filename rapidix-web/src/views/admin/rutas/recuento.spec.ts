@@ -109,6 +109,12 @@ describe('lo que falta para confirmar', () => {
     ).toEqual([])
   })
 
+  it('a crédito lo único que frena es un abono mayor que lo que debe', () => {
+    expect(
+      pendientesParaConfirmar({ ...lista, renglones: camion(), cubre: false, aCredito: true }),
+    ).toEqual(['el abono pasa de lo que debe'])
+  })
+
   it('espera la cuenta de la API antes de dejar confirmar', () => {
     expect(pendientesParaConfirmar({ ...lista, renglones: camion(), cubre: null })).toEqual([
       'calculando el cobro',

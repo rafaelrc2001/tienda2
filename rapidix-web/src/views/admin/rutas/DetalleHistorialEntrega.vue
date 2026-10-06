@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * Una entrega desplegada en el historial: cómo le fue (los mismos KPIs que en
+ * El cuerpo de una entrega del historial: cómo le fue (los mismos KPIs que en
  * Liquidación), en qué quedó su dinero, el único botón de dinero que le toca y
  * lo que salió en ella, con el mismo detalle de pedido que al liquidar.
  *
@@ -13,15 +13,13 @@
  * Lo que Finanzas no ha aceptado **no baja el adeudo**: se dice aparte, con lo
  * que el corte espera (`esperaDelCorte`), para que no parezca dinero perdido.
  *
- * El detalle se pide al desplegar, no con la lista. La entrega ya liquidada se
- * guarda y no se vuelve a pedir; la que sigue viva cambia y se relee cada vez.
- * Los KPIs y los pedidos completos son un extra: si no llegan, van «—» y los
+ * Lo que salió se pide al abrirla, no con la lista. Los KPIs y los pedidos completos son un extra: si no llegan, van «—» y los
  * renglones del camión, y el dinero se consulta igual.
  */
 import { computed, onMounted, ref } from 'vue'
 import { ErrorApi, http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
-import { dinero, fechaHora, fechaNumerica } from '@/utils/formato'
+import { dinero, fechaHora } from '@/utils/formato'
 import DetallePedidoRuta from './DetallePedidoRuta.vue'
 import KpisRuta from './KpisRuta.vue'
 import TablaConteo from './TablaConteo.vue'
@@ -29,11 +27,9 @@ import { nombreMotivo } from './etiquetas'
 import {
   abonoPendiente,
   accionDelCorte,
-  centavos,
   errorDelAbono,
   errorDelDeclarado,
   esperaDelCorte,
-  estadoEnHistorial,
   faltanteDe,
   montoCapturado,
   nombreResultado,
@@ -48,16 +44,9 @@ import type {
   PedidoEnRuta,
 } from '@/api/tipos'
 
-const props = defineProps<{
-  entrega: EntregaEnHistorial
-  /** Lo que ya se pidió antes, si la entrega está liquidada. */
-  guardado: DetalleHistorial | null
-}>()
+const props = defineProps<{ entrega: EntregaEnHistorial }>()
 
-const emit = defineEmits<{
-  (e: 'guardar', detalle: DetalleHistorial): void
-  (e: 'corte', corte: Corte): void
-}>()
+const emit = defineEmits<{ (e: 'corte', corte: Corte): void }>()
 
 const ui = useUiStore()
 
@@ -100,16 +89,6 @@ const espera = computed(() => {
   }
 })
 
-const fechas = computed(() => {
-  const e = props.entrega
-  const partes: string[] = [e.folio]
-  if (e.iniciadaEn) partes.push(`Inició el ${fechaNumerica(e.iniciadaEn)}`)
-  else partes.push(`Creada el ${fechaNumerica(e.creadoEn)}`)
-  partes.push(`${e.pedidos} pedido(s)`)
-  if (corte.value) partes.push(`liquidada el ${fechaNumerica(corte.value.cerradoEn)}`)
-  return partes.join(' · ')
-})
-
 /** Los KPIs y los pedidos completos. Que fallen no impide ver el dinero. */
 function cargarComoLiquidacion(): void {
   const id = props.entrega.id
@@ -125,16 +104,11 @@ function cargarComoLiquidacion(): void {
 
 onMounted(async () => {
   cargarComoLiquidacion()
-  if (props.guardado && corte.value) {
-    detalle.value = props.guardado
-    return
-  }
   cargando.value = true
   try {
     detalle.value = await http.get<DetalleHistorial>(
       `/admin/rutas/entregas/${props.entrega.id}/historial`,
     )
-    if (corte.value) emit('guardar', detalle.value)
   } catch (fallo) {
     error.value = fallo instanceof ErrorApi ? fallo.message : 'No pudimos cargar lo que salió.'
   } finally {
@@ -219,9 +193,6 @@ async function cancelarAbono(): Promise<void> {
 
 <template>
   <div class="detalle-historial">
-    <p class="estado">{{ estadoEnHistorial(entrega) }}</p>
-    <p class="fechas">{{ fechas }}</p>
-
     <!-- Cómo le fue a la entrega: las mismas tarjetas que en Liquidación. -->
     <KpisRuta :indicadores="indicadores" />
 
@@ -233,11 +204,6 @@ async function cancelarAbono(): Promise<void> {
       <div class="linea">
         <span>Declaraste</span><strong>{{ dinero(corte.montoDeclarado) }}</strong>
       </div>
-      <p v-if="centavos(corte.diferencia) !== 0" class="dif alerta">
-        Diferencia de {{ dinero(Math.abs(corte.diferencia)) }}
-        {{ corte.diferencia > 0 ? 'a favor de la empresa' : 'a tu favor' }}.
-      </p>
-      <p v-else class="dif ok">✓ Cuadró con lo calculado.</p>
 
       <div v-if="corte.montoRecibido !== null" class="linea">
         <span>Finanzas aceptó</span><strong>{{ dinero(corte.montoRecibido) }}</strong>
@@ -261,13 +227,10 @@ async function cancelarAbono(): Promise<void> {
         </tbody>
       </table>
 
-      <template v-if="corte.recibidoEn">
-        <div class="linea adeudo">
-          <span>Adeudo</span><strong>{{ dinero(faltante) }}</strong>
-        </div>
-        <p v-if="faltante > 0" class="dif alerta">Debes {{ dinero(faltante) }} de esta entrega.</p>
-        <p v-else class="dif ok">✓ No debes nada de esta entrega.</p>
-      </template>
+      <!-- Solo las cifras: la diferencia y el adeudo se leen de ellas, sin frase. -->
+      <div v-if="corte.recibidoEn" class="linea adeudo">
+        <span>Adeudo</span><strong>{{ dinero(faltante) }}</strong>
+      </div>
       <p v-if="espera" class="dif">⏳ {{ espera }}</p>
 
       <p v-if="corte.notas" class="nota">📝 {{ corte.notas }}</p>
@@ -438,22 +401,6 @@ async function cancelarAbono(): Promise<void> {
 </template>
 
 <style scoped>
-.estado {
-  margin: 0;
-  font-family: var(--font-heading);
-  font-weight: 800;
-  font-size: 11px;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--ink);
-}
-
-.fechas {
-  margin: 2px 0 8px;
-  font-size: 12px;
-  color: var(--muted);
-}
-
 .montos {
   background: var(--white);
   border: 1px solid var(--line);
@@ -474,16 +421,6 @@ async function cancelarAbono(): Promise<void> {
   margin: 0 0 4px;
   font-size: 12px;
   color: var(--muted);
-}
-
-.dif.ok {
-  color: var(--verde-dark);
-  font-weight: 600;
-}
-
-.dif.alerta {
-  color: var(--orange-dark);
-  font-weight: 600;
 }
 
 .linea.adeudo {

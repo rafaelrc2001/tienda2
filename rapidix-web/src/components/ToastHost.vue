@@ -5,6 +5,10 @@
  * Va en el slot `overlay` del layout. El mockup lo posicionaba dentro del
  * marco del teléfono; aquí va fijo sobre la columna, encima de la barra
  * inferior.
+ *
+ * No recibe toques: se va solo a los pocos segundos. Queda a la altura de los
+ * botones de las hojas de confirmación, y cuando cerraba al tocarlo se tragaba
+ * el toque que iba para el botón de debajo: había que pulsar dos veces.
  */
 import { useUiStore } from '@/stores/ui'
 
@@ -14,16 +18,9 @@ const ui = useUiStore()
 <template>
   <div class="toast-host" aria-live="polite" aria-atomic="false">
     <TransitionGroup name="toast">
-      <button
-        v-for="toast in ui.toasts"
-        :key="toast.id"
-        type="button"
-        class="toast"
-        :class="`is-${toast.tipo}`"
-        @click="ui.cerrar(toast.id)"
-      >
+      <p v-for="toast in ui.toasts" :key="toast.id" class="toast" :class="`is-${toast.tipo}`">
         {{ toast.mensaje }}
-      </button>
+      </p>
     </TransitionGroup>
   </div>
 </template>
@@ -45,7 +42,7 @@ const ui = useUiStore()
 }
 
 .toast {
-  pointer-events: auto;
+  margin: 0;
   background: var(--ink);
   color: var(--white);
   font-family: var(--font-heading);
@@ -53,8 +50,6 @@ const ui = useUiStore()
   font-size: 12.5px;
   padding: 10px 18px;
   border-radius: 12px;
-  border: none;
-  cursor: pointer;
   text-align: center;
   /* El mensaje de la API puede ser largo: se envuelve, no se desborda. */
   max-width: 100%;

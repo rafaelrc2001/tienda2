@@ -1093,6 +1093,11 @@ model PagoPedido {
   metodo MetodoPago
   nota   String?
 
+  /// Abono que el repartidor recibio al entregar un pedido a credito. Ese
+  /// dinero entra a su corte, asi que no trae ingreso propio: va dentro del
+  /// ingreso del corte.
+  enPuerta Boolean @default(false)
+
   registradoPorId String
   registradoPor   Usuario  @relation(fields: [registradoPorId], references: [id])
   creadoEn        DateTime @default(now())

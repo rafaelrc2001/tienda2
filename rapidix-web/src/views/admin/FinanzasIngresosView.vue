@@ -15,8 +15,9 @@
 import { onMounted, ref } from 'vue'
 import { http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
-import { dinero, fechaHora, nombreMetodoPago } from '@/utils/formato'
+import { dinero, fecha, nombreMetodoPago } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
+import PestanasFinanzas from './finanzas/PestanasFinanzas.vue'
 import type { ConceptoIngreso, Ingreso, ListadoIngresos } from '@/api/tipos'
 
 const ui = useUiStore()
@@ -94,7 +95,9 @@ function verHoy(): void {
 
 <template>
   <div class="pantalla">
-    <RouterLink to="/admin/finanzas" class="admin-back-inline">← Finanzas · Pedidos</RouterLink>
+    <RouterLink to="/admin" class="admin-back-inline">← Volver al menú</RouterLink>
+
+    <PestanasFinanzas activa="ingresos" />
 
     <!-- Bloque crema y campos blancos: se ve dónde se escribe. -->
     <div class="filtros">
@@ -132,9 +135,9 @@ function verHoy(): void {
     <SkeletonList v-if="cargando" :cantidad="4" />
 
     <template v-else>
-      <!-- El total del rango entero, tal como lo sumó la API. -->
+      <!-- El total del rango entero, tal como lo sumó la API: una tarjeta como las de Rutas. -->
       <div class="total">
-        <span class="total-titulo">Total del periodo · {{ cuantos }} ingreso(s)</span>
+        <span class="total-titulo">Total:</span>
         <strong class="total-monto">{{ dinero(total) }}</strong>
       </div>
 
@@ -142,7 +145,7 @@ function verHoy(): void {
         <table class="tabla lineal">
           <thead>
             <tr>
-              <th>Fecha y hora</th>
+              <th>Fecha</th>
               <th>Concepto</th>
               <th>Folio</th>
               <th>Método</th>
@@ -152,7 +155,7 @@ function verHoy(): void {
           </thead>
           <tbody>
             <tr v-for="ingreso in ingresos" :key="ingreso.id">
-              <td class="fecha">{{ fechaHora(ingreso.creadoEn) }}</td>
+              <td class="fecha">{{ fecha(ingreso.creadoEn) }}</td>
               <td>
                 {{ NOMBRE_CONCEPTO[ingreso.concepto] ?? ingreso.concepto }}
                 <span v-if="ingreso.nota" class="sub">{{ ingreso.nota }}</span>
@@ -193,10 +196,13 @@ function verHoy(): void {
   text-decoration: none;
 }
 
+/* Dos columnas iguales: las fechas arriba, el concepto y «Hoy» abajo.
+   `minmax(0, 1fr)` y no `1fr`: si no, el campo de fecha del iPhone empuja la
+   rejilla fuera del bloque. */
 .filtros {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: end;
   gap: 10px 12px;
   background: var(--cream-2);
   border: 1px solid var(--line);
@@ -206,7 +212,6 @@ function verHoy(): void {
 }
 
 .campo {
-  flex: 1 1 140px;
   min-width: 0;
 }
 
@@ -215,23 +220,39 @@ function verHoy(): void {
 }
 
 .campo .form-input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   margin: 0;
   background: var(--white);
 }
 
-.hoy {
-  flex: none;
+/* Safari en iPhone pinta la fecha con su propio ancho y centrada, y se salía
+   del bloque: sin su apariencia nativa obedece el ancho del campo. */
+.campo input[type='date'] {
+  -webkit-appearance: none;
+  appearance: none;
 }
 
+.campo input[type='date']::-webkit-date-and-time-value {
+  text-align: left;
+}
+
+/* Del alto del campo de al lado, no más. */
+.hoy {
+  width: 100%;
+}
+
+/* La misma tarjeta verde que los KPIs de una entrega. */
 .total {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
-  background: var(--white);
+  background: var(--verde-dark);
+  color: var(--white);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow);
-  border-left: 4px solid var(--verde);
   padding: 12px 14px;
   margin-bottom: 12px;
 }
@@ -240,14 +261,15 @@ function verHoy(): void {
   font-family: var(--font-heading);
   font-weight: 700;
   font-size: 12px;
-  color: var(--muted);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  opacity: 0.85;
 }
 
 .total-monto {
   font-family: var(--font-heading);
   font-weight: 800;
-  font-size: 20px;
-  color: var(--ink);
+  font-size: 22px;
   white-space: nowrap;
 }
 

@@ -80,6 +80,8 @@ export interface HojaDeEntrega {
   fotoExigible: boolean
   /** Lo dice la API; `null` mientras la cuenta no ha llegado. */
   cubre: boolean | null
+  /** A crédito lo recibido es un abono opcional: lo único que no cabe es de más. */
+  aCredito?: boolean
 }
 
 /**
@@ -110,7 +112,10 @@ export function pendientesParaConfirmar(hoja: HojaDeEntrega): string[] {
 
   if (hoja.fotoExigible && !hoja.conFoto) pendientes.push('falta la foto de evidencia')
   if (hoja.cubre === null) pendientes.push('calculando el cobro')
-  else if (!hoja.cubre) pendientes.push('el pago recibido no cubre el cobro')
+  else if (!hoja.cubre)
+    pendientes.push(
+      hoja.aCredito ? 'el abono pasa de lo que debe' : 'el pago recibido no cubre el cobro',
+    )
   return pendientes
 }
 

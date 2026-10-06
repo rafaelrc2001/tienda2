@@ -500,7 +500,7 @@ export interface PedidoEnFinanzas extends Pedido {
   botones: BotonPago[]
 }
 
-export type FiltroFinanzas = 'por-decidir' | 'credito' | 'pagados' | 'cancelados'
+export type FiltroFinanzas = 'por-decidir' | 'credito' | 'pagados' | 'cancelados' | 'todos'
 
 /** Respuesta de `GET /admin/finanzas/pedidos`. */
 export interface ListadoFinanzas {
@@ -649,6 +649,11 @@ export interface PrevisualizacionEntrega {
   /** `null` mientras el pago recibido no cubra el cobro. */
   cambio: number | null
   cubre: boolean
+  /**
+   * Lo que el pedido a crédito queda debiendo: el tope del abono opcional en
+   * la puerta. `null` si no es a crédito.
+   */
+  saldoCredito: number | null
 }
 
 /** Respuesta de `POST pedidos/:id/entregar` y de `no-entregar`. */

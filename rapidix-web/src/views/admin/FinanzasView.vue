@@ -9,31 +9,28 @@
  * la API: cada pedido llega con sus botones y el motivo de los que no se
  * pueden pulsar.
  *
- * De aquí cuelgan las otras tres pantallas del dinero: los cortes de ruta, el
- * libro de ingresos y las cuentas por cobrar.
+ * Las otras tres pantallas del dinero —cortes de ruta, ingresos y cuentas por
+ * cobrar— son las pestañas de arriba (`PestanasFinanzas`).
+ *
+ * La lista trae todos los pedidos, del más reciente al más viejo, y la lupa de
+ * la barra los filtra mientras se escribe: por folio, cliente, estado del
+ * pedido o estatus de pago. Sustituye a las pestañas por estatus, que con las
+ * de sección encima dejaban la pantalla con dos tiras y tres enlaces.
  */
-import { onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import { ErrorApi, http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
 import { dinero, fechaNumerica, nombreEstadoPedido, nombreMetodoPago } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
 import BitacoraPedido from '@/components/BitacoraPedido.vue'
-import type {
-  BotonPago,
-  EstadoPago,
-  FiltroFinanzas,
-  ListadoFinanzas,
-  PedidoEnFinanzas,
-} from '@/api/tipos'
+import PestanasFinanzas from './finanzas/PestanasFinanzas.vue'
+import { buscarPedidos } from './finanzas/busqueda'
+import type { BotonPago, EstadoPago, ListadoFinanzas, PedidoEnFinanzas } from '@/api/tipos'
 
 const ui = useUiStore()
 
-const PESTANAS: { filtro: FiltroFinanzas; titulo: string }[] = [
-  { filtro: 'por-decidir', titulo: 'Por decidir' },
-  { filtro: 'credito', titulo: 'Crédito' },
-  { filtro: 'pagados', titulo: 'Pagados' },
-  { filtro: 'cancelados', titulo: 'Cancelados' },
-]
+/** El tope de la API: la búsqueda alcanza a los pedidos más recientes. */
+const LIMITE = 500
 
 /** Verde lo que deja seguir o cierra bien; rojo lo que cancela. */
 const VERDES: EstadoPago[] = ['PAGADO']
@@ -46,9 +43,7 @@ const VERDES: EstadoPago[] = ['PAGADO']
  */
 const CONFIRMAN: EstadoPago[] = ['PAGADO', 'CANCELADO']
 
-const filtro = ref<FiltroFinanzas>('por-decidir')
 const pedidos = ref<PedidoEnFinanzas[]>([])
-const conteos = ref<Record<FiltroFinanzas, number> | null>(null)
 const cargando = ref(true)
 const abierto = ref<string | null>(null)
 const cambiando = ref<string | null>(null)
@@ -58,7 +53,28 @@ const bitacoraDe = ref<PedidoEnFinanzas | null>(null)
 const confirmando = ref<{ pedido: PedidoEnFinanzas; boton: BotonPago } | null>(null)
 const nota = ref('')
 
-/** Cambiar de pestaña rápido deja respuestas viejas en el aire: gana la última. */
+// ------------------------------------------------------------------
+// La búsqueda
+// ------------------------------------------------------------------
+
+/** La lupa de la barra abre el campo; cerrarla lo deja en blanco. */
+const buscando = ref(false)
+const consulta = ref('')
+const campoBusqueda = ref<HTMLInputElement | null>(null)
+
+/** Lo que pinta la tabla: lo escrito filtra mientras se escribe. */
+const visibles = computed(() => buscarPedidos(pedidos.value, consulta.value))
+
+async function alternarBusqueda(): Promise<void> {
+  buscando.value = !buscando.value
+  consulta.value = ''
+  abierto.value = null
+  if (!buscando.value) return
+  await nextTick()
+  campoBusqueda.value?.focus()
+}
+
+/** Una recarga puede cruzarse con otra: gana la última. */
 let peticion = 0
 
 async function cargar(conEsqueleto = true): Promise<void> {
@@ -66,11 +82,10 @@ async function cargar(conEsqueleto = true): Promise<void> {
   if (conEsqueleto) cargando.value = true
   try {
     const respuesta = await http.get<ListadoFinanzas>('/admin/finanzas/pedidos', {
-      query: { filtro: filtro.value },
+      query: { filtro: 'todos', limite: LIMITE },
     })
     if (numero !== peticion) return
     pedidos.value = respuesta.pedidos
-    conteos.value = respuesta.conteos
   } catch (fallo) {
     if (numero === peticion) ui.errorDeApi(fallo)
   } finally {
@@ -79,13 +94,6 @@ async function cargar(conEsqueleto = true): Promise<void> {
 }
 
 onMounted(() => cargar())
-
-function elegir(nuevo: FiltroFinanzas): void {
-  if (nuevo === filtro.value) return
-  filtro.value = nuevo
-  abierto.value = null
-  void cargar()
-}
 
 function pulsar(pedido: PedidoEnFinanzas, boton: BotonPago): void {
   if (boton.actual || boton.bloqueo || cambiando.value) return
@@ -128,8 +136,7 @@ async function aplicar(
   } finally {
     cambiando.value = null
   }
-  // Lo que ya salió de la pestaña se va de la lista, y los contadores se ponen
-  // al día.
+  // Otro pudo moverlo mientras tanto: se relee para enseñar lo vigente.
   await cargar(false)
 }
 
@@ -155,38 +162,49 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
 
 <template>
   <div class="pantalla-panel sin-colchon">
-    <div class="encabezado">
-      <RouterLink to="/admin" class="admin-back-inline">← Volver al menú</RouterLink>
-      <!-- Lo demás del dinero: lo que traen los repartidores, lo aceptado y lo que se debe. -->
-      <nav class="otras" aria-label="Más de Finanzas">
-        <RouterLink to="/admin/finanzas/cortes" class="admin-back-inline">
-          Cortes de ruta →
-        </RouterLink>
-        <RouterLink to="/admin/finanzas/ingresos" class="admin-back-inline">Ingresos →</RouterLink>
-        <RouterLink to="/admin/finanzas/cxc" class="admin-back-inline">CXC →</RouterLink>
-      </nav>
-    </div>
-
-    <div class="subtab-row" role="tablist">
+    <!-- La lupa, en el extremo derecho de la barra, frente a la hamburguesa. -->
+    <Teleport defer to="#topbar-acciones">
       <button
-        v-for="p in PESTANAS"
-        :key="p.filtro"
         type="button"
-        role="tab"
-        class="subtab"
-        :class="{ active: filtro === p.filtro }"
-        :aria-selected="filtro === p.filtro"
-        @click="elegir(p.filtro)"
+        class="lupa"
+        :class="{ activa: buscando }"
+        :aria-pressed="buscando"
+        :title="buscando ? 'Cerrar la búsqueda' : 'Buscar pedidos'"
+        aria-label="Buscar pedidos"
+        @click="alternarBusqueda"
       >
-        {{ p.titulo }}<template v-if="conteos"> · {{ conteos[p.filtro] }}</template>
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+          <circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2" />
+          <path d="M16 16l4.5 4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+        </svg>
       </button>
+    </Teleport>
+
+    <RouterLink to="/admin" class="admin-back-inline">← Volver al menú</RouterLink>
+
+    <PestanasFinanzas activa="pedidos" />
+
+    <!-- Bloque crema y campo blanco: se ve dónde se escribe. -->
+    <div v-if="buscando" class="busqueda">
+      <input
+        ref="campoBusqueda"
+        v-model="consulta"
+        class="form-input"
+        type="search"
+        autocomplete="off"
+        enterkeyhint="search"
+        placeholder="Pedido, cliente, estado o estatus de pago"
+        aria-label="Buscar pedidos"
+        @input="abierto = null"
+      />
     </div>
 
     <SkeletonList v-if="cargando" :cantidad="4" />
 
-    <!-- Mismo formato que Operaciones: tabla del panel, pastillas y detalle. -->
-    <div v-else-if="pedidos.length > 0" class="tabla-envoltorio panel">
-      <table class="tabla lineal panel">
+    <!-- Mismo formato que Operaciones: tabla del panel, pastillas y detalle.
+         «Pedido» se queda fija al desplazar a la derecha. -->
+    <div v-else-if="visibles.length > 0" class="tabla-envoltorio panel">
+      <table class="tabla lineal panel una-fija">
         <thead>
           <tr>
             <th>Pedido</th>
@@ -199,7 +217,7 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
           </tr>
         </thead>
         <tbody>
-          <template v-for="pedido in pedidos" :key="pedido.id">
+          <template v-for="pedido in visibles" :key="pedido.id">
             <tr :class="{ 'con-detalle': abierto === pedido.id }">
               <td>
                 <button
@@ -340,11 +358,7 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
     </div>
 
     <p v-else class="empty-block">
-      {{
-        filtro === 'por-decidir'
-          ? 'No hay pedidos esperando una decisión. 🎉'
-          : 'No hay pedidos en esta pestaña.'
-      }}
+      {{ consulta.trim() ? `Ningún pedido coincide con «${consulta.trim()}».` : 'No hay pedidos.' }}
     </p>
 
     <!-- Confirmación de lo que mueve dinero. -->
@@ -408,20 +422,8 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
 /* La tabla, las pastillas y el detalle son los del panel de pedidos
    (`.pantalla-panel`, `.tabla.panel`, `.detalle-pedido` en base.css), igual
    que Operaciones. Aquí solo va lo propio: la tira de estatus de pago. */
-.encabezado {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 0 12px;
-}
-
-.otras {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0 16px;
-}
-
 .admin-back-inline {
+  align-self: flex-start;
   display: inline-block;
   color: var(--terracotta-dark);
   font-family: var(--font-heading);
@@ -431,8 +433,39 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
   text-decoration: none;
 }
 
-.subtab-row {
+/* La lupa va sobre la barra naranja: blanca, y rellena cuando está abierta. */
+.lupa {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1.5px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--white);
+  cursor: pointer;
+}
+
+.lupa.activa {
+  background: var(--white);
+  color: var(--orange-dark);
+}
+
+.busqueda {
+  flex-shrink: 0;
   margin: 0 0 12px;
+  padding: 8px 10px;
+  background: var(--cream-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+
+/* 16px reales: con menos, Safari en iPhone amplía la página al enfocar el campo. */
+.busqueda .form-input {
+  margin: 0;
+  font-size: 16px;
+  background: var(--white);
 }
 
 .tabla {
