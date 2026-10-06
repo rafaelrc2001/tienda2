@@ -142,7 +142,8 @@ const avisoBloqueo = computed(() => {
   if (detalle.value.entrega.cortada) return 'Esta entrega ya tiene su corte: solo se consulta.'
   if (!detalle.value.abierta)
     return 'Esta entrega es de una jornada que ya se cortó: solo se consulta.'
-  if (sinIniciar.value) return 'Carga sus pedidos y pulsa «Iniciar entrega» para salir a ruta.'
+  // Sin iniciar no avisa: la etiqueta y el botón «Iniciar entrega» ya lo dicen.
+  if (sinIniciar.value) return ''
   if (detalle.value.entrega.finalizadaEn)
     return 'Finalizaste esta entrega: reanúdala para moverla o haz su corte en Liquidación.'
   return 'Tu jornada está finalizada: pulsa «Reanudar entrega» para seguir.'
@@ -349,12 +350,6 @@ function colonia(pedido: PedidoEnRuta): string {
             <span v-if="detalle.entrega.cortada" class="mini-tag">Cortada</span>
             <span v-else-if="detalle.entrega.finalizadaEn" class="mini-tag">Finalizada</span>
             <span v-else-if="!detalle.entrega.iniciadaEn" class="mini-tag">Sin iniciar</span>
-          </p>
-          <p class="cuenta">
-            {{ detalle.entrega.pedidos }} pedido(s) · {{ detalle.entrega.recolectados }} en el
-            camión · {{ detalle.entrega.enRuta }} en ruta ·
-            {{ detalle.entrega.entregados }}
-            entregado(s)
           </p>
           <p v-if="avisoBloqueo" class="bloqueo">{{ avisoBloqueo }}</p>
         </div>
@@ -682,12 +677,6 @@ function colonia(pedido: PedidoEnRuta): string {
   color: var(--ink);
 }
 
-.cabeza .cuenta {
-  margin: 3px 0 0;
-  font-size: 12px;
-  color: var(--muted);
-}
-
 /* El camioncito va sobre la barra naranja: blanco, y relleno cuando está abierto. */
 .boton-camion {
   display: inline-flex;
@@ -786,9 +775,10 @@ function colonia(pedido: PedidoEnRuta): string {
 }
 
 /* La primera columna solo lleva la flecha y el folio (`ORD000123`): con los
-   150px de base sobraba un hueco antes de la colonia. */
+   150px de base sobraba un hueco antes de la colonia. Con menos de esto el
+   folio se recorta a «…» en el teléfono. */
 .tabla.dos-fijas {
-  --ancho-fija-1: 124px;
+  --ancho-fija-1: 138px;
 }
 
 .aviso {

@@ -142,6 +142,16 @@ describe('efectivoDelPedido', () => {
     const credito = { ...enEfectivo, estadoPago: EstadoPago.CREDITO };
     expect(efectivoDelPedido(credito).toNumber()).toBe(0);
   });
+
+  it('a crédito trae solo lo que el cliente abonó en la puerta', () => {
+    const credito = { ...enEfectivo, estadoPago: EstadoPago.CREDITO, abonoEnPuerta: D(120) };
+    expect(efectivoDelPedido(credito).toNumber()).toBe(120);
+  });
+
+  it('el abono lo sigue trayendo aunque el pedido se marque pagado después', () => {
+    const pagado = { ...enEfectivo, estadoPago: EstadoPago.PAGADO, abonoEnPuerta: D(120) };
+    expect(efectivoDelPedido(pagado).toNumber()).toBe(120);
+  });
 });
 
 describe('destinoAlAceptar', () => {
@@ -163,6 +173,18 @@ describe('destinoAlAceptar', () => {
         estadoPago: EstadoPago.CREDITO,
       }),
     ).toBe(DestinoDelPedido.CXC);
+  });
+
+  it('el crédito con un abono en la puerta sigue siendo cuenta por cobrar por el resto', () => {
+    expect(
+      destinoAlAceptar({ ...enEfectivo, estadoPago: EstadoPago.CREDITO, abonoEnPuerta: D(100) }),
+    ).toBe(DestinoDelPedido.CXC);
+  });
+
+  it('el crédito que el abono en la puerta cubrió entero queda pagado', () => {
+    expect(
+      destinoAlAceptar({ ...enEfectivo, estadoPago: EstadoPago.CREDITO, abonoEnPuerta: D(300) }),
+    ).toBe(DestinoDelPedido.PAGADO);
   });
 
   it('el crédito cubierto entero con la billetera no debe nada', () => {
@@ -230,6 +252,38 @@ describe('cuentaDeLaEntrega', () => {
     const cuenta = cuentaDeLaEntrega(transferencia, [diezPiezas], null);
     expect(cuenta.aCobrar.toNumber()).toBe(0);
     expect(cuenta.cubre).toBe(true);
+    expect(cuenta.saldoCredito).toBeNull();
+  });
+
+  describe('a crédito', () => {
+    const credito = { ...enEfectivo, estadoPago: EstadoPago.CREDITO };
+
+    it('no cobra nada y se entrega sin abono', () => {
+      const cuenta = cuentaDeLaEntrega(credito, [diezPiezas], null);
+      expect(cuenta.aCobrar.toNumber()).toBe(0);
+      expect(cuenta.cubre).toBe(true);
+      expect(cuenta.saldoCredito?.toNumber()).toBe(300);
+    });
+
+    it('acepta un abono de hasta lo que debe, sin cambio', () => {
+      expect(cuentaDeLaEntrega(credito, [diezPiezas], D(100))).toMatchObject({
+        cubre: true,
+        cambio: null,
+      });
+      expect(cuentaDeLaEntrega(credito, [diezPiezas], D(300)).cubre).toBe(true);
+    });
+
+    it('un abono mayor que lo que debe no cabe', () => {
+      expect(cuentaDeLaEntrega(credito, [diezPiezas], D(300.01)).cubre).toBe(false);
+    });
+
+    it('el tope es lo que debe del pedido ya como se entregó', () => {
+      const ocho: CargaLiquidable = { ...diezPiezas, cantidadEntregada: 8 };
+      const cuenta = cuentaDeLaEntrega(credito, [ocho], D(266));
+      expect(cuenta.saldoCredito?.toNumber()).toBe(266);
+      expect(cuenta.cubre).toBe(true);
+      expect(cuentaDeLaEntrega(credito, [ocho], D(267)).cubre).toBe(false);
+    });
   });
 });
 

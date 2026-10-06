@@ -282,6 +282,17 @@ const routes: RouteRecordRaw[] = [
     },
   },
   {
+    // Una entrega ya liquidada. Se vuelve a la pestaña Historial, de donde se viene.
+    path: '/admin/rutas/historial/:id',
+    name: 'rutas-historial',
+    component: () => import('@/views/admin/HistorialEntregaView.vue'),
+    meta: {
+      seccion: 'rutas',
+      titulo: 'Historial',
+      volverA: '/admin/rutas?ventana=historial',
+    },
+  },
+  {
     // Se abren desde la casilla de términos del carrito, en otra pestaña.
     path: '/legal/:documento(privacidad|terminos)',
     name: 'legal',

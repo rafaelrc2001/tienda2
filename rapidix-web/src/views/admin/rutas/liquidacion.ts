@@ -73,11 +73,15 @@ export function porcentajeDeExito(entregados: number, total: number): number {
 /**
  * Lo que va a la derecha de un pedido de Liquidación: exactamente una cosa.
  * «Pagado en línea» en lugar de un `$0.00` seco, que parece un error.
+ *
+ * Si trae efectivo manda el importe, sea como sea el pedido: a crédito es el
+ * abono que el cliente le dio en la puerta, y hay que entregarlo.
  */
 export function cobroDelPedido(
   pedido: PedidoDelCorte,
 ): 'devolucion' | 'en-linea' | 'credito' | 'efectivo' {
   if (pedido.devolucion) return 'devolucion'
+  if (pedido.efectivo > 0) return 'efectivo'
   if (pedido.metodoPago !== 'EFECTIVO' || pedido.estadoPago === 'PAGADO') return 'en-linea'
   if (pedido.estadoPago === 'CREDITO') return 'credito'
   return 'efectivo'

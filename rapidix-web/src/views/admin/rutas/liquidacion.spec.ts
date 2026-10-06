@@ -111,9 +111,13 @@ describe('encabezado y liquidación', () => {
   it('a la derecha va una sola cosa', () => {
     expect(cobroDelPedido(pedido())).toBe('efectivo')
     expect(cobroDelPedido(pedido({ devolucion: true, estadoPago: 'CANCELADO' }))).toBe('devolucion')
-    expect(cobroDelPedido(pedido({ metodoPago: 'TRANSFERENCIA' }))).toBe('en-linea')
-    expect(cobroDelPedido(pedido({ estadoPago: 'PAGADO' }))).toBe('en-linea')
-    expect(cobroDelPedido(pedido({ estadoPago: 'CREDITO' }))).toBe('credito')
+    expect(cobroDelPedido(pedido({ metodoPago: 'TRANSFERENCIA', efectivo: 0 }))).toBe('en-linea')
+    expect(cobroDelPedido(pedido({ estadoPago: 'PAGADO', efectivo: 0 }))).toBe('en-linea')
+    expect(cobroDelPedido(pedido({ estadoPago: 'CREDITO', efectivo: 0 }))).toBe('credito')
+  })
+
+  it('el abono en la puerta de un pedido a crédito se ve como efectivo', () => {
+    expect(cobroDelPedido(pedido({ estadoPago: 'CREDITO', efectivo: 50 }))).toBe('efectivo')
   })
 })
 

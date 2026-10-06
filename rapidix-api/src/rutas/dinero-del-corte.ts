@@ -19,6 +19,11 @@ export interface PedidoALiquidar {
   total: Decimal;
   /** Lo que el cliente ya pago con su saldo de cashback al confirmar. */
   pagadoConBilletera: Decimal;
+  /**
+   * Lo que el cliente de un pedido a credito le dio al repartidor al
+   * entregarselo (`PagoPedido.enPuerta`). Sin el dato es cero.
+   */
+  abonoEnPuerta?: Decimal;
 }
 
 /** Un renglon del camion, con lo que subio y lo que el cliente acepto. */
@@ -61,10 +66,25 @@ export function cotizadoDelRenglon(carga: CargaLiquidable): Decimal {
  * No descuenta nada de lo no aceptado porque ya viene descontado: la entrega
  * deja el pedido como se entrego (`ajusteDeEntrega`). Restarlo aqui otra vez
  * lo cobraria de menos.
+ *
+ * El que no se cobra en la puerta trae solo lo que el cliente quiso abonar
+ * (`abonoEnPuerta`), sea cual sea su estatus de pago despues: ese dinero ya
+ * esta en manos del repartidor.
  */
 export function efectivoDelPedido(pedido: PedidoALiquidar): Decimal {
-  if (!traeEfectivo(pedido)) return new Decimal(0);
+  if (!traeEfectivo(pedido)) return new Decimal(pedido.abonoEnPuerta ?? 0);
   return Decimal.max(0, new Decimal(pedido.total).sub(pedido.pagadoConBilletera));
+}
+
+/**
+ * Lo que un pedido a credito debe todavia tras lo que abono en la puerta.
+ * Nunca negativo.
+ */
+export function saldoDelCredito(pedido: PedidoALiquidar): Decimal {
+  return Decimal.max(
+    0,
+    new Decimal(pedido.total).sub(pedido.pagadoConBilletera).sub(pedido.abonoEnPuerta ?? 0),
+  );
 }
 
 /** Que le pasa al dinero de un pedido cuando Finanzas acepta su entrega. */
@@ -82,15 +102,17 @@ export enum DestinoDelPedido {
  *  - El que **trae efectivo** queda pagado. El cliente ya pago en la puerta;
  *    que el repartidor aun deba parte de ese dinero es un adeudo suyo, no del
  *    cliente, y no tiene por que frenar su cashback.
- *  - El que se entrego **a credito** y debe algo pasa a cuenta por cobrar. Uno
- *    cubierto entero con la billetera no debe nada y no entra.
+ *  - El que se entrego **a credito** y debe algo pasa a cuenta por cobrar,
+ *    por lo que le falte tras su abono en la puerta. Si ese abono lo cubrio
+ *    entero queda pagado, igual que el pago que salda una cuenta por cobrar.
+ *    Uno cubierto entero con la billetera no debe nada y no entra.
  *  - Lo demas —ya pagado en linea, reembolsado, cancelado— se queda como esta.
  */
 export function destinoAlAceptar(pedido: PedidoALiquidar): DestinoDelPedido | null {
   if (traeEfectivo(pedido)) return DestinoDelPedido.PAGADO;
   if (pedido.estadoPago !== EstadoPago.CREDITO) return null;
-  const debe = new Decimal(pedido.total).sub(pedido.pagadoConBilletera);
-  return debe.gt(0) ? DestinoDelPedido.CXC : null;
+  if (saldoDelCredito(pedido).gt(0)) return DestinoDelPedido.CXC;
+  return new Decimal(pedido.abonoEnPuerta ?? 0).gt(0) ? DestinoDelPedido.PAGADO : null;
 }
 
 /** Como queda el dinero del pedido tras una entrega. */
@@ -142,6 +164,11 @@ export interface CuentaDeLaEntrega {
   cambio: Decimal | null;
   /** Si con lo recibido ya se puede cerrar la entrega. */
   cubre: boolean;
+  /**
+   * Lo que el pedido a credito queda debiendo: el tope de lo que puede abonar
+   * en la puerta. `null` si no es a credito.
+   */
+  saldoCredito: Decimal | null;
 }
 
 /**
@@ -150,7 +177,11 @@ export interface CuentaDeLaEntrega {
  * Es `efectivoDelPedido` sobre el pedido ya ajustado, que es justo lo que
  * leera el corte: si la hoja pidiera un numero y el corte otro, el repartidor
  * cobraria uno y le faltaria el otro. Sin efectivo que cobrar (transferencia,
- * pagado, credito) siempre cubre.
+ * pagado) siempre cubre.
+ *
+ * A credito no se cobra nada, pero el cliente puede abonar: lo recibido es
+ * opcional y la entrega se cierra igual sin el. Lo unico que no cabe es mas de
+ * lo que debe, porque lo que sobre no tendria donde quedar escrito.
  */
 export function cuentaDeLaEntrega(
   pedido: PedidoALiquidar,
@@ -161,11 +192,31 @@ export function cuentaDeLaEntrega(
     (suma, carga) => suma.add(cobradoDelRenglon(carga)),
     new Decimal(0),
   );
-  const aCobrar = efectivoDelPedido({ ...pedido, ...ajusteDeEntrega(pedido, cargas) });
+  const ajustado = { ...pedido, ...ajusteDeEntrega(pedido, cargas) };
 
-  if (aCobrar.isZero()) return { productos, aCobrar, cambio: null, cubre: true };
+  if (pedido.estadoPago === EstadoPago.CREDITO) {
+    const saldoCredito = saldoDelCredito(ajustado);
+    return {
+      productos,
+      aCobrar: new Decimal(0),
+      cambio: null,
+      cubre: pagoRecibido === null || pagoRecibido.lessThanOrEqualTo(saldoCredito),
+      saldoCredito,
+    };
+  }
+
+  const aCobrar = efectivoDelPedido(ajustado);
+  if (aCobrar.isZero()) {
+    return { productos, aCobrar, cambio: null, cubre: true, saldoCredito: null };
+  }
   const cubre = pagoRecibido !== null && pagoRecibido.greaterThanOrEqualTo(aCobrar);
-  return { productos, aCobrar, cambio: cubre ? pagoRecibido.sub(aCobrar) : null, cubre };
+  return {
+    productos,
+    aCobrar,
+    cambio: cubre ? pagoRecibido.sub(aCobrar) : null,
+    cubre,
+    saldoCredito: null,
+  };
 }
 
 /** Lo que un renglon devuelve a bodega. */

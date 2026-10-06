@@ -19,6 +19,7 @@ import { ErrorApi, http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
 import { dinero, fechaDia, fechaHora, nombreMetodoPago } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
+import PestanasFinanzas from './finanzas/PestanasFinanzas.vue'
 import { centavos, montoCapturado } from './rutas/liquidacion'
 import type { FiltroCxc, ListadoCxc, MetodoPago, PedidoCxc } from '@/api/tipos'
 
@@ -136,7 +137,9 @@ async function registrarPago(): Promise<void> {
 
 <template>
   <div class="pantalla">
-    <RouterLink to="/admin/finanzas" class="admin-back-inline">← Finanzas · Pedidos</RouterLink>
+    <RouterLink to="/admin" class="admin-back-inline">← Volver al menú</RouterLink>
+
+    <PestanasFinanzas activa="cxc" />
 
     <div class="subtab-row" role="tablist">
       <button

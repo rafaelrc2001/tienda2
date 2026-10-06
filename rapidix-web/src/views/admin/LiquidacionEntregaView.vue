@@ -104,11 +104,6 @@ const faltantes = computed(() =>
   diferenciasDelConteo(resumen.value?.conteo ?? [], contados.value).filter((d) => d.faltan > 0),
 )
 
-/** `2 Pz de Queso Fresco, 1 gr de Tasajo`: lo que se va a cobrar, dicho antes de cobrarlo. */
-const fraseDelFaltante = computed(() =>
-  faltantes.value.map((f) => `${f.faltan} ${f.unidad} de ${f.nombre}`).join(', '),
-)
-
 /** Las dos listas salen del mismo arreglo partido en dos: cada pedido está en una sola. */
 const entregados = computed(() => resumen.value?.pedidos.filter((p) => !p.devolucion) ?? [])
 const devueltos = computed(() => resumen.value?.pedidos.filter((p) => p.devolucion) ?? [])
@@ -128,13 +123,11 @@ const sinContar = computed(() =>
 )
 
 /**
- * Por qué no se puede finalizar todavía, junto al botón apagado. El faltante
- * va primero: es lo que tiene un paso que dar; lo demás es terminar de contar.
+ * Por qué no se puede finalizar todavía, junto al botón apagado. Con faltante
+ * no dice nada: la columna «Faltante» y su botón ya lo enseñan.
  */
 const avisoDelConteo = computed(() => {
-  if (conteoListo.value) return ''
-  if (faltantes.value.length > 0)
-    return `Faltan ${fraseDelFaltante.value}: genera el pedido por faltante para poder finalizar.`
+  if (conteoListo.value || faltantes.value.length > 0) return ''
   if (sinContar.value.length > 0)
     return `Falta contar lo que bajas de ${sinContar.value.map((p) => p.nombre).join(', ')}.`
   return ''
@@ -501,7 +494,6 @@ async function finalizar(): Promise<void> {
         </p>
         <!-- Solo con faltante: «Devuelto» no deja capturar de más, así que no hay sobrante. -->
         <div v-if="faltantes.length > 0" class="descuadre" aria-live="polite">
-          <p>Faltan {{ fraseDelFaltante }}.</p>
           <button
             type="button"
             class="btn-primary"
@@ -831,13 +823,8 @@ async function finalizar(): Promise<void> {
   color: var(--orange-dark);
 }
 
-.descuadre p {
-  margin: 0 0 6px;
-}
-
 .descuadre .btn-primary {
   width: 100%;
-  margin-top: 4px;
 }
 
 .vacio {
@@ -904,6 +891,9 @@ async function finalizar(): Promise<void> {
 .barra-cierre {
   position: sticky;
   bottom: 0;
+  /* Por encima de las columnas fijas de las tablas, que si no se pintan sobre
+     el botón al pasar por debajo. */
+  z-index: 2;
   margin-top: 14px;
   padding: 12px 0 0;
   background: linear-gradient(to top, var(--cream) 65%, transparent);
@@ -913,9 +903,12 @@ async function finalizar(): Promise<void> {
   width: 100%;
 }
 
-/* Por qué está apagado el botón, justo encima de él. */
+/* Por qué está apagado el botón, justo encima de él. Con fondo propio: cae en
+   la parte transparente del degradado y la tabla de debajo lo tapaba. */
 .aviso-cierre {
-  margin: 0 0 8px;
+  margin: 0;
+  padding: 6px 0 8px;
+  background: var(--cream);
   font-size: 12.5px;
   font-weight: 600;
   color: var(--orange-dark);

@@ -22,6 +22,8 @@ export enum FiltroFinanzas {
   CREDITO = 'credito',
   PAGADOS = 'pagados',
   CANCELADOS = 'cancelados',
+  /** Todos, del mas reciente al mas viejo: la pantalla busca sobre ellos. */
+  TODOS = 'todos',
 }
 
 const WHERE_FINANZAS: Record<FiltroFinanzas, Prisma.PedidoWhereInput> = {
@@ -33,6 +35,7 @@ const WHERE_FINANZAS: Record<FiltroFinanzas, Prisma.PedidoWhereInput> = {
     estadoPago: { in: [EstadoPago.PAGADO, EstadoPago.REEMBOLSADO] },
   },
   [FiltroFinanzas.CANCELADOS]: { estadoPago: EstadoPago.CANCELADO },
+  [FiltroFinanzas.TODOS]: {},
 };
 
 export interface ListadoFinanzasDto {

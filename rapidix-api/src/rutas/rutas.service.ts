@@ -187,6 +187,11 @@ export interface PrevisualizacionEntregaDto {
   /** `null` mientras el pago recibido no cubra el cobro. */
   cambio: number | null;
   cubre: boolean;
+  /**
+   * Lo que el pedido a credito queda debiendo: el tope del abono opcional en
+   * la puerta. `null` si no es a credito.
+   */
+  saldoCredito: number | null;
 }
 
 /** El pedido tras el intento, y como acabo. */
@@ -984,14 +989,42 @@ export class RutasService {
       // Solo si lo manda: la pantalla lo pide siempre que haya efectivo, pero
       // un cliente viejo que no lo conoce no debe quedarse sin poder entregar.
       if (pagoRecibido !== null && !cuenta.cubre) {
-        throw new BadRequestException({
-          statusCode: 400,
-          code: 'PAGO_INSUFICIENTE',
-          message: `El pago recibido no cubre los $${cuenta.aCobrar.toFixed(2)} a cobrar.`,
-        });
+        throw new BadRequestException(
+          cuenta.saldoCredito !== null
+            ? {
+                statusCode: 400,
+                code: 'ABONO_EXCEDE_SALDO',
+                message: `El abono pasa de lo que debe el pedido: $${cuenta.saldoCredito.toFixed(2)}.`,
+              }
+            : {
+                statusCode: 400,
+                code: 'PAGO_INSUFICIENTE',
+                message: `El pago recibido no cubre los $${cuenta.aCobrar.toFixed(2)} a cobrar.`,
+              },
+        );
       }
 
       await this.dejarComoSeEntrego(tx, id, liquidables, config);
+
+      // A credito no se cobra, pero el cliente puede abonar. Es un pago mas
+      // del pedido, sin ingreso propio: el dinero lo trae el repartidor y
+      // entra al libro con su corte.
+      const abono =
+        cuenta.saldoCredito !== null && pagoRecibido !== null && pagoRecibido.greaterThan(0)
+          ? pagoRecibido
+          : null;
+      if (abono) {
+        await tx.pagoPedido.create({
+          data: {
+            pedidoId: id,
+            monto: abono,
+            metodo: MetodoPago.EFECTIVO,
+            enPuerta: true,
+            nota: 'Abono al entregar.',
+            registradoPorId: usuario.sub,
+          },
+        });
+      }
 
       // Lo aceptado ya no va en el camion. Lo rechazado sigue en ruta hasta
       // que el corte lo descargue.
@@ -1035,6 +1068,7 @@ export class RutasService {
             pagoRecibido !== null && cuenta.cambio !== null && !cuenta.aCobrar.isZero()
               ? `Recibió $${pagoRecibido.toFixed(2)}, cambio $${cuenta.cambio.toFixed(2)}.`
               : null,
+            abono ? `Abonó $${abono.toFixed(2)} en la puerta.` : null,
           ]
             .filter(Boolean)
             .join(' ') || null,
@@ -1261,6 +1295,7 @@ export class RutasService {
       aCobrar: cuenta.aCobrar.toNumber(),
       cambio: cuenta.cambio?.toNumber() ?? null,
       cubre: cuenta.cubre,
+      saldoCredito: cuenta.saldoCredito?.toNumber() ?? null,
     };
   }
 

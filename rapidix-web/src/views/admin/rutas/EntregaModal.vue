@@ -15,6 +15,10 @@
  * `entregar/previsualizar` y pinta la cuenta que vuelve, que sale de las mismas
  * funciones que el corte. Lo que se pide cobrar aquí es lo que se liquida.
  *
+ * A crédito no se cobra nada, pero el cliente puede abonar: el campo es
+ * opcional y vacío se entrega igual. Lo que abone entra al corte del
+ * repartidor y baja lo que el pedido queda debiendo.
+ *
  * La foto es obligatoria salvo que el almacenamiento no esté disponible (503):
  * entonces no hay forma de cumplirla y no se frena la entrega. La firma y la
  * ubicación son opcionales: el cliente puede no querer firmar o negar el GPS.
@@ -301,6 +305,16 @@ watch(
 
 const cobraEnEfectivo = computed(() => cuenta.value?.cobraEnEfectivo ?? false)
 
+/** A crédito: lo recibido es un abono opcional, con lo que debe como tope. */
+const aCredito = computed(() => cuenta.value != null && cuenta.value.saldoCredito !== null)
+
+/** Lo recibido viaja si se cobra en la puerta o si es un abono de verdad. */
+const pagoAMandar = computed(() => {
+  if (pagoNumero.value === null) return null
+  if (cobraEnEfectivo.value) return pagoNumero.value
+  return aCredito.value && pagoNumero.value > 0 ? pagoNumero.value : null
+})
+
 // ------------------------------------------------------------------
 // Firma y evidencia
 // ------------------------------------------------------------------
@@ -473,6 +487,7 @@ const pendientes = computed(() =>
     conFoto: fotoUrl.value !== '',
     fotoExigible: fotoExigible.value,
     cubre: cuenta.value && !errorCuenta.value ? cuenta.value.cubre : null,
+    aCredito: aCredito.value,
   }),
 )
 
@@ -494,9 +509,7 @@ async function entregar(): Promise<void> {
         ...(fotoId.value ? { fotoId: fotoId.value } : {}),
         ...(firmaId ? { firmaId } : {}),
         ...(ubicacion.value ?? {}),
-        ...(cobraEnEfectivo.value && pagoNumero.value !== null
-          ? { pagoRecibido: pagoNumero.value }
-          : {}),
+        ...(pagoAMandar.value !== null ? { pagoRecibido: pagoAMandar.value } : {}),
         ...(nota.value.trim() ? { nota: nota.value.trim() } : {}),
       },
     )
@@ -706,8 +719,27 @@ async function entregar(): Promise<void> {
                 Método de pago:
                 {{ pedido.pago.metodo === 'EFECTIVO' ? '💵' : '' }}
                 {{ nombreMetodoPago(pedido.pago.metodo) }}
-                <template v-if="!cobraEnEfectivo"> · no cobras nada en la puerta</template>
+                <template v-if="aCredito"> · a crédito</template>
+                <template v-else-if="!cobraEnEfectivo"> · no cobras nada en la puerta</template>
               </p>
+
+              <!-- A crédito se entrega sin cobrar; si el cliente quiere abonar, aquí va. -->
+              <template v-if="aCredito">
+                <p class="renglon-cuenta debe">
+                  <span>Queda debiendo</span>
+                  <strong>{{ dinero(cuenta.saldoCredito ?? 0) }}</strong>
+                </p>
+                <label class="etiqueta-campo" for="abono-recibido">Abono recibido (opcional)</label>
+                <input
+                  id="abono-recibido"
+                  v-model="pagoRecibido"
+                  class="form-input pago"
+                  type="text"
+                  inputmode="decimal"
+                  placeholder="0.00"
+                  autocomplete="off"
+                />
+              </template>
 
               <template v-if="cobraEnEfectivo">
                 <label class="etiqueta-campo" for="pago-recibido">Pago recibido</label>
@@ -1140,6 +1172,11 @@ async function entregar(): Promise<void> {
 .metodo {
   font-size: 12px;
   margin-top: 2px;
+}
+
+/* Lo que debe el pedido a crédito, separado del cobro de arriba. */
+.renglon-cuenta.debe {
+  margin: 10px 0 0;
 }
 
 .etiqueta-campo {

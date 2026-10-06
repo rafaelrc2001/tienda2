@@ -128,10 +128,11 @@ describe('CarritoService.evaluarPago', () => {
     );
   });
 
-  it('en efectivo exige el monto', () => {
-    expect(CarritoService.evaluarPago('EFECTIVO', undefined, D(10)).error?.codigo).toBe(
-      'PAGO_CON_REQUERIDO',
-    );
+  it('en efectivo el monto es opcional: sin él no hay error ni cambio', () => {
+    expect(CarritoService.evaluarPago('EFECTIVO', undefined, D(10))).toEqual({
+      cambio: null,
+      error: null,
+    });
   });
 
   it('la transferencia no pide monto', () => {
