@@ -15,7 +15,7 @@ const puerto = Number(process.env.PORT ?? 4173)
 
 /**
  * Los assets NO se reescriben.
- *
+ * 
  * Llevan hash en el nombre: si uno no existe es que el navegador tiene un
  * index viejo en caché. Debe dar 404 y verse, no un `index.html` disfrazado
  * de JavaScript que falla con un error de MIME imposible de leer.
