@@ -14,7 +14,10 @@ import { ErrorApi, http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
 import { dinero, fechaHora } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
-import type { TurnoPdv } from '@/api/tipos'
+import type { Tienda, TurnoPdv } from '@/api/tipos'
+
+/** La tienda desde la que se mira el PDV: el turno y los cortes son los suyos. */
+const props = defineProps<{ tienda: Tienda }>()
 
 const ui = useUiStore()
 
@@ -38,8 +41,8 @@ async function cargar(): Promise<void> {
   error.value = ''
   try {
     const [mio, todos] = await Promise.all([
-      http.get<TurnoPdv | null>('/admin/pdv/turnos/abierto'),
-      http.get<TurnoPdv[]>('/admin/pdv/turnos'),
+      http.get<TurnoPdv | null>(`/admin/pdv/turnos/abierto?tiendaId=${props.tienda.id}`),
+      http.get<TurnoPdv[]>(`/admin/pdv/turnos?tiendaId=${props.tienda.id}`),
     ])
     abierto.value = mio
     turnos.value = todos
@@ -185,7 +188,7 @@ function diferencia(turno: TurnoPdv): string {
         </button>
       </template>
       <p v-else class="empty-block">
-        No tienes un turno abierto. Créalo en la pestaña Punto de Venta.
+        No tienes un turno abierto en {{ tienda.nombre }}. Créalo en la pestaña Punto de Venta.
       </p>
 
       <h4>Turnos</h4>

@@ -15,14 +15,12 @@ import SkeletonList from '@/components/SkeletonList.vue'
 import CajaPdv from './CajaPdv.vue'
 import type { Pedido, Tienda, TurnoPdvConPedidos } from '@/api/tipos'
 
-/** La misma clave que la pestaña Inventario: la tienda en la que se trabaja. */
-const CLAVE_TIENDA = 'rapidix.pdv.tienda'
+/** La tienda desde la que se mira el PDV: el turno es el de esta tienda. */
+const props = defineProps<{ tienda: Tienda }>()
 
 const ui = useUiStore()
 
 const turno = ref<TurnoPdvConPedidos | null>(null)
-const tiendas = ref<Tienda[]>([])
-const tiendaId = ref('')
 const cargando = ref(true)
 const error = ref('')
 const creando = ref(false)
@@ -33,13 +31,9 @@ onMounted(cargar)
 async function cargar(): Promise<void> {
   error.value = ''
   try {
-    turno.value = await http.get<TurnoPdvConPedidos | null>('/admin/pdv/turnos/abierto')
-    if (!turno.value) {
-      tiendas.value = await http.get<Tienda[]>('/admin/pdv/tiendas')
-      const recordada = localStorage.getItem(CLAVE_TIENDA)
-      tiendaId.value =
-        tiendas.value.find((t) => t.id === recordada)?.id ?? tiendas.value[0]?.id ?? ''
-    }
+    turno.value = await http.get<TurnoPdvConPedidos | null>(
+      `/admin/pdv/turnos/abierto?tiendaId=${props.tienda.id}`,
+    )
   } catch (fallo) {
     error.value = fallo instanceof ErrorApi ? fallo.message : 'No pudimos cargar el turno.'
   } finally {
@@ -48,13 +42,11 @@ async function cargar(): Promise<void> {
 }
 
 async function crearTurno(): Promise<void> {
-  if (!tiendaId.value) return
   creando.value = true
   try {
     turno.value = await http.post<TurnoPdvConPedidos>('/admin/pdv/turnos', {
-      tiendaId: tiendaId.value,
+      tiendaId: props.tienda.id,
     })
-    localStorage.setItem(CLAVE_TIENDA, tiendaId.value)
     ui.exito(`Turno ${turno.value.folio} abierto`)
   } catch (fallo) {
     ui.errorDeApi(fallo)
@@ -98,20 +90,10 @@ async function entregar(pedido: Pedido): Promise<void> {
     <p v-else-if="error" class="form-error">{{ error }}</p>
 
     <template v-else-if="!turno">
-      <p v-if="tiendas.length === 0" class="empty-block">
-        Todavía no hay tiendas. Da de alta una en Configuración → Tiendas para abrir un turno.
-      </p>
-      <template v-else>
-        <div v-if="tiendas.length > 1" class="zona-captura">
-          <label class="form-label" for="turno-tienda">Tienda del turno</label>
-          <select id="turno-tienda" v-model="tiendaId" class="select-input">
-            <option v-for="t in tiendas" :key="t.id" :value="t.id">{{ t.nombre }}</option>
-          </select>
-        </div>
-        <button type="button" class="btn-crear" :disabled="creando" @click="crearTurno">
-          {{ creando ? 'Creando…' : '+ Crear Turno' }}
-        </button>
-      </template>
+      <p class="sin-turno">No tienes un turno abierto en {{ tienda.nombre }}.</p>
+      <button type="button" class="btn-crear" :disabled="creando" @click="crearTurno">
+        {{ creando ? 'Creando…' : '+ Crear Turno' }}
+      </button>
     </template>
 
     <template v-else>
@@ -174,12 +156,10 @@ async function entregar(pedido: Pedido): Promise<void> {
 </template>
 
 <style scoped>
-.zona-captura {
-  background: var(--cream);
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  padding: 12px 14px 2px;
-  margin-bottom: 12px;
+.sin-turno {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 0 0 10px;
 }
 
 .btn-crear {

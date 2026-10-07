@@ -505,9 +505,10 @@ model Transferencia {
 /// al corte de caja. Es al mostrador lo que el reparto es a la ruta: agrupa
 /// los pedidos que se capturaron, se entregaron y se cobraron ahi.
 ///
-/// **Un cajero solo puede tener un turno abierto**: lo garantiza un indice
-/// unico parcial sobre `cajeroId WHERE cerradoEn IS NULL`, escrito en la
-/// migracion porque Prisma no sabe expresarlo.
+/// **Un cajero solo puede tener un turno abierto por tienda**: lo garantiza un
+/// indice unico parcial sobre `(cajeroId, tiendaId) WHERE cerradoEn IS NULL`,
+/// escrito en la migracion porque Prisma no sabe expresarlo. Cada tienda lleva
+/// su caja: quien atiende dos tiendas tiene un turno en cada una.
 model TurnoPdv {
   id    String @id @default(uuid())
   /// TUR000123, de la secuencia `turnos_pdv_folio_seq`.

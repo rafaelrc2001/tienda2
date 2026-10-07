@@ -24,6 +24,12 @@ export class AbrirTurnoDto {
   tiendaId: string;
 }
 
+/** El PDV se mira siempre desde una tienda: su turno abierto y sus cortes. */
+export class DeLaTiendaDto {
+  @IsUUID('all', { message: 'Elige la tienda' })
+  tiendaId: string;
+}
+
 export class BuscarClienteDto {
   @IsString()
   @Matches(TELEFONO, { message: 'El teléfono no tiene un formato válido' })
