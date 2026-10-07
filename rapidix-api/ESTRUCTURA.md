@@ -276,7 +276,9 @@ está pendiente, libera lo apartado. Los tres pasos dejan su renglón en
 El mostrador de una tienda. Un **turno** (`turnos_pdv`, folio `TUR000123`) es al
 mostrador lo que el reparto es a la ruta: agrupa los pedidos que un cajero
 captura, entrega y cobra, y se cierra con su corte de caja. **Un cajero solo
-puede tener un turno abierto** (índice único parcial `turnos_pdv_uno_abierto`).
+puede tener un turno abierto por tienda** (índice único parcial
+`turnos_pdv_uno_abierto_por_tienda`): el PDV se mira siempre desde una tienda y
+cada una lleva su caja.
 El pedido guarda su `turnoId`; la tienda de la que sale es la del turno.
 
 No tiene reglas de precio propias: el carrito lo valora `CarritoService` y el
@@ -288,7 +290,7 @@ de la tienda al entregarse.
 | Archivo | Qué contiene |
 | --- | --- |
 | [pdv.module.ts](src/pdv/pdv.module.ts) | Importa Pedidos, Catálogo, Tiendas y Configuración. |
-| [turnos.controller.ts](src/pdv/turnos.controller.ts) | Bajo la sección `pdv`, con el prefijo `admin/pdv` (lo comparte con `tiendas/pdv.controller.ts`, que lleva el inventario): `GET turnos/abierto` (200 con `null` si no hay), `GET turnos`, `POST turnos` (409 `TURNO_ABIERTO`), `GET turnos/:id`, `POST turnos/:id/corte` (409 `TURNO_CERRADO`, `TURNO_CON_PENDIENTES`), `POST turnos/:id/previsualizar`, `POST turnos/:id/pedidos` (409 `SIN_DIRECCION`), `POST pedidos/:id/entregar` (409 `NO_ES_DEL_PDV`, `SOLO_EN_TIENDA`, `YA_ENTREGADO`), `GET clientes?telefono=` (200 con `null` si no está registrado), `POST clientes`, `GET clientes/:id/catalogo` y `GET clientes/:id/ultimo-pedido`. |
+| [turnos.controller.ts](src/pdv/turnos.controller.ts) | Bajo la sección `pdv`, con el prefijo `admin/pdv` (lo comparte con `tiendas/pdv.controller.ts`, que lleva el inventario): `GET turnos/abierto?tiendaId=` (200 con `null` si no hay) y `GET turnos?tiendaId=` —los dos exigen la tienda—, `POST turnos` (409 `TURNO_ABIERTO`), `GET turnos/:id`, `POST turnos/:id/corte` (409 `TURNO_CERRADO`, `TURNO_CON_PENDIENTES`), `POST turnos/:id/previsualizar`, `POST turnos/:id/pedidos` (409 `SIN_DIRECCION`), `POST pedidos/:id/entregar` (409 `NO_ES_DEL_PDV`, `SOLO_EN_TIENDA`, `YA_ENTREGADO`), `GET clientes?telefono=` (200 con `null` si no está registrado), `POST clientes`, `GET clientes/:id/catalogo` y `GET clientes/:id/ultimo-pedido`. |
 | [pdv.service.ts](src/pdv/pdv.service.ts) | `buscarCliente()` busca el teléfono en `clientes` y `prospectos`, con y sin lada; `registrarCliente()` lo da de alta como prospecto, que su primer pedido convierte. `crearPedido()` a domicilio usa la dirección del perfil y sigue por Operaciones y Rutas. `entregar()` hace tres cosas en una transacción: resta del inventario de la tienda, salta el pedido a `ENTREGADO` y lo deja `PAGADO` por `FinanzasService.marcarPagado` (uno a crédito se entrega sin cobrar y pasa a CXC). `cerrar()` bloquea el turno, no deja cortar con pedidos para llevar sin entregar y congela `efectivoCalculado` junto a `efectivoDeclarado`. La caja es de quien la abrió; el administrador puede verla y cerrarla. |
 | [corte-de-caja.ts](src/pdv/corte-de-caja.ts) | Cuentas puras del corte (probadas en `corte-de-caja.spec.ts`): solo suma lo entregado y pagado en mostrador, repartido en efectivo, transferencia y billetera. El pedido a domicilio no pasa por esta caja —lo cobra el repartidor en su corte—, ni el cancelado, ni el entregado a crédito. |
 | [dto/pdv.dto.ts](src/pdv/dto/pdv.dto.ts) | `AbrirTurnoDto`, `BuscarClienteDto`, `RegistrarClienteDto`, `PrevisualizarPdvDto`, `CrearPedidoPdvDto` (sin dirección ni casilla de términos) y `CorteDeCajaDto`. |

@@ -12,6 +12,7 @@ import {
   BuscarClienteDto,
   CorteDeCajaDto,
   CrearPedidoPdvDto,
+  DeLaTiendaDto,
   PrevisualizarPdvDto,
   RegistrarClienteDto,
   SugerirClientesDto,
@@ -31,18 +32,28 @@ import {
 export class TurnosController {
   constructor(private readonly pdv: PdvService) {}
 
-  /** El turno abierto de quien pregunta. 200 con `null` si no tiene: no es un error. */
+  /**
+   * El turno abierto de quien pregunta en esa tienda. 200 con `null` si no
+   * tiene: no es un error.
+   */
   @Get('turnos/abierto')
-  abierto(@UsuarioActual() usuario: UsuarioAutenticado): Promise<TurnoConPedidosDto | null> {
-    return this.pdv.turnoAbierto(usuario);
+  abierto(
+    @Query() dto: DeLaTiendaDto,
+    @UsuarioActual() usuario: UsuarioAutenticado,
+  ): Promise<TurnoConPedidosDto | null> {
+    return this.pdv.turnoAbierto(dto.tiendaId, usuario);
   }
 
+  /** Los turnos de esa tienda. */
   @Get('turnos')
-  listar(@UsuarioActual() usuario: UsuarioAutenticado): Promise<TurnoDto[]> {
-    return this.pdv.listar(usuario);
+  listar(
+    @Query() dto: DeLaTiendaDto,
+    @UsuarioActual() usuario: UsuarioAutenticado,
+  ): Promise<TurnoDto[]> {
+    return this.pdv.listar(dto.tiendaId, usuario);
   }
 
-  /** "Crear turno". 409 `TURNO_ABIERTO` si ya tiene uno. */
+  /** "Crear turno". 409 `TURNO_ABIERTO` si ya tiene uno en esa tienda. */
   @Post('turnos')
   @HttpCode(HttpStatus.CREATED)
   abrir(

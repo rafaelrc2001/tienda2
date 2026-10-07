@@ -144,19 +144,23 @@ export class PdvService {
   // Turnos
   // ----------------------------------------------------------------
 
-  /** El turno abierto de quien pregunta, con sus pedidos, o `null`. */
-  async turnoAbierto(usuario: UsuarioAutenticado): Promise<TurnoConPedidosDto | null> {
+  /** El turno abierto de quien pregunta en esa tienda, con sus pedidos, o `null`. */
+  async turnoAbierto(
+    tiendaId: string,
+    usuario: UsuarioAutenticado,
+  ): Promise<TurnoConPedidosDto | null> {
     const turno = await this.prisma.turnoPdv.findFirst({
-      where: { cajeroId: usuario.sub, cerradoEn: null },
+      where: { tiendaId, cajeroId: usuario.sub, cerradoEn: null },
       include: INCLUIR_TURNO,
     });
     return turno ? this.conPedidos(turno) : null;
   }
 
   /**
-   * "Crear turno". Tener ya uno abierto es 409 `TURNO_ABIERTO`; el indice
-   * parcial `turnos_pdv_uno_abierto` es quien de verdad lo impide, y su P2002
-   * se traduce al mismo codigo.
+   * "Crear turno". Tener ya uno abierto en esa tienda es 409 `TURNO_ABIERTO`;
+   * el indice parcial `turnos_pdv_uno_abierto_por_tienda` es quien de verdad
+   * lo impide, y su P2002 se traduce al mismo codigo. En otra tienda si puede
+   * abrir: cada tienda lleva su caja.
    */
   async abrir(dto: AbrirTurnoDto, usuario: UsuarioAutenticado): Promise<TurnoConPedidosDto> {
     const tienda = await this.tiendas.exigir(dto.tiendaId);
@@ -187,17 +191,21 @@ export class PdvService {
         throw new ConflictException({
           statusCode: 409,
           code: 'TURNO_ABIERTO',
-          message: 'Ya tienes un turno abierto: haz su corte de caja antes de crear otro.',
+          message:
+            'Ya tienes un turno abierto en esta tienda: haz su corte de caja antes de crear otro.',
         });
       }
       throw fallo;
     }
   }
 
-  /** Corte de caja: los turnos, del mas reciente al mas viejo. El cajero ve los suyos. */
-  async listar(usuario: UsuarioAutenticado): Promise<TurnoDto[]> {
+  /**
+   * Corte de caja: los turnos de esa tienda, del mas reciente al mas viejo. El
+   * cajero ve los suyos; el administrador, los de todos.
+   */
+  async listar(tiendaId: string, usuario: UsuarioAutenticado): Promise<TurnoDto[]> {
     const turnos = await this.prisma.turnoPdv.findMany({
-      where: PdvService.esAdmin(usuario) ? {} : { cajeroId: usuario.sub },
+      where: { tiendaId, ...(!PdvService.esAdmin(usuario) && { cajeroId: usuario.sub }) },
       include: INCLUIR_TURNO,
       orderBy: { abiertoEn: 'desc' },
       take: LIMITE_TURNOS,
