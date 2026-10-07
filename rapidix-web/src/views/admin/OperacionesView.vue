@@ -13,6 +13,7 @@ import { useUiStore } from '@/stores/ui'
 import {
   dinero,
   fechaNumerica,
+  nombreAbono,
   nombreEstadoPago,
   nombreEstadoPedido,
   nombreMetodoPago,
@@ -404,6 +405,15 @@ function marcarTodos(): void {
                     <div v-if="pedido.pago.billetera > 0">
                       <dt>A cobrar</dt>
                       <dd>{{ dinero(pedido.pago.aPagar) }}</dd>
+                    </div>
+                    <!-- Lo abonado y lo que falta, ya calculado por la API: igual que en CXC. -->
+                    <div v-for="abono in pedido.pago.abonos" :key="abono.id">
+                      <dt>{{ nombreAbono(abono) }}</dt>
+                      <dd>−{{ dinero(abono.monto) }}</dd>
+                    </div>
+                    <div v-if="pedido.pago.abonos.length > 0" class="saldo">
+                      <dt>Saldo</dt>
+                      <dd>{{ dinero(pedido.pago.saldo) }}</dd>
                     </div>
                     <div>
                       <dt>Método de pago</dt>

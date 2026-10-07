@@ -166,10 +166,13 @@ async function registrarPago(): Promise<void> {
       </div>
 
       <div v-if="pedidos.length > 0" class="tabla-envoltorio">
-        <table class="tabla lineal">
+        <!-- El pedido se queda fijo y lo demás se desplaza por debajo: por eso la
+             entrega va en su columna, para que la fija no se coma el teléfono. -->
+        <table class="tabla lineal una-fija">
           <thead>
             <tr>
               <th>Pedido</th>
+              <th>Entrega</th>
               <th>Cliente</th>
               <th>En CXC desde</th>
               <th class="num">Total</th>
@@ -182,18 +185,30 @@ async function registrarPago(): Promise<void> {
             <template v-for="pedido in pedidos" :key="pedido.id">
               <tr :class="{ 'con-detalle': abierto === pedido.id }">
                 <td>
+                  <!-- La flecha va primero, como en Operaciones: abre el detalle. -->
+                  <button
+                    type="button"
+                    class="chevron"
+                    :class="{ abierto: abierto === pedido.id }"
+                    :aria-expanded="abierto === pedido.id"
+                    :aria-label="`Detalle de ${pedido.folio}`"
+                    @click="alternar(pedido.id)"
+                  >
+                    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                      <path
+                        d="M4 6l4 4 4-4"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      />
+                    </svg>
+                  </button>
                   <span class="folio">{{ pedido.folio }}</span>
-                  <span class="sub">{{ pedido.repartoFolio ?? 'Recogido en tienda' }}</span>
-                  <div class="enlaces">
-                    <button type="button" class="enlace" @click="alternar(pedido.id)">
-                      {{ abierto === pedido.id ? 'Ocultar detalle' : 'Ver detalle' }}
-                    </button>
-                  </div>
                 </td>
-                <td>
-                  {{ pedido.clienteNombre }}
-                  <span class="sub">{{ pedido.clienteTelefono }}</span>
-                </td>
+                <td>{{ pedido.repartoFolio ?? 'Recogido en tienda' }}</td>
+                <td>{{ pedido.clienteNombre }}</td>
                 <td class="fecha">{{ fechaDia(pedido.cxcDesde) }}</td>
                 <td class="num">{{ dinero(pedido.total) }}</td>
                 <td class="num">{{ dinero(pedido.pagado) }}</td>
@@ -214,75 +229,78 @@ async function registrarPago(): Promise<void> {
 
               <!-- Qué se llevó, cómo se ha cubierto y cuándo pagó cada vez. -->
               <tr v-if="abierto === pedido.id" class="fila-detalle">
-                <td :colspan="filtro === 'con-saldo' ? 7 : 6">
-                  <p class="detalle-titulo">Productos</p>
-                  <table class="tabla-lineas angosta">
-                    <thead>
-                      <tr>
-                        <th>Producto</th>
-                        <th class="num">Cantidad</th>
-                        <th class="num">Precio</th>
-                        <th class="num">Importe</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr v-for="(producto, i) in pedido.productos" :key="i">
-                        <td>{{ producto.nombre }}</td>
-                        <td class="num">
-                          {{ producto.cantidad }} <span class="unidad">{{ producto.unidad }}</span>
-                        </td>
-                        <td class="num">{{ dinero(producto.precioUnitario) }}</td>
-                        <td class="num">{{ dinero(producto.importe) }}</td>
-                      </tr>
-                    </tbody>
-                  </table>
+                <td :colspan="filtro === 'con-saldo' ? 8 : 7">
+                  <div class="detalle-cxc">
+                    <p class="detalle-titulo">Productos</p>
+                    <table class="tabla-lineas angosta">
+                      <thead>
+                        <tr>
+                          <th>Producto</th>
+                          <th class="num">Cantidad</th>
+                          <th class="num">Precio</th>
+                          <th class="num">Importe</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-for="(producto, i) in pedido.productos" :key="i">
+                          <td>{{ producto.nombre }}</td>
+                          <td class="num">
+                            {{ producto.cantidad }}
+                            <span class="unidad">{{ producto.unidad }}</span>
+                          </td>
+                          <td class="num">{{ dinero(producto.precioUnitario) }}</td>
+                          <td class="num">{{ dinero(producto.importe) }}</td>
+                        </tr>
+                      </tbody>
+                    </table>
 
-                  <p class="detalle-titulo">Cómo se cubrió</p>
-                  <table class="tabla-lineas angosta">
-                    <tbody>
-                      <tr>
-                        <td>Total del pedido</td>
-                        <td class="num">{{ dinero(pedido.total) }}</td>
-                      </tr>
-                      <tr v-if="pedido.pagadoConBilletera > 0">
-                        <td>Pagado con billetera</td>
-                        <td class="num abono">{{ dinero(pedido.pagadoConBilletera) }}</td>
-                      </tr>
-                      <tr>
-                        <td>Pagos recibidos</td>
-                        <td class="num abono">{{ dinero(pedido.pagado) }}</td>
-                      </tr>
-                      <tr class="fuerte">
-                        <td>Saldo</td>
-                        <td class="num" :class="{ debe: pedido.saldo > 0 }">
-                          {{ dinero(pedido.saldo) }}
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
+                    <p class="detalle-titulo">Cómo se cubrió</p>
+                    <table class="tabla-lineas angosta">
+                      <tbody>
+                        <tr>
+                          <td>Total del pedido</td>
+                          <td class="num">{{ dinero(pedido.total) }}</td>
+                        </tr>
+                        <tr v-if="pedido.pagadoConBilletera > 0">
+                          <td>Pagado con billetera</td>
+                          <td class="num abono">{{ dinero(pedido.pagadoConBilletera) }}</td>
+                        </tr>
+                        <tr>
+                          <td>Pagos recibidos</td>
+                          <td class="num abono">{{ dinero(pedido.pagado) }}</td>
+                        </tr>
+                        <tr class="fuerte">
+                          <td>Saldo</td>
+                          <td class="num" :class="{ debe: pedido.saldo > 0 }">
+                            {{ dinero(pedido.saldo) }}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
 
-                  <p class="detalle-titulo">Pagos</p>
-                  <table v-if="pedido.pagos.length > 0" class="tabla-lineas angosta">
-                    <thead>
-                      <tr>
-                        <th>Fecha</th>
-                        <th>Método</th>
-                        <th>Recibió</th>
-                        <th>Nota</th>
-                        <th class="num">Monto</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr v-for="pago in pedido.pagos" :key="pago.id">
-                        <td class="fecha">{{ fechaHora(pago.creadoEn) }}</td>
-                        <td>{{ nombreMetodoPago(pago.metodo) }}</td>
-                        <td>{{ pago.registradoPorNombre }}</td>
-                        <td>{{ pago.nota ?? '—' }}</td>
-                        <td class="num abono">{{ dinero(pago.monto) }}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                  <p v-else class="sin-pagos">Todavía no ha pagado nada.</p>
+                    <p class="detalle-titulo">Pagos</p>
+                    <table v-if="pedido.pagos.length > 0" class="tabla-lineas angosta">
+                      <thead>
+                        <tr>
+                          <th>Fecha</th>
+                          <th>Método</th>
+                          <th>Recibió</th>
+                          <th>Nota</th>
+                          <th class="num">Monto</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-for="pago in pedido.pagos" :key="pago.id">
+                          <td class="fecha">{{ fechaHora(pago.creadoEn) }}</td>
+                          <td>{{ nombreMetodoPago(pago.metodo) }}</td>
+                          <td>{{ pago.registradoPorNombre }}</td>
+                          <td>{{ pago.nota ?? '—' }}</td>
+                          <td class="num abono">{{ dinero(pago.monto) }}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                    <p v-else class="sin-pagos">Todavía no ha pagado nada.</p>
+                  </div>
                 </td>
               </tr>
             </template>
@@ -426,8 +444,16 @@ async function registrarPago(): Promise<void> {
   margin-top: 0;
 }
 
-.tabla-lineas.angosta {
-  max-width: 620px;
+/*
+ * El detalle mide lo que se ve de la tabla, no lo que mide la tabla: la celda
+ * abarca las columnas que quedan fuera de pantalla y, a su ancho, los importes
+ * se iban al otro extremo, lejos de su concepto. Se queda fijo aunque la tabla
+ * se desplace. Los 60px son el margen de la pantalla y el relleno de la celda.
+ */
+.detalle-cxc {
+  position: sticky;
+  left: 12px;
+  width: min(480px, calc(100vw - 60px));
 }
 
 .tabla-lineas .fecha {

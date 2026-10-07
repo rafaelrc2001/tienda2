@@ -5,7 +5,7 @@
  * bailen de pantalla en pantalla. La app es solo en español de México.
  */
 
-import type { EstadoPago, EstadoPedido } from '@/api/tipos'
+import type { AbonoPedido, EstadoPago, EstadoPedido } from '@/api/tipos'
 
 const MONEDA = new Intl.NumberFormat('es-MX', {
   style: 'currency',
@@ -93,6 +93,11 @@ export function fechaDia(iso: string | null | undefined): string {
 /** `TRANSFERENCIA` → `Transferencia`. Lo que llega del enum de la API, legible. */
 export function nombreMetodoPago(metodo: string): string {
   return metodo === 'TRANSFERENCIA' ? 'Transferencia' : 'Efectivo'
+}
+
+/** El renglón de un abono en el detalle de un pedido: `Abono en la entrega · 06/10/26`. */
+export function nombreAbono(abono: Pick<AbonoPedido, 'enPuerta' | 'creadoEn'>): string {
+  return `${abono.enPuerta ? 'Abono en la entrega' : 'Abono'} · ${fechaDia(abono.creadoEn)}`
 }
 
 const NOMBRES_ESTADO_PAGO: Record<EstadoPago, string> = {

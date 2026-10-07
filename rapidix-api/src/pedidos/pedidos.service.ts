@@ -27,9 +27,23 @@ import { CarritoService } from './carrito.service';
 import { InventarioService } from '../inventario/inventario.service';
 import { CrearPedidoDto, DireccionEntregaDto } from './dto/carrito.dto';
 import { registrarEnBitacora } from './bitacora';
+import { pagadoDelPedido, saldoDelPedido } from './cxc';
 
 const Decimal = Prisma.Decimal;
 type Decimal = Prisma.Decimal;
+
+/**
+ * Lo que se lee de un pedido para pintarlo. Los pagos van siempre: el detalle
+ * ensena los abonos y el saldo en todas las pantallas, no solo en CXC.
+ */
+const INCLUIR_PEDIDO = {
+  items: true,
+  cupon: true,
+  pagos: {
+    orderBy: { creadoEn: 'asc' },
+    select: { id: true, monto: true, metodo: true, enPuerta: true, creadoEn: true },
+  },
+} satisfies Prisma.PedidoInclude;
 
 export interface PedidoDto {
   id: string;
@@ -60,6 +74,25 @@ export interface PedidoDto {
      * cobra desde CXC, no marcandolo Pagado.
      */
     enCxc: boolean;
+    /**
+     * Lo que ya se le abono: en la puerta al entregarlo a credito, o despues
+     * desde CXC. Vacio si no se le ha abonado nada.
+     */
+    abonos: {
+      id: string;
+      monto: number;
+      metodo: MetodoPago;
+      /** Lo recibio el repartidor al entregar. */
+      enPuerta: boolean;
+      creadoEn: string;
+    }[];
+    /** La suma de los abonos. */
+    abonado: number;
+    /**
+     * Lo que falta por pagar: el total menos la billetera y los abonos. Cero
+     * si ya esta pagado, reembolsado o cancelado: ahi no se debe nada.
+     */
+    saldo: number;
   };
   metodoEntrega: MetodoEntrega;
   /** Snapshot de la direccion del pedido; `null` si se recoge en tienda. */
@@ -424,7 +457,7 @@ export class PedidosService {
       return this.aDto(
         await tx.pedido.findUniqueOrThrow({
           where: { id: pedido.id },
-          include: { items: true, cupon: true },
+          include: INCLUIR_PEDIDO,
         }),
       );
     });
@@ -560,7 +593,7 @@ export class PedidosService {
     const pedidos = await this.prisma.pedido.findMany({
       where: { clienteId },
       orderBy: { creadoEn: 'desc' },
-      include: { items: true, cupon: true },
+      include: INCLUIR_PEDIDO,
     });
     return pedidos.map((p) => this.aDto(p));
   }
@@ -648,7 +681,7 @@ export class PedidosService {
   async detalle(id: string): Promise<PedidoDto> {
     const pedido = await this.prisma.pedido.findUnique({
       where: { id },
-      include: { items: true, cupon: true, cliente: { select: { nombre: true } } },
+      include: { ...INCLUIR_PEDIDO, cliente: { select: { nombre: true } } },
     });
     if (!pedido) throw new NotFoundException('Pedido no encontrado');
     return { ...this.aDto(pedido), clienteNombre: pedido.cliente.nombre };
@@ -674,7 +707,7 @@ export class PedidosService {
       where,
       orderBy,
       take: limite,
-      include: { items: true, cupon: true, cliente: { select: { nombre: true } } },
+      include: { ...INCLUIR_PEDIDO, cliente: { select: { nombre: true } } },
     });
     return pedidos.map((p) => ({ ...this.aDto(p), clienteNombre: p.cliente.nombre }));
   }
@@ -684,7 +717,7 @@ export class PedidosService {
     const pedidos = await this.prisma.pedido.findMany({
       orderBy: { creadoEn: 'desc' },
       take: limite,
-      include: { items: true, cupon: true, cliente: { select: { nombre: true } } },
+      include: { ...INCLUIR_PEDIDO, cliente: { select: { nombre: true } } },
     });
     return pedidos.map((p) => ({ ...this.aDto(p), clienteNombre: p.cliente.nombre }));
   }
@@ -700,8 +733,21 @@ export class PedidosService {
         cantidad: number;
       }[];
       cupon?: { code: string; title: string } | null;
+      pagos: {
+        id: string;
+        monto: Decimal;
+        metodo: MetodoPago;
+        enPuerta: boolean;
+        creadoEn: Date;
+      }[];
     },
   ): PedidoDto {
+    // Pagado, reembolsado o cancelado no debe nada, haya o no pagos escritos:
+    // el efectivo cobrado en la puerta, por ejemplo, no deja renglon de pago.
+    const debe =
+      pedido.estadoPago !== EstadoPago.PAGADO &&
+      pedido.estadoPago !== EstadoPago.REEMBOLSADO &&
+      pedido.estadoPago !== EstadoPago.CANCELADO;
     return {
       id: pedido.id,
       folio: pedido.folio,
@@ -725,6 +771,15 @@ export class PedidosService {
         // En CREDITO una cuenta por cobrar siempre debe: el pago que la deja
         // en cero la pasa a PAGADO en la misma transaccion.
         enCxc: pedido.cxcDesde !== null && pedido.estadoPago === EstadoPago.CREDITO,
+        abonos: pedido.pagos.map((pago) => ({
+          id: pago.id,
+          monto: pago.monto.toNumber(),
+          metodo: pago.metodo,
+          enPuerta: pago.enPuerta,
+          creadoEn: pago.creadoEn.toISOString(),
+        })),
+        abonado: pagadoDelPedido(pedido).toNumber(),
+        saldo: debe ? saldoDelPedido(pedido).toNumber() : 0,
       },
       metodoEntrega: pedido.metodoEntrega,
       direccion: PedidosService.direccionLeida(pedido.direccion),

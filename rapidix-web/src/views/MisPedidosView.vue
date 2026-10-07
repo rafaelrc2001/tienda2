@@ -11,6 +11,7 @@ import { useUiStore } from '@/stores/ui'
 import {
   dinero,
   fechaHora,
+  nombreAbono,
   nombreEstadoPago,
   nombreEstadoPedido,
   nombreMetodoPago,
@@ -129,11 +130,22 @@ function alternar(id: string): void {
                     <tr>
                       <td colspan="2">
                         {{
-                          pedido.pago.aPagar > 0 ? nombreMetodoPago(pedido.pago.metodo) : 'Billetera'
+                          pedido.pago.aPagar > 0
+                            ? nombreMetodoPago(pedido.pago.metodo)
+                            : 'Billetera'
                         }}
                         · {{ nombreEstadoPago(pedido.pago.estado) }}
                       </td>
                       <td class="num">{{ dinero(pedido.pago.aPagar) }}</td>
+                    </tr>
+                    <!-- Lo abonado y lo que falta, ya calculado por la API. -->
+                    <tr v-for="abono in pedido.pago.abonos" :key="abono.id" class="descuento">
+                      <td colspan="2">{{ nombreAbono(abono) }}</td>
+                      <td class="num">−{{ dinero(abono.monto) }}</td>
+                    </tr>
+                    <tr v-if="pedido.pago.abonos.length > 0" class="total-fila">
+                      <td colspan="2">Saldo</td>
+                      <td class="num">{{ dinero(pedido.pago.saldo) }}</td>
                     </tr>
                     <tr v-if="pedido.pago.cambio !== null && pedido.pago.pagoCon !== null">
                       <td colspan="2">Pagas con {{ dinero(pedido.pago.pagoCon) }}</td>

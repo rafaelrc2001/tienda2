@@ -405,6 +405,16 @@ export interface ItemPedido {
   importe: number
 }
 
+/** Un abono a un pedido a crédito. */
+export interface AbonoPedido {
+  id: string
+  monto: number
+  metodo: MetodoPago
+  /** Lo recibió el repartidor al entregar. */
+  enPuerta: boolean
+  creadoEn: string
+}
+
 export interface Pedido {
   id: string
   folio: string
@@ -430,6 +440,12 @@ export interface Pedido {
     referencia: string
     /** Cuenta por cobrar con saldo: se cobra desde CXC, no marcándolo Pagado. */
     enCxc: boolean
+    /** Lo que ya abonó: en la puerta al entregarse a crédito, o después desde CXC. */
+    abonos: AbonoPedido[]
+    /** La suma de los abonos. */
+    abonado: number
+    /** Lo que falta por pagar. Cero si ya está pagado, reembolsado o cancelado. */
+    saldo: number
   }
   metodoEntrega: MetodoEntrega
   /** Copia de la dirección del pedido; `null` si se recoge en tienda. */
