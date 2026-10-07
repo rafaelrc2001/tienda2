@@ -1,13 +1,19 @@
 <script setup lang="ts">
 /**
- * PDV → Punto de Venta: la caja de un turno abierto, en tres columnas.
+ * PDV → Punto de Venta: la caja de un turno abierto, en tres pasos.
+ *
+ * Los pasos van en una fila de pestañas y solo se ve uno a la vez: abrir uno
+ * esconde los otros dos, y se puede volver a cualquiera sin perder la orden.
+ * Así la caja no crece hacia abajo ni obliga a desplazarse para cobrar. Cada
+ * pestaña enseña en pequeño lo que ya lleva: quién es el cliente, cuántas
+ * piezas y cuánto se va a cobrar.
  *
  *  1. **Teléfono del cliente**, con su teclado: es el mismo identificador con
  *     el que entra a la app. Desde el tercer dígito propone los teléfonos ya
  *     registrados que lo contienen; si no está registrado se le pide el nombre.
- *  2. **Catálogo**, en el orden que ese cliente vería en la Tienda, con
- *     «repite tu última compra».
- *  3. **Resumen del pedido**: cómo se lo lleva, cómo paga y los tres botones.
+ *  2. **Tienda**: el catálogo, en el orden que ese cliente vería en la Tienda,
+ *     con «repite tu última compra».
+ *  3. **Pedido**: el resumen, cómo se lo lleva, cómo paga y los tres botones.
  *
  * Es el checkout de la app hecho por el cajero. Ningún importe se calcula
  * aquí: cada cambio de la orden se manda a previsualizar y se pinta lo que
@@ -43,6 +49,11 @@ const TECLAS = ['1', '2', '3', '4', '5', '6', '7', '8', '9']
 const DIGITOS_TELEFONO = 10
 /** Lo que se espera tras el último cambio antes de pedir el desglose. */
 const ESPERA_MS = 250
+
+// ---- Pasos ----
+type Paso = 'telefono' | 'tienda' | 'pedido'
+/** El único paso a la vista. Los otros dos siguen montados, con lo que llevan. */
+const paso = ref<Paso>('telefono')
 
 // ---- Cliente ----
 const telefono = ref('')
@@ -83,6 +94,33 @@ const items = computed(() =>
     .filter(([, cantidad]) => cantidad > 0)
     .map(([productoId, cantidad]) => ({ productoId, cantidad })),
 )
+
+/** Piezas en la orden. Es un conteo para la pestaña, no un importe. */
+const piezas = computed(() => items.value.reduce((suma, i) => suma + i.cantidad, 0))
+
+/** Las tres pestañas, con lo que cada una ya lleva resuelto. */
+const pasos = computed<{ id: Paso; titulo: string; resumen: string }[]>(() => [
+  { id: 'telefono', titulo: 'Teléfono', resumen: cliente.value?.nombre ?? 'Sin cliente' },
+  {
+    id: 'tienda',
+    titulo: 'Tienda',
+    resumen:
+      piezas.value === 0
+        ? 'Sin productos'
+        : `${piezas.value} pieza${piezas.value === 1 ? '' : 's'}`,
+  },
+  {
+    id: 'pedido',
+    titulo: 'Pedido',
+    resumen: pedido.value?.folio ?? (previa.value ? dinero(previa.value.aPagar) : 'Sin total'),
+  },
+])
+
+/** Sin cliente no hay catálogo ni pedido que abrir: primero el teléfono. */
+function abrir(destino: Paso): void {
+  if (destino !== 'telefono' && !cliente.value) return
+  paso.value = destino
+}
 
 const productos = computed<ProductoRecomendado[]>(
   () => catalogo.value?.familias.find((f) => f.categoria === familia.value)?.productos ?? [],
@@ -236,6 +274,8 @@ async function atender(encontrado: ClientePdv): Promise<void> {
   catalogo.value = suCatalogo
   familia.value = suCatalogo.familias[0]?.categoria ?? ''
   ultimo.value = suUltimo
+  // Identificado el cliente, lo siguiente es elegir qué se lleva.
+  paso.value = 'tienda'
 }
 
 // ----------------------------------------------------------------
@@ -380,13 +420,34 @@ function limpiar(): void {
   calculando.value = false
   pedido.value = null
   errorOrden.value = ''
+  paso.value = 'telefono'
 }
 </script>
 
 <template>
   <div class="caja">
+    <div class="pasos" role="tablist" aria-label="Pasos de la orden">
+      <button
+        v-for="(p, i) in pasos"
+        :key="p.id"
+        type="button"
+        role="tab"
+        class="paso"
+        :class="{ activo: paso === p.id }"
+        :aria-selected="paso === p.id"
+        :disabled="p.id !== 'telefono' && !cliente"
+        @click="abrir(p.id)"
+      >
+        <span class="paso-numero">{{ i + 1 }}</span>
+        <span class="paso-texto">
+          <span class="paso-titulo">{{ p.titulo }}</span>
+          <span class="paso-resumen">{{ p.resumen }}</span>
+        </span>
+      </button>
+    </div>
+
     <!-- 1. Teléfono del cliente -->
-    <section class="columna col-telefono">
+    <section v-show="paso === 'telefono'" class="columna col-telefono">
       <label class="titulo-columna" for="pdv-telefono">Teléfono cliente</label>
       <input
         id="pdv-telefono"
@@ -461,15 +522,28 @@ function limpiar(): void {
       >
         {{ buscando ? 'Buscando…' : pidiendoNombre ? 'Registrar' : 'Ingresar' }}
       </button>
+
+      <template v-else>
+        <p class="atendiendo">
+          Atendiendo a <strong>{{ cliente.nombre }}</strong>
+        </p>
+        <button type="button" class="btn-ingresar seguir" @click="abrir('tienda')">
+          Ir a la tienda →
+        </button>
+        <button
+          type="button"
+          class="btn-ingresar"
+          :disabled="confirmando || entregando"
+          @click="limpiar"
+        >
+          Cambiar de cliente
+        </button>
+      </template>
     </section>
 
     <!-- 2. Cliente y catálogo -->
-    <section class="columna col-catalogo">
-      <p v-if="!cliente" class="empty-block">
-        Teclea el teléfono del cliente y pulsa «Ingresar» para empezar la orden.
-      </p>
-
-      <template v-else>
+    <section v-show="paso === 'tienda'" class="columna col-catalogo">
+      <template v-if="cliente">
         <div class="cabecera-cliente">
           <div class="cliente">
             <span class="titulo-columna">Cliente</span>
@@ -541,6 +615,7 @@ function limpiar(): void {
             <div class="stepper">
               <button
                 type="button"
+                class="menos"
                 :aria-label="`Quitar uno de ${p.nombre}`"
                 :disabled="bloqueada || (cantidades[p.id] ?? 0) === 0"
                 @click="sumar(p.id, -1)"
@@ -571,184 +646,225 @@ function limpiar(): void {
                 {{ e.piso }}
               </button>
             </div>
+            <!-- Quitarlo entero de un toque: con el «−» habría que pulsar pieza por pieza. -->
+            <button
+              v-if="(cantidades[p.id] ?? 0) > 0"
+              type="button"
+              class="quitar-producto"
+              :disabled="bloqueada"
+              @click="fijar(p.id, 0)"
+            >
+              Quitar
+            </button>
           </article>
+        </div>
+
+        <div class="barra-orden">
+          <span>
+            {{ pasos[1].resumen }}
+            <strong v-if="previa"> · {{ dinero(previa.subtotal) }}</strong>
+          </span>
+          <button type="button" :disabled="items.length === 0" @click="abrir('pedido')">
+            Ver pedido →
+          </button>
         </div>
       </template>
     </section>
 
     <!-- 3. Resumen del pedido -->
-    <section class="columna col-resumen">
+    <section v-show="paso === 'pedido'" class="columna col-resumen">
       <h3 class="resumen-titulo">
         Resumen del pedido
         <span v-if="pedido" class="mini-tag">{{ pedido.folio }}</span>
       </h3>
 
-      <p v-if="items.length === 0" class="empty-block">La orden está vacía.</p>
-
-      <template v-else>
-        <table class="tabla-lineas">
-          <thead>
-            <tr>
-              <th>Producto</th>
-              <th class="num">Precio</th>
-              <th class="num">Cant.</th>
-              <th class="num">Importe</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="linea in previa?.items ?? []" :key="linea.productoId">
-              <td>
-                {{ linea.nombre }}
-                <span v-if="linea.agotado" class="aviso-linea">Agotado</span>
-              </td>
-              <td class="num">{{ dinero(linea.precioUnitario) }}</td>
-              <td class="num cant">
-                <button
-                  type="button"
-                  :aria-label="`Quitar uno de ${linea.nombre}`"
-                  :disabled="bloqueada"
-                  @click="sumar(linea.productoId, -1)"
-                >
-                  −
-                </button>
-                {{ linea.cantidad }}
-                <button
-                  type="button"
-                  :aria-label="`Agregar uno de ${linea.nombre}`"
-                  :disabled="bloqueada"
-                  @click="sumar(linea.productoId, 1)"
-                >
-                  +
-                </button>
-              </td>
-              <td class="num">
-                {{ dinero(linea.importe) }}
-                <button
-                  type="button"
-                  class="quitar"
-                  :aria-label="`Quitar ${linea.nombre}`"
-                  :disabled="bloqueada"
-                  @click="fijar(linea.productoId, 0)"
-                >
-                  🗑
-                </button>
-              </td>
-            </tr>
-          </tbody>
-          <tfoot v-if="previa">
-            <tr>
-              <td colspan="3">Subtotal</td>
-              <td class="num">{{ dinero(previa.subtotal) }}</td>
-            </tr>
-            <tr v-if="previa.envio > 0">
-              <td colspan="3">Envío</td>
-              <td class="num">{{ dinero(previa.envio) }}</td>
-            </tr>
-            <tr v-if="previa.billetera > 0">
-              <td colspan="3">Billetera electrónica</td>
-              <td class="num">−{{ dinero(previa.billetera) }}</td>
-            </tr>
-          </tfoot>
-        </table>
-
-        <p class="subtitulo">Método de envío</p>
-        <label class="opcion">
-          <input v-model="metodoEntrega" type="radio" value="TIENDA" :disabled="bloqueada" />
-          Recoger en tienda
-        </label>
-        <label class="opcion" :class="{ apagada: !cliente?.direccion }">
-          <input
-            v-model="metodoEntrega"
-            type="radio"
-            value="DOMICILIO"
-            :disabled="bloqueada || !cliente?.direccion"
-          />
-          Envío a domicilio
-          <span class="nota-opcion">
-            {{ cliente?.direccion ?? 'Sin dirección completa en su perfil' }}
-          </span>
-        </label>
-
-        <div v-if="previa" class="totales" :class="{ calculando }">
-          <p class="total">
-            <span>Total</span><span>{{ dinero(previa.total) }}</span>
-          </p>
-          <p class="a-pagar">
-            <span>Total a pagar</span><span>{{ dinero(previa.aPagar) }}</span>
-          </p>
-          <p v-if="previa.cashbackBilletera > 0" class="cashback">
-            Gana {{ dinero(previa.cashbackBilletera) }} en su billetera
-          </p>
-        </div>
-
-        <p class="subtitulo">¿Cómo va a pagar?</p>
-        <label v-if="cliente && cliente.saldoBilletera > 0" class="opcion">
-          <input v-model="usarBilletera" type="checkbox" :disabled="bloqueada" />
-          Usar su billetera electrónica
-          <span class="nota-opcion disponible">
-            Disponible: {{ dinero(cliente.saldoBilletera) }}
-          </span>
-        </label>
-        <label class="opcion">
-          <input v-model="metodoPago" type="radio" value="EFECTIVO" :disabled="bloqueada" />
-          Efectivo
-        </label>
-        <div v-if="metodoPago === 'EFECTIVO'" class="zona-captura">
-          <label class="form-label" for="pdv-pago-con">¿Con cuánto paga? (opcional)</label>
-          <input
-            id="pdv-pago-con"
-            v-model="pagoCon"
-            class="form-input"
-            type="number"
-            min="0"
-            step="0.01"
-            inputmode="decimal"
-            :placeholder="previa ? dinero(previa.aPagar) : ''"
-            :disabled="bloqueada"
-          />
-          <p v-if="previa?.pago.cambio != null" class="cambio">
-            Cambio: {{ dinero(previa.pago.cambio) }}
-          </p>
-        </div>
-        <label class="opcion">
-          <input v-model="metodoPago" type="radio" value="TRANSFERENCIA" :disabled="bloqueada" />
-          Transferencia electrónica
-        </label>
-
-        <p v-if="previa?.pago.errorPago" class="form-error">{{ previa.pago.errorPago.mensaje }}</p>
-        <p v-for="(aviso, i) in previa?.avisos ?? []" :key="i" class="form-error">{{ aviso }}</p>
-      </template>
-
-      <p v-if="errorOrden" class="form-error">{{ errorOrden }}</p>
-      <p v-if="pedido && pedido.metodoEntrega === 'DOMICILIO'" class="nota-domicilio">
-        Va a domicilio: lo prepara Operaciones y lo entrega Rutas.
+      <p v-if="items.length === 0" class="empty-block">
+        La orden está vacía. Agrega productos en el paso «Tienda».
       </p>
 
-      <div class="botones">
-        <button
-          type="button"
-          class="btn-caja confirmar"
-          :disabled="!puedeConfirmar"
-          @click="confirmar"
-        >
-          {{ confirmando ? 'Confirmando…' : 'Confirmar pedido' }}
-        </button>
-        <button
-          type="button"
-          class="btn-caja entregado"
-          :disabled="!puedeEntregar"
-          @click="entregar"
-        >
-          {{ entregando ? 'Entregando…' : 'Entregado' }}
-        </button>
-        <button
-          type="button"
-          class="btn-caja limpiar"
-          :disabled="confirmando || entregando"
-          @click="limpiar"
-        >
-          Limpiar orden
-        </button>
+      <!--
+        En pantalla ancha el pedido va en dos mitades —qué lleva y cómo lo
+        paga— para que los botones queden a la vista sin desplazarse.
+      -->
+      <div class="resumen-cuerpo">
+        <div v-if="items.length > 0" class="resumen-mitad">
+          <table class="tabla-lineas">
+            <thead>
+              <tr>
+                <th>Producto</th>
+                <th class="num">Precio</th>
+                <th class="num">Cant.</th>
+                <th class="num">Importe</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="linea in previa?.items ?? []" :key="linea.productoId">
+                <td>
+                  {{ linea.nombre }}
+                  <span v-if="linea.agotado" class="aviso-linea">Agotado</span>
+                </td>
+                <td class="num">{{ dinero(linea.precioUnitario) }}</td>
+                <td class="num cant">
+                  <button
+                    type="button"
+                    :aria-label="`Quitar uno de ${linea.nombre}`"
+                    :disabled="bloqueada"
+                    @click="sumar(linea.productoId, -1)"
+                  >
+                    −
+                  </button>
+                  {{ linea.cantidad }}
+                  <button
+                    type="button"
+                    :aria-label="`Agregar uno de ${linea.nombre}`"
+                    :disabled="bloqueada"
+                    @click="sumar(linea.productoId, 1)"
+                  >
+                    +
+                  </button>
+                </td>
+                <td class="num">
+                  {{ dinero(linea.importe) }}
+                  <button
+                    type="button"
+                    class="quitar"
+                    :aria-label="`Quitar ${linea.nombre}`"
+                    :disabled="bloqueada"
+                    @click="fijar(linea.productoId, 0)"
+                  >
+                    🗑
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+            <tfoot v-if="previa">
+              <tr>
+                <td colspan="3">Subtotal</td>
+                <td class="num">{{ dinero(previa.subtotal) }}</td>
+              </tr>
+              <tr v-if="previa.envio > 0">
+                <td colspan="3">Envío</td>
+                <td class="num">{{ dinero(previa.envio) }}</td>
+              </tr>
+              <tr v-if="previa.billetera > 0">
+                <td colspan="3">Billetera electrónica</td>
+                <td class="num">−{{ dinero(previa.billetera) }}</td>
+              </tr>
+            </tfoot>
+          </table>
+
+          <p class="subtitulo">Método de envío</p>
+          <label class="opcion">
+            <input v-model="metodoEntrega" type="radio" value="TIENDA" :disabled="bloqueada" />
+            Recoger en tienda
+          </label>
+          <label class="opcion" :class="{ apagada: !cliente?.direccion }">
+            <input
+              v-model="metodoEntrega"
+              type="radio"
+              value="DOMICILIO"
+              :disabled="bloqueada || !cliente?.direccion"
+            />
+            Envío a domicilio
+            <span class="nota-opcion">
+              {{ cliente?.direccion ?? 'Sin dirección completa en su perfil' }}
+            </span>
+          </label>
+
+          <div v-if="previa" class="totales" :class="{ calculando }">
+            <p class="total">
+              <span>Total</span><span>{{ dinero(previa.total) }}</span>
+            </p>
+            <p class="a-pagar">
+              <span>Total a pagar</span><span>{{ dinero(previa.aPagar) }}</span>
+            </p>
+            <p v-if="previa.cashbackBilletera > 0" class="cashback">
+              Gana {{ dinero(previa.cashbackBilletera) }} en su billetera
+            </p>
+          </div>
+        </div>
+
+        <div class="resumen-mitad">
+          <template v-if="items.length > 0">
+            <p class="subtitulo primero">¿Cómo va a pagar?</p>
+            <label v-if="cliente && cliente.saldoBilletera > 0" class="opcion">
+              <input v-model="usarBilletera" type="checkbox" :disabled="bloqueada" />
+              Usar su billetera electrónica
+              <span class="nota-opcion disponible">
+                Disponible: {{ dinero(cliente.saldoBilletera) }}
+              </span>
+            </label>
+            <label class="opcion">
+              <input v-model="metodoPago" type="radio" value="EFECTIVO" :disabled="bloqueada" />
+              Efectivo
+            </label>
+            <div v-if="metodoPago === 'EFECTIVO'" class="zona-captura">
+              <label class="form-label" for="pdv-pago-con">¿Con cuánto paga? (opcional)</label>
+              <input
+                id="pdv-pago-con"
+                v-model="pagoCon"
+                class="form-input"
+                type="number"
+                min="0"
+                step="0.01"
+                inputmode="decimal"
+                :placeholder="previa ? dinero(previa.aPagar) : ''"
+                :disabled="bloqueada"
+              />
+              <p v-if="previa?.pago.cambio != null" class="cambio">
+                Cambio: {{ dinero(previa.pago.cambio) }}
+              </p>
+            </div>
+            <label class="opcion">
+              <input
+                v-model="metodoPago"
+                type="radio"
+                value="TRANSFERENCIA"
+                :disabled="bloqueada"
+              />
+              Transferencia electrónica
+            </label>
+
+            <p v-if="previa?.pago.errorPago" class="form-error">
+              {{ previa.pago.errorPago.mensaje }}
+            </p>
+            <p v-for="(aviso, i) in previa?.avisos ?? []" :key="i" class="form-error">
+              {{ aviso }}
+            </p>
+          </template>
+
+          <p v-if="errorOrden" class="form-error">{{ errorOrden }}</p>
+          <p v-if="pedido && pedido.metodoEntrega === 'DOMICILIO'" class="nota-domicilio">
+            Va a domicilio: lo prepara Operaciones y lo entrega Rutas.
+          </p>
+
+          <div class="botones">
+            <button
+              type="button"
+              class="btn-caja confirmar"
+              :disabled="!puedeConfirmar"
+              @click="confirmar"
+            >
+              {{ confirmando ? 'Confirmando…' : 'Confirmar pedido' }}
+            </button>
+            <button
+              type="button"
+              class="btn-caja entregado"
+              :disabled="!puedeEntregar"
+              @click="entregar"
+            >
+              {{ entregando ? 'Entregando…' : 'Entregado' }}
+            </button>
+            <button
+              type="button"
+              class="btn-caja limpiar"
+              :disabled="confirmando || entregando"
+              @click="limpiar"
+            >
+              Limpiar orden
+            </button>
+          </div>
+        </div>
       </div>
     </section>
   </div>
@@ -759,13 +875,122 @@ function limpiar(): void {
   display: grid;
   gap: 12px;
   grid-template-columns: minmax(0, 1fr);
-  align-items: start;
 }
 
-/* En pantalla ancha, las tres columnas del mostrador una junto a otra. */
-@media (min-width: 1000px) {
-  .caja {
-    grid-template-columns: 232px minmax(0, 1fr) 320px;
+/*
+ * Los tres pasos en fila: es lo único que siempre está a la vista. Se pegan
+ * arriba al desplazarse por el catálogo, para poder saltar a otro paso sin
+ * tener que subir. El fondo tapa lo que pasa por debajo.
+ */
+.pasos {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding: 4px 0 6px;
+  background: var(--cream);
+}
+
+.paso {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  background: var(--white);
+  padding: 8px 10px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.paso:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.paso.activo {
+  border-color: var(--terracotta);
+  background: var(--terracotta);
+}
+
+.paso-numero {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--cream-2);
+  color: var(--terracotta-dark);
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.paso.activo .paso-numero {
+  background: var(--white);
+}
+
+.paso-texto {
+  min-width: 0;
+}
+
+.paso-titulo,
+.paso-resumen {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.paso-titulo {
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 12.5px;
+  color: var(--ink);
+}
+
+.paso-resumen {
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.paso.activo .paso-titulo,
+.paso.activo .paso-resumen {
+  color: var(--white);
+}
+
+/* El teléfono y el pedido no necesitan todo el ancho: centrados se leen mejor. */
+.col-telefono {
+  width: 100%;
+  max-width: 360px;
+  margin: 0 auto;
+}
+
+.col-resumen {
+  width: 100%;
+  max-width: 620px;
+  margin: 0 auto;
+}
+
+@media (min-width: 900px) {
+  .col-resumen {
+    max-width: 1000px;
+  }
+
+  .resumen-cuerpo {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+    gap: 0 28px;
+    align-items: start;
+  }
+
+  .subtitulo.primero {
+    margin-top: 0;
   }
 }
 
@@ -910,6 +1135,26 @@ function limpiar(): void {
 
 .btn-ingresar:disabled {
   opacity: 0.6;
+}
+
+.btn-ingresar + .btn-ingresar {
+  margin-top: 8px;
+}
+
+.btn-ingresar.seguir {
+  background: var(--sage);
+  color: var(--white);
+}
+
+.atendiendo {
+  font-size: 12.5px;
+  color: var(--muted);
+  margin: 0 0 10px;
+  text-align: center;
+}
+
+.atendiendo strong {
+  color: var(--ink);
 }
 
 /* ---- Cliente y última compra ---- */
@@ -1100,6 +1345,70 @@ function limpiar(): void {
   font-family: var(--font-heading);
   font-weight: 800;
   font-size: 13px;
+}
+
+/* Botones de dedo: en la caja se toca, no se apunta con ratón. */
+.stepper button {
+  width: 36px;
+  height: 36px;
+  font-size: 20px;
+}
+
+.stepper button.menos:not(:disabled) {
+  border-color: var(--terracotta);
+  color: var(--terracotta-dark);
+}
+
+.quitar-producto {
+  display: block;
+  margin: 6px auto 0;
+  border: none;
+  background: none;
+  color: var(--terracotta-dark);
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 11px;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+
+.quitar-producto:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.barra-orden {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 12px -14px -14px;
+  padding: 10px 14px;
+  background: var(--cream);
+  border-top: 1px solid var(--line);
+  border-radius: 0 0 14px 14px;
+  font-size: 12.5px;
+  color: var(--ink);
+}
+
+.barra-orden button {
+  border: none;
+  border-radius: 10px;
+  background: var(--sage);
+  color: var(--white);
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 12.5px;
+  padding: 10px 16px;
+  cursor: pointer;
+}
+
+.barra-orden button:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .stepper button,
