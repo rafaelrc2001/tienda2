@@ -231,6 +231,11 @@ onBeforeUnmount(() => {
   max-width: var(--ancho-admin);
 }
 
+/* El punto de venta son tres columnas de mostrador: necesita más ancho. */
+.is-admin .app-column:has(.pantalla-pdv) {
+  max-width: var(--ancho-pdv);
+}
+
 /* En escritorio la columna se despega del fondo y se ve como tal. */
 @media (min-width: 700px) {
   .app-frame {

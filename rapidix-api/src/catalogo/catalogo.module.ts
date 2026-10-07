@@ -18,6 +18,6 @@ import { AdminCategoriasController } from './admin-categorias.controller';
     AdminProductosController,
   ],
   providers: [CatalogoService, CategoriasService, ImportacionService, RecomendacionesService],
-  exports: [CatalogoService, CategoriasService],
+  exports: [CatalogoService, CategoriasService, RecomendacionesService],
 })
 export class CatalogoModule {}

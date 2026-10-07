@@ -74,6 +74,17 @@ interface Aplicacion {
   usuarioId?: string | null;
   usuarioNombre?: string | null;
   pedidoId?: string | null;
+  transferenciaId?: string | null;
+}
+
+/** La transferencia a tienda que provoca un movimiento, y quien lo hace. */
+export interface MovimientoDeTransferencia {
+  id: string;
+  folio: string;
+  tienda: string;
+  empleado: string;
+  usuarioId: string | null;
+  usuarioNombre: string | null;
 }
 
 const LIMITE_HISTORIAL = 50;
@@ -150,7 +161,13 @@ export class InventarioService {
   ): Promise<ResumenLoteDto> {
     // VENTA, ENTREGA y RUTA no se capturan a mano: las escribe el pedido al
     // confirmarse, al entregarse y al subir o bajar del camion. Dejarlas aqui
-    // permitiria descontar dos veces la misma venta.
+    // permitiria descontar dos veces la misma venta. TRANSFERENCIA tampoco: la
+    // escribe la transferencia a tienda, que ademas carga el inventario de esta.
+    if (dto.motivo === MotivoMovimiento.TRANSFERENCIA) {
+      throw new ConflictException(
+        'El motivo «Transferencia» lo registra la transferencia a una tienda, no se captura a mano.',
+      );
+    }
     if (dto.motivo === MotivoMovimiento.VENTA) {
       throw new ConflictException(
         'El motivo «Venta» lo registra el pedido al confirmarse, no se captura a mano.',
@@ -467,6 +484,86 @@ export class InventarioService {
     return piezas;
   }
 
+  // ----------------------------------------------------------------
+  // Transferencias a tienda
+  // ----------------------------------------------------------------
+
+  /**
+   * Aparta en bodega lo que se va a mandar a una tienda, al crear la
+   * transferencia.
+   *
+   * Es la misma logica que el pedido en ruta: aqui solo baja lo liberado para
+   * venta (APT) —la mercancia ya tiene destino y no puede venderse en linea—,
+   * y el fisico no se mueve hasta que la tienda la acepta.
+   *
+   * A diferencia de la venta, no mira `controlInventario`: es un movimiento de
+   * bodega capturado por una persona, igual que los de la ventana Movimientos,
+   * y no se puede mandar a una tienda lo que no hay.
+   */
+  async apartarTransferencia(
+    tx: Prisma.TransactionClient,
+    transferencia: MovimientoDeTransferencia,
+    lineas: LineaAMover[],
+  ): Promise<void> {
+    await this.moverTransferencia(tx, transferencia, lineas, {
+      tipo: TipoMovimiento.SALIDA,
+      afecta: AfectaInventario.APT,
+      observaciones: `Transferencia ${transferencia.folio} a ${transferencia.tienda}`,
+    });
+  }
+
+  /**
+   * Saca del fisico lo que la tienda acepta: el "recolectar" de la
+   * transferencia. Si el fisico no alcanza, `aplicar()` lanza y la aceptacion
+   * entera se deshace.
+   */
+  async sacarTransferencia(
+    tx: Prisma.TransactionClient,
+    transferencia: MovimientoDeTransferencia,
+    lineas: LineaAMover[],
+  ): Promise<void> {
+    await this.moverTransferencia(tx, transferencia, lineas, {
+      tipo: TipoMovimiento.SALIDA,
+      afecta: AfectaInventario.FISICO,
+      observaciones: `${transferencia.tienda} aceptó la transferencia ${transferencia.folio}`,
+    });
+  }
+
+  /** Libera lo apartado de una transferencia que se cancela antes de aceptarse. */
+  async liberarTransferencia(
+    tx: Prisma.TransactionClient,
+    transferencia: MovimientoDeTransferencia,
+    lineas: LineaAMover[],
+  ): Promise<void> {
+    await this.moverTransferencia(tx, transferencia, lineas, {
+      tipo: TipoMovimiento.ENTRADA,
+      afecta: AfectaInventario.APT,
+      observaciones: `Cancelación de la transferencia ${transferencia.folio}`,
+    });
+  }
+
+  private async moverTransferencia(
+    tx: Prisma.TransactionClient,
+    transferencia: MovimientoDeTransferencia,
+    lineas: LineaAMover[],
+    como: { tipo: TipoMovimiento; afecta: AfectaInventario; observaciones: string },
+  ): Promise<void> {
+    for (const linea of lineas) {
+      await this.aplicar(tx, {
+        productoId: linea.productoId,
+        cantidad: linea.cantidad,
+        tipo: como.tipo,
+        afecta: como.afecta,
+        motivo: MotivoMovimiento.TRANSFERENCIA,
+        empleado: transferencia.empleado,
+        observaciones: como.observaciones,
+        usuarioId: transferencia.usuarioId,
+        usuarioNombre: transferencia.usuarioNombre,
+        transferenciaId: transferencia.id,
+      });
+    }
+  }
+
   /** Los movimientos del pedido que deciden que hay en el estante y que en el camion. */
   private static movimientosDeRuta(tx: Prisma.TransactionClient, pedidoId: string) {
     return tx.movimientoInventario.findMany({
@@ -604,6 +701,7 @@ export class InventarioService {
         usuarioId: a.usuarioId ?? null,
         usuarioNombre: a.usuarioNombre ?? null,
         pedidoId: a.pedidoId ?? null,
+        transferenciaId: a.transferenciaId ?? null,
         fisicoAntes: fisicoDespues - deltaFisico,
         fisicoDespues,
         aptAntes: aptDespues - deltaApt,

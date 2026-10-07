@@ -34,6 +34,11 @@ const CATALOGO: Readonly<Record<Seccion, Omit<ItemMenu, 'seccion'>>> = {
   'mis-pedidos': { icono: '🧾', titulo: 'Mis Pedidos', descripcion: 'Historial de pedidos' },
   'mis-cupones': { icono: '🎁', titulo: 'Mis Cupones', descripcion: 'Cupones disponibles para ti' },
   clientes: { icono: '👥', titulo: 'Clientes', descripcion: 'Base de clientes y su actividad' },
+  pdv: {
+    icono: '🏪',
+    titulo: 'PDV',
+    descripcion: 'Punto de venta, inventario de tienda y corte de caja',
+  },
 };
 
 @ApiTags('Administración')

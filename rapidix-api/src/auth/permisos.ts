@@ -15,6 +15,7 @@ export const SECCIONES = [
   'mis-pedidos',
   'mis-cupones',
   'clientes',
+  'pdv',
 ] as const;
 
 export type Seccion = (typeof SECCIONES)[number];
@@ -36,6 +37,7 @@ export const PERMISOS_POR_ROL: Readonly<Record<RolToken, readonly Seccion[]>> = 
     'finanzas',
     'mis-pedidos',
     'clientes',
+    'pdv',
   ],
   [ROL_CLIENTE]: ['mis-pedidos'],
   [RolUsuario.RUTA]: ['rutas'],

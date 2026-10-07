@@ -7,6 +7,12 @@
  * en una sola transacción: si a un renglón no le alcanza el saldo, no se
  * guarda ninguno.
  *
+ * **Transferencia a tienda** se captura aquí mismo, como un tercer tipo: en
+ * vez de motivo y saldo pide la tienda de destino. Es la lógica del pedido en
+ * ruta: registrarla aparta la mercancía (baja el apt.) y el físico sale cuando
+ * la tienda la acepta en PDV → Inventario. Mientras no la acepte, se cancela
+ * desde la tabla de transferencias de abajo.
+ *
  * Las cantidades capturadas viven en un objeto aparte, **no en el DOM**. Es lo
  * que permite buscar un producto sin perder lo ya capturado: filtrar redibuja
  * la tabla y lo escrito sobrevive.
@@ -21,9 +27,19 @@ import type {
   MovimientoInventario,
   ResumenLote,
   SaldoProducto,
-  TipoMovimiento,
+  Tienda,
+  Transferencia,
 } from '@/api/tipos'
-import { AFECTA, MOTIVOS_CAPTURA, TIPOS, nombreAfecta, nombreMotivo, soloNumeros } from './etiquetas'
+import {
+  AFECTA,
+  MOTIVOS_CAPTURA,
+  TIPOS_CAPTURA,
+  nombreAfecta,
+  nombreEstadoTransferencia,
+  nombreMotivo,
+  soloNumeros,
+  type TipoCaptura,
+} from './etiquetas'
 
 const props = defineProps<{ saldos: SaldoProducto[] }>()
 const emit = defineEmits<{ registrado: [] }>()
@@ -32,11 +48,18 @@ const ui = useUiStore()
 
 // ---- Encabezado del lote ----
 const empleado = ref('')
-const tipo = ref<TipoMovimiento>('ENTRADA')
+const tipo = ref<TipoCaptura>('ENTRADA')
 const afecta = ref<AfectaInventario>('AMBOS')
 const motivo = ref<MotivoMovimiento>('COMPRA')
 const observaciones = ref('')
 const errorEncabezado = ref('')
+
+// ---- Transferencia a tienda ----
+const tiendas = ref<Tienda[]>([])
+const tiendaId = ref('')
+const transferencias = ref<Transferencia[]>([])
+const cancelando = ref('')
+const esTransferencia = computed(() => tipo.value === 'TRANSFERENCIA')
 
 // ---- Captura ----
 /** `productoId` → piezas. Sobrevive a que se redibuje la tabla. */
@@ -55,9 +78,7 @@ const ayudaAfecta = computed(() => AFECTA.find((a) => a.valor === afecta.value)?
 const visibles = computed<SaldoProducto[]>(() => {
   const termino = busqueda.value.trim().toLowerCase()
   if (!termino) return props.saldos
-  return props.saldos.filter((s) =>
-    `${s.nombre} ${s.categoria}`.toLowerCase().includes(termino),
-  )
+  return props.saldos.filter((s) => `${s.nombre} ${s.categoria}`.toLowerCase().includes(termino))
 })
 
 /** Lo que se va a registrar. Es también el resumen que se enseña (M-8). */
@@ -69,7 +90,25 @@ const lineas = computed(() =>
 
 const piezas = computed(() => lineas.value.reduce((suma, l) => suma + l.cantidad, 0))
 
-onMounted(() => void cargarHistorial())
+onMounted(() => {
+  void cargarHistorial()
+  void cargarTransferencias()
+})
+
+/** Los destinos y lo ya enviado. Sin tiendas dadas de alta, las dos listas van vacías. */
+async function cargarTransferencias(): Promise<void> {
+  try {
+    const [destinos, enviadas] = await Promise.all([
+      http.get<Tienda[]>('/admin/inventario/tiendas'),
+      http.get<Transferencia[]>('/admin/inventario/transferencias'),
+    ])
+    tiendas.value = destinos
+    transferencias.value = enviadas
+    if (!destinos.some((t) => t.id === tiendaId.value)) tiendaId.value = destinos[0]?.id ?? ''
+  } catch (fallo) {
+    ui.errorDeApi(fallo)
+  }
+}
 
 async function cargarHistorial(): Promise<void> {
   cargandoHistorial.value = true
@@ -113,9 +152,28 @@ async function registrar(): Promise<void> {
     errorEncabezado.value = 'Captura la cantidad de al menos un producto.'
     return
   }
+  if (esTransferencia.value && !tiendaId.value) {
+    errorEncabezado.value = 'Elige la tienda de destino.'
+    return
+  }
 
   registrando.value = true
   try {
+    if (esTransferencia.value) {
+      const creada = await http.post<Transferencia>('/admin/inventario/transferencias', {
+        tiendaId: tiendaId.value,
+        empleado: empleado.value.trim(),
+        ...(observaciones.value.trim() && { observaciones: observaciones.value.trim() }),
+        lineas: lineas.value,
+      })
+      ui.exito(
+        `Transferencia ${creada.folio} a ${creada.tienda.nombre} · ${creada.piezas} pieza(s)`,
+      )
+      limpiarCantidades()
+      await Promise.all([cargarHistorial(), cargarTransferencias()])
+      emit('registrado')
+      return
+    }
     const resumen = await http.post<ResumenLote>('/admin/inventario/movimientos', {
       empleado: empleado.value.trim(),
       tipo: tipo.value,
@@ -139,6 +197,28 @@ async function registrar(): Promise<void> {
     registrando.value = false
   }
 }
+
+async function cancelar(transferencia: Transferencia): Promise<void> {
+  if (
+    !confirm(
+      `¿Cancelar la transferencia ${transferencia.folio}? Lo apartado vuelve a estar disponible para venta.`,
+    )
+  ) {
+    return
+  }
+  cancelando.value = transferencia.id
+  try {
+    await http.post(`/admin/inventario/transferencias/${transferencia.id}/cancelar`)
+    ui.exito(`Transferencia ${transferencia.folio} cancelada`)
+    emit('registrado')
+  } catch (fallo) {
+    ui.errorDeApi(fallo)
+  } finally {
+    cancelando.value = ''
+    // También tras un fallo: si la tienda ya la aceptó, tiene que verse.
+    await Promise.all([cargarHistorial(), cargarTransferencias()])
+  }
+}
 </script>
 
 <template>
@@ -158,16 +238,25 @@ async function registrar(): Promise<void> {
         <div>
           <label class="form-label" for="mv-tipo">Tipo de movimiento</label>
           <select id="mv-tipo" v-model="tipo" class="select-input">
-            <option v-for="t in TIPOS" :key="t.valor" :value="t.valor">{{ t.etiqueta }}</option>
+            <option v-for="t in TIPOS_CAPTURA" :key="t.valor" :value="t.valor">
+              {{ t.etiqueta }}
+            </option>
           </select>
         </div>
-        <div>
+        <div v-if="esTransferencia">
+          <label class="form-label" for="mv-tienda">Tienda de destino</label>
+          <select id="mv-tienda" v-model="tiendaId" class="select-input">
+            <option v-if="tiendas.length === 0" value="" disabled>Sin tiendas dadas de alta</option>
+            <option v-for="t in tiendas" :key="t.id" :value="t.id">{{ t.nombre }}</option>
+          </select>
+        </div>
+        <div v-if="!esTransferencia">
           <label class="form-label" for="mv-afecta">Afecta</label>
           <select id="mv-afecta" v-model="afecta" class="select-input">
             <option v-for="a in AFECTA" :key="a.valor" :value="a.valor">{{ a.etiqueta }}</option>
           </select>
         </div>
-        <div>
+        <div v-if="!esTransferencia">
           <label class="form-label" for="mv-motivo">Motivo</label>
           <select id="mv-motivo" v-model="motivo" class="select-input">
             <option v-for="m in MOTIVOS_CAPTURA" :key="m.valor" :value="m.valor">
@@ -177,7 +266,13 @@ async function registrar(): Promise<void> {
         </div>
       </div>
 
-      <p class="form-hint">{{ ayudaAfecta }}</p>
+      <p class="form-hint">
+        {{
+          esTransferencia
+            ? 'Se aparta en bodega (baja el apt. venta). El físico sale cuando la tienda la acepta en PDV → Inventario.'
+            : ayudaAfecta
+        }}
+      </p>
 
       <label class="form-label" for="mv-obs">Observaciones</label>
       <input
@@ -196,7 +291,7 @@ async function registrar(): Promise<void> {
           :disabled="registrando || lineas.length === 0"
           @click="registrar"
         >
-          {{ registrando ? 'Registrando…' : 'Registrar' }}
+          {{ registrando ? 'Registrando…' : esTransferencia ? 'Transferir' : 'Registrar' }}
         </button>
         <button
           type="button"
@@ -262,6 +357,60 @@ async function registrar(): Promise<void> {
       }}
     </p>
 
+    <!-- Transferencias a tienda: lo enviado y en qué va -->
+    <section v-if="transferencias.length > 0" class="historial">
+      <h4>Transferencias a tienda</h4>
+      <div class="tabla-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Folio</th>
+              <th>Tienda</th>
+              <th>Productos</th>
+              <th class="num">Piezas</th>
+              <th>Estatus</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="t in transferencias" :key="t.id">
+              <td>
+                {{ t.folio }}
+                <span class="obs">{{ fechaHora(t.creadoEn) }}</span>
+              </td>
+              <td>
+                {{ t.tienda.nombre }}
+                <span class="capturo">envió {{ t.empleado }}</span>
+              </td>
+              <td>
+                <span v-for="l in t.lineas" :key="l.productoId" class="linea">
+                  {{ l.cantidad }} × {{ l.producto }}
+                </span>
+              </td>
+              <td class="num">{{ t.piezas }}</td>
+              <td>
+                <span class="mini-tag" :class="{ entrada: t.estado === 'ACEPTADA' }">
+                  {{ nombreEstadoTransferencia(t.estado) }}
+                </span>
+                <span v-if="t.resueltaPor" class="capturo">{{ t.resueltaPor }}</span>
+              </td>
+              <td class="num">
+                <button
+                  v-if="t.estado === 'PENDIENTE'"
+                  type="button"
+                  class="btn-secondary cancelar"
+                  :disabled="cancelando !== ''"
+                  @click="cancelar(t)"
+                >
+                  {{ cancelando === t.id ? 'Cancelando…' : 'Cancelar' }}
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
     <!-- Bitácora -->
     <section class="historial">
       <h4>Historial de movimientos</h4>
@@ -277,6 +426,7 @@ async function registrar(): Promise<void> {
           </option>
           <option value="VENTA">Venta</option>
           <option value="RUTA">Ruta</option>
+          <option value="TRANSFERENCIA">Transferencia</option>
         </select>
       </div>
 
@@ -491,6 +641,17 @@ thead .col-producto {
 .mini-tag.salida {
   background: rgba(245, 124, 0, 0.12);
   color: var(--terracotta-dark);
+}
+
+.linea {
+  display: block;
+}
+
+.cancelar {
+  width: auto;
+  height: auto;
+  padding: 6px 14px;
+  font-size: 11.5px;
 }
 
 .fecha,

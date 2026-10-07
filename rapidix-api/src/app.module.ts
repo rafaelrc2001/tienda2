@@ -9,6 +9,8 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { AdminModule } from './admin/admin.module';
 import { CatalogoModule } from './catalogo/catalogo.module';
 import { InventarioModule } from './inventario/inventario.module';
+import { TiendasModule } from './tiendas/tiendas.module';
+import { PdvModule } from './pdv/pdv.module';
 import { UploadsModule } from './uploads/uploads.module';
 import { RecetarioModule } from './recetario/recetario.module';
 import { ConfiguracionModule } from './configuracion/configuracion.module';
@@ -35,6 +37,7 @@ import { RolesGuard } from './auth/roles.guard';
     AdminModule,
     CatalogoModule,
     InventarioModule,
+    TiendasModule,
     UploadsModule,
     RecetarioModule,
     ConfiguracionModule,
@@ -42,6 +45,7 @@ import { RolesGuard } from './auth/roles.guard';
     ClientesModule,
     PedidosModule,
     RutasModule,
+    PdvModule,
     IngresosModule,
     HealthModule,
   ],

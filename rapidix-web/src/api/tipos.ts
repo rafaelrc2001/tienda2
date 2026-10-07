@@ -12,7 +12,7 @@
 /** Los cinco modos de acceso del Word 2.4. */
 export type RolToken = 'ADMINISTRADOR' | 'RUTA' | 'OPERACIONES' | 'FINANZAS' | 'CLIENTE'
 
-/** Las nueve secciones de `PERMISOS_POR_ROL`. */
+/** Las diez secciones de `PERMISOS_POR_ROL`. */
 export type Seccion =
   | 'productos'
   | 'recetas'
@@ -23,6 +23,7 @@ export type Seccion =
   | 'mis-pedidos'
   | 'mis-cupones'
   | 'clientes'
+  | 'pdv'
 
 /** Lo que devuelve `GET /auth/yo`: el payload del token. */
 export interface UsuarioAutenticado {
@@ -1347,6 +1348,8 @@ export type AfectaInventario = 'AMBOS' | 'FISICO' | 'APT'
  * `ENTREGA` y `RUTA` los escribe el pedido: la venta aparta (baja el apt.), la
  * entrega en tienda saca la mercancía de bodega (baja el físico) y la ruta la
  * sube al camión al recolectar (baja el físico) o la regresa (lo sube).
+ * `TRANSFERENCIA` lo escribe la transferencia a una tienda: aparta al crearse
+ * (baja el apt.) y saca la mercancía cuando la tienda la acepta (baja el físico).
  */
 export type MotivoMovimiento =
   | 'COMPRA'
@@ -1357,6 +1360,7 @@ export type MotivoMovimiento =
   | 'DEVOLUCION'
   | 'ENTREGA'
   | 'RUTA'
+  | 'TRANSFERENCIA'
 
 /** Una fila de la ventana de Inventario. */
 export interface SaldoProducto {
@@ -1404,4 +1408,96 @@ export interface ResumenLote {
   productos: number
   piezas: number
   movimientos: MovimientoInventario[]
+}
+
+// ------------------------------------------------------------------
+// Tiendas, su inventario y las transferencias desde bodega
+// ------------------------------------------------------------------
+
+/** Una tienda física: se da de alta en Configuración → Tiendas. */
+export interface Tienda {
+  id: string
+  nombre: string
+  direccion: string
+  responsable: string
+  /** Una tienda no se borra: apagada, deja de ofrecerse como destino. */
+  activa: boolean
+}
+
+/**
+ * `PENDIENTE`: bodega ya la apartó y la tienda aún no la recibe. `ACEPTADA`:
+ * salió del físico de bodega y entró al inventario de la tienda.
+ */
+export type EstadoTransferencia = 'PENDIENTE' | 'ACEPTADA' | 'CANCELADA'
+
+/** Mercancía que bodega manda a una tienda; la tienda la «recolecta» al aceptarla. */
+export interface Transferencia {
+  id: string
+  folio: string
+  estado: EstadoTransferencia
+  tienda: { id: string; nombre: string }
+  empleado: string
+  observaciones: string | null
+  creadaPor: string | null
+  creadoEn: string
+  resueltaPor: string | null
+  resueltaEn: string | null
+  piezas: number
+  lineas: { productoId: string; producto: string; unidad: string; cantidad: number }[]
+}
+
+/** El cliente tal como lo necesita el mostrador del punto de venta. */
+export interface ClientePdv {
+  id: string
+  nombre: string
+  telefono: string
+  /** Todavía no ha comprado: este pedido lo convierte en cliente. */
+  esNuevo: boolean
+  saldoBilletera: number
+  /** La dirección de su perfil en una línea; `null` si no está completa. */
+  direccion: string | null
+}
+
+/**
+ * Un turno de caja del punto de venta: de «Crear turno» al corte de caja.
+ * Los totales los calcula la API; aquí no se suma nada.
+ */
+export interface TurnoPdv {
+  id: string
+  folio: string
+  tienda: { id: string; nombre: string }
+  cajero: string
+  abiertoEn: string
+  /** `null` mientras el turno sigue abierto. */
+  cerradoEn: string | null
+  totales: {
+    pedidos: number
+    /** Entregados y cobrados en el mostrador: los que suman a la caja. */
+    cobrados: number
+    /** Para llevar sin entregar: impiden hacer el corte. */
+    porEntregar: number
+    /** Salen por Rutas: su dinero no pasa por esta caja. */
+    aDomicilio: number
+    cancelados: number
+    ventas: number
+    efectivo: number
+    transferencia: number
+    billetera: number
+  }
+  /** Lo que el cajero contó en el corte. */
+  efectivoDeclarado: number | null
+  /** Declarado menos calculado: negativo es faltante. */
+  diferencia: number | null
+  notas: string | null
+}
+
+export type TurnoPdvConPedidos = TurnoPdv & { pedidos: Pedido[] }
+
+/** Una fila del inventario de una tienda. */
+export interface ExistenciaTienda {
+  productoId: string
+  nombre: string
+  categoria: string
+  unidad: string
+  cantidad: number
 }

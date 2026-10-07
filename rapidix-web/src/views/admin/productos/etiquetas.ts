@@ -5,7 +5,13 @@
  * el historial para leer: si divergieran, el mismo movimiento se llamaría de
  * dos maneras en la misma pantalla.
  */
-import type { AfectaInventario, MotivoMovimiento, RolProducto, TipoMovimiento } from '@/api/tipos'
+import type {
+  AfectaInventario,
+  EstadoTransferencia,
+  MotivoMovimiento,
+  RolProducto,
+  TipoMovimiento,
+} from '@/api/tipos'
 
 /**
  * El papel del producto dentro de su familia, en el orden en que desempata la
@@ -37,8 +43,34 @@ export const TIPOS: { valor: TipoMovimiento; etiqueta: string }[] = [
   { valor: 'SALIDA', etiqueta: 'Salida' },
 ]
 
+/**
+ * Lo que se puede capturar en Movimientos. La transferencia no es un tercer
+ * tipo en la bitácora —allí deja salidas y entradas—, pero sí en la captura:
+ * en vez de motivo y saldo pide la tienda de destino.
+ */
+export type TipoCaptura = TipoMovimiento | 'TRANSFERENCIA'
+
+export const TIPOS_CAPTURA: { valor: TipoCaptura; etiqueta: string }[] = [
+  ...TIPOS,
+  { valor: 'TRANSFERENCIA', etiqueta: 'Transferencia a tienda' },
+]
+
+const NOMBRE_ESTADO_TRANSFERENCIA: Record<EstadoTransferencia, string> = {
+  PENDIENTE: 'Por aceptar',
+  ACEPTADA: 'Aceptada',
+  CANCELADA: 'Cancelada',
+}
+
+export function nombreEstadoTransferencia(estado: EstadoTransferencia): string {
+  return NOMBRE_ESTADO_TRANSFERENCIA[estado]
+}
+
 export const AFECTA: { valor: AfectaInventario; etiqueta: string; ayuda: string }[] = [
-  { valor: 'AMBOS', etiqueta: 'Ambos (físico y apt.)', ayuda: 'La mercancía entra o sale de verdad' },
+  {
+    valor: 'AMBOS',
+    etiqueta: 'Ambos (físico y apt.)',
+    ayuda: 'La mercancía entra o sale de verdad',
+  },
   { valor: 'FISICO', etiqueta: 'Solo físico', ayuda: 'Llegó a bodega pero no se libera a venta' },
   { valor: 'APT', etiqueta: 'Solo apt. venta', ayuda: 'Aparta o libera lo que ya está en piso' },
 ]
@@ -47,7 +79,7 @@ export const AFECTA: { valor: AfectaInventario; etiqueta: string; ayuda: string 
  * Motivos que se capturan a mano. `VENTA`, `ENTREGA` y `RUTA` no están: esos
  * movimientos los escribe el pedido al confirmarse, al entregarse en tienda y
  * al subir o bajar del camión, y ofrecerlos aquí sería invitar a descontar dos
- * veces la misma venta.
+ * veces la misma venta. `TRANSFERENCIA` tampoco: lo escribe la transferencia.
  */
 export const MOTIVOS_CAPTURA: { valor: MotivoMovimiento; etiqueta: string }[] = [
   { valor: 'COMPRA', etiqueta: 'Compra' },
@@ -66,6 +98,7 @@ const NOMBRE_MOTIVO: Record<MotivoMovimiento, string> = {
   DEVOLUCION: 'Devolución',
   ENTREGA: 'Entrega',
   RUTA: 'Ruta',
+  TRANSFERENCIA: 'Transferencia',
 }
 
 const NOMBRE_AFECTA: Record<AfectaInventario, string> = {

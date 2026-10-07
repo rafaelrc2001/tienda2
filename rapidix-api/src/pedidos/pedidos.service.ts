@@ -26,7 +26,7 @@ import { precioUnitario } from '../catalogo/precios';
 import { CarritoService } from './carrito.service';
 import { InventarioService } from '../inventario/inventario.service';
 import { CrearPedidoDto, DireccionEntregaDto } from './dto/carrito.dto';
-import { registrarEnBitacora } from './bitacora';
+import { ActorDeBitacora, registrarEnBitacora } from './bitacora';
 import { pagadoDelPedido, saldoDelPedido } from './cxc';
 
 const Decimal = Prisma.Decimal;
@@ -141,6 +141,16 @@ export interface UltimoPedidoDto {
   avisos: string[];
 }
 
+/** Lo que hace falta para confirmar: el cuerpo del checkout sin su casilla de terminos. */
+export type DatosDelPedido = Omit<CrearPedidoDto, 'aceptaTerminos'>;
+
+/** Un pedido que no hace el cliente desde la app, sino un cajero en el punto de venta. */
+export interface VentaEnMostrador {
+  turnoId: string;
+  /** Quien lo capturo: firma la bitacora en lugar del cliente. */
+  cajero: ActorDeBitacora;
+}
+
 @Injectable()
 export class PedidosService {
   private readonly logger = new Logger(PedidosService.name);
@@ -173,8 +183,18 @@ export class PedidosService {
    * 10. Emitir el cupon de segunda compra si corresponde.
    * 11. Recalcular el nivel y abrir la bitacora del pedido.
    * 12. Acreditar el cashback, solo si ya nace pagado.
+   *
+   * Con `mostrador` el pedido lo captura un cajero en el punto de venta, y
+   * cambian cuatro cosas: no mira el horario de la app (si hay cajero, la
+   * tienda esta abierta, y no hay recargo), queda atado a su turno, lo firma
+   * el cajero y —si se lleva en mostrador— no aparta nada en bodega: esa
+   * mercancia sale del inventario de la tienda al entregarse.
    */
-  async crear(duenioId: string, dto: CrearPedidoDto): Promise<PedidoDto> {
+  async crear(
+    duenioId: string,
+    dto: DatosDelPedido,
+    mostrador?: VentaEnMostrador,
+  ): Promise<PedidoDto> {
     // `duenioId` puede ser un cliente o un prospecto: este es el pedido que lo
     // convierte. Todavia no se toca nada, solo se comprueba que existe en
     // alguna de las dos tablas.
@@ -190,7 +210,8 @@ export class PedidosService {
     }
 
     const config = await this.configuracion.obtener();
-    const dentroDeHorario = ConfiguracionService.estaDentroDeHorario(config);
+    const dentroDeHorario =
+      mostrador !== undefined || ConfiguracionService.estaDentroDeHorario(config);
     if (!dentroDeHorario && !config.atenderFuera) {
       throw new ConflictException(
         `Ahora mismo no estamos recibiendo pedidos. Nuestro horario es de ${config.abre} a ${config.cierra}.`,
@@ -319,6 +340,7 @@ export class PedidosService {
           cashbackGenerado: desglose.cashbackBilletera,
           porcentajeCashback,
           estado: EstadoPedido.CONFIRMADO,
+          turnoId: mostrador?.turnoId ?? null,
           direccion: PedidosService.copiaDireccion(metodoEntrega, dto.direccion),
           items: {
             create: carrito.lineas.map((l) => ({
@@ -381,7 +403,12 @@ export class PedidosService {
       // Cuando el control esta apagado no se toca nada: al estrenar el modulo
       // todos los productos estan en cero y bloquear las ventas por un saldo
       // que nadie ha capturado seria cerrar la tienda.
-      if (config.controlInventario) {
+      //
+      // Lo que se lleva en el mostrador del punto de venta tampoco pasa por
+      // aqui: no sale de bodega sino del inventario de la tienda, y eso lo
+      // descuenta la entrega.
+      const saleDeLaTienda = mostrador !== undefined && metodoEntrega === MetodoEntrega.TIENDA;
+      if (config.controlInventario && !saleDeLaTienda) {
         await this.inventario.registrarVenta(
           tx,
           pedido.id,
@@ -400,13 +427,16 @@ export class PedidosService {
           // El carrito guardado ya se convirtio en este pedido. Borrarlo aqui
           // —y no fiarse de que el navegador mande el vacio— evita que quien
           // entre manana desde otro telefono se encuentre repetido lo que ya
-          // compro.
-          carrito: Prisma.DbNull,
-          carritoEn: null,
-          // La direccion de este pedido ya quedo copiada en el y en el perfil:
-          // el siguiente checkout vuelve a partir del perfil.
-          borradorEntrega: Prisma.DbNull,
-          ...PedidosService.direccionParaPerfil(metodoEntrega, dto.direccion),
+          // compro. Lo comprado en mostrador no viene de ese carrito: el que
+          // tuviera a medias en la app se le respeta.
+          ...(!mostrador && {
+            carrito: Prisma.DbNull,
+            carritoEn: null,
+            // La direccion de este pedido ya quedo copiada en el y en el
+            // perfil: el siguiente checkout vuelve a partir del perfil.
+            borradorEntrega: Prisma.DbNull,
+            ...PedidosService.direccionParaPerfil(metodoEntrega, dto.direccion),
+          }),
         },
       });
 
@@ -430,7 +460,7 @@ export class PedidosService {
       await this.cashback.recalcularNivel(tx, clienteId, clienteActualizado.totalGastado);
 
       // Nace con sus dos renglones: quien lo creo y cuando, en cada eje.
-      const creador = {
+      const creador: ActorDeBitacora = mostrador?.cajero ?? {
         actor: ActorBitacora.CLIENTE,
         actorId: clienteId,
         actorNombre: comprador.nombre,
