@@ -114,6 +114,8 @@ const CAMPOS_DIRECCION = {
 type PerfilConDireccion = Prisma.ProspectoGetPayload<{ select: typeof CAMPOS_DIRECCION }>;
 
 const LIMITE_TURNOS = 60;
+/** Cuantos telefonos se proponen mientras el cajero teclea. */
+const LIMITE_SUGERENCIAS = 6;
 const LIMITE_PEDIDOS = 500;
 
 /**
@@ -270,6 +272,36 @@ export class PdvService {
       select: CAMPOS_DIRECCION,
     });
     return prospecto ? PdvService.aCliente(prospecto, true, 0) : null;
+  }
+
+  /**
+   * Autocompletado del telefono: quienes ya estan registrados y cuyo numero
+   * contiene lo tecleado. "Contiene" y no "empieza por" porque el login pudo
+   * guardarlo con lada (`+52...`) y el cajero teclea los 10 digitos.
+   *
+   * Los clientes van antes que los prospectos: es mas probable que quien esta
+   * en el mostrador ya haya comprado.
+   */
+  async sugerirClientes(digitos: string): Promise<ClientePdvDto[]> {
+    const where = { telefono: { contains: digitos } };
+    const [clientes, prospectos] = await Promise.all([
+      this.prisma.cliente.findMany({
+        where,
+        select: { ...CAMPOS_DIRECCION, saldoCashback: true },
+        orderBy: { ultimoPedido: { sort: 'desc', nulls: 'last' } },
+        take: LIMITE_SUGERENCIAS,
+      }),
+      this.prisma.prospecto.findMany({
+        where,
+        select: CAMPOS_DIRECCION,
+        orderBy: { creado: 'desc' },
+        take: LIMITE_SUGERENCIAS,
+      }),
+    ]);
+    return [
+      ...clientes.map((c) => PdvService.aCliente(c, false, c.saldoCashback.toNumber())),
+      ...prospectos.map((p) => PdvService.aCliente(p, true, 0)),
+    ].slice(0, LIMITE_SUGERENCIAS);
   }
 
   /**
