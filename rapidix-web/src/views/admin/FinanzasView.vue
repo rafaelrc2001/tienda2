@@ -20,7 +20,13 @@
 import { computed, nextTick, onMounted, ref } from 'vue'
 import { ErrorApi, http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
-import { dinero, fechaNumerica, nombreEstadoPedido, nombreMetodoPago } from '@/utils/formato'
+import {
+  dinero,
+  fechaNumerica,
+  nombreAbono,
+  nombreEstadoPedido,
+  nombreMetodoPago,
+} from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
 import BitacoraPedido from '@/components/BitacoraPedido.vue'
 import PestanasFinanzas from './finanzas/PestanasFinanzas.vue'
@@ -248,7 +254,7 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
               </td>
               <td class="estatus">
                 <!-- Los estatus de pago. El actual se pinta hundido; los bloqueados,
-                     con su candado y el motivo debajo. -->
+                     con su candado (el motivo va en el `title` del botón). -->
                 <div class="botonera">
                   <button
                     v-for="boton in pedido.botones"
@@ -267,16 +273,6 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
                     {{ boton.bloqueo ? '🔒 ' : '' }}{{ boton.titulo }}
                   </button>
                 </div>
-
-                <p v-if="pedido.pago.enCxc" class="bloqueo">
-                  Cuenta por cobrar: se paga registrando sus pagos en
-                  <RouterLink to="/admin/finanzas/cxc">CXC</RouterLink>. Al quedar en cero pasa a
-                  Pagado sola.
-                </p>
-                <p v-if="pedido.pago.estado === 'CANCELADO'" class="bloqueo">
-                  Pedido cancelado: su inventario regresó a bodega. Si el cliente retoma la compra,
-                  levanta un pedido nuevo.
-                </p>
               </td>
               <td>
                 {{ iconoMetodo(pedido.pago.metodo) }} {{ nombreMetodoPago(pedido.pago.metodo) }}
@@ -321,6 +317,15 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
                     <div v-if="pedido.pago.billetera > 0">
                       <dt>A cobrar</dt>
                       <dd>{{ dinero(pedido.pago.aPagar) }}</dd>
+                    </div>
+                    <!-- Lo abonado y lo que falta, ya calculado por la API: igual que en CXC. -->
+                    <div v-for="abono in pedido.pago.abonos" :key="abono.id">
+                      <dt>{{ nombreAbono(abono) }}</dt>
+                      <dd>−{{ dinero(abono.monto) }}</dd>
+                    </div>
+                    <div v-if="pedido.pago.abonos.length > 0" class="saldo">
+                      <dt>Saldo</dt>
+                      <dd>{{ dinero(pedido.pago.saldo) }}</dd>
                     </div>
                     <div>
                       <dt>Método de pago</dt>
@@ -517,13 +522,6 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
 .tabla.lineal .botonera > .btn-pago:disabled:not(.actual) {
   opacity: 0.4;
   cursor: not-allowed;
-}
-
-.bloqueo {
-  margin: 6px 0 0;
-  font-size: 11.5px;
-  font-weight: 600;
-  color: var(--orange-dark);
 }
 
 .modal-texto {

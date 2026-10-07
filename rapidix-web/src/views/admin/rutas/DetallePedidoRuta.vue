@@ -7,7 +7,7 @@
  * pedido se lee igual en las dos.
  */
 import { computed } from 'vue'
-import { dinero } from '@/utils/formato'
+import { dinero, nombreAbono } from '@/utils/formato'
 import EvidenciaEntrega from '@/components/EvidenciaEntrega.vue'
 import { nombreMotivo } from './etiquetas'
 import type { PedidoEnRuta } from '@/api/tipos'
@@ -68,6 +68,15 @@ const sinAceptar = computed(() =>
             {{ pedido.pago.aPagar > 0 ? 'A cobrar' : 'Cubierto' }}
           </td>
           <td class="num">{{ dinero(pedido.pago.aPagar) }}</td>
+        </tr>
+        <!-- Lo abonado y lo que falta, ya calculado por la API. -->
+        <tr v-for="abono in pedido.pago.abonos" :key="abono.id">
+          <td colspan="2">{{ nombreAbono(abono) }}</td>
+          <td class="num">−{{ dinero(abono.monto) }}</td>
+        </tr>
+        <tr v-if="pedido.pago.abonos.length > 0" class="fuerte">
+          <td colspan="2">Saldo</td>
+          <td class="num">{{ dinero(pedido.pago.saldo) }}</td>
         </tr>
       </tfoot>
     </table>

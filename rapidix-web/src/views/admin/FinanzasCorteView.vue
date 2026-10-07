@@ -216,9 +216,6 @@ async function rechazar(): Promise<void> {
         <div class="datos">
           <p class="titulo">{{ corte.entrega?.folio ?? 'Corte sin folio' }}</p>
           <p class="cuenta">🛵 {{ corte.repartidorNombre }}</p>
-          <p class="cuenta">
-            Liquidado {{ fechaHora(corte.cerradoEn) }} · {{ corte.pedidos }} pedido(s)
-          </p>
         </div>
         <span class="mini-tag" :class="{ cerrado: corte.estado === 'CERRADO' }">
           {{ nombreEstadoCorte(corte.estado) }}

@@ -924,11 +924,13 @@ input:checked + .switch-danger-slider {
 }
 
 /* Detalle: renglones y cuenta en una columna angosta a la izquierda, con una
-   sola letra y un solo tamaño. Se queda fijo aunque la tabla se desplace. */
+   sola letra y un solo tamaño. Se queda fijo aunque la tabla se desplace.
+   No pasa de lo que se ve de la tabla (100vw menos márgenes y rellenos): al
+   ancho de la celda, en el teléfono los importes quedaban fuera de la vista. */
 .detalle-pedido {
   position: sticky;
   left: 14px;
-  max-width: 480px;
+  max-width: min(480px, calc(100vw - 64px));
   font-family: var(--font-body);
   font-size: 12.5px;
   color: var(--ink);
@@ -972,7 +974,8 @@ input:checked + .switch-danger-slider {
   padding-top: 6px;
 }
 
-.detalle-pedido .cuentas > .total dt {
+.detalle-pedido .cuentas > .total dt,
+.detalle-pedido .cuentas > .saldo dt {
   color: var(--ink);
   font-weight: 700;
 }

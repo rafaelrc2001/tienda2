@@ -33,7 +33,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ErrorApi, http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
-import { dinero, fechaDia } from '@/utils/formato'
+import { dinero } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
 import DetallePedidoRuta from './rutas/DetallePedidoRuta.vue'
 import KpisRuta from './rutas/KpisRuta.vue'
@@ -328,10 +328,6 @@ async function finalizar(): Promise<void> {
       <header class="cabeza">
         <div class="datos">
           <p class="titulo">{{ titulo }}</p>
-          <p v-if="entrega" class="cuenta">
-            {{ fechaDia(entrega.creadoEn) }} · {{ entrega.pedidos }} pedido(s) ·
-            {{ entrega.entregados }} entregado(s)
-          </p>
         </div>
       </header>
 
@@ -681,12 +677,6 @@ async function finalizar(): Promise<void> {
   font-weight: 800;
   font-size: 15px;
   color: var(--ink);
-}
-
-.cabeza .cuenta {
-  margin: 3px 0 0;
-  font-size: 12px;
-  color: var(--muted);
 }
 
 /* Bajo los KPIs, a todo lo ancho, como «Finalizar entrega» en la pantalla de la entrega. */

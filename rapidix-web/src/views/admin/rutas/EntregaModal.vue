@@ -711,7 +711,12 @@ async function entregar(): Promise<void> {
                 <span>Pagó con su billetera</span><strong>−{{ dinero(cuenta.billetera) }}</strong>
               </p>
 
-              <p class="total">
+              <!-- A crédito no hay nada que cobrar: el renglón grande dice lo que queda debiendo. -->
+              <p v-if="aCredito" class="total">
+                <span>Queda debiendo</span>
+                <span>{{ dinero(cuenta.saldoCredito ?? 0) }}</span>
+              </p>
+              <p v-else class="total">
                 <span>{{ cobraEnEfectivo ? 'Total a cobrar' : 'A cobrar' }}</span>
                 <span>{{ dinero(cuenta.aCobrar) }}</span>
               </p>
@@ -725,10 +730,6 @@ async function entregar(): Promise<void> {
 
               <!-- A crédito se entrega sin cobrar; si el cliente quiere abonar, aquí va. -->
               <template v-if="aCredito">
-                <p class="renglon-cuenta debe">
-                  <span>Queda debiendo</span>
-                  <strong>{{ dinero(cuenta.saldoCredito ?? 0) }}</strong>
-                </p>
                 <label class="etiqueta-campo" for="abono-recibido">Abono recibido (opcional)</label>
                 <input
                   id="abono-recibido"
@@ -1172,11 +1173,6 @@ async function entregar(): Promise<void> {
 .metodo {
   font-size: 12px;
   margin-top: 2px;
-}
-
-/* Lo que debe el pedido a crédito, separado del cobro de arriba. */
-.renglon-cuenta.debe {
-  margin: 10px 0 0;
 }
 
 .etiqueta-campo {
