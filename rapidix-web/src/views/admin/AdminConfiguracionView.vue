@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * Administración → Configuración: submenú de las cinco pantallas.
+ * Administración → Configuración: submenú de sus pantallas.
  */
 const PANTALLAS = [
   {
@@ -32,6 +32,12 @@ const PANTALLAS = [
     ico: '🏅',
     titulo: 'Niveles de fidelidad',
     desc: 'Escalera de niveles y sus umbrales',
+  },
+  {
+    ruta: '/admin/configuracion/tiendas',
+    ico: '🏪',
+    titulo: 'Tiendas',
+    desc: 'Nombre, dirección y persona responsable',
   },
   {
     ruta: '/admin/cupones',

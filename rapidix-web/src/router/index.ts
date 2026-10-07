@@ -32,7 +32,7 @@ declare module 'vue-router' {
 /**
  * Mapa de rutas del SPEC 02 §3.3.
  *
- * Cada ruta bajo `/admin` declara en su `meta.seccion` una de las nueve
+ * Cada ruta bajo `/admin` declara en su `meta.seccion` una de las diez
  * secciones de `PERMISOS_POR_ROL`; el guard de abajo comprueba que esa
  * sección esté en el menú que devolvió la API.
  */
@@ -177,6 +177,12 @@ const routes: RouteRecordRaw[] = [
     meta: { seccion: 'configuracion', titulo: 'Niveles de fidelidad' },
   },
   {
+    path: '/admin/configuracion/tiendas',
+    name: 'config-tiendas',
+    component: () => import('@/views/admin/ConfigTiendasView.vue'),
+    meta: { seccion: 'configuracion', titulo: 'Tiendas' },
+  },
+  {
     path: '/admin/cupones',
     name: 'admin-cupones',
     component: () => import('@/views/admin/AdminCuponesView.vue'),
@@ -291,6 +297,12 @@ const routes: RouteRecordRaw[] = [
       titulo: 'Historial',
       volverA: '/admin/rutas?ventana=historial',
     },
+  },
+  {
+    path: '/admin/pdv',
+    name: 'admin-pdv',
+    component: () => import('@/views/admin/AdminPdvView.vue'),
+    meta: { seccion: 'pdv', titulo: 'Punto de Venta' },
   },
   {
     // Se abren desde la casilla de términos del carrito, en otra pestaña.

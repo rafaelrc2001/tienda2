@@ -306,6 +306,8 @@ model Producto {
   lineas      PedidoItem[]
   movimientos MovimientoInventario[]
   cargas      CargaRepartidor[]
+  existenciasTienda InventarioTienda[]
+  transferencias    TransferenciaItem[]
 
   @@index([categoriaId])
   @@map("productos")
@@ -356,6 +358,9 @@ enum MotivoMovimiento {
   /// La mercancia sube a un camion (SALIDA) o baja de el (ENTRADA). Solo
   /// mueve el fisico: lo que esta arriba lo cuenta `inventarioEnRuta`.
   RUTA
+  /// La mercancia se manda a una tienda: se aparta al crear la transferencia
+  /// (APT) y deja la bodega cuando la tienda la acepta (FISICO).
+  TRANSFERENCIA
 }
 
 /// Bitacora de bodega. Nadie pisa el saldo de un producto: lo suma o lo resta
@@ -387,6 +392,8 @@ model MovimientoInventario {
   usuarioNombre String?
   /// Pedido que lo genero, cuando es la salida por venta.
   pedidoId      String?
+  /// Transferencia a tienda que lo genero. Sin llave foranea, como `pedidoId`.
+  transferenciaId String?
 
   fisicoAntes   Int
   fisicoDespues Int
@@ -398,7 +405,148 @@ model MovimientoInventario {
   @@index([productoId, creadoEn])
   @@index([creadoEn])
   @@index([pedidoId])
+  @@index([transferenciaId])
   @@map("movimientos_inventario")
+}
+
+// ============================================================
+// Tiendas: inventario por tienda y transferencias desde bodega
+// ============================================================
+
+/// Una tienda fisica del negocio. Tiene su propio inventario, aparte del de
+/// bodega: es al punto de venta lo que el camion es a la ruta.
+///
+/// No se borra: de ella cuelgan transferencias e inventario. Para retirarla se
+/// apaga `activa`, y deja de ofrecerse como destino.
+model Tienda {
+  id          String  @id @default(uuid())
+  nombre      String  @unique
+  direccion   String
+  /// Persona responsable de la tienda. Texto libre: no tiene por que ser un
+  /// usuario del panel.
+  responsable String
+  activa      Boolean @default(true)
+
+  creadoEn      DateTime @default(now())
+  actualizadoEn DateTime @updatedAt
+
+  existencias    InventarioTienda[]
+  transferencias Transferencia[]
+  turnos         TurnoPdv[]
+
+  @@map("tiendas")
+}
+
+/// Lo que hay de un producto en una tienda. Sube al aceptar una transferencia
+/// y baja cuando el punto de venta entrega un pedido.
+///
+/// Igual que los saldos de bodega, nadie lo pisa: se suma o se resta. Un
+/// `CHECK` en la migracion impide que quede negativo.
+model InventarioTienda {
+  tiendaId   String
+  tienda     Tienda   @relation(fields: [tiendaId], references: [id])
+  productoId String
+  producto   Producto @relation(fields: [productoId], references: [id])
+
+  cantidad Int @default(0)
+
+  actualizadoEn DateTime @updatedAt
+
+  @@id([tiendaId, productoId])
+  @@index([productoId])
+  @@map("inventario_tienda")
+}
+
+enum EstadoTransferencia {
+  /// Bodega ya la aparto; la tienda todavia no la recibe.
+  PENDIENTE
+  /// La tienda la acepto: salio del fisico de bodega y entro a su inventario.
+  ACEPTADA
+  /// Se cancelo antes de aceptarse: lo apartado volvio a estar disponible.
+  CANCELADA
+}
+
+/// Mercancia que bodega manda a una tienda. Es a la tienda lo que el pedido es
+/// a la ruta: bodega la arma y la tienda la "recolecta" al aceptarla.
+///
+/// Quien la crea y quien la resuelve se congelan con su nombre y sin llave
+/// foranea, igual que en `movimientos_inventario`.
+model Transferencia {
+  id    String @id @default(uuid())
+  /// TRA000123, de la secuencia `transferencias_folio_seq`.
+  folio String @unique
+
+  tiendaId String
+  tienda   Tienda @relation(fields: [tiendaId], references: [id])
+
+  estado EstadoTransferencia @default(PENDIENTE)
+
+  /// Quien movio la mercancia en bodega. Texto libre, como en los movimientos.
+  empleado      String
+  observaciones String?
+
+  creadaPorId     String?
+  creadaPorNombre String?
+  creadoEn        DateTime @default(now())
+
+  /// Quien la acepto o la cancelo, y cuando. Null mientras esta pendiente.
+  resueltaPorId     String?
+  resueltaPorNombre String?
+  resueltaEn        DateTime?
+
+  items TransferenciaItem[]
+
+  @@index([tiendaId, estado])
+  @@index([creadoEn])
+  @@map("transferencias")
+}
+
+/// El turno de un cajero en el punto de venta de una tienda: de "Crear turno"
+/// al corte de caja. Es al mostrador lo que el reparto es a la ruta: agrupa
+/// los pedidos que se capturaron, se entregaron y se cobraron ahi.
+///
+/// **Un cajero solo puede tener un turno abierto**: lo garantiza un indice
+/// unico parcial sobre `cajeroId WHERE cerradoEn IS NULL`, escrito en la
+/// migracion porque Prisma no sabe expresarlo.
+model TurnoPdv {
+  id    String @id @default(uuid())
+  /// TUR000123, de la secuencia `turnos_pdv_folio_seq`.
+  folio String @unique
+
+  tiendaId String
+  tienda   Tienda @relation(fields: [tiendaId], references: [id])
+
+  /// Congelado con su nombre y sin llave foranea, como en la bitacora.
+  cajeroId     String
+  cajeroNombre String
+
+  abiertoEn DateTime  @default(now())
+  /// El corte de caja. Mientras es null el turno sigue abierto.
+  cerradoEn DateTime?
+
+  /// Lo que dice el sistema que hay en efectivo al cerrar, y lo que el cajero
+  /// conto. Los dos se escriben en el corte y ya no cambian.
+  efectivoCalculado Decimal? @db.Decimal(12, 2)
+  efectivoDeclarado Decimal? @db.Decimal(12, 2)
+  notas             String?
+
+  pedidos Pedido[]
+
+  @@index([tiendaId])
+  @@index([cajeroId, abiertoEn])
+  @@map("turnos_pdv")
+}
+
+model TransferenciaItem {
+  id              String        @id @default(uuid())
+  transferenciaId String
+  transferencia   Transferencia @relation(fields: [transferenciaId], references: [id], onDelete: Cascade)
+  productoId      String
+  producto        Producto      @relation(fields: [productoId], references: [id])
+  cantidad        Int
+
+  @@unique([transferenciaId, productoId])
+  @@map("transferencia_items")
 }
 
 // ============================================================
@@ -668,6 +816,12 @@ model Pedido {
   /// No tiene renglones de camion; su producto cuenta como entregado.
   porFaltante  Boolean   @default(false)
 
+  /// El turno del punto de venta en el que se capturo. Null en los pedidos de
+  /// la app. Dice tambien de que tienda sale la mercancia si se entrega en
+  /// mostrador: la del turno.
+  turnoId String?
+  turno   TurnoPdv? @relation(fields: [turnoId], references: [id])
+
   /// Cashback que gana el pedido, ya con el multiplicador de la billetera. Se
   /// calcula y congela al crearlo, pero no entra a la billetera hasta que el
   /// pago queda PAGADO (`cashbackAcreditadoEn`): un pedido que se cancela antes
@@ -701,6 +855,7 @@ model Pedido {
   @@index([cxcDesde])
   @@index([repartidorId])
   @@index([entregaRutaId])
+  @@index([turnoId])
   @@map("pedidos")
 }
 

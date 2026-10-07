@@ -534,13 +534,15 @@ export class CarritoService {
   async previsualizar(
     clienteId: string,
     dto: PrevisualizarCarritoDto,
+    /** Venta en el punto de venta: la tienda esta abierta si hay un cajero cobrando. */
+    enMostrador = false,
   ): Promise<PrevisualizacionCarritoDto> {
     const [config, porcentaje, saldoBilletera] = await Promise.all([
       this.configuracion.obtener(),
       this.cashback.porcentajePara(clienteId),
       this.saldoBilletera(clienteId),
     ]);
-    const dentroDeHorario = ConfiguracionService.estaDentroDeHorario(config);
+    const dentroDeHorario = enMostrador || ConfiguracionService.estaDentroDeHorario(config);
     const metodoEntrega = dto.metodoEntrega ?? MetodoEntrega.DOMICILIO;
 
     const carrito = await this.resolverTolerante(dto.items);

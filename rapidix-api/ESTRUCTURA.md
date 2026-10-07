@@ -18,6 +18,7 @@ negocio, el [README](README.md); esto es el *dónde está cada cosa*.
 - [`src/admin/` — menú del panel](#srcadmin--menú-del-panel)
 - [`src/catalogo/` — productos y categorías](#srccatalogo--productos-y-categorías)
 - [`src/inventario/` — bodega y bitácora](#srcinventario--bodega-y-bitácora)
+- [`src/tiendas/` — tiendas, su inventario y transferencias](#srctiendas--tiendas-su-inventario-y-transferencias)
 - [`src/clientes/` — perfil, clientes y prospectos](#srcclientes--perfil-clientes-y-prospectos)
 - [`src/pedidos/` — carrito y checkout](#srcpedidos--carrito-y-checkout)
 - [`src/cupones/` — motor de cupones](#srccupones--motor-de-cupones)
@@ -150,7 +151,7 @@ El bootstrap. Cuatro cosas:
 
 ### [app.module.ts](src/app.module.ts)
 
-Registra los 15 módulos y —lo importante— los dos guards globales:
+Registra los módulos y —lo importante— los dos guards globales:
 
 ```ts
 { provide: APP_GUARD, useClass: JwtAuthGuard }   // todo cerrado por defecto
@@ -169,7 +170,7 @@ Registra los 15 módulos y —lo importante— los dos guards globales:
 | [auth.controller.ts](src/auth/auth.controller.ts) | `GET /auth/modo` (qué modos de acceso ofrece la API), `POST /auth/demo/entrar`, `POST /auth/staff/login`, `POST /auth/cliente/solicitar-codigo`, `POST /auth/cliente/verificar-codigo`, `GET /auth/yo`. Todas públicas salvo la última. |
 | [auth.service.ts](src/auth/auth.service.ts) | El corazón. Login de staff con argon2 (verifica siempre contra un hash señuelo aunque el email no exista, para no filtrar por tiempo de respuesta qué correos están dados de alta). Login de cliente en dos pasos con OTP de 6 dígitos, 5 minutos de vigencia y 5 intentos. **`verificarCodigo` busca el teléfono solo en `clientes`**; a quien no esté se le pide el nombre y se hace `upsert` en `prospectos`. Al entrar dispara la evaluación de cupones. Exporta `otpSinEnvio()` y `demoLoginActivo()`. |
 | [jwt-payload.ts](src/auth/jwt-payload.ts) | Forma del token: `sub`, `rol`, `nombre` y `tipo` (CLIENTE/PROSPECTO). Define `ROL_CLIENTE` y `RolToken` (los 4 roles de staff + cliente). |
-| [permisos.ts](src/auth/permisos.ts) | **La matriz.** Las 9 secciones del panel y qué rol entra a cada una, portada literal de la tabla del Word 2.4. Cambiar aquí cambia el acceso en toda la API. |
+| [permisos.ts](src/auth/permisos.ts) | **La matriz.** Las 10 secciones del panel y qué rol entra a cada una, portada literal de la tabla del Word 2.4. Cambiar aquí cambia el acceso en toda la API. |
 | [jwt-auth.guard.ts](src/auth/jwt-auth.guard.ts) | Extrae el `Bearer`, lo verifica y lo deja en `request.user`. Deja pasar lo marcado con `@Public()`. |
 | [roles.guard.ts](src/auth/roles.guard.ts) | Lee `@RequiereSeccion()`, `@Roles()` o `@SoloPersonal()` del handler o la clase y consulta la matriz. Sin ninguno de los tres, basta con estar autenticado. |
 | [public.decorator.ts](src/auth/public.decorator.ts) | `@Public()` — ruta accesible sin token. |
@@ -245,6 +246,52 @@ registra el movimiento que falta, con motivo `AJUSTE`, y queda escrito.
 | [inventario.service.ts](src/inventario/inventario.service.ts) | `saldos()` incluye los agotados a propósito — un producto retirado de la Tienda sigue teniendo mercancía que hay que poder sacar. `registrarLote()` aplica los N renglones en **una sola transacción**: si al tercero no le alcanza, los dos primeros tampoco se guardan. Rechaza los motivos `VENTA`, `ENTREGA` y `RUTA` (esos movimientos los escribe el pedido, y capturarlos a mano descontaría dos veces) y los productos repetidos en un lote. `registrarVenta()` es lo que llama el checkout y `devolverPedido()` lo que llama Finanzas al cancelar: **no reconstruye la devolución desde las líneas del pedido sino desde sus movimientos de `VENTA`**, porque un pedido hecho con el control apagado no descontó nada y sumarle sus líneas inflaría el saldo. `aplicar()` es el único sitio donde cambian los saldos: **la condición de saldo viaja dentro del `WHERE` del propio `UPDATE`**, no en un `SELECT` previo, así que Postgres serializa y dos salidas simultáneas no pueden dejar negativo; si no actualizó ninguna fila (`P2025`) es que no alcanzaba. El «antes» de la bitácora se deduce del delta en vez de consultarse, porque un `SELECT` previo podría leer un saldo que otra transacción ya cambió. `subirARuta()` y `bajarDeRuta()` llevan el tercer saldo, `inventarioEnRuta`: Rutas los llama al recolectar, al quitar un pedido de la entrega, al entregar y al descargar el camión en el corte. No pasan por `aplicar()` ni dejan renglón en la bitácora (su historial es `carga_repartidor`), no dependen de `controlInventario` y nunca rechazan: una resta de más se queda en cero, porque un descuadre suyo no puede impedir cerrar una entrega. A su lado, y solo con el control encendido, van los dos movimientos de físico con motivo `RUTA`: `registrarSalidaARuta()` saca del estante lo que el pedido sube al camión al recolectarse —si no alcanza, `aplicar()` lanza y la recolección se deshace— y `registrarRegresoDeRuta()` devuelve lo que baja, al quitar el pedido de la entrega o en el corte. `registrarEntrega()` queda para la entrega en tienda: de un pedido recolectado ya no encuentra nada que sacar. El pedido por faltante no escribe ningún movimiento. |
 | [salidas-del-pedido.ts](src/inventario/salidas-del-pedido.ts) | Cuentas puras de cuánto mueve un pedido el inventario, deducidas de sus movimientos ya escritos. `salidasARuta()` y `salidasAlEntregar()` son la misma cuenta en dos momentos: sale del físico lo apartado con VENTA de solo APT que sigue en el estante, es decir, lo que aún no salió con ENTREGA ni subió a un camión con RUTA (ni el control apagado ni un pedido viejo vendido con AMBOS bajan dos veces, y un pedido recolectado no vuelve a bajar al entregarse). `regresosDeRuta()`: lo que baja del camión vuelve al físico, y nunca más de lo que el pedido tiene fuera por RUTA, así que uno recolectado antes de que existiera ese motivo no devuelve nada. `devolucionesDeRuta()`: lo rechazado se libera para venta con el alcance de la venta y nunca más de lo vendido menos lo ya devuelto. Probadas en `salidas-del-pedido.spec.ts`. |
 | [dto/movimiento.dto.ts](src/inventario/dto/movimiento.dto.ts) | `RegistrarMovimientosDto` (tipo, afecta, motivo, empleado, líneas) y `BuscarMovimientosDto` (filtros por producto y motivo). |
+
+---
+
+## `src/tiendas/` — tiendas, su inventario y transferencias
+
+Una tienda tiene su propio inventario (`inventario_tienda`), aparte del de
+bodega: es al punto de venta lo que el camión es a la ruta. Se carga con
+**transferencias**, que siguen la lógica del pedido en ruta: bodega la arma
+(se aparta: baja `aptInventario`) y la tienda la «recolecta» al aceptarla (sale
+de `inventario` y entra al inventario de la tienda). Cancelarla, solo mientras
+está pendiente, libera lo apartado. Los tres pasos dejan su renglón en
+`movimientos_inventario` con motivo `TRANSFERENCIA` y `transferenciaId`.
+
+| Archivo | Qué contiene |
+| --- | --- |
+| [tiendas.module.ts](src/tiendas/tiendas.module.ts) | Tres controladores, uno por audiencia, y dos servicios. Exporta `TiendasService` para el punto de venta. |
+| [admin-tiendas.controller.ts](src/tiendas/admin-tiendas.controller.ts) | `GET/POST /admin/configuracion/tiendas` y `PATCH :id`, bajo `configuracion`: nombre, dirección y responsable. **Sin `DELETE`**: una tienda se retira apagando `activa`. |
+| [admin-transferencias.controller.ts](src/tiendas/admin-transferencias.controller.ts) | El lado de bodega, bajo `productos` y con el prefijo `admin/inventario`: `GET tiendas` (destinos activos), `GET/POST transferencias` y `POST transferencias/:id/cancelar`. |
+| [pdv.controller.ts](src/tiendas/pdv.controller.ts) | El lado de la tienda, bajo la sección `pdv`: `GET /admin/pdv/tiendas`, `GET tiendas/:id/inventario`, `GET transferencias` y `POST transferencias/:id/aceptar` (409 `TRANSFERENCIA_RESUELTA` si ya se aceptó o canceló). |
+| [tiendas.service.ts](src/tiendas/tiendas.service.ts) | CRUD de tiendas y su inventario. `entrar()` suma lo aceptado; `salir()` resta lo que el punto de venta entrega: con `controlInventario` encendido la condición de saldo va dentro del `WHERE` (409 `SIN_EXISTENCIA_EN_TIENDA`); apagado, baja hasta donde haya y la venta sigue. |
+| [transferencias.service.ts](src/tiendas/transferencias.service.ts) | `crear()` (todo o nada, folio `TRA000123` de `transferencias_folio_seq`; 409 `TIENDA_INACTIVA`), `aceptar()` y `cancelar()`. Los dos últimos bloquean la fila (`FOR UPDATE`) y exigen que siga pendiente: una doble pulsación de «Aceptar» no saca dos veces la mercancía. Los saldos de bodega los mueve `InventarioService` (`apartarTransferencia`, `sacarTransferencia`, `liberarTransferencia`), sin mirar `controlInventario`: es un movimiento de bodega capturado por una persona. |
+| [dto/](src/tiendas/dto/) | `GuardarTiendaDto`, `CrearTransferenciaDto` (tienda, empleado, observaciones y líneas `productoId` + `cantidad`) y `BuscarTransferenciasDto` (por tienda y estado). |
+
+---
+
+## `src/pdv/` — punto de venta
+
+El mostrador de una tienda. Un **turno** (`turnos_pdv`, folio `TUR000123`) es al
+mostrador lo que el reparto es a la ruta: agrupa los pedidos que un cajero
+captura, entrega y cobra, y se cierra con su corte de caja. **Un cajero solo
+puede tener un turno abierto** (índice único parcial `turnos_pdv_uno_abierto`).
+El pedido guarda su `turnoId`; la tienda de la que sale es la del turno.
+
+No tiene reglas de precio propias: el carrito lo valora `CarritoService` y el
+pedido lo crea `PedidosService.crear`, con su tercer parámetro `mostrador`. Con
+él el pedido no mira el horario de la app ni lleva recargo, lo firma el cajero
+y, si se lleva en mostrador, **no aparta nada en bodega**: sale del inventario
+de la tienda al entregarse.
+
+| Archivo | Qué contiene |
+| --- | --- |
+| [pdv.module.ts](src/pdv/pdv.module.ts) | Importa Pedidos, Catálogo, Tiendas y Configuración. |
+| [turnos.controller.ts](src/pdv/turnos.controller.ts) | Bajo la sección `pdv`, con el prefijo `admin/pdv` (lo comparte con `tiendas/pdv.controller.ts`, que lleva el inventario): `GET turnos/abierto` (200 con `null` si no hay), `GET turnos`, `POST turnos` (409 `TURNO_ABIERTO`), `GET turnos/:id`, `POST turnos/:id/corte` (409 `TURNO_CERRADO`, `TURNO_CON_PENDIENTES`), `POST turnos/:id/previsualizar`, `POST turnos/:id/pedidos` (409 `SIN_DIRECCION`), `POST pedidos/:id/entregar` (409 `NO_ES_DEL_PDV`, `SOLO_EN_TIENDA`, `YA_ENTREGADO`), `GET clientes?telefono=` (200 con `null` si no está registrado), `POST clientes`, `GET clientes/:id/catalogo` y `GET clientes/:id/ultimo-pedido`. |
+| [pdv.service.ts](src/pdv/pdv.service.ts) | `buscarCliente()` busca el teléfono en `clientes` y `prospectos`, con y sin lada; `registrarCliente()` lo da de alta como prospecto, que su primer pedido convierte. `crearPedido()` a domicilio usa la dirección del perfil y sigue por Operaciones y Rutas. `entregar()` hace tres cosas en una transacción: resta del inventario de la tienda, salta el pedido a `ENTREGADO` y lo deja `PAGADO` por `FinanzasService.marcarPagado` (uno a crédito se entrega sin cobrar y pasa a CXC). `cerrar()` bloquea el turno, no deja cortar con pedidos para llevar sin entregar y congela `efectivoCalculado` junto a `efectivoDeclarado`. La caja es de quien la abrió; el administrador puede verla y cerrarla. |
+| [corte-de-caja.ts](src/pdv/corte-de-caja.ts) | Cuentas puras del corte (probadas en `corte-de-caja.spec.ts`): solo suma lo entregado y pagado en mostrador, repartido en efectivo, transferencia y billetera. El pedido a domicilio no pasa por esta caja —lo cobra el repartidor en su corte—, ni el cancelado, ni el entregado a crédito. |
+| [dto/pdv.dto.ts](src/pdv/dto/pdv.dto.ts) | `AbrirTurnoDto`, `BuscarClienteDto`, `RegistrarClienteDto`, `PrevisualizarPdvDto`, `CrearPedidoPdvDto` (sin dirección ni casilla de términos) y `CorteDeCajaDto`. |
 
 ---
 

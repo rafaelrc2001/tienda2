@@ -16,4 +16,5 @@ export const RUTA_POR_SECCION: Record<Seccion, string> = {
   'mis-pedidos': '/perfil/pedidos',
   'mis-cupones': '/cupones',
   clientes: '/admin/clientes',
+  pdv: '/admin/pdv',
 }
