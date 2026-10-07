@@ -30,6 +30,13 @@ export class BuscarClienteDto {
   telefono: string;
 }
 
+/** Lo que el cajero lleva tecleado: de 3 a 10 digitos del telefono. */
+export class SugerirClientesDto {
+  @IsString()
+  @Matches(/^\d{3,10}$/, { message: 'Escribe al menos 3 dígitos del teléfono' })
+  telefono: string;
+}
+
 /** Quien llega al mostrador sin estar registrado: basta su telefono y su nombre. */
 export class RegistrarClienteDto extends BuscarClienteDto {
   @IsString()

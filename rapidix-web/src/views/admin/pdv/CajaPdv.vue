@@ -3,7 +3,8 @@
  * PDV → Punto de Venta: la caja de un turno abierto, en tres columnas.
  *
  *  1. **Teléfono del cliente**, con su teclado: es el mismo identificador con
- *     el que entra a la app. Si no está registrado se le pide el nombre.
+ *     el que entra a la app. Desde el tercer dígito propone los teléfonos ya
+ *     registrados que lo contienen; si no está registrado se le pide el nombre.
  *  2. **Catálogo**, en el orden que ese cliente vería en la Tienda, con
  *     «repite tu última compra».
  *  3. **Resumen del pedido**: cómo se lo lleva, cómo paga y los tres botones.
@@ -51,6 +52,10 @@ const buscando = ref(false)
 const pidiendoNombre = ref(false)
 const nombreNuevo = ref('')
 const errorCliente = ref('')
+/** Registrados cuyo teléfono contiene lo tecleado. Se toca uno y se atiende. */
+const sugerencias = ref<ClientePdv[]>([])
+/** A partir de cuántos dígitos se propone: con menos, casi todos coinciden. */
+const DIGITOS_PARA_SUGERIR = 3
 
 // ---- Catálogo ----
 const catalogo = ref<CatalogoRecomendado | null>(null)
@@ -124,6 +129,52 @@ function borrar(): void {
   telefono.value = telefono.value.slice(0, -1)
 }
 
+let peticionSugerencias = 0
+let esperaSugerencias: ReturnType<typeof setTimeout> | undefined
+
+/**
+ * Se piden con una pausa, no en cada tecla, y las respuestas viejas se
+ * descartan: la lista siempre es la del teléfono que está en el visor.
+ */
+watch(telefono, (escrito) => {
+  const numero = ++peticionSugerencias
+  clearTimeout(esperaSugerencias)
+  if (cliente.value || escrito.length < DIGITOS_PARA_SUGERIR) {
+    sugerencias.value = []
+    return
+  }
+  esperaSugerencias = setTimeout(async () => {
+    try {
+      const encontrados = await http.get<ClientePdv[]>(
+        `/admin/pdv/clientes/sugerencias?telefono=${escrito}`,
+      )
+      if (numero === peticionSugerencias) sugerencias.value = encontrados
+    } catch {
+      // Es una ayuda: si falla, el cajero termina de teclear e ingresa como siempre.
+      if (numero === peticionSugerencias) sugerencias.value = []
+    }
+  }, ESPERA_MS)
+})
+
+/** Los últimos 10 dígitos: como se teclea en el mostrador, sin la lada con que se guardó. */
+function telefonoLocal(guardado: string): string {
+  return guardado.replace(/\D/g, '').slice(-DIGITOS_TELEFONO)
+}
+
+async function elegir(sugerido: ClientePdv): Promise<void> {
+  errorCliente.value = ''
+  telefono.value = telefonoLocal(sugerido.telefono)
+  buscando.value = true
+  try {
+    await atender(sugerido)
+  } catch (fallo) {
+    cliente.value = null
+    errorCliente.value = fallo instanceof ErrorApi ? fallo.message : 'No pudimos cargar al cliente.'
+  } finally {
+    buscando.value = false
+  }
+}
+
 function alEscribirTelefono(evento: Event): void {
   const entrada = evento.target as HTMLInputElement
   telefono.value = entrada.value.replace(/\D/g, '').slice(0, DIGITOS_TELEFONO)
@@ -175,6 +226,9 @@ async function registrar(): Promise<void> {
 async function atender(encontrado: ClientePdv): Promise<void> {
   cliente.value = encontrado
   pidiendoNombre.value = false
+  peticionSugerencias++
+  clearTimeout(esperaSugerencias)
+  sugerencias.value = []
   const [suCatalogo, suUltimo] = await Promise.all([
     http.get<CatalogoRecomendado>(`/admin/pdv/clientes/${encontrado.id}/catalogo`),
     http.get<UltimoPedido | null>(`/admin/pdv/clientes/${encontrado.id}/ultimo-pedido`),
@@ -257,7 +311,10 @@ watch(
   { deep: true },
 )
 
-onBeforeUnmount(() => clearTimeout(temporizador))
+onBeforeUnmount(() => {
+  clearTimeout(temporizador)
+  clearTimeout(esperaSugerencias)
+})
 
 async function confirmar(): Promise<void> {
   if (!puedeConfirmar.value || !cliente.value || !previa.value) return
@@ -342,6 +399,19 @@ function limpiar(): void {
         @input="alEscribirTelefono"
         @keydown.enter="ingresar"
       />
+
+      <ul
+        v-if="sugerencias.length > 0 && !cliente"
+        class="sugerencias"
+        aria-label="Clientes registrados"
+      >
+        <li v-for="s in sugerencias" :key="s.id">
+          <button type="button" :disabled="buscando" @click="elegir(s)">
+            <span class="s-telefono">{{ telefonoLocal(s.telefono) }}</span>
+            <span class="s-nombre">{{ s.nombre }}</span>
+          </button>
+        </li>
+      </ul>
 
       <div class="teclado">
         <button
@@ -741,6 +811,49 @@ function limpiar(): void {
 
 .visor:disabled {
   background: var(--cream);
+  color: var(--muted);
+}
+
+.sugerencias {
+  list-style: none;
+  margin: -4px 0 10px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  overflow: hidden;
+}
+
+.sugerencias li + li {
+  border-top: 1px solid var(--line);
+}
+
+.sugerencias button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: var(--white);
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.sugerencias button:hover,
+.sugerencias button:focus-visible {
+  background: var(--cream);
+}
+
+.s-telefono {
+  display: block;
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+}
+
+.s-nombre {
+  display: block;
+  font-size: 11px;
   color: var(--muted);
 }
 

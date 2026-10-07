@@ -14,6 +14,7 @@ import {
   CrearPedidoPdvDto,
   PrevisualizarPdvDto,
   RegistrarClienteDto,
+  SugerirClientesDto,
 } from './dto/pdv.dto';
 
 /**
@@ -100,6 +101,12 @@ export class TurnosController {
     @UsuarioActual() usuario: UsuarioAutenticado,
   ): Promise<PedidoDto> {
     return this.pdv.entregar(id, usuario);
+  }
+
+  /** Autocompletado: los registrados cuyo telefono contiene lo tecleado. */
+  @Get('clientes/sugerencias')
+  sugerirClientes(@Query() dto: SugerirClientesDto): Promise<ClientePdvDto[]> {
+    return this.pdv.sugerirClientes(dto.telefono);
   }
 
   /** 200 con `null` si ese telefono no esta registrado: toca pedir el nombre. */
