@@ -123,6 +123,9 @@ const pasos = computed<{ id: Paso; titulo: string; resumen: string }[]>(() => [
   },
 ])
 
+/** Lo que el pedido le dejaría en su monedero. En cero con la orden vacía. */
+const monedero = computed(() => previa.value?.cashbackBilletera ?? 0)
+
 /** Sin cliente no hay catálogo ni pedido que abrir: primero el teléfono. */
 function abrir(destino: Paso): void {
   if (destino !== 'telefono' && !cliente.value) return
@@ -709,29 +712,20 @@ function limpiar(): void {
                 {{ e.piso }}
               </button>
             </div>
-            <!-- Quitarlo entero de un toque: con el «−» habría que pulsar pieza por pieza. -->
-            <button
-              v-if="(cantidades[p.id] ?? 0) > 0"
-              type="button"
-              class="quitar-producto"
-              :disabled="bloqueada"
-              @click="fijar(p.id, 0)"
-            >
-              Quitar
-            </button>
           </article>
         </div>
 
         <!--
           La barra de compra de la Tienda: lo que suman los productos y lo que
-          el pedido le dejaría en su monedero. Sin productos no se pinta.
+          el pedido le dejaría en su monedero. Aquí va siempre a la vista, con
+          la orden vacía en ceros: el cajero la tiene de referencia desde que
+          abre el catálogo.
         -->
-        <div v-if="items.length > 0" class="barra-compra">
+        <div class="barra-compra">
           <span
-            v-if="previa && previa.cashbackBilletera > 0"
             class="cashback-tile"
-            :aria-label="`Gana ${dinero(previa.cashbackBilletera)} en su monedero electrónico`"
-            :title="`Gana ${dinero(previa.cashbackBilletera)} en su monedero electrónico`"
+            :aria-label="`Gana ${dinero(monedero)} en su monedero electrónico`"
+            :title="`Gana ${dinero(monedero)} en su monedero electrónico`"
           >
             <svg
               viewBox="0 0 24 24"
@@ -746,12 +740,19 @@ function limpiar(): void {
               <rect x="2" y="8.5" width="16" height="11" rx="2" />
               <circle cx="10" cy="14" r="2.3" />
             </svg>
-            <span class="cashback-monto">{{ dinero(previa.cashbackBilletera) }}</span>
+            <span class="cashback-monto">{{ dinero(monedero) }}</span>
           </span>
 
-          <button type="button" class="comprar" @click="abrir('pedido')">
+          <button
+            type="button"
+            class="comprar"
+            :disabled="items.length === 0"
+            @click="abrir('pedido')"
+          >
             Comprar ahora:
-            <span class="amt">{{ previa ? dinero(previa.subtotal) : '…' }}</span>
+            <span class="amt">
+              {{ previa ? dinero(previa.subtotal) : items.length === 0 ? dinero(0) : '…' }}
+            </span>
           </button>
         </div>
       </template>
@@ -810,16 +811,32 @@ function limpiar(): void {
                   </button>
                 </td>
                 <td class="num">
-                  {{ dinero(linea.importe) }}
-                  <button
-                    type="button"
-                    class="quitar"
-                    :aria-label="`Quitar ${linea.nombre}`"
-                    :disabled="bloqueada"
-                    @click="fijar(linea.productoId, 0)"
-                  >
-                    🗑
-                  </button>
+                  <div class="celda-importe">
+                    {{ dinero(linea.importe) }}
+                    <!-- El mismo bote rojo del carrito de la app: quita la línea entera. -->
+                    <button
+                      type="button"
+                      class="quitar"
+                      :aria-label="`Quitar ${linea.nombre}`"
+                      :disabled="bloqueada"
+                      @click="fijar(linea.productoId, 0)"
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M3 6h18" />
+                        <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
+                        <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                        <path d="M10 11v6M14 11v6" />
+                      </svg>
+                    </button>
+                  </div>
                 </td>
               </tr>
             </tbody>
@@ -1463,25 +1480,6 @@ function limpiar(): void {
   color: var(--terracotta-dark);
 }
 
-.quitar-producto {
-  display: block;
-  margin: 6px auto 0;
-  border: none;
-  background: none;
-  color: var(--terracotta-dark);
-  font-family: var(--font-heading);
-  font-weight: 700;
-  font-size: 11px;
-  text-decoration: underline;
-  cursor: pointer;
-  padding: 4px 8px;
-}
-
-.quitar-producto:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
 /* La barra de compra de la Tienda, pegada al pie de la columna. */
 .barra-compra {
   position: sticky;
@@ -1542,6 +1540,11 @@ function limpiar(): void {
 
 .comprar .amt {
   font-weight: 800;
+}
+
+.comprar:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 
 .stepper button,
@@ -1631,12 +1634,31 @@ function limpiar(): void {
   font-size: 12px;
 }
 
+.celda-importe {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .quitar {
-  border: none;
-  background: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 8px;
+  border: 1.5px solid color-mix(in srgb, var(--terracotta) 35%, var(--white));
+  background: color-mix(in srgb, var(--terracotta) 10%, var(--white));
+  color: var(--terracotta-dark);
   cursor: pointer;
-  font-size: 12px;
-  padding: 0 0 0 2px;
+}
+
+.quitar svg {
+  width: 15px;
+  height: 15px;
 }
 
 .aviso-linea {
