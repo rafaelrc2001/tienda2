@@ -1479,9 +1479,14 @@ function limpiar(): void {
  * Ocupa el ancho de la tarjeta y no más: en el teléfono las tarjetas bajan a
  * 150px y los dos botones con el campo a su ancho fijo se salían por el borde.
  * Los botones no ceden —son el blanco del dedo—; quien se encoge es el campo.
+ *
+ * Va en rejilla y no en flex: las tres columnas quedan fijadas por el
+ * contenedor y no por lo que cada control diga medir, que en Safari de iPhone
+ * no coincide con el resto (el campo no cedía y el «+» acababa descentrado).
  */
 .stepper {
-  display: flex;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 58px) 42px;
   align-items: center;
   justify-content: center;
   gap: 6px;
@@ -1492,18 +1497,18 @@ function limpiar(): void {
 
 /* Botones de dedo: en la caja se toca, no se apunta con ratón. */
 .producto .stepper button {
-  flex-shrink: 0;
   width: 42px;
   height: 42px;
-  padding: 0;
   font-size: 22px;
 }
 
-/* Blanco con borde: se ve que ahí se escribe. */
+/* Blanco con borde: se ve que ahí se escribe. El ancho lo da su columna. */
 .cantidad {
-  flex: 0 1 58px;
   min-width: 0;
-  width: 58px;
+  width: 100%;
+  margin: 0;
+  -webkit-appearance: none;
+  appearance: none;
   height: 42px;
   border: 1.5px solid var(--line);
   border-radius: 10px;
@@ -1597,8 +1602,21 @@ function limpiar(): void {
   cursor: default;
 }
 
+/*
+ * Safari de iPhone le pone a los botones su propio relleno, margen y aspecto:
+ * en un círculo de ancho fijo ese relleno se come el hueco del signo y lo deja
+ * corrido. Se anulan y el signo se centra con flex, no con la línea de texto.
+ */
 .stepper button,
 .cant button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  vertical-align: middle;
   width: 26px;
   height: 26px;
   border-radius: 50%;
