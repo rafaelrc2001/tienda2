@@ -21,11 +21,11 @@ export interface PedidoDelTurno {
 export interface TotalesDelTurno {
   /** Todos los que se capturaron en el turno, cancelados incluidos. */
   pedidos: number;
-  /** Entregados y cobrados en el mostrador: son los que suman a la caja. */
+  /** Los que suman a la caja: ver `cobradoEnCaja`. */
   cobrados: number;
   /** Confirmados para llevar que nadie ha entregado: impiden cerrar el turno. */
   porEntregar: number;
-  /** Se capturaron aqui pero salen por Rutas: su dinero no pasa por esta caja. */
+  /** Se cobraron aqui pero los entrega Rutas. Ya van contados en `cobrados`. */
   aDomicilio: number;
   cancelados: number;
   /** Lo que valen los cobrados. */
@@ -36,17 +36,19 @@ export interface TotalesDelTurno {
 }
 
 /**
- * Si el pedido se entrego y se cobro en el mostrador.
+ * Si el dinero del pedido esta en esta caja.
  *
- * El que va a domicilio no cuenta aunque se haya capturado en el turno: lo
- * cobra el repartidor y entra a su corte, y contarlo aqui lo sumaria dos
- * veces. Tampoco el que se entrego a credito: nadie pago nada en caja.
+ * El punto de venta cobra de contado, asi que el que va a domicilio cuenta
+ * desde que se confirma: el cajero ya recibio el dinero y Rutas solo lo
+ * lleva (el repartidor no cobra un pedido pagado, asi que no se suma dos
+ * veces). El que se lleva en mostrador cuenta al entregarse; mientras tanto
+ * es un pendiente que impide el corte. El entregado a credito no cuenta:
+ * nadie pago nada en caja.
  */
 export function cobradoEnCaja(pedido: PedidoDelTurno): boolean {
+  if (pedido.estadoPago !== EstadoPago.PAGADO) return false;
   return (
-    pedido.metodoEntrega === MetodoEntrega.TIENDA &&
-    pedido.estado === EstadoPedido.ENTREGADO &&
-    pedido.estadoPago === EstadoPago.PAGADO
+    pedido.metodoEntrega === MetodoEntrega.DOMICILIO || pedido.estado === EstadoPedido.ENTREGADO
   );
 }
 
@@ -57,6 +59,63 @@ export function porEntregarEnCaja(pedido: PedidoDelTurno): boolean {
     pedido.estado !== EstadoPedido.ENTREGADO &&
     pedido.estadoPago !== EstadoPago.CANCELADO
   );
+}
+
+/** Lo minimo de un pedido para contar lo que salio de la tienda. */
+export interface PedidoConProductos {
+  estado: EstadoPedido;
+  estadoPago: EstadoPago;
+  metodoEntrega: MetodoEntrega;
+  items: {
+    productoId: string;
+    nombre: string;
+    unidad: string;
+    cantidad: number;
+    importe: Decimal | number;
+  }[];
+}
+
+/** Un producto con todo lo que el turno entrego de el. */
+export interface ProductoEntregado {
+  productoId: string;
+  nombre: string;
+  unidad: string;
+  cantidad: number;
+  importe: Decimal;
+}
+
+/**
+ * Lo que el turno entrego en el mostrador, sumado por producto y en orden
+ * alfabetico: es lo que salio del inventario de la tienda.
+ *
+ * Cuenta tambien lo entregado a credito, que `cobradoEnCaja` deja fuera: no
+ * dejo dinero en caja, pero la mercancia si salio. Lo que va a domicilio sale
+ * de bodega y no aparece aqui.
+ */
+export function productosEntregados(pedidos: PedidoConProductos[]): ProductoEntregado[] {
+  const porProducto = new Map<string, ProductoEntregado>();
+  for (const pedido of pedidos) {
+    if (
+      pedido.metodoEntrega !== MetodoEntrega.TIENDA ||
+      pedido.estado !== EstadoPedido.ENTREGADO ||
+      pedido.estadoPago === EstadoPago.CANCELADO
+    ) {
+      continue;
+    }
+    for (const item of pedido.items) {
+      const suma = porProducto.get(item.productoId) ?? {
+        productoId: item.productoId,
+        nombre: item.nombre,
+        unidad: item.unidad,
+        cantidad: 0,
+        importe: new Decimal(0),
+      };
+      suma.cantidad += item.cantidad;
+      suma.importe = suma.importe.add(item.importe);
+      porProducto.set(item.productoId, suma);
+    }
+  }
+  return [...porProducto.values()].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
 }
 
 export function totalesDelTurno(pedidos: PedidoDelTurno[]): TotalesDelTurno {
@@ -77,10 +136,8 @@ export function totalesDelTurno(pedidos: PedidoDelTurno[]): TotalesDelTurno {
       totales.cancelados++;
       continue;
     }
-    if (pedido.metodoEntrega === MetodoEntrega.DOMICILIO) {
-      totales.aDomicilio++;
-      continue;
-    }
+    // Se cuenta aparte y ademas sigue hacia abajo: su dinero tambien es de la caja.
+    if (pedido.metodoEntrega === MetodoEntrega.DOMICILIO) totales.aDomicilio++;
     if (porEntregarEnCaja(pedido)) {
       totales.porEntregar++;
       continue;

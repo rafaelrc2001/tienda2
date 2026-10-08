@@ -1,5 +1,5 @@
 import { EstadoPago, EstadoPedido, MetodoEntrega, MetodoPago, Prisma } from '@prisma/client';
-import { PedidoDelTurno, totalesDelTurno } from './corte-de-caja';
+import { PedidoDelTurno, productosEntregados, totalesDelTurno } from './corte-de-caja';
 
 const Decimal = Prisma.Decimal;
 
@@ -14,6 +14,36 @@ function pedido(cambios: Partial<Omit<PedidoDelTurno, 'total'>> & { total?: numb
     total: new Decimal(cambios.total ?? 100),
   } as PedidoDelTurno;
 }
+
+describe('productosEntregados', () => {
+  const linea = (productoId: string, cantidad: number, importe: number) => ({
+    productoId,
+    nombre: `Producto ${productoId}`,
+    unidad: 'Pz',
+    cantidad,
+    importe,
+  });
+
+  it('suma el mismo producto de varios pedidos entregados', () => {
+    const productos = productosEntregados([
+      { ...pedido(), items: [linea('b', 2, 20.1), linea('a', 1, 5)] },
+      { ...pedido(), items: [linea('b', 3, 30.2)] },
+    ]);
+    expect(productos.map((p) => p.productoId)).toEqual(['a', 'b']);
+    expect(productos[1].cantidad).toBe(5);
+    expect(productos[1].importe.toNumber()).toBe(50.3);
+  });
+
+  it('deja fuera lo que no se entrego en el mostrador', () => {
+    const productos = productosEntregados([
+      { ...pedido({ estado: EstadoPedido.CONFIRMADO }), items: [linea('a', 1, 5)] },
+      { ...pedido({ metodoEntrega: MetodoEntrega.DOMICILIO }), items: [linea('b', 1, 5)] },
+      { ...pedido({ estadoPago: EstadoPago.CANCELADO }), items: [linea('c', 1, 5)] },
+      { ...pedido({ estadoPago: EstadoPago.CREDITO }), items: [linea('d', 1, 5)] },
+    ]);
+    expect(productos.map((p) => p.productoId)).toEqual(['d']);
+  });
+});
 
 describe('totalesDelTurno', () => {
   it('un turno sin pedidos esta en ceros', () => {
@@ -51,10 +81,21 @@ describe('totalesDelTurno', () => {
     expect(t.efectivo.toNumber()).toBe(0);
   });
 
-  it('el pedido a domicilio no pasa por la caja aunque ya este pagado', () => {
-    const t = totalesDelTurno([pedido({ metodoEntrega: MetodoEntrega.DOMICILIO })]);
+  it('el pedido a domicilio se cobra en caja aunque Rutas no lo haya entregado', () => {
+    const t = totalesDelTurno([
+      pedido({ metodoEntrega: MetodoEntrega.DOMICILIO, estado: EstadoPedido.CONFIRMADO }),
+    ]);
     expect(t.aDomicilio).toBe(1);
     expect(t.porEntregar).toBe(0);
+    expect(t.cobrados).toBe(1);
+    expect(t.efectivo.toNumber()).toBe(100);
+  });
+
+  it('el pedido a domicilio que quedo pendiente de pago no suma', () => {
+    const t = totalesDelTurno([
+      pedido({ metodoEntrega: MetodoEntrega.DOMICILIO, estadoPago: EstadoPago.PAGO_PENDIENTE }),
+    ]);
+    expect(t.aDomicilio).toBe(1);
     expect(t.ventas.toNumber()).toBe(0);
   });
 

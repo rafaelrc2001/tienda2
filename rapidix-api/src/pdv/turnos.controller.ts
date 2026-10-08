@@ -3,10 +3,15 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { RequiereSeccion } from '../auth/seccion.decorator';
 import { UsuarioActual } from '../auth/usuario-actual.decorator';
 import { UsuarioAutenticado } from '../auth/jwt-payload';
-import { CatalogoRecomendadoDto } from '../catalogo/recomendaciones.service';
 import { PrevisualizacionCarritoDto } from '../pedidos/carrito.service';
 import { PedidoDto, UltimoPedidoDto } from '../pedidos/pedidos.service';
-import { ClientePdvDto, PdvService, TurnoConPedidosDto, TurnoDto } from './pdv.service';
+import {
+  CatalogoPdvDto,
+  ClientePdvDto,
+  PdvService,
+  TurnoConPedidosDto,
+  TurnoDto,
+} from './pdv.service';
 import {
   AbrirTurnoDto,
   BuscarClienteDto,
@@ -132,9 +137,10 @@ export class TurnosController {
     return this.pdv.registrarCliente(dto);
   }
 
+  /** El catalogo de ese cliente con lo que tiene la tienda desde la que se vende. */
   @Get('clientes/:id/catalogo')
-  catalogo(@Param('id') id: string): Promise<CatalogoRecomendadoDto> {
-    return this.pdv.catalogo(id);
+  catalogo(@Param('id') id: string, @Query() dto: DeLaTiendaDto): Promise<CatalogoPdvDto> {
+    return this.pdv.catalogo(id, dto.tiendaId);
   }
 
   @Get('clientes/:id/ultimo-pedido')

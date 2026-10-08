@@ -1,5 +1,5 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, Tienda } from '@prisma/client';
+import { EstadoPago, EstadoPedido, MetodoEntrega, Prisma, Tienda } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { LineaAMover } from '../inventario/salidas-del-pedido';
 import { GuardarTiendaDto } from './dto/tienda.dto';
@@ -11,6 +11,15 @@ export interface ExistenciaTiendaDto {
   categoria: string;
   unidad: string;
   cantidad: number;
+}
+
+/** Un producto del que la tienda no tiene lo que se le pide. */
+export interface FaltanteEnTienda {
+  productoId: string;
+  nombre: string;
+  pedido: number;
+  /** Lo que queda libre: lo que hay menos lo ya prometido en pedidos sin entregar. */
+  disponible: number;
 }
 
 /**
@@ -139,6 +148,96 @@ export class TiendasService {
         });
       }
     }
+  }
+
+  /**
+   * Lo que la tienda puede vender de cada producto: `productoId` -> piezas.
+   * El que no aparece esta en cero. Sin `ids`, todos los que tiene.
+   *
+   * No mira `controlInventario`: lo que hay en la tienda entro por
+   * transferencias aceptadas, asi que es un saldo capturado y no el cero con
+   * el que nace la bodega.
+   *
+   * El saldo baja hasta la entrega, asi que a lo que hay se le quita lo que
+   * ya esta prometido en pedidos de mostrador sin entregar: si no, dos
+   * pedidos confirmarian la misma pieza y el segundo chocaria al entregarse.
+   */
+  async disponibles(tiendaId: string, ids?: string[]): Promise<Map<string, number>> {
+    const deEsos = ids && { productoId: { in: ids } };
+    const [existencias, prometidas] = await Promise.all([
+      this.prisma.inventarioTienda.findMany({
+        where: { tiendaId, ...deEsos },
+        select: { productoId: true, cantidad: true },
+      }),
+      this.prisma.pedidoItem.groupBy({
+        by: ['productoId'],
+        where: {
+          ...deEsos,
+          pedido: {
+            turno: { tiendaId },
+            metodoEntrega: MetodoEntrega.TIENDA,
+            estado: { not: EstadoPedido.ENTREGADO },
+            estadoPago: { not: EstadoPago.CANCELADO },
+          },
+        },
+        _sum: { cantidad: true },
+      }),
+    ]);
+
+    const prometido = new Map(prometidas.map((p) => [p.productoId, p._sum.cantidad ?? 0]));
+    return new Map(
+      existencias.map((e) => [
+        e.productoId,
+        Math.max(e.cantidad - (prometido.get(e.productoId) ?? 0), 0),
+      ]),
+    );
+  }
+
+  /**
+   * Lo que la tienda no alcanza a surtir de esas lineas. Vacio es que hay de
+   * todo.
+   *
+   * Lo llama el punto de venta antes de confirmar un pedido: no se captura lo
+   * que no esta en el anaquel.
+   */
+  async faltantes(tiendaId: string, lineas: LineaAMover[]): Promise<FaltanteEnTienda[]> {
+    const pedidas = new Map<string, number>();
+    for (const l of lineas) {
+      if (l.cantidad <= 0) continue;
+      pedidas.set(l.productoId, (pedidas.get(l.productoId) ?? 0) + l.cantidad);
+    }
+    const ids = [...pedidas.keys()];
+    if (ids.length === 0) return [];
+
+    const [disponibles, productos] = await Promise.all([
+      this.disponibles(tiendaId, ids),
+      this.prisma.producto.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, nombre: true },
+      }),
+    ]);
+    const nombres = new Map(productos.map((p) => [p.id, p.nombre]));
+
+    const faltantes: FaltanteEnTienda[] = [];
+    for (const [productoId, pedido] of pedidas) {
+      const disponible = disponibles.get(productoId) ?? 0;
+      if (pedido > disponible) {
+        faltantes.push({
+          productoId,
+          nombre: nombres.get(productoId) ?? 'Ese producto',
+          pedido,
+          disponible,
+        });
+      }
+    }
+    return faltantes;
+  }
+
+  /** El faltante dicho como se lo lee el cajero. */
+  static mensajeDeFaltante(f: FaltanteEnTienda): string {
+    return f.disponible === 0
+      ? `${f.nombre}: la tienda no tiene existencias.`
+      : `${f.nombre}: pides ${f.pedido} y la tienda solo tiene ${f.disponible}.`;
   }
 
   // ----------------------------------------------------------------

@@ -188,7 +188,8 @@ export class PedidosService {
    * cambian cuatro cosas: no mira el horario de la app (si hay cajero, la
    * tienda esta abierta, y no hay recargo), queda atado a su turno, lo firma
    * el cajero y —si se lleva en mostrador— no aparta nada en bodega: esa
-   * mercancia sale del inventario de la tienda al entregarse.
+   * mercancia sale del inventario de la tienda al entregarse. Y nace
+   * PAGADO, vaya a donde vaya: el punto de venta cobra de contado.
    */
   async crear(
     duenioId: string,
@@ -306,8 +307,24 @@ export class PedidosService {
       // Cubierto entero con la billetera no hay nada que cobrar. Si no, nace en
       // PAGO_PENDIENTE sea cual sea el metodo: Finanzas decide si lo libera
       // para entregar (efectivo) o lo marca pagado (transferencia validada).
-      const estadoPago = aPagar.greaterThan(0) ? EstadoPago.PAGO_PENDIENTE : EstadoPago.PAGADO;
+      //
+      // El punto de venta es de contado: el cajero recibe ahi mismo lo que la
+      // billetera no cubrio, se lo lleve el cliente o se le mande a domicilio.
+      // El saldo queda en cero y por eso nace pagado. En efectivo tiene que
+      // decir con cuanto paga: sin ese monto no hay constancia de que cubrio
+      // el total (que alcance ya lo reviso `evaluarPago`).
       const enEfectivo = dto.metodoPago === MetodoPago.EFECTIVO && aPagar.greaterThan(0);
+      const deContado = mostrador !== undefined;
+      if (deContado && enEfectivo && dto.pagoCon === undefined) {
+        throw new BadRequestException({
+          statusCode: 400,
+          code: 'PAGO_CON_REQUERIDO',
+          message: 'Escribe con cuánto paga: en el punto de venta el pedido se cobra completo.',
+        });
+      }
+      const estadoPago =
+        aPagar.greaterThan(0) && !deContado ? EstadoPago.PAGO_PENDIENTE : EstadoPago.PAGADO;
+      const saleDeLaTienda = mostrador !== undefined && metodoEntrega === MetodoEntrega.TIENDA;
 
       const folio = await PedidosService.siguienteFolio(tx);
       const ahora = new Date();
@@ -407,7 +424,6 @@ export class PedidosService {
       // Lo que se lleva en el mostrador del punto de venta tampoco pasa por
       // aqui: no sale de bodega sino del inventario de la tienda, y eso lo
       // descuenta la entrega.
-      const saleDeLaTienda = mostrador !== undefined && metodoEntrega === MetodoEntrega.TIENDA;
       if (config.controlInventario && !saleDeLaTienda) {
         await this.inventario.registrarVenta(
           tx,
