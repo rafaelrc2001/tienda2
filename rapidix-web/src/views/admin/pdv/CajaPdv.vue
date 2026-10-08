@@ -811,16 +811,32 @@ function limpiar(): void {
                   </button>
                 </td>
                 <td class="num">
-                  {{ dinero(linea.importe) }}
-                  <button
-                    type="button"
-                    class="quitar"
-                    :aria-label="`Quitar ${linea.nombre}`"
-                    :disabled="bloqueada"
-                    @click="fijar(linea.productoId, 0)"
-                  >
-                    🗑
-                  </button>
+                  <div class="celda-importe">
+                    {{ dinero(linea.importe) }}
+                    <!-- El mismo bote rojo del carrito de la app: quita la línea entera. -->
+                    <button
+                      type="button"
+                      class="quitar"
+                      :aria-label="`Quitar ${linea.nombre}`"
+                      :disabled="bloqueada"
+                      @click="fijar(linea.productoId, 0)"
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M3 6h18" />
+                        <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
+                        <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                        <path d="M10 11v6M14 11v6" />
+                      </svg>
+                    </button>
+                  </div>
                 </td>
               </tr>
             </tbody>
@@ -1618,12 +1634,31 @@ function limpiar(): void {
   font-size: 12px;
 }
 
+.celda-importe {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .quitar {
-  border: none;
-  background: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 8px;
+  border: 1.5px solid color-mix(in srgb, var(--terracotta) 35%, var(--white));
+  background: color-mix(in srgb, var(--terracotta) 10%, var(--white));
+  color: var(--terracotta-dark);
   cursor: pointer;
-  font-size: 12px;
-  padding: 0 0 0 2px;
+}
+
+.quitar svg {
+  width: 15px;
+  height: 15px;
 }
 
 .aviso-linea {
