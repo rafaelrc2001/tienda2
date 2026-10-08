@@ -3,8 +3,9 @@
  * PDV → Corte de caja: el cierre del turno.
  *
  * Arriba, el turno abierto con lo que suman sus pedidos —los que se entregaron
- * y se cobraron en el mostrador— y el campo donde el cajero escribe el
- * efectivo que contó. Abajo, los turnos ya cortados con su diferencia.
+ * y se cobraron en el mostrador—, la tabla de esos pedidos —de donde se
+ * entrega el que se confirmó y se soltó de la caja— y el campo donde el cajero
+ * escribe el efectivo que contó. Abajo, los turnos ya cortados con su diferencia.
  *
  * Los totales los da la API. Un pedido a domicilio capturado en el turno no
  * suma a esta caja: lo cobra el repartidor y entra a su corte de ruta.
@@ -12,9 +13,9 @@
 import { computed, onMounted, ref } from 'vue'
 import { ErrorApi, http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
-import { dinero, fechaHora } from '@/utils/formato'
+import { dinero, fechaHora, nombreEstadoPago, nombreEstadoPedido } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
-import type { Tienda, TurnoPdv } from '@/api/tipos'
+import type { Pedido, Tienda, TurnoPdv, TurnoPdvConPedidos } from '@/api/tipos'
 
 /** La tienda desde la que se mira el PDV: el turno y los cortes son los suyos. */
 const props = defineProps<{ tienda: Tienda }>()
@@ -29,9 +30,10 @@ const declarado = ref('')
 const notas = ref('')
 const errorCorte = ref('')
 const cortando = ref(false)
+const entregando = ref('')
 
 /** El abierto de quien mira. El administrador ve también los de otros cajeros, en la tabla. */
-const abierto = ref<TurnoPdv | null>(null)
+const abierto = ref<TurnoPdvConPedidos | null>(null)
 const cerrados = computed(() => turnos.value.filter((t) => t.id !== abierto.value?.id))
 
 onMounted(cargar)
@@ -41,7 +43,9 @@ async function cargar(): Promise<void> {
   error.value = ''
   try {
     const [mio, todos] = await Promise.all([
-      http.get<TurnoPdv | null>(`/admin/pdv/turnos/abierto?tiendaId=${props.tienda.id}`),
+      http.get<TurnoPdvConPedidos | null>(
+        `/admin/pdv/turnos/abierto?tiendaId=${props.tienda.id}`,
+      ),
       http.get<TurnoPdv[]>(`/admin/pdv/turnos?tiendaId=${props.tienda.id}`),
     ])
     abierto.value = mio
@@ -81,6 +85,31 @@ async function hacerCorte(): Promise<void> {
     errorCorte.value = fallo instanceof ErrorApi ? fallo.message : 'No pudimos hacer el corte.'
   } finally {
     cortando.value = false
+  }
+}
+
+function porEntregar(pedido: Pedido): boolean {
+  return (
+    pedido.metodoEntrega === 'TIENDA' &&
+    pedido.estado !== 'ENTREGADO' &&
+    pedido.pago.estado !== 'CANCELADO'
+  )
+}
+
+/** Entregar desde la tabla: el pedido que se confirmó y se soltó de la caja. */
+async function entregar(pedido: Pedido): Promise<void> {
+  if (!confirm(`¿Entregar y cobrar el pedido ${pedido.folio} (${dinero(pedido.pago.aPagar)})?`)) {
+    return
+  }
+  entregando.value = pedido.id
+  try {
+    await http.post(`/admin/pdv/pedidos/${pedido.id}/entregar`)
+    ui.exito(`Pedido ${pedido.folio} entregado y cobrado`)
+  } catch (fallo) {
+    ui.errorDeApi(fallo)
+  } finally {
+    entregando.value = ''
+    await cargar()
   }
 }
 
@@ -156,6 +185,53 @@ function diferencia(turno: TurnoPdv): string {
           </table>
         </div>
 
+        <h4>Pedidos del turno</h4>
+        <div v-if="abierto.pedidos.length > 0" class="tabla-envoltorio">
+          <table class="tabla tabla-pedidos">
+            <thead>
+              <tr>
+                <th>Folio</th>
+                <th>Cliente</th>
+                <th>Entrega</th>
+                <th>Pago</th>
+                <th class="num">Total</th>
+                <th>Estatus</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="p in abierto.pedidos" :key="p.id">
+                <td>
+                  <span class="folio">{{ p.folio }}</span>
+                  <span class="sub">{{ fechaHora(p.creadoEn) }}</span>
+                </td>
+                <td>{{ p.clienteNombre }}</td>
+                <td>{{ p.metodoEntrega === 'TIENDA' ? 'En tienda' : 'A domicilio' }}</td>
+                <td>
+                  {{ p.pago.metodo === 'EFECTIVO' ? 'Efectivo' : 'Transferencia' }}
+                  <span class="sub">{{ nombreEstadoPago(p.pago.estado) }}</span>
+                </td>
+                <td class="num">{{ dinero(p.total) }}</td>
+                <td>
+                  <span class="mini-tag">{{ nombreEstadoPedido(p.estado, p.pago.estado) }}</span>
+                </td>
+                <td class="num">
+                  <button
+                    v-if="porEntregar(p)"
+                    type="button"
+                    class="btn-primary entregar"
+                    :disabled="entregando !== ''"
+                    @click="entregar(p)"
+                  >
+                    {{ entregando === p.id ? 'Entregando…' : 'Entregado' }}
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p v-else class="empty-block">Todavía no hay pedidos en este turno.</p>
+
         <div class="zona-captura">
           <label class="form-label" for="corte-efectivo">Efectivo contado en caja</label>
           <input
@@ -173,8 +249,8 @@ function diferencia(turno: TurnoPdv): string {
         </div>
 
         <p v-if="abierto.totales.porEntregar > 0" class="form-error">
-          Hay {{ abierto.totales.porEntregar }} pedido(s) sin entregar: entrégalos en Punto de Venta
-          antes del corte.
+          Hay {{ abierto.totales.porEntregar }} pedido(s) sin entregar: entrégalos en la tabla de
+          arriba antes del corte.
         </p>
         <p v-if="errorCorte" class="form-error">{{ errorCorte }}</p>
 
@@ -282,6 +358,15 @@ h4:not(:first-child) {
 
 .tabla-turnos {
   min-width: 760px;
+}
+
+.tabla-pedidos {
+  min-width: 620px;
+}
+
+.entregar {
+  width: auto;
+  padding: 0 16px;
 }
 
 .sub {

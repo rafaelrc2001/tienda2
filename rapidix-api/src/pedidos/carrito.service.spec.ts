@@ -123,14 +123,15 @@ describe('CarritoService.evaluarPago', () => {
   });
 
   it('en efectivo rechaza un monto menor al total', () => {
-    expect(CarritoService.evaluarPago('EFECTIVO', 100, D(173.99)).error?.codigo).toBe(
-      'PAGO_INSUFICIENTE',
-    );
+    const r = CarritoService.evaluarPago('EFECTIVO', 100, D(173.99));
+    expect(r.error?.codigo).toBe('PAGO_INSUFICIENTE');
+    expect(r.falta?.toNumber()).toBe(73.99);
   });
 
   it('en efectivo el monto es opcional: sin él no hay error ni cambio', () => {
     expect(CarritoService.evaluarPago('EFECTIVO', undefined, D(10))).toEqual({
       cambio: null,
+      falta: null,
       error: null,
     });
   });

@@ -111,6 +111,8 @@ export interface PagoPrevisualizadoDto {
   pagoCon: number | null;
   /** Solo en efectivo y con un monto que alcanza. */
   cambio: number | null;
+  /** Lo que le falta al efectivo para cubrir el pedido. Solo con un monto que no alcanza. */
+  falta: number | null;
   errorPago: ErrorPago | null;
   errorBilletera: ErrorPago | null;
 }
@@ -644,6 +646,7 @@ export class CarritoService {
         metodo: dto.metodoPago ?? null,
         pagoCon: dto.pagoCon ?? null,
         cambio: pago.cambio?.toNumber() ?? null,
+        falta: pago.falta?.toNumber() ?? null,
         errorPago: pago.error,
         errorBilletera: billetera.error,
       },
@@ -769,28 +772,30 @@ export class CarritoService {
     metodo: MetodoPago | undefined,
     pagoCon: number | undefined,
     aPagar: Decimal,
-  ): { cambio: Decimal | null; error: ErrorPago | null } {
-    if (!aPagar.greaterThan(0)) return { cambio: null, error: null };
+  ): { cambio: Decimal | null; falta: Decimal | null; error: ErrorPago | null } {
+    if (!aPagar.greaterThan(0)) return { cambio: null, falta: null, error: null };
     if (!metodo) {
       return {
         cambio: null,
+        falta: null,
         error: { codigo: 'METODO_REQUERIDO', mensaje: 'Elige cómo vas a pagar' },
       };
     }
-    if (metodo !== MetodoPago.EFECTIVO) return { cambio: null, error: null };
+    if (metodo !== MetodoPago.EFECTIVO) return { cambio: null, falta: null, error: null };
 
-    if (pagoCon === undefined) return { cambio: null, error: null };
+    if (pagoCon === undefined) return { cambio: null, falta: null, error: null };
     const entrega = new Decimal(pagoCon);
     if (entrega.lessThan(aPagar)) {
       return {
         cambio: null,
+        falta: aPagar.sub(entrega),
         error: {
           codigo: 'PAGO_INSUFICIENTE',
           mensaje: `El monto debe ser de al menos $${aPagar.toFixed(2)}`,
         },
       };
     }
-    return { cambio: entrega.sub(aPagar), error: null };
+    return { cambio: entrega.sub(aPagar), falta: null, error: null };
   }
 
   /**
