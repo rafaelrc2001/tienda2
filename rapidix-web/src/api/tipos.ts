@@ -299,6 +299,8 @@ export interface PrevisualizacionCarrito {
     metodo: MetodoPago | null
     pagoCon: number | null
     cambio: number | null
+    /** Lo que le falta al efectivo para cubrir el pedido; `null` si alcanza o no se dijo. */
+    falta: number | null
     errorPago: ErrorPago | null
     errorBilletera: ErrorPago | null
   }

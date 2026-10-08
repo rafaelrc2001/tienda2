@@ -23,10 +23,11 @@
  * cuando la mercancía sale del inventario de la tienda. Un pedido a domicilio
  * se confirma aquí y sigue por Operaciones y Rutas.
  */
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ErrorApi, http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
 import { dinero } from '@/utils/formato'
+import PanelUltimoPedido from '@/components/tienda/PanelUltimoPedido.vue'
 import type {
   CatalogoRecomendado,
   ClientePdv,
@@ -40,8 +41,6 @@ import type {
 } from '@/api/tipos'
 
 const props = defineProps<{ turno: TurnoPdv }>()
-/** Se confirmó o se entregó un pedido: el turno tiene que releerse. */
-const emit = defineEmits<{ cambio: [] }>()
 
 const ui = useUiStore()
 
@@ -49,6 +48,10 @@ const TECLAS = ['1', '2', '3', '4', '5', '6', '7', '8', '9']
 const DIGITOS_TELEFONO = 10
 /** Lo que se espera tras el último cambio antes de pedir el desglose. */
 const ESPERA_MS = 250
+/** Lo que hay que bajar para que el bloque de repetir compra se pliegue. */
+const SCROLL_PARA_PLEGAR = 60
+
+const raiz = ref<HTMLElement | null>(null)
 
 // ---- Pasos ----
 type Paso = 'telefono' | 'tienda' | 'pedido'
@@ -72,6 +75,8 @@ const DIGITOS_PARA_SUGERIR = 3
 const catalogo = ref<CatalogoRecomendado | null>(null)
 const familia = ref('')
 const ultimo = ref<UltimoPedido | null>(null)
+/** La última compra plegada a su cabecera: se abre de nuevo con la flecha. */
+const plegado = ref(false)
 
 // ---- Orden ----
 /** `productoId` → piezas. Solo esto y el pago viajan a la API: nunca precios. */
@@ -80,6 +85,8 @@ const metodoEntrega = ref<MetodoEntrega>('TIENDA')
 const metodoPago = ref<MetodoPago>('EFECTIVO')
 const pagoCon = ref('')
 const usarBilletera = ref(false)
+/** Cuánto se descuenta de la billetera. Vacío es «todo lo que quepa en el total». */
+const montoBilletera = ref('')
 const previa = ref<PrevisualizacionCarrito | null>(null)
 const calculando = ref(false)
 
@@ -138,7 +145,29 @@ const puedeConfirmar = computed(
     items.value.length > 0 &&
     previa.value !== null &&
     previa.value.puedePedir &&
-    previa.value.pago.errorPago === null,
+    previa.value.pago.errorPago === null &&
+    !billeteraRechazada.value &&
+    !faltaPagoCon.value,
+)
+
+/** Queda algo por cobrar en efectivo o por transferencia: la billetera no lo cubrió todo. */
+const hayQueCobrar = computed(() => previa.value !== null && previa.value.aPagar > 0)
+
+/**
+ * En el mostrador el efectivo se recibe en el momento: sin decir con cuánto
+ * paga no se confirma. La API lo deja opcional porque en la app el cliente
+ * todavía no tiene el billete en la mano.
+ */
+const faltaPagoCon = computed(
+  () => hayQueCobrar.value && metodoPago.value === 'EFECTIVO' && pagoCon.value === '',
+)
+
+/** El cajero tecleó un monto de billetera que la API no acepta tal cual. */
+const billeteraRechazada = computed(
+  () =>
+    usarBilletera.value &&
+    montoBilletera.value !== '' &&
+    (previa.value?.pago.errorBilletera ?? null) !== null,
 )
 
 const puedeEntregar = computed(
@@ -274,6 +303,7 @@ async function atender(encontrado: ClientePdv): Promise<void> {
   catalogo.value = suCatalogo
   familia.value = suCatalogo.familias[0]?.categoria ?? ''
   ultimo.value = suUltimo
+  plegado.value = false
   // Identificado el cliente, lo siguiente es elegir qué se lleva.
   paso.value = 'tienda'
 }
@@ -294,6 +324,19 @@ function fijar(productoId: string, cantidad: number): void {
 
 function sumar(productoId: string, delta: number): void {
   fijar(productoId, (cantidades.value[productoId] ?? 0) + delta)
+}
+
+/** Cantidad tecleada: solo dígitos, hasta tres. Vacío mientras se escribe cuenta como cero. */
+function alEscribirCantidad(productoId: string, evento: Event): void {
+  const entrada = evento.target as HTMLInputElement
+  const digitos = entrada.value.replace(/\D/g, '').slice(0, 3)
+  entrada.value = digitos === '' ? '' : String(Number(digitos))
+  fijar(productoId, Number(digitos))
+}
+
+/** Al salir, el campo vuelve a decir lo que hay en la orden: nunca se queda vacío. */
+function alSalirDeCantidad(productoId: string, evento: Event): void {
+  ;(evento.target as HTMLInputElement).value = String(cantidades.value[productoId] ?? 0)
 }
 
 /** «Sí, usar este pedido»: la orden pasa a ser lo disponible de su última compra. */
@@ -324,8 +367,13 @@ async function previsualizar(): Promise<void> {
         metodoEntrega: metodoEntrega.value,
         metodoPago: metodoPago.value,
         ...(metodoPago.value === 'EFECTIVO' && pagoCon.value && { pagoCon: Number(pagoCon.value) }),
-        // Se pide todo el saldo: la API aplica lo que cabe en el total.
-        ...(usarBilletera.value && { usarBilletera: cliente.value.saldoBilletera }),
+        // Sin monto se pide todo el saldo: la API aplica lo que cabe en el total.
+        ...(usarBilletera.value && {
+          usarBilletera:
+            montoBilletera.value === ''
+              ? cliente.value.saldoBilletera
+              : Number(montoBilletera.value),
+        }),
       },
     )
     // Otra petición salió después: esta ya no describe la orden en pantalla.
@@ -341,7 +389,7 @@ async function previsualizar(): Promise<void> {
 }
 
 watch(
-  [items, metodoEntrega, metodoPago, pagoCon, usarBilletera, cliente],
+  [items, metodoEntrega, metodoPago, pagoCon, usarBilletera, montoBilletera, cliente],
   () => {
     if (bloqueada.value) return
     calculando.value = items.value.length > 0 && cliente.value !== null
@@ -351,9 +399,32 @@ watch(
   { deep: true },
 )
 
+/**
+ * Quien desplaza es `.app-screen`, no la ventana. Bajar por el catálogo pliega
+ * la última compra; subir no la vuelve a abrir —eso lo hace la flecha—, porque
+ * al plegarse la página se acorta y el propio recorte del scroll la reabriría.
+ */
+let contenedor: HTMLElement | null = null
+let scrollAnterior = 0
+
+function alDesplazar(): void {
+  if (!contenedor) return
+  const ahora = contenedor.scrollTop
+  if (paso.value === 'tienda' && ahora > scrollAnterior && ahora > SCROLL_PARA_PLEGAR) {
+    plegado.value = true
+  }
+  scrollAnterior = ahora
+}
+
+onMounted(() => {
+  contenedor = raiz.value?.closest('.app-screen') as HTMLElement | null
+  contenedor?.addEventListener('scroll', alDesplazar, { passive: true })
+})
+
 onBeforeUnmount(() => {
   clearTimeout(temporizador)
   clearTimeout(esperaSugerencias)
+  contenedor?.removeEventListener('scroll', alDesplazar)
 })
 
 async function confirmar(): Promise<void> {
@@ -371,7 +442,6 @@ async function confirmar(): Promise<void> {
       ...(previa.value.billetera > 0 && { usarBilletera: previa.value.billetera }),
     })
     ui.exito(`Pedido ${pedido.value.folio} confirmado`)
-    emit('cambio')
   } catch (fallo) {
     errorOrden.value = fallo instanceof ErrorApi ? fallo.message : 'No pudimos confirmar el pedido.'
   } finally {
@@ -386,7 +456,6 @@ async function entregar(): Promise<void> {
   try {
     const entregado = await http.post<Pedido>(`/admin/pdv/pedidos/${pedido.value.id}/entregar`)
     ui.exito(`Pedido ${entregado.folio} entregado y cobrado`)
-    emit('cambio')
     limpiar()
   } catch (fallo) {
     errorOrden.value = fallo instanceof ErrorApi ? fallo.message : 'No pudimos entregar el pedido.'
@@ -397,8 +466,8 @@ async function entregar(): Promise<void> {
 
 /**
  * «Limpiar orden»: la caja queda lista para el siguiente cliente. Un pedido ya
- * confirmado no se borra con esto —sigue en la tabla del turno, de donde se
- * puede entregar—: aquí solo se suelta la pantalla.
+ * confirmado no se borra con esto —sigue en la tabla del turno, en la pestaña
+ * Corte de caja, de donde se puede entregar—: aquí solo se suelta la pantalla.
  */
 function limpiar(): void {
   peticion++
@@ -416,6 +485,7 @@ function limpiar(): void {
   metodoPago.value = 'EFECTIVO'
   pagoCon.value = ''
   usarBilletera.value = false
+  montoBilletera.value = ''
   previa.value = null
   calculando.value = false
   pedido.value = null
@@ -425,7 +495,7 @@ function limpiar(): void {
 </script>
 
 <template>
-  <div class="caja">
+  <div ref="raiz" class="caja">
     <div class="pasos" role="tablist" aria-label="Pasos de la orden">
       <button
         v-for="(p, i) in pasos"
@@ -544,43 +614,23 @@ function limpiar(): void {
     <!-- 2. Cliente y catálogo -->
     <section v-show="paso === 'tienda'" class="columna col-catalogo">
       <template v-if="cliente">
-        <div class="cabecera-cliente">
-          <div class="cliente">
-            <span class="titulo-columna">Cliente</span>
-            <span class="nombre">{{ cliente.nombre }}</span>
-            <span v-if="cliente.esNuevo" class="mini-tag">Primera compra</span>
-          </div>
+        <p class="saludo">
+          Hola: <strong>{{ cliente.nombre }}</strong>
+          <span v-if="cliente.esNuevo" class="mini-tag">Primera compra</span>
+        </p>
 
-          <div v-if="ultimo && !bloqueada" class="ultima-compra">
-            <p class="ultima-titulo">⚡ Repite tu última compra, en un solo click</p>
-            <table class="tabla-lineas">
-              <tbody>
-                <tr
-                  v-for="i in ultimo.items"
-                  :key="i.productoId"
-                  :class="{ agotada: !i.disponible }"
-                >
-                  <td>{{ i.cantidad }}× {{ i.nombre }}</td>
-                  <td class="num">{{ i.disponible ? dinero(i.importe) : 'Agotado' }}</td>
-                </tr>
-              </tbody>
-              <tfoot>
-                <tr class="fuerte">
-                  <td>Total productos</td>
-                  <td class="num">{{ dinero(ultimo.subtotal) }}</td>
-                </tr>
-              </tfoot>
-            </table>
-            <div class="ultima-botones">
-              <button type="button" class="btn-usar" @click="repetirUltimo">
-                Sí, usar este pedido
-              </button>
-              <button type="button" class="btn-otro" @click="ultimo = null">
-                No, crear uno nuevo
-              </button>
-            </div>
-          </div>
-        </div>
+        <!-- El mismo panel de la Tienda: se pliega al bajar y se abre con la flecha. -->
+        <PanelUltimoPedido
+          v-if="ultimo && !bloqueada"
+          class="ultima-compra"
+          :pedido="ultimo"
+          :colapsado="plegado"
+          :ocupado="false"
+          @usar="repetirUltimo"
+          @descartar="ultimo = null"
+          @expandir="plegado = false"
+          @contraer="plegado = true"
+        />
 
         <div class="familias" role="tablist" aria-label="Familias">
           <button
@@ -622,7 +672,20 @@ function limpiar(): void {
               >
                 −
               </button>
-              <span>{{ cantidades[p.id] ?? 0 }}</span>
+              <!-- También se teclea: para 24 piezas no hay que pulsar «+» 24 veces. -->
+              <input
+                class="cantidad"
+                type="text"
+                inputmode="numeric"
+                autocomplete="off"
+                :aria-label="`Cantidad de ${p.nombre}`"
+                :value="cantidades[p.id] ?? 0"
+                :disabled="bloqueada || p.agotado"
+                @focus="($event.target as HTMLInputElement).select()"
+                @input="alEscribirCantidad(p.id, $event)"
+                @blur="alSalirDeCantidad(p.id, $event)"
+                @keydown.enter="($event.target as HTMLInputElement).blur()"
+              />
               <button
                 type="button"
                 :aria-label="`Agregar uno de ${p.nombre}`"
@@ -659,13 +722,36 @@ function limpiar(): void {
           </article>
         </div>
 
-        <div class="barra-orden">
-          <span>
-            {{ pasos[1].resumen }}
-            <strong v-if="previa"> · {{ dinero(previa.subtotal) }}</strong>
+        <!--
+          La barra de compra de la Tienda: lo que suman los productos y lo que
+          el pedido le dejaría en su monedero. Sin productos no se pinta.
+        -->
+        <div v-if="items.length > 0" class="barra-compra">
+          <span
+            v-if="previa && previa.cashbackBilletera > 0"
+            class="cashback-tile"
+            :aria-label="`Gana ${dinero(previa.cashbackBilletera)} en su monedero electrónico`"
+            :title="`Gana ${dinero(previa.cashbackBilletera)} en su monedero electrónico`"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M6 8V6.5A2 2 0 0 1 8 4.5h12a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-2" />
+              <rect x="2" y="8.5" width="16" height="11" rx="2" />
+              <circle cx="10" cy="14" r="2.3" />
+            </svg>
+            <span class="cashback-monto">{{ dinero(previa.cashbackBilletera) }}</span>
           </span>
-          <button type="button" :disabled="items.length === 0" @click="abrir('pedido')">
-            Ver pedido →
+
+          <button type="button" class="comprar" @click="abrir('pedido')">
+            Comprar ahora:
+            <span class="amt">{{ previa ? dinero(previa.subtotal) : '…' }}</span>
           </button>
         </div>
       </template>
@@ -772,9 +858,6 @@ function limpiar(): void {
           </label>
 
           <div v-if="previa" class="totales" :class="{ calculando }">
-            <p class="total">
-              <span>Total</span><span>{{ dinero(previa.total) }}</span>
-            </p>
             <p class="a-pagar">
               <span>Total a pagar</span><span>{{ dinero(previa.aPagar) }}</span>
             </p>
@@ -787,19 +870,49 @@ function limpiar(): void {
         <div class="resumen-mitad">
           <template v-if="items.length > 0">
             <p class="subtitulo primero">¿Cómo va a pagar?</p>
-            <label v-if="cliente && cliente.saldoBilletera > 0" class="opcion">
-              <input v-model="usarBilletera" type="checkbox" :disabled="bloqueada" />
-              Usar su billetera electrónica
+            <!-- Siempre a la vista: sin saldo se ve apagada, no desaparece. -->
+            <label class="opcion" :class="{ apagada: !cliente || cliente.saldoBilletera <= 0 }">
+              <input
+                v-model="usarBilletera"
+                type="checkbox"
+                :disabled="bloqueada || !cliente || cliente.saldoBilletera <= 0"
+              />
+              Billetera electrónica
               <span class="nota-opcion disponible">
-                Disponible: {{ dinero(cliente.saldoBilletera) }}
+                Disponible: {{ dinero(cliente?.saldoBilletera ?? 0) }}
               </span>
             </label>
+            <div v-if="usarBilletera" class="zona-captura">
+              <label class="form-label" for="pdv-billetera">
+                ¿Cuánto descuenta de su billetera?
+              </label>
+              <input
+                id="pdv-billetera"
+                v-model="montoBilletera"
+                class="form-input"
+                type="number"
+                min="0"
+                step="0.01"
+                inputmode="decimal"
+                :placeholder="previa ? `Todo lo que cabe: ${dinero(previa.billetera)}` : ''"
+                :disabled="bloqueada"
+              />
+              <p v-if="billeteraRechazada" class="resultado-pago falta">
+                {{ previa?.pago.errorBilletera?.mensaje }}
+              </p>
+              <p v-else-if="previa" class="resultado-pago">
+                Se descuentan: −{{ dinero(previa.billetera) }}
+              </p>
+            </div>
+            <p v-if="previa && !hayQueCobrar" class="nota-pago">
+              La billetera cubre el pedido completo: no hay nada más que cobrar.
+            </p>
             <label class="opcion">
               <input v-model="metodoPago" type="radio" value="EFECTIVO" :disabled="bloqueada" />
               Efectivo
             </label>
-            <div v-if="metodoPago === 'EFECTIVO'" class="zona-captura">
-              <label class="form-label" for="pdv-pago-con">¿Con cuánto paga? (opcional)</label>
+            <div v-if="metodoPago === 'EFECTIVO' && hayQueCobrar" class="zona-captura">
+              <label class="form-label" for="pdv-pago-con">¿Con cuánto paga?</label>
               <input
                 id="pdv-pago-con"
                 v-model="pagoCon"
@@ -811,8 +924,14 @@ function limpiar(): void {
                 :placeholder="previa ? dinero(previa.aPagar) : ''"
                 :disabled="bloqueada"
               />
-              <p v-if="previa?.pago.cambio != null" class="cambio">
+              <p v-if="previa?.pago.cambio != null" class="resultado-pago">
                 Cambio: {{ dinero(previa.pago.cambio) }}
+              </p>
+              <p v-else-if="previa?.pago.falta != null" class="resultado-pago falta">
+                Falta: {{ dinero(previa.pago.falta) }}
+              </p>
+              <p v-else-if="faltaPagoCon" class="nota-pago">
+                Escribe con cuánto paga para confirmar el pedido.
               </p>
             </div>
             <label class="opcion">
@@ -825,7 +944,8 @@ function limpiar(): void {
               Transferencia electrónica
             </label>
 
-            <p v-if="previa?.pago.errorPago" class="form-error">
+            <!-- El monto que no alcanza ya se dice en grande como «Falta». -->
+            <p v-if="previa?.pago.errorPago && previa.pago.falta == null" class="form-error">
               {{ previa.pago.errorPago.mensaje }}
             </p>
             <p v-for="(aviso, i) in previa?.avisos ?? []" :key="i" class="form-error">
@@ -1159,79 +1279,32 @@ function limpiar(): void {
 
 /* ---- Cliente y última compra ---- */
 
-.cabecera-cliente {
+/* Una sola línea: el nombre largo se corta, no empuja el catálogo hacia abajo. */
+.saludo {
   display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  align-items: flex-start;
-  margin-bottom: 12px;
-}
-
-.cliente {
-  background: color-mix(in srgb, var(--sage) 16%, var(--white));
-  border-radius: 12px;
-  padding: 10px 12px;
-  min-width: 130px;
-}
-
-.cliente .titulo-columna {
-  margin-bottom: 2px;
-}
-
-.cliente .nombre {
-  display: block;
+  align-items: center;
+  gap: 6px;
   font-size: 14px;
   color: var(--ink);
+  margin: 0 0 10px;
+  white-space: nowrap;
 }
 
-.ultima-compra {
-  flex: 1;
-  min-width: 220px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 8px 10px;
-}
-
-.ultima-titulo {
+.saludo strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-family: var(--font-heading);
-  font-weight: 700;
-  font-size: 11.5px;
-  color: var(--ink);
-  margin: 0 0 4px;
+  font-weight: 800;
 }
 
-.ultima-compra .agotada td {
-  color: var(--muted);
-  text-decoration: line-through;
+.saludo .mini-tag {
+  flex-shrink: 0;
 }
 
-.ultima-botones {
-  display: flex;
-  gap: 6px;
-  margin-top: 8px;
-}
-
-.btn-usar,
-.btn-otro {
-  flex: 1;
-  border-radius: 8px;
-  padding: 7px 8px;
-  font-family: var(--font-heading);
-  font-weight: 700;
-  font-size: 11px;
-  cursor: pointer;
-}
-
-.btn-usar {
-  border: none;
-  background: var(--sage);
-  color: var(--white);
-}
-
-.btn-otro {
-  border: 1px solid var(--line);
-  background: var(--white);
-  color: var(--ink);
+/* El panel trae los márgenes de la Tienda; aquí ya va dentro de la columna. */
+.col-catalogo .ultima-compra {
+  margin: 0 0 12px;
 }
 
 /* ---- Catálogo ---- */
@@ -1264,14 +1337,21 @@ function limpiar(): void {
 
 .productos {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+/* En la pantalla de la caja sobra ancho: tarjetas grandes, que se tocan sin apuntar. */
+@media (min-width: 900px) {
+  .productos {
+    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  }
 }
 
 .producto {
   border: 1.5px solid var(--line);
   border-radius: 12px;
-  padding: 6px 6px 8px;
+  padding: 8px 8px 12px;
   text-align: center;
   background: var(--white);
 }
@@ -1316,42 +1396,66 @@ function limpiar(): void {
 .p-nombre {
   font-family: var(--font-heading);
   font-weight: 700;
-  font-size: 10.5px;
+  font-size: 12.5px;
   text-transform: uppercase;
   color: var(--ink);
   line-height: 1.25;
-  margin: 6px 0 2px;
+  margin: 8px 0 4px;
   min-height: 2.5em;
 }
 
 .p-precio {
   font-family: var(--font-heading);
   font-weight: 800;
-  font-size: 15px;
+  font-size: 19px;
   color: var(--ink);
-  margin: 0 0 6px;
+  margin: 0 0 8px;
 }
 
 .p-precio span {
   font-weight: 400;
-  font-size: 9.5px;
+  font-size: 11px;
   color: var(--muted);
 }
 
 .stepper {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   font-family: var(--font-heading);
   font-weight: 800;
   font-size: 13px;
 }
 
 /* Botones de dedo: en la caja se toca, no se apunta con ratón. */
-.stepper button {
-  width: 36px;
-  height: 36px;
-  font-size: 20px;
+.producto .stepper button {
+  width: 42px;
+  height: 42px;
+  font-size: 22px;
+}
+
+/* Blanco con borde: se ve que ahí se escribe. */
+.cantidad {
+  width: 58px;
+  height: 42px;
+  border: 1.5px solid var(--line);
+  border-radius: 10px;
+  background: var(--white);
+  color: var(--ink);
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 18px;
+  text-align: center;
+  outline: none;
+  padding: 0;
+}
+
+.cantidad:focus {
+  border-color: var(--terracotta);
+}
+
+.cantidad:disabled {
+  opacity: 0.5;
 }
 
 .stepper button.menos:not(:disabled) {
@@ -1378,37 +1482,66 @@ function limpiar(): void {
   cursor: default;
 }
 
-.barra-orden {
+/* La barra de compra de la Tienda, pegada al pie de la columna. */
+.barra-compra {
   position: sticky;
   bottom: 0;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  align-items: stretch;
+  gap: 8px;
   margin: 12px -14px -14px;
-  padding: 10px 14px;
+  padding: 8px 10px;
   background: var(--cream);
-  border-top: 1px solid var(--line);
   border-radius: 0 0 14px 14px;
-  font-size: 12.5px;
-  color: var(--ink);
+  z-index: 3;
 }
 
-.barra-orden button {
-  border: none;
+.cashback-tile {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  min-width: 52px;
+  padding: 4px 8px;
   border-radius: 10px;
-  background: var(--sage);
-  color: var(--white);
+  /* Amarillo del ahorro con texto oscuro: sobre amarillo el blanco no se lee. */
+  background: var(--amarillo);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+}
+
+.cashback-tile svg {
+  width: 20px;
+  height: 20px;
+}
+
+.cashback-monto {
   font-family: var(--font-heading);
   font-weight: 800;
-  font-size: 12.5px;
-  padding: 10px 16px;
+  font-size: 10.5px;
+  line-height: 1;
+}
+
+.comprar {
+  flex: 1;
+  min-width: 0;
+  background: var(--verde-compra);
+  color: var(--white);
+  border: none;
+  border-radius: 10px;
+  padding: 11px 16px;
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.2px;
+  text-align: center;
   cursor: pointer;
 }
 
-.barra-orden button:disabled {
-  opacity: 0.4;
-  cursor: default;
+.comprar .amt {
+  font-weight: 800;
 }
 
 .stepper button,
@@ -1446,15 +1579,15 @@ function limpiar(): void {
   padding: 2px 4px;
   font-family: var(--font-heading);
   font-weight: 800;
-  font-size: 6.5px;
+  font-size: 8px;
   text-transform: uppercase;
   line-height: 1.15;
-  max-width: 46px;
+  max-width: 58px;
 }
 
 .escalones button {
-  min-width: 24px;
-  height: 22px;
+  min-width: 34px;
+  height: 30px;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--white);
@@ -1569,38 +1702,36 @@ function limpiar(): void {
   opacity: 0.5;
 }
 
-.total,
 .a-pagar {
   display: flex;
   justify-content: space-between;
   font-family: var(--font-heading);
   font-weight: 800;
   margin: 0 0 4px;
-}
-
-.total {
-  font-size: 15px;
-  color: var(--sage);
-}
-
-.a-pagar {
   font-size: 17px;
   color: var(--ink);
   text-transform: uppercase;
 }
 
 .cashback,
-.cambio,
+.nota-pago,
 .nota-domicilio {
   font-size: 11px;
   color: var(--muted);
   margin: 0 0 8px;
 }
 
-.cambio {
+/* El cambio y lo que falta se leen de lejos: es lo que el cajero dice en voz alta. */
+.resultado-pago {
   font-family: var(--font-heading);
-  font-weight: 700;
+  font-weight: 800;
+  font-size: 20px;
   color: var(--sage);
+  margin: 2px 0 8px;
+}
+
+.resultado-pago.falta {
+  color: var(--terracotta-dark);
 }
 
 .col-resumen .zona-captura {

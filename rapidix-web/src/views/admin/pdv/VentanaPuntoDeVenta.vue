@@ -4,34 +4,33 @@
  *
  * Sin turno abierto solo hay «Crear turno», que es la lógica de crear un
  * reparto en Rutas: dentro de él se capturan los pedidos, que ahí mismo se
- * entregan y se cobran, y se cierra con su corte de caja. Con turno, la caja
- * y debajo la tabla de sus pedidos.
+ * entregan y se cobran, y se cierra con su corte de caja. Con turno, solo la
+ * caja: la tabla de los pedidos del turno está en la pestaña Corte de caja.
  */
 import { onMounted, ref } from 'vue'
 import { ErrorApi, http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
-import { dinero, fechaHora, nombreEstadoPago, nombreEstadoPedido } from '@/utils/formato'
+import { fechaHora } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
 import CajaPdv from './CajaPdv.vue'
-import type { Pedido, Tienda, TurnoPdvConPedidos } from '@/api/tipos'
+import type { Tienda, TurnoPdv } from '@/api/tipos'
 
 /** La tienda desde la que se mira el PDV: el turno es el de esta tienda. */
 const props = defineProps<{ tienda: Tienda }>()
 
 const ui = useUiStore()
 
-const turno = ref<TurnoPdvConPedidos | null>(null)
+const turno = ref<TurnoPdv | null>(null)
 const cargando = ref(true)
 const error = ref('')
 const creando = ref(false)
-const entregando = ref('')
 
 onMounted(cargar)
 
 async function cargar(): Promise<void> {
   error.value = ''
   try {
-    turno.value = await http.get<TurnoPdvConPedidos | null>(
+    turno.value = await http.get<TurnoPdv | null>(
       `/admin/pdv/turnos/abierto?tiendaId=${props.tienda.id}`,
     )
   } catch (fallo) {
@@ -44,7 +43,7 @@ async function cargar(): Promise<void> {
 async function crearTurno(): Promise<void> {
   creando.value = true
   try {
-    turno.value = await http.post<TurnoPdvConPedidos>('/admin/pdv/turnos', {
+    turno.value = await http.post<TurnoPdv>('/admin/pdv/turnos', {
       tiendaId: props.tienda.id,
     })
     ui.exito(`Turno ${turno.value.folio} abierto`)
@@ -54,31 +53,6 @@ async function crearTurno(): Promise<void> {
     await cargar()
   } finally {
     creando.value = false
-  }
-}
-
-function porEntregar(pedido: Pedido): boolean {
-  return (
-    pedido.metodoEntrega === 'TIENDA' &&
-    pedido.estado !== 'ENTREGADO' &&
-    pedido.pago.estado !== 'CANCELADO'
-  )
-}
-
-/** Entregar desde la tabla: el pedido que se confirmó y se soltó de la caja. */
-async function entregar(pedido: Pedido): Promise<void> {
-  if (!confirm(`¿Entregar y cobrar el pedido ${pedido.folio} (${dinero(pedido.pago.aPagar)})?`)) {
-    return
-  }
-  entregando.value = pedido.id
-  try {
-    await http.post(`/admin/pdv/pedidos/${pedido.id}/entregar`)
-    ui.exito(`Pedido ${pedido.folio} entregado y cobrado`)
-  } catch (fallo) {
-    ui.errorDeApi(fallo)
-  } finally {
-    entregando.value = ''
-    await cargar()
   }
 }
 </script>
@@ -103,54 +77,7 @@ async function entregar(pedido: Pedido): Promise<void> {
         {{ fechaHora(turno.abiertoEn) }}
       </p>
 
-      <CajaPdv :turno="turno" @cambio="cargar" />
-
-      <h4>Pedidos del turno</h4>
-      <div v-if="turno.pedidos.length > 0" class="tabla-envoltorio">
-        <table class="tabla tabla-pedidos">
-          <thead>
-            <tr>
-              <th>Folio</th>
-              <th>Cliente</th>
-              <th>Entrega</th>
-              <th>Pago</th>
-              <th class="num">Total</th>
-              <th>Estatus</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="p in turno.pedidos" :key="p.id">
-              <td>
-                <span class="folio">{{ p.folio }}</span>
-                <span class="sub">{{ fechaHora(p.creadoEn) }}</span>
-              </td>
-              <td>{{ p.clienteNombre }}</td>
-              <td>{{ p.metodoEntrega === 'TIENDA' ? 'En tienda' : 'A domicilio' }}</td>
-              <td>
-                {{ p.pago.metodo === 'EFECTIVO' ? 'Efectivo' : 'Transferencia' }}
-                <span class="sub">{{ nombreEstadoPago(p.pago.estado) }}</span>
-              </td>
-              <td class="num">{{ dinero(p.total) }}</td>
-              <td>
-                <span class="mini-tag">{{ nombreEstadoPedido(p.estado, p.pago.estado) }}</span>
-              </td>
-              <td class="num">
-                <button
-                  v-if="porEntregar(p)"
-                  type="button"
-                  class="btn-primary entregar"
-                  :disabled="entregando !== ''"
-                  @click="entregar(p)"
-                >
-                  {{ entregando === p.id ? 'Entregando…' : 'Entregado' }}
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <p v-else class="empty-block">Todavía no hay pedidos en este turno.</p>
+      <CajaPdv :turno="turno" />
     </template>
   </div>
 </template>
@@ -188,29 +115,5 @@ async function entregar(pedido: Pedido): Promise<void> {
 .turno-abierto strong {
   font-family: var(--font-heading);
   color: var(--ink);
-}
-
-h4 {
-  font-family: var(--font-heading);
-  font-weight: 700;
-  font-size: 13px;
-  color: var(--ink);
-  margin: 18px 0 10px;
-}
-
-.tabla-pedidos {
-  min-width: 620px;
-}
-
-.sub {
-  display: block;
-  font-size: 10.5px;
-  color: var(--muted);
-  margin-top: 2px;
-}
-
-.entregar {
-  width: auto;
-  padding: 0 16px;
 }
 </style>
