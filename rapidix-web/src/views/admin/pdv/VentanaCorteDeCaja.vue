@@ -3,12 +3,13 @@
  * PDV → Corte de caja: el cierre del turno.
  *
  * Arriba, el turno abierto con lo que suman sus pedidos —los que se entregaron
- * y se cobraron en el mostrador—, la tabla de esos pedidos —de donde se
- * entrega el que se confirmó y se soltó de la caja— y el campo donde el cajero
+ * y se cobraron en el mostrador—, los productos que entregó sumados, la tabla
+ * de esos pedidos —de donde se entrega el que se confirmó y se soltó de la
+ * caja, y donde la flecha despliega su detalle— y el campo donde el cajero
  * escribe el efectivo que contó. Abajo, los turnos ya cortados con su diferencia.
  *
- * Los totales los da la API. Un pedido a domicilio capturado en el turno no
- * suma a esta caja: lo cobra el repartidor y entra a su corte de ruta.
+ * Los totales los da la API. El PDV cobra de contado, así que un pedido a
+ * domicilio capturado en el turno también suma a esta caja: Rutas solo lo lleva.
  */
 import { computed, onMounted, ref } from 'vue'
 import { ErrorApi, http } from '@/api/http'
@@ -31,6 +32,12 @@ const notas = ref('')
 const errorCorte = ref('')
 const cortando = ref(false)
 const entregando = ref('')
+/** El pedido con el detalle desplegado: uno a la vez, como en Finanzas. */
+const detalleDe = ref<string | null>(null)
+
+function alternar(id: string): void {
+  detalleDe.value = detalleDe.value === id ? null : id
+}
 
 /** El abierto de quien mira. El administrador ve también los de otros cajeros, en la tabla. */
 const abierto = ref<TurnoPdvConPedidos | null>(null)
@@ -43,9 +50,7 @@ async function cargar(): Promise<void> {
   error.value = ''
   try {
     const [mio, todos] = await Promise.all([
-      http.get<TurnoPdvConPedidos | null>(
-        `/admin/pdv/turnos/abierto?tiendaId=${props.tienda.id}`,
-      ),
+      http.get<TurnoPdvConPedidos | null>(`/admin/pdv/turnos/abierto?tiendaId=${props.tienda.id}`),
       http.get<TurnoPdv[]>(`/admin/pdv/turnos?tiendaId=${props.tienda.id}`),
     ])
     abierto.value = mio
@@ -98,13 +103,16 @@ function porEntregar(pedido: Pedido): boolean {
 
 /** Entregar desde la tabla: el pedido que se confirmó y se soltó de la caja. */
 async function entregar(pedido: Pedido): Promise<void> {
-  if (!confirm(`¿Entregar y cobrar el pedido ${pedido.folio} (${dinero(pedido.pago.aPagar)})?`)) {
-    return
-  }
+  // Lo normal es que ya venga pagado desde que se confirmó: solo se entrega.
+  const pregunta =
+    pedido.pago.saldo > 0
+      ? `¿Entregar y cobrar el pedido ${pedido.folio} (${dinero(pedido.pago.saldo)})?`
+      : `¿Entregar el pedido ${pedido.folio}?`
+  if (!confirm(pregunta)) return
   entregando.value = pedido.id
   try {
     await http.post(`/admin/pdv/pedidos/${pedido.id}/entregar`)
-    ui.exito(`Pedido ${pedido.folio} entregado y cobrado`)
+    ui.exito(`Pedido ${pedido.folio} entregado`)
   } catch (fallo) {
     ui.errorDeApi(fallo)
   } finally {
@@ -172,7 +180,7 @@ function diferencia(turno: TurnoPdv): string {
                 <td />
               </tr>
               <tr v-if="abierto.totales.aDomicilio > 0">
-                <td>A domicilio (los cobra Rutas)</td>
+                <td>A domicilio (cobrados aquí, los entrega Rutas)</td>
                 <td class="num">{{ abierto.totales.aDomicilio }}</td>
                 <td />
               </tr>
@@ -184,6 +192,30 @@ function diferencia(turno: TurnoPdv): string {
             </tbody>
           </table>
         </div>
+
+        <!-- Lo que salió de la tienda en el turno, ya sumado por la API. -->
+        <h4>Productos entregados</h4>
+        <div v-if="abierto.productosEntregados.length > 0" class="tabla-envoltorio">
+          <table class="tabla">
+            <thead>
+              <tr>
+                <th>Producto</th>
+                <th class="num">Cantidad</th>
+                <th class="num">Importe</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="producto in abierto.productosEntregados" :key="producto.productoId">
+                <td>{{ producto.nombre }}</td>
+                <td class="num fuerte">
+                  {{ producto.cantidad }} <span class="unidad">{{ producto.unidad }}</span>
+                </td>
+                <td class="num">{{ dinero(producto.importe) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p v-else class="empty-block">Todavía no se ha entregado ningún pedido en este turno.</p>
 
         <h4>Pedidos del turno</h4>
         <div v-if="abierto.pedidos.length > 0" class="tabla-envoltorio">
@@ -200,33 +232,112 @@ function diferencia(turno: TurnoPdv): string {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="p in abierto.pedidos" :key="p.id">
-                <td>
-                  <span class="folio">{{ p.folio }}</span>
-                  <span class="sub">{{ fechaHora(p.creadoEn) }}</span>
-                </td>
-                <td>{{ p.clienteNombre }}</td>
-                <td>{{ p.metodoEntrega === 'TIENDA' ? 'En tienda' : 'A domicilio' }}</td>
-                <td>
-                  {{ p.pago.metodo === 'EFECTIVO' ? 'Efectivo' : 'Transferencia' }}
-                  <span class="sub">{{ nombreEstadoPago(p.pago.estado) }}</span>
-                </td>
-                <td class="num">{{ dinero(p.total) }}</td>
-                <td>
-                  <span class="mini-tag">{{ nombreEstadoPedido(p.estado, p.pago.estado) }}</span>
-                </td>
-                <td class="num">
-                  <button
-                    v-if="porEntregar(p)"
-                    type="button"
-                    class="btn-primary entregar"
-                    :disabled="entregando !== ''"
-                    @click="entregar(p)"
-                  >
-                    {{ entregando === p.id ? 'Entregando…' : 'Entregado' }}
-                  </button>
-                </td>
-              </tr>
+              <template v-for="p in abierto.pedidos" :key="p.id">
+                <tr :class="{ 'con-detalle': detalleDe === p.id }">
+                  <td>
+                    <!-- La misma flecha de Finanzas y Operaciones: abre el detalle debajo. -->
+                    <button
+                      type="button"
+                      class="chevron"
+                      :class="{ abierto: detalleDe === p.id }"
+                      :aria-expanded="detalleDe === p.id"
+                      :aria-label="`Detalle de ${p.folio}`"
+                      @click="alternar(p.id)"
+                    >
+                      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                        <path
+                          d="M4 6l4 4 4-4"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        />
+                      </svg>
+                    </button>
+                    <span class="folio">{{ p.folio }}</span>
+                    <span class="sub">{{ fechaHora(p.creadoEn) }}</span>
+                  </td>
+                  <td>{{ p.clienteNombre }}</td>
+                  <td>{{ p.metodoEntrega === 'TIENDA' ? 'En tienda' : 'A domicilio' }}</td>
+                  <td>
+                    {{ p.pago.metodo === 'EFECTIVO' ? 'Efectivo' : 'Transferencia' }}
+                    <span class="sub">{{ nombreEstadoPago(p.pago.estado) }}</span>
+                  </td>
+                  <td class="num">{{ dinero(p.total) }}</td>
+                  <td>
+                    <span class="mini-tag">{{ nombreEstadoPedido(p.estado, p.pago.estado) }}</span>
+                  </td>
+                  <td class="num">
+                    <button
+                      v-if="porEntregar(p)"
+                      type="button"
+                      class="btn-primary entregar"
+                      :disabled="entregando !== ''"
+                      @click="entregar(p)"
+                    >
+                      {{ entregando === p.id ? 'Entregando…' : 'Entregado' }}
+                    </button>
+                  </td>
+                </tr>
+
+                <tr v-if="detalleDe === p.id" class="fila-detalle">
+                  <td colspan="7">
+                    <div class="detalle-pedido">
+                      <table class="tabla-lineas">
+                        <thead>
+                          <tr>
+                            <th>Producto</th>
+                            <th class="num">Precio</th>
+                            <th class="num">Cant.</th>
+                            <th class="num">Importe</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr v-for="item in p.items" :key="item.productoId">
+                            <td>{{ item.nombre }}</td>
+                            <td class="num">{{ dinero(item.precioUnitario) }}</td>
+                            <td class="num">{{ item.cantidad }} {{ item.unidad }}</td>
+                            <td class="num">{{ dinero(item.importe) }}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+
+                      <dl class="cuentas">
+                        <div>
+                          <dt>Subtotal</dt>
+                          <dd>{{ dinero(p.subtotal) }}</dd>
+                        </div>
+                        <div v-if="p.metodoEntrega === 'DOMICILIO'">
+                          <dt>Envío a domicilio</dt>
+                          <dd>{{ p.envio === 0 ? 'Gratis' : dinero(p.envio) }}</dd>
+                        </div>
+                        <div v-if="p.descuento > 0">
+                          <dt>{{ p.cupon ? `Cupón ${p.cupon.code}` : 'Descuento' }}</dt>
+                          <dd>−{{ dinero(p.descuento) }}</dd>
+                        </div>
+                        <div class="total">
+                          <dt>Total</dt>
+                          <dd>{{ dinero(p.total) }}</dd>
+                        </div>
+                        <div v-if="p.pago.billetera > 0">
+                          <dt>Pagó con su billetera</dt>
+                          <dd>−{{ dinero(p.pago.billetera) }}</dd>
+                        </div>
+                        <div v-if="p.pago.billetera > 0">
+                          <dt>{{ p.pago.metodo === 'EFECTIVO' ? 'Efectivo' : 'Transferencia' }}</dt>
+                          <dd>{{ dinero(p.pago.aPagar) }}</dd>
+                        </div>
+                      </dl>
+
+                      <p v-if="p.pago.pagoCon !== null && p.pago.cambio !== null" class="nota">
+                        💵 Paga con {{ dinero(p.pago.pagoCon) }} · Cambio
+                        {{ dinero(p.pago.cambio) }}
+                      </p>
+                    </div>
+                  </td>
+                </tr>
+              </template>
             </tbody>
           </table>
         </div>
@@ -367,6 +478,13 @@ h4:not(:first-child) {
 .entregar {
   width: auto;
   padding: 0 16px;
+}
+
+.unidad {
+  font-family: var(--font-body);
+  font-weight: 400;
+  font-size: 10.5px;
+  color: var(--muted);
 }
 
 .sub {

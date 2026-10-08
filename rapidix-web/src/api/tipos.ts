@@ -195,6 +195,20 @@ export interface CatalogoRecomendado {
   controlInventario: boolean
 }
 
+/** Un producto visto desde el mostrador: lo que su tienda puede vender de él. */
+export interface ProductoPdv extends ProductoRecomendado {
+  /** Tope de piezas. En cero el producto ya viaja con `agotado`. */
+  enTienda: number
+}
+
+/**
+ * Respuesta de `GET /admin/pdv/clientes/:id/catalogo`: el catálogo de la
+ * Tienda, pero `agotado` y `enTienda` salen del inventario de esa tienda.
+ */
+export type CatalogoPdv = Omit<CatalogoRecomendado, 'familias'> & {
+  familias: (Omit<FamiliaRecomendada, 'productos'> & { productos: ProductoPdv[] })[]
+}
+
 // ------------------------------------------------------------------
 // Carrito y pedido
 // ------------------------------------------------------------------
@@ -1474,11 +1488,11 @@ export interface TurnoPdv {
   cerradoEn: string | null
   totales: {
     pedidos: number
-    /** Entregados y cobrados en el mostrador: los que suman a la caja. */
+    /** Los que suman a la caja: entregados en mostrador y los cobrados que van a domicilio. */
     cobrados: number
     /** Para llevar sin entregar: impiden hacer el corte. */
     porEntregar: number
-    /** Salen por Rutas: su dinero no pasa por esta caja. */
+    /** Se cobraron aquí y los entrega Rutas. Ya van contados en `cobrados`. */
     aDomicilio: number
     cancelados: number
     ventas: number
@@ -1493,7 +1507,20 @@ export interface TurnoPdv {
   notas: string | null
 }
 
-export type TurnoPdvConPedidos = TurnoPdv & { pedidos: Pedido[] }
+/** Un producto con todo lo que el turno entregó de él en el mostrador. */
+export interface ProductoEntregado {
+  productoId: string
+  nombre: string
+  unidad: string
+  cantidad: number
+  importe: number
+}
+
+export type TurnoPdvConPedidos = TurnoPdv & {
+  pedidos: Pedido[]
+  /** Lo que salió de la tienda, sumado por producto. */
+  productosEntregados: ProductoEntregado[]
+}
 
 /** Una fila del inventario de una tienda. */
 export interface ExistenciaTienda {

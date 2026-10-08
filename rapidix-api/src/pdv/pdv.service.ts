@@ -19,6 +19,8 @@ import { UsuarioAutenticado } from '../auth/jwt-payload';
 import { ConfiguracionService } from '../configuracion/configuracion.service';
 import {
   CatalogoRecomendadoDto,
+  FamiliaRecomendadaDto,
+  ProductoRecomendadoDto,
   RecomendacionesService,
 } from '../catalogo/recomendaciones.service';
 import { actorDe } from '../pedidos/bitacora';
@@ -28,7 +30,7 @@ import { FinanzasService } from '../pedidos/finanzas.service';
 import { FlujoPedidosService } from '../pedidos/flujo-pedidos.service';
 import { PedidoDto, PedidosService, UltimoPedidoDto } from '../pedidos/pedidos.service';
 import { TiendasService } from '../tiendas/tiendas.service';
-import { PedidoDelTurno, totalesDelTurno } from './corte-de-caja';
+import { PedidoDelTurno, productosEntregados, totalesDelTurno } from './corte-de-caja';
 import {
   AbrirTurnoDto,
   CorteDeCajaDto,
@@ -77,7 +79,28 @@ export interface TurnoDto {
   notas: string | null;
 }
 
-export type TurnoConPedidosDto = TurnoDto & { pedidos: PedidoDto[] };
+/** El catalogo de la Tienda con lo que esa tienda puede vender de cada producto. */
+export type CatalogoPdvDto = Omit<CatalogoRecomendadoDto, 'familias'> & {
+  familias: (Omit<FamiliaRecomendadaDto, 'productos'> & {
+    /** `agotado` ya dice si la tienda no lo tiene; `enTienda` es el tope de piezas. */
+    productos: (ProductoRecomendadoDto & { enTienda: number })[];
+  })[];
+};
+
+/** Un producto con todo lo que el turno entrego de el en el mostrador. */
+export interface ProductoEntregadoDto {
+  productoId: string;
+  nombre: string;
+  unidad: string;
+  cantidad: number;
+  importe: number;
+}
+
+export type TurnoConPedidosDto = TurnoDto & {
+  pedidos: PedidoDto[];
+  /** Lo que salio de la tienda, sumado por producto. */
+  productosEntregados: ProductoEntregadoDto[];
+};
 
 const INCLUIR_TURNO = {
   tienda: { select: { id: true, nombre: true } },
@@ -185,7 +208,7 @@ export class PdvService {
         }),
       );
       this.logger.log(`Turno ${turno.folio} abierto en ${tienda.nombre} por ${usuario.nombre}`);
-      return { ...PdvService.aDto(turno), pedidos: [] };
+      return { ...PdvService.aDto(turno), pedidos: [], productosEntregados: [] };
     } catch (fallo) {
       if (fallo instanceof Prisma.PrismaClientKnownRequestError && fallo.code === 'P2002') {
         throw new ConflictException({
@@ -328,9 +351,29 @@ export class PdvService {
     return PdvService.aCliente(prospecto, true, 0);
   }
 
-  /** El catalogo en el orden de ese cliente: el mismo que veria en la Tienda. */
-  catalogo(clienteId: string): Promise<CatalogoRecomendadoDto> {
-    return this.recomendaciones.catalogoPara(clienteId);
+  /**
+   * El catalogo en el orden de ese cliente —el mismo que veria en la Tienda—
+   * visto desde el anaquel de esa tienda.
+   *
+   * Salen todos los productos, pero el mostrador solo vende lo que la tienda
+   * tiene: cada uno lleva `enTienda` y el que esta en cero viaja como agotado
+   * aunque en bodega haya. Cada tienda tiene su inventario, y aqui manda ese.
+   */
+  async catalogo(clienteId: string, tiendaId: string): Promise<CatalogoPdvDto> {
+    const [catalogo, disponibles] = await Promise.all([
+      this.recomendaciones.catalogoPara(clienteId),
+      this.tiendas.disponibles(tiendaId),
+    ]);
+    return {
+      ...catalogo,
+      familias: catalogo.familias.map((familia) => ({
+        ...familia,
+        productos: familia.productos.map((producto) => {
+          const enTienda = disponibles.get(producto.id) ?? 0;
+          return { ...producto, enTienda, agotado: producto.agotado || enTienda <= 0 };
+        }),
+      })),
+    };
   }
 
   ultimoPedido(clienteId: string): Promise<UltimoPedidoDto | null> {
@@ -346,13 +389,20 @@ export class PdvService {
     dto: PrevisualizarPdvDto,
     usuario: UsuarioAutenticado,
   ): Promise<PrevisualizacionCarritoDto> {
-    await this.exigirAbierto(turnoId, usuario);
+    const turno = await this.exigirAbierto(turnoId, usuario);
     const { clienteId, ...carrito } = dto;
-    return this.carrito.previsualizar(
-      clienteId,
-      { ...carrito, metodoEntrega: carrito.metodoEntrega ?? MetodoEntrega.TIENDA },
-      true,
-    );
+    const metodoEntrega = carrito.metodoEntrega ?? MetodoEntrega.TIENDA;
+    const previa = await this.carrito.previsualizar(clienteId, { ...carrito, metodoEntrega }, true);
+
+    // Lo que no hay en la tienda apaga «Confirmar pedido» con el motivo a la
+    // vista, en vez de dejar que el cajero choque con el 409 al confirmar.
+    const faltantes = await this.tiendas.faltantes(turno.tiendaId, carrito.items);
+    if (faltantes.length === 0) return previa;
+    return {
+      ...previa,
+      puedePedir: false,
+      avisos: [...previa.avisos, ...faltantes.map((f) => TiendasService.mensajeDeFaltante(f))],
+    };
   }
 
   /**
@@ -362,14 +412,26 @@ export class PdvService {
    * A domicilio se entrega en la direccion del perfil del cliente (409
    * `SIN_DIRECCION` si no la tiene completa) y sigue el camino de siempre:
    * Operaciones lo prepara y Rutas lo lleva.
+   *
+   * Solo se confirma lo que la tienda del turno tiene (409
+   * `SIN_EXISTENCIA_EN_TIENDA`), se lo lleve o se le mande: el punto de venta
+   * vende desde su tienda. Y se cobra de contado: nace PAGADO.
    */
   async crearPedido(
     turnoId: string,
     dto: CrearPedidoPdvDto,
     usuario: UsuarioAutenticado,
   ): Promise<PedidoDto> {
-    await this.exigirAbierto(turnoId, usuario);
+    const turno = await this.exigirAbierto(turnoId, usuario);
     const metodoEntrega = dto.metodoEntrega ?? MetodoEntrega.TIENDA;
+
+    const faltantes = await this.tiendas.faltantes(turno.tiendaId, dto.items);
+    if (faltantes.length > 0) {
+      throw PdvService.conflicto(
+        'SIN_EXISTENCIA_EN_TIENDA',
+        faltantes.map((f) => TiendasService.mensajeDeFaltante(f)).join(' '),
+      );
+    }
 
     return this.pedidos.crear(
       dto.clienteId,
@@ -389,13 +451,14 @@ export class PdvService {
   }
 
   /**
-   * "Entregado": el cliente se lleva su pedido y lo paga ahi mismo.
+   * "Entregado": el cliente se lleva su pedido.
    *
-   * Tres cosas en una transaccion: la mercancia sale del inventario de la
-   * tienda del turno, el pedido salta a ENTREGADO —en mostrador no hay
-   * preparacion ni ruta que recorrer— y queda PAGADO, con lo que eso arrastra
-   * (cashback). Uno al que Finanzas le dio credito se entrega sin cobrar y
-   * pasa a cuenta por cobrar.
+   * En una transaccion, la mercancia sale del inventario de la tienda del
+   * turno y el pedido salta a ENTREGADO —en mostrador no hay preparacion ni
+   * ruta que recorrer—. Ya viene PAGADO desde que se confirmo; el
+   * `marcarPagado` de abajo queda para los que se confirmaron antes de ese
+   * cambio y siguen pendientes, y no toca a los demas. Uno al que Finanzas le
+   * dio credito se entrega sin cobrar y pasa a cuenta por cobrar.
    *
    * Con `controlInventario` encendido no se entrega lo que la tienda no tiene
    * (409 `SIN_EXISTENCIA_EN_TIENDA`); apagado, el saldo baja hasta donde haya.
@@ -471,21 +534,32 @@ export class PdvService {
   // ----------------------------------------------------------------
 
   private async conPedidos(turno: TurnoCompleto): Promise<TurnoConPedidosDto> {
+    const pedidos = await this.pedidos.buscar(
+      { turnoId: turno.id },
+      { creadoEn: 'desc' },
+      LIMITE_PEDIDOS,
+    );
     return {
       ...PdvService.aDto(turno),
-      pedidos: await this.pedidos.buscar(
-        { turnoId: turno.id },
-        { creadoEn: 'desc' },
-        LIMITE_PEDIDOS,
-      ),
+      pedidos,
+      // Sale de los mismos pedidos que viajan: la tabla y su suma no divergen.
+      productosEntregados: productosEntregados(
+        pedidos.map((p) => ({
+          estado: p.estado,
+          estadoPago: p.pago.estado,
+          metodoEntrega: p.metodoEntrega,
+          items: p.items,
+        })),
+      ).map((p) => ({ ...p, importe: p.importe.toNumber() })),
     };
   }
 
-  private async exigirAbierto(turnoId: string, usuario: UsuarioAutenticado): Promise<void> {
+  private async exigirAbierto(turnoId: string, usuario: UsuarioAutenticado): Promise<TurnoPdv> {
     const turno = await this.prisma.turnoPdv.findUnique({ where: { id: turnoId } });
     if (!turno) throw new NotFoundException('Turno no encontrado');
     PdvService.exigirPropio(turno, usuario);
     PdvService.exigirSinCerrar(turno);
+    return turno;
   }
 
   /** Bloquea la fila del turno hasta el final de la transaccion y exige que siga abierto. */

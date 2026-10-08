@@ -19,9 +19,12 @@
  * aquí: cada cambio de la orden se manda a previsualizar y se pinta lo que
  * responde la API. Las respuestas viejas se descartan por número de petición.
  *
- * «Confirmar pedido» lo crea; «Entregado» lo da por entregado y cobrado, y es
- * cuando la mercancía sale del inventario de la tienda. Un pedido a domicilio
- * se confirma aquí y sigue por Operaciones y Rutas.
+ * El catálogo enseña todos los productos, pero solo se vende lo que tiene la
+ * tienda del turno: el resto sale como agotado y la cantidad se topa a lo que
+ * hay. «Confirmar pedido» lo crea y lo deja pagado: el PDV cobra de contado,
+ * se lo lleve o vaya a domicilio. «Entregado» lo da por entregado, y es cuando la mercancía sale
+ * del inventario de la tienda. Un pedido a domicilio se confirma aquí y sigue
+ * por Operaciones y Rutas.
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ErrorApi, http } from '@/api/http'
@@ -29,13 +32,13 @@ import { useUiStore } from '@/stores/ui'
 import { dinero } from '@/utils/formato'
 import PanelUltimoPedido from '@/components/tienda/PanelUltimoPedido.vue'
 import type {
-  CatalogoRecomendado,
+  CatalogoPdv,
   ClientePdv,
   MetodoEntrega,
   MetodoPago,
   Pedido,
   PrevisualizacionCarrito,
-  ProductoRecomendado,
+  ProductoPdv,
   TurnoPdv,
   UltimoPedido,
 } from '@/api/tipos'
@@ -72,7 +75,7 @@ const sugerencias = ref<ClientePdv[]>([])
 const DIGITOS_PARA_SUGERIR = 3
 
 // ---- Catálogo ----
-const catalogo = ref<CatalogoRecomendado | null>(null)
+const catalogo = ref<CatalogoPdv | null>(null)
 const familia = ref('')
 const ultimo = ref<UltimoPedido | null>(null)
 /** La última compra plegada a su cabecera: se abre de nuevo con la flecha. */
@@ -132,7 +135,7 @@ function abrir(destino: Paso): void {
   paso.value = destino
 }
 
-const productos = computed<ProductoRecomendado[]>(
+const productos = computed<ProductoPdv[]>(
   () => catalogo.value?.familias.find((f) => f.categoria === familia.value)?.productos ?? [],
 )
 
@@ -178,7 +181,7 @@ const puedeEntregar = computed(
 )
 
 /** Precio por pieza de un producto: el de su línea ya valorada, o el de venta. */
-function precioDe(producto: ProductoRecomendado): number {
+function precioDe(producto: ProductoPdv): number {
   return (
     previa.value?.items.find((i) => i.productoId === producto.id)?.precioUnitario ??
     producto.precioVenta
@@ -300,7 +303,9 @@ async function atender(encontrado: ClientePdv): Promise<void> {
   clearTimeout(esperaSugerencias)
   sugerencias.value = []
   const [suCatalogo, suUltimo] = await Promise.all([
-    http.get<CatalogoRecomendado>(`/admin/pdv/clientes/${encontrado.id}/catalogo`),
+    http.get<CatalogoPdv>(
+      `/admin/pdv/clientes/${encontrado.id}/catalogo?tiendaId=${props.turno.tienda.id}`,
+    ),
     http.get<UltimoPedido | null>(`/admin/pdv/clientes/${encontrado.id}/ultimo-pedido`),
   ])
   catalogo.value = suCatalogo
@@ -315,8 +320,26 @@ async function atender(encontrado: ClientePdv): Promise<void> {
 // Orden
 // ----------------------------------------------------------------
 
-function fijar(productoId: string, cantidad: number): void {
+/**
+ * Lo que la tienda del turno puede vender de cada producto. Un agotado —sin
+ * existencias en esta tienda o deshabilitado en Productos— tiene tope cero.
+ */
+const topes = computed(() => {
+  const mapa = new Map<string, number>()
+  for (const f of catalogo.value?.familias ?? []) {
+    for (const p of f.productos) mapa.set(p.id, p.agotado ? 0 : p.enTienda)
+  }
+  return mapa
+})
+
+function topeDe(productoId: string): number {
+  return topes.value.get(productoId) ?? 0
+}
+
+/** Nunca pasa de lo que hay en la tienda: pedir de más se queda en el tope. */
+function fijar(productoId: string, pedida: number): void {
   if (bloqueada.value) return
+  const cantidad = Math.min(pedida, topeDe(productoId))
   if (cantidad > 0) {
     cantidades.value = { ...cantidades.value, [productoId]: cantidad }
     return
@@ -333,8 +356,9 @@ function sumar(productoId: string, delta: number): void {
 function alEscribirCantidad(productoId: string, evento: Event): void {
   const entrada = evento.target as HTMLInputElement
   const digitos = entrada.value.replace(/\D/g, '').slice(0, 3)
-  entrada.value = digitos === '' ? '' : String(Number(digitos))
   fijar(productoId, Number(digitos))
+  // Lo que quedó tras el tope, para que el campo no diga más de lo que hay.
+  entrada.value = digitos === '' ? '' : String(cantidades.value[productoId] ?? 0)
 }
 
 /** Al salir, el campo vuelve a decir lo que hay en la orden: nunca se queda vacío. */
@@ -342,11 +366,17 @@ function alSalirDeCantidad(productoId: string, evento: Event): void {
   ;(evento.target as HTMLInputElement).value = String(cantidades.value[productoId] ?? 0)
 }
 
-/** «Sí, usar este pedido»: la orden pasa a ser lo disponible de su última compra. */
+/**
+ * «Sí, usar este pedido»: la orden pasa a ser lo de su última compra que esta
+ * tienda tiene, hasta donde alcance.
+ */
 function repetirUltimo(): void {
   if (!ultimo.value || bloqueada.value) return
   cantidades.value = Object.fromEntries(
-    ultimo.value.items.filter((i) => i.disponible).map((i) => [i.productoId, i.cantidad]),
+    ultimo.value.items
+      .filter((i) => i.disponible)
+      .map((i): [string, number] => [i.productoId, Math.min(i.cantidad, topeDe(i.productoId))])
+      .filter(([, cantidad]) => cantidad > 0),
   )
   ultimo.value = null
 }
@@ -458,7 +488,7 @@ async function entregar(): Promise<void> {
   errorOrden.value = ''
   try {
     const entregado = await http.post<Pedido>(`/admin/pdv/pedidos/${pedido.value.id}/entregar`)
-    ui.exito(`Pedido ${entregado.folio} entregado y cobrado`)
+    ui.exito(`Pedido ${entregado.folio} entregado`)
     limpiar()
   } catch (fallo) {
     errorOrden.value = fallo instanceof ErrorApi ? fallo.message : 'No pudimos entregar el pedido.'
@@ -665,6 +695,10 @@ function limpiar(): void {
             <p class="p-precio">
               {{ dinero(precioDe(p)) }} <span>{{ p.unidad }}</span>
             </p>
+            <!-- Lo que hay en esta tienda: es el tope de lo que se puede vender. -->
+            <p class="p-existencia">
+              {{ p.agotado ? 'Sin existencias en tienda' : `En tienda: ${p.enTienda}` }}
+            </p>
             <div class="stepper">
               <button
                 type="button"
@@ -692,7 +726,7 @@ function limpiar(): void {
               <button
                 type="button"
                 :aria-label="`Agregar uno de ${p.nombre}`"
-                :disabled="bloqueada || p.agotado"
+                :disabled="bloqueada || (cantidades[p.id] ?? 0) >= topeDe(p.id)"
                 @click="sumar(p.id, 1)"
               >
                 +
@@ -705,7 +739,7 @@ function limpiar(): void {
                 :key="e.piso"
                 type="button"
                 :class="{ activo: cantidades[p.id] === e.piso }"
-                :disabled="bloqueada || p.agotado"
+                :disabled="bloqueada || e.piso > topeDe(p.id)"
                 :title="`Desde ${e.piso}: ${dinero(e.precio)} c/u`"
                 @click="fijar(p.id, e.piso)"
               >
@@ -804,7 +838,7 @@ function limpiar(): void {
                   <button
                     type="button"
                     :aria-label="`Agregar uno de ${linea.nombre}`"
-                    :disabled="bloqueada"
+                    :disabled="bloqueada || linea.cantidad >= topeDe(linea.productoId)"
                     @click="sumar(linea.productoId, 1)"
                   >
                     +
@@ -1429,16 +1463,33 @@ function limpiar(): void {
   margin: 0 0 8px;
 }
 
+.p-existencia {
+  font-size: 10.5px;
+  color: var(--muted);
+  margin: -4px 0 8px;
+}
+
 .p-precio span {
   font-weight: 400;
   font-size: 11px;
   color: var(--muted);
 }
 
+/*
+ * Ocupa el ancho de la tarjeta y no más: en el teléfono las tarjetas bajan a
+ * 150px y los dos botones con el campo a su ancho fijo se salían por el borde.
+ * Los botones no ceden —son el blanco del dedo—; quien se encoge es el campo.
+ *
+ * Va en rejilla y no en flex: las tres columnas quedan fijadas por el
+ * contenedor y no por lo que cada control diga medir, que en Safari de iPhone
+ * no coincide con el resto (el campo no cedía y el «+» acababa descentrado).
+ */
 .stepper {
-  display: inline-flex;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 58px) 42px;
   align-items: center;
-  gap: 8px;
+  justify-content: center;
+  gap: 6px;
   font-family: var(--font-heading);
   font-weight: 800;
   font-size: 13px;
@@ -1451,9 +1502,13 @@ function limpiar(): void {
   font-size: 22px;
 }
 
-/* Blanco con borde: se ve que ahí se escribe. */
+/* Blanco con borde: se ve que ahí se escribe. El ancho lo da su columna. */
 .cantidad {
-  width: 58px;
+  min-width: 0;
+  width: 100%;
+  margin: 0;
+  -webkit-appearance: none;
+  appearance: none;
   height: 42px;
   border: 1.5px solid var(--line);
   border-radius: 10px;
@@ -1547,8 +1602,21 @@ function limpiar(): void {
   cursor: default;
 }
 
+/*
+ * Safari de iPhone le pone a los botones su propio relleno, margen y aspecto:
+ * en un círculo de ancho fijo ese relleno se come el hueco del signo y lo deja
+ * corrido. Se anulan y el signo se centra con flex, no con la línea de texto.
+ */
 .stepper button,
 .cant button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  vertical-align: middle;
   width: 26px;
   height: 26px;
   border-radius: 50%;
@@ -1569,6 +1637,8 @@ function limpiar(): void {
 
 .escalones {
   display: flex;
+  /* Con muchos pisos en una tarjeta estrecha bajan de renglón en vez de salirse. */
+  flex-wrap: wrap;
   align-items: center;
   justify-content: center;
   gap: 4px;

@@ -431,7 +431,20 @@ function alSalirDelCampo(): void {
   margin-top: 5px;
 }
 
+/*
+ * Safari de iPhone le pone a los botones su propio relleno, margen y aspecto:
+ * en un círculo de ancho fijo ese relleno se come el hueco del signo y lo deja
+ * corrido. Se anulan y el signo se centra con flex, no con la línea de texto.
+ */
 .stepper button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 0;
+  margin: 0;
+  -webkit-appearance: none;
+  appearance: none;
   width: 30px;
   height: 30px;
   border-radius: 50%;
@@ -451,6 +464,11 @@ function alSalirDelCampo(): void {
 
 .cantidad {
   width: 42px;
+  min-width: 0;
+  margin: 0;
+  border-radius: 0;
+  -webkit-appearance: none;
+  appearance: none;
   border: none;
   border-bottom: 1.5px solid var(--line);
   background: transparent;
