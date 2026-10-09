@@ -17,7 +17,7 @@
 import { onMounted, ref } from 'vue'
 import { ErrorApi, http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
-import { dinero, fechaDia, fechaHora, nombreMetodoPago } from '@/utils/formato'
+import { dinero, fechaDia, fechaNumerica, nombreMetodoPago } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
 import PestanasFinanzas from './finanzas/PestanasFinanzas.vue'
 import { centavos, montoCapturado } from './rutas/liquidacion'
@@ -230,76 +230,42 @@ async function registrarPago(): Promise<void> {
               <!-- Qué se llevó, cómo se ha cubierto y cuándo pagó cada vez. -->
               <tr v-if="abierto === pedido.id" class="fila-detalle">
                 <td :colspan="filtro === 'con-saldo' ? 8 : 7">
-                  <div class="detalle-cxc">
-                    <p class="detalle-titulo">Productos</p>
-                    <table class="tabla-lineas angosta">
-                      <thead>
-                        <tr>
-                          <th>Producto</th>
-                          <th class="num">Cantidad</th>
-                          <th class="num">Precio</th>
-                          <th class="num">Importe</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr v-for="(producto, i) in pedido.productos" :key="i">
-                          <td>{{ producto.nombre }}</td>
-                          <td class="num">
-                            {{ producto.cantidad }}
-                            <span class="unidad">{{ producto.unidad }}</span>
-                          </td>
-                          <td class="num">{{ dinero(producto.precioUnitario) }}</td>
-                          <td class="num">{{ dinero(producto.importe) }}</td>
-                        </tr>
-                      </tbody>
-                    </table>
+                  <!-- El mismo detalle que en Pedidos: renglones, cuentas y notas. -->
+                  <div class="detalle-pedido">
+                    <ul class="renglones">
+                      <li v-for="(producto, i) in pedido.productos" :key="i">
+                        <strong>{{ producto.cantidad }}-</strong>{{ producto.nombre }}
+                      </li>
+                    </ul>
 
-                    <p class="detalle-titulo">Cómo se cubrió</p>
-                    <table class="tabla-lineas angosta">
-                      <tbody>
-                        <tr>
-                          <td>Total del pedido</td>
-                          <td class="num">{{ dinero(pedido.total) }}</td>
-                        </tr>
-                        <tr v-if="pedido.pagadoConBilletera > 0">
-                          <td>Pagado con billetera</td>
-                          <td class="num abono">{{ dinero(pedido.pagadoConBilletera) }}</td>
-                        </tr>
-                        <tr>
-                          <td>Pagos recibidos</td>
-                          <td class="num abono">{{ dinero(pedido.pagado) }}</td>
-                        </tr>
-                        <tr class="fuerte">
-                          <td>Saldo</td>
-                          <td class="num" :class="{ debe: pedido.saldo > 0 }">
-                            {{ dinero(pedido.saldo) }}
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
+                    <dl class="cuentas">
+                      <div class="total">
+                        <dt>Total</dt>
+                        <dd>{{ dinero(pedido.total) }}</dd>
+                      </div>
+                      <div v-if="pedido.pagadoConBilletera > 0">
+                        <dt>Pagó con su billetera</dt>
+                        <dd>−{{ dinero(pedido.pagadoConBilletera) }}</dd>
+                      </div>
+                      <!-- Cada pago con su fecha y su método; quién lo recibió y la nota, debajo. -->
+                      <div v-for="pago in pedido.pagos" :key="pago.id">
+                        <dt>
+                          Pago · {{ fechaNumerica(pago.creadoEn) }} ·
+                          {{ nombreMetodoPago(pago.metodo) }}
+                          <span class="quien">
+                            Recibió {{ pago.registradoPorNombre
+                            }}<template v-if="pago.nota"> · {{ pago.nota }}</template>
+                          </span>
+                        </dt>
+                        <dd>−{{ dinero(pago.monto) }}</dd>
+                      </div>
+                      <div class="saldo">
+                        <dt>Saldo</dt>
+                        <dd :class="{ debe: pedido.saldo > 0 }">{{ dinero(pedido.saldo) }}</dd>
+                      </div>
+                    </dl>
 
-                    <p class="detalle-titulo">Pagos</p>
-                    <table v-if="pedido.pagos.length > 0" class="tabla-lineas angosta">
-                      <thead>
-                        <tr>
-                          <th>Fecha</th>
-                          <th>Método</th>
-                          <th>Recibió</th>
-                          <th>Nota</th>
-                          <th class="num">Monto</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr v-for="pago in pedido.pagos" :key="pago.id">
-                          <td class="fecha">{{ fechaHora(pago.creadoEn) }}</td>
-                          <td>{{ nombreMetodoPago(pago.metodo) }}</td>
-                          <td>{{ pago.registradoPorNombre }}</td>
-                          <td>{{ pago.nota ?? '—' }}</td>
-                          <td class="num abono">{{ dinero(pago.monto) }}</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                    <p v-else class="sin-pagos">Todavía no ha pagado nada.</p>
+                    <p v-if="pedido.pagos.length === 0" class="nota">Todavía no ha pagado nada.</p>
                   </div>
                 </td>
               </tr>
@@ -428,53 +394,22 @@ async function registrarPago(): Promise<void> {
 }
 
 .tabla > tbody > tr > td.debe,
-.tabla-lineas td.debe {
+.detalle-pedido .cuentas dd.debe {
   color: var(--rojo);
 }
 
-.detalle-titulo {
-  margin: 12px 0 4px;
-  font-family: var(--font-heading);
-  font-weight: 800;
-  font-size: 12px;
-  color: var(--ink);
+/* El concepto puede partirse en dos renglones; el importe no, y no se le pega. */
+.detalle-pedido .cuentas > div {
+  gap: 12px;
 }
 
-.detalle-titulo:first-child {
-  margin-top: 0;
+.detalle-pedido .cuentas dd {
+  white-space: nowrap;
 }
 
-/*
- * El detalle mide lo que se ve de la tabla, no lo que mide la tabla: la celda
- * abarca las columnas que quedan fuera de pantalla y, a su ancho, los importes
- * se iban al otro extremo, lejos de su concepto. Se queda fijo aunque la tabla
- * se desplace. Los 60px son el margen de la pantalla y el relleno de la celda.
- */
-.detalle-cxc {
-  position: sticky;
-  left: 12px;
-  width: min(480px, calc(100vw - 60px));
-}
-
-.tabla-lineas .fecha {
-  color: var(--muted);
-}
-
-.tabla-lineas .unidad {
-  color: var(--muted);
-  font-size: 10.5px;
-}
-
-.tabla-lineas .abono {
-  font-family: var(--font-heading);
-  font-weight: 700;
-  color: var(--verde-dark);
-}
-
-.sin-pagos {
-  margin: 0;
-  font-size: 12px;
-  color: var(--muted);
+.detalle-pedido .cuentas .quien {
+  display: block;
+  font-size: 11.5px;
 }
 
 .modal-texto {
