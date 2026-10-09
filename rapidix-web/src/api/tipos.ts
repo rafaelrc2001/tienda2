@@ -858,7 +858,7 @@ export interface AbonoDelCorte {
   aceptadoEn: string | null
 }
 
-/** Las pestañas de Cortes de ruta en Finanzas: una por estatus. */
+/** Las pestañas de Cortes en Finanzas: una por estatus, para los de ruta y los de caja. */
 export type FiltroCortes = 'por-aceptar' | 'con-adeudo' | 'cerrados'
 
 /** Respuesta de `GET /admin/finanzas/cortes`. */
@@ -876,15 +876,18 @@ export interface DetalleCorte extends DetalleHistorial {
 // Ingresos y cuentas por cobrar (SPEC 04)
 // ------------------------------------------------------------------
 
-/** De dónde viene un ingreso: el dinero de un reparto o el pago de una cuenta por cobrar. */
-export type ConceptoIngreso = 'ENTREGA' | 'CXC'
+/**
+ * De dónde viene un ingreso: el dinero de un reparto, el pago de una cuenta por
+ * cobrar o el efectivo de un corte de caja del punto de venta.
+ */
+export type ConceptoIngreso = 'ENTREGA' | 'CXC' | 'PDV'
 
 /** Un renglón del libro de lo que Finanzas aceptó. */
 export interface Ingreso {
   id: string
   creadoEn: string
   concepto: ConceptoIngreso
-  /** Folio de reparto (ENTREGA) o de pedido (CXC). */
+  /** Folio de reparto (ENTREGA), de pedido (CXC) o de turno (PDV). */
   referencia: string
   monto: number
   metodo: MetodoPago
@@ -1505,6 +1508,34 @@ export interface TurnoPdv {
   /** Declarado menos calculado: negativo es faltante. */
   diferencia: number | null
   notas: string | null
+  /** En qué va el corte en Finanzas. `null` mientras el turno sigue abierto. */
+  corte: CorteDeTurno | null
+}
+
+/** El corte de caja visto desde Finanzas: lo aceptado, lo que falta y sus abonos. */
+export interface CorteDeTurno {
+  estado: EstadoCorte
+  /** El dinero aceptado al revisar el corte. `null` mientras Finanzas no lo acepte. */
+  efectivoRecibido: number | null
+  recibidoEn: string | null
+  recibidoPorNombre: string | null
+  /**
+   * El adeudo del cajero: lo calculado menos el dinero aceptado y los abonos
+   * aceptados. Cero mientras Finanzas no acepte el dinero.
+   */
+  saldoPendiente: number
+  /**
+   * Lo que «Aceptar dinero» aceptaría ahora: lo declarado si el corte sigue sin
+   * aceptar, el abono pendiente si lo hay, o `null` si no hay dinero esperando.
+   */
+  dineroPorAceptar: number | null
+  abonos: AbonoDelCorte[]
+}
+
+/** Respuesta de `GET /admin/finanzas/cortes-de-caja`: las mismas pestañas que los de ruta. */
+export interface ListadoCortesDeCaja {
+  turnos: TurnoPdv[]
+  conteos: Record<FiltroCortes, number>
 }
 
 /** Un producto con todo lo que el turno entregó de él en el mostrador. */

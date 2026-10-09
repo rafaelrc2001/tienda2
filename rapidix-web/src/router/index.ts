@@ -242,7 +242,16 @@ const routes: RouteRecordRaw[] = [
     path: '/admin/finanzas/cortes',
     name: 'finanzas-cortes',
     component: () => import('@/views/admin/FinanzasCortesView.vue'),
-    meta: { seccion: 'finanzas', titulo: 'Finanzas · Cortes de ruta' },
+    meta: { seccion: 'finanzas', titulo: 'Finanzas · Cortes' },
+  },
+  {
+    // El corte de caja de un turno del PDV: solo dinero, sin mercancía que
+    // revisar. Va antes que `cortes/:id` para leerse junto a su lista; no
+    // chocan, porque esta tiene un segmento más.
+    path: '/admin/finanzas/cortes/caja/:id',
+    name: 'finanzas-corte-caja',
+    component: () => import('@/views/admin/FinanzasCorteCajaView.vue'),
+    meta: { seccion: 'finanzas', titulo: 'Corte de caja', volverA: '/admin/finanzas/cortes' },
   },
   {
     // Un corte: sus tres pasos en pantalla propia, como la entrega en Rutas.

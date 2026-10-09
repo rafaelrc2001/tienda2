@@ -26,11 +26,13 @@ const CONCEPTOS: { valor: ConceptoIngreso | ''; titulo: string }[] = [
   { valor: '', titulo: 'Todos' },
   { valor: 'ENTREGA', titulo: 'Entregas de ruta' },
   { valor: 'CXC', titulo: 'Cuentas por cobrar' },
+  { valor: 'PDV', titulo: 'Cortes de caja' },
 ]
 
 const NOMBRE_CONCEPTO: Record<ConceptoIngreso, string> = {
   ENTREGA: 'Entrega de ruta',
   CXC: 'Cuenta por cobrar',
+  PDV: 'Corte de caja',
 }
 
 /** Vacías hasta la primera respuesta, que dice qué día es hoy para el negocio. */

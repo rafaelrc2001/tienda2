@@ -1,10 +1,22 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { RequiereSeccion } from '../auth/seccion.decorator';
 import { UsuarioActual } from '../auth/usuario-actual.decorator';
 import { UsuarioAutenticado } from '../auth/jwt-payload';
 import { PrevisualizacionCarritoDto } from '../pedidos/carrito.service';
 import { PedidoDto, UltimoPedidoDto } from '../pedidos/pedidos.service';
+import { RegistrarAbonoDto } from '../rutas/dto/corte.dto';
 import {
   CatalogoPdvDto,
   ClientePdvDto,
@@ -85,6 +97,44 @@ export class TurnosController {
     @UsuarioActual() usuario: UsuarioAutenticado,
   ): Promise<TurnoConPedidosDto> {
     return this.pdv.cerrar(id, dto, usuario);
+  }
+
+  /**
+   * "Corregir lo que declare", mientras Finanzas no acepte el corte. 409
+   * `TURNO_SIN_CORTE`, `DINERO_YA_ACEPTADO`.
+   */
+  @Patch('turnos/:id/corte')
+  corregirDeclarado(
+    @Param('id') id: string,
+    @Body() dto: CorteDeCajaDto,
+    @UsuarioActual() usuario: UsuarioAutenticado,
+  ): Promise<TurnoDto> {
+    return this.pdv.corregirDeclarado(id, dto, usuario);
+  }
+
+  /**
+   * El cajero entrega mas dinero contra el adeudo de su corte. Nace pendiente
+   * hasta que Finanzas lo acepta. 409 `CORTE_SIN_ACEPTAR`, `ABONO_PENDIENTE`,
+   * `ABONO_EXCEDE_FALTANTE`.
+   */
+  @Post('turnos/:id/abonos')
+  @HttpCode(HttpStatus.CREATED)
+  abonar(
+    @Param('id') id: string,
+    @Body() dto: RegistrarAbonoDto,
+    @UsuarioActual() usuario: UsuarioAutenticado,
+  ): Promise<TurnoDto> {
+    return this.pdv.abonar(id, dto, usuario);
+  }
+
+  /** Cancela el abono que Finanzas todavia no acepta. 409 `ABONO_YA_ACEPTADO`. */
+  @Delete('turnos/:id/abonos/:abonoId')
+  cancelarAbono(
+    @Param('id') id: string,
+    @Param('abonoId') abonoId: string,
+    @UsuarioActual() usuario: UsuarioAutenticado,
+  ): Promise<TurnoDto> {
+    return this.pdv.cancelarAbono(id, abonoId, usuario);
   }
 
   /** El desglose de la orden, sin confirmar nada. Responde 200 aunque no se pueda pedir. */

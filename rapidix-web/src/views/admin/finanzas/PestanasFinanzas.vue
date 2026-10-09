@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
- * Las cuatro pantallas del dinero, como pestañas: Pedidos, Cortes de ruta,
- * Ingresos y CXC.
+ * Las cuatro pantallas del dinero, como pestañas: Pedidos, Cortes (los de
+ * ruta y los de caja), Ingresos y CXC.
  *
  * Cada una es su propia ruta y pinta esta misma tira arriba, así se pasa de
  * una a otra sin volver a Pedidos. Antes eran tres enlaces sueltos en la
@@ -9,7 +9,7 @@
  */
 const PESTANAS = [
   { id: 'pedidos', titulo: 'Pedidos', a: '/admin/finanzas' },
-  { id: 'cortes', titulo: 'Cortes de ruta', a: '/admin/finanzas/cortes' },
+  { id: 'cortes', titulo: 'Cortes', a: '/admin/finanzas/cortes' },
   { id: 'ingresos', titulo: 'Ingresos', a: '/admin/finanzas/ingresos' },
   { id: 'cxc', titulo: 'CXC', a: '/admin/finanzas/cxc' },
 ] as const

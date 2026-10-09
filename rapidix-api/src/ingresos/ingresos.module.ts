@@ -4,7 +4,8 @@ import { AdminIngresosController } from './admin-ingresos.controller';
 
 /**
  * El libro de ingresos. Lo exporta para quien acepta dinero: Rutas, al aceptar
- * el de una entrega o un abono, y Pedidos, al cobrar una cuenta por cobrar.
+ * el de una entrega o un abono; Pedidos, al cobrar una cuenta por cobrar; y el
+ * punto de venta, al aceptar un corte de caja.
  */
 @Module({
   controllers: [AdminIngresosController],
