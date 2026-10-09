@@ -528,14 +528,62 @@ model TurnoPdv {
   /// Lo que dice el sistema que hay en efectivo al cerrar, y lo que el cajero
   /// conto. Los dos se escriben en el corte y ya no cambian.
   efectivoCalculado Decimal? @db.Decimal(12, 2)
+  /// Lo declarado se puede corregir mientras Finanzas no lo acepte.
   efectivoDeclarado Decimal? @db.Decimal(12, 2)
   notas             String?
 
-  pedidos Pedido[]
+  /// En que va el corte en Finanzas. Null mientras el turno sigue abierto; nace
+  /// LIQUIDADO con el corte, como el de una entrega de ruta.
+  estadoCorte EstadoCorte?
+
+  /// El dinero aceptado: lo declarado en el momento en que Finanzas lo acepto.
+  /// Lo que el cajero entregue despues va en `abonos`. Los cuatro van juntos o
+  /// no van (`CHECK` en la migracion). Quien acepta va congelado con su
+  /// nombre, como el cajero.
+  efectivoRecibido  Decimal?  @db.Decimal(12, 2)
+  recibidoEn        DateTime?
+  recibidoPorId     String?
+  recibidoPorNombre String?
+
+  pedidos  Pedido[]
+  abonos   TurnoAbono[]
+  ingresos Ingreso[]
 
   @@index([tiendaId])
   @@index([cajeroId, abiertoEn])
+  @@index([estadoCorte, cerradoEn])
   @@map("turnos_pdv")
+}
+
+/// Lo que el cajero entrega despues, cuando al aceptar su corte de caja falto
+/// dinero. Es al turno lo que `CorteAbono` es al corte de ruta: nace pendiente
+/// y no cuenta contra el adeudo hasta que Finanzas lo acepta.
+///
+/// **Un turno solo puede tener un abono pendiente**: indice unico parcial
+/// sobre `turnoId WHERE aceptadoEn IS NULL`, escrito en la migracion.
+model TurnoAbono {
+  id      String   @id @default(uuid())
+  turnoId String
+  turno   TurnoPdv @relation(fields: [turnoId], references: [id], onDelete: Cascade)
+
+  monto Decimal @db.Decimal(12, 2)
+
+  /// Congelados con su nombre y sin llave foranea, como el cajero del turno.
+  registradoPorId     String
+  registradoPorNombre String
+
+  nota     String?
+  creadoEn DateTime @default(now())
+
+  /// Null mientras Finanzas no lo acepte.
+  aceptadoEn        DateTime?
+  aceptadoPorId     String?
+  aceptadoPorNombre String?
+  /// El ingreso que dejo al aceptarse.
+  ingreso           Ingreso?
+
+  @@index([turnoId])
+  @@map("turnos_pdv_abonos")
 }
 
 model TransferenciaItem {
@@ -1201,6 +1249,8 @@ enum ConceptoIngreso {
   ENTREGA
   /// El pago de una cuenta por cobrar.
   CXC
+  /// El efectivo de un corte de caja del punto de venta: al aceptarlo o como abono.
+  PDV
 }
 
 /// El libro de lo que Finanzas acepto. Solo se escribe, nunca se edita: por
@@ -1208,11 +1258,12 @@ enum ConceptoIngreso {
 ///
 /// El dinero con que se liquida un corte deja un solo ingreso (indice unico
 /// parcial sobre `corteId WHERE corteAbonoId IS NULL`, en la migracion); cada
-/// abono y cada pago de CXC, el suyo.
+/// abono y cada pago de CXC, el suyo. Lo mismo el corte de caja de un turno
+/// (`ingresos_un_dinero_por_turno`) y sus abonos.
 model Ingreso {
   id       String          @id @default(uuid())
   concepto ConceptoIngreso
-  /// Folio de reparto (ENTREGA) o de pedido (CXC), tal como era al aceptarse.
+  /// Folio de reparto (ENTREGA), de pedido (CXC) o de turno (PDV), tal como era al aceptarse.
   referencia String
   monto      Decimal    @db.Decimal(12, 2)
   metodo     MetodoPago
@@ -1226,6 +1277,12 @@ model Ingreso {
   /// Si el ingreso es un pago de CXC. Uno por pago.
   pagoPedidoId String?     @unique
   pagoPedido   PagoPedido? @relation(fields: [pagoPedidoId], references: [id], onDelete: Restrict)
+  /// Si el ingreso es de un corte de caja.
+  turnoPdvId   String?
+  turnoPdv     TurnoPdv?   @relation(fields: [turnoPdvId], references: [id], onDelete: Restrict)
+  /// Si el ingreso es un abono a un corte de caja. Uno por abono.
+  turnoAbonoId String?     @unique
+  turnoAbono   TurnoAbono? @relation(fields: [turnoAbonoId], references: [id], onDelete: Restrict)
 
   /// Quien lo acepto, no quien lo trajo.
   registradoPorId String
@@ -1235,6 +1292,7 @@ model Ingreso {
   @@index([creadoEn])
   @@index([concepto, creadoEn])
   @@index([corteId])
+  @@index([turnoPdvId])
   @@map("ingresos")
 }
 

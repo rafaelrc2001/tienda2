@@ -11,7 +11,7 @@ export interface IngresoDto {
   id: string;
   creadoEn: string;
   concepto: ConceptoIngreso;
-  /** Folio de reparto (ENTREGA) o de pedido (CXC). */
+  /** Folio de reparto (ENTREGA), de pedido (CXC) o de turno (PDV). */
   referencia: string;
   monto: number;
   metodo: MetodoPago;
@@ -42,6 +42,8 @@ export interface NuevoIngreso {
   corteId?: string;
   corteAbonoId?: string;
   pagoPedidoId?: string;
+  turnoPdvId?: string;
+  turnoAbonoId?: string;
 }
 
 /** Tope de renglones por consulta. El total no lo sufre: se suma en la base. */
@@ -49,7 +51,8 @@ const MAXIMO = 500;
 
 /**
  * El libro de lo que Finanzas acepto: el dinero de cada entrega, los abonos
- * de los repartidores y los pagos de las cuentas por cobrar.
+ * de los repartidores, los pagos de las cuentas por cobrar y el efectivo de
+ * los cortes de caja del punto de venta.
  *
  * Solo se escribe y solo desde otra transaccion: un ingreso nace junto con lo
  * que lo causa —aceptar un dinero, cobrar un pago— o no nace. Por eso
@@ -79,6 +82,8 @@ export class IngresosService {
         corteId: ingreso.corteId,
         corteAbonoId: ingreso.corteAbonoId,
         pagoPedidoId: ingreso.pagoPedidoId,
+        turnoPdvId: ingreso.turnoPdvId,
+        turnoAbonoId: ingreso.turnoAbonoId,
       },
     });
   }

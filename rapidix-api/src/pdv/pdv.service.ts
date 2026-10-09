@@ -6,9 +6,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  ConceptoIngreso,
+  EstadoCorte,
   EstadoPago,
   EstadoPedido,
   MetodoEntrega,
+  MetodoPago,
   Prisma,
   RolUsuario,
   TurnoPdv,
@@ -28,6 +31,16 @@ import { CarritoService, PrevisualizacionCarritoDto } from '../pedidos/carrito.s
 import { DireccionEntregaDto } from '../pedidos/dto/carrito.dto';
 import { FinanzasService } from '../pedidos/finanzas.service';
 import { FlujoPedidosService } from '../pedidos/flujo-pedidos.service';
+import { IngresosService } from '../ingresos/ingresos.service';
+import { FiltroCortes } from '../rutas/cortes.service';
+import { RegistrarAbonoDto } from '../rutas/dto/corte.dto';
+import {
+  abonoPendiente,
+  adeudoDelCorte,
+  CorteEnCuenta,
+  estadoTrasAceptar,
+  TOLERANCIA,
+} from '../rutas/estado-del-corte';
 import { PedidoDto, PedidosService, UltimoPedidoDto } from '../pedidos/pedidos.service';
 import { TiendasService } from '../tiendas/tiendas.service';
 import { PedidoDelTurno, productosEntregados, totalesDelTurno } from './corte-de-caja';
@@ -77,7 +90,51 @@ export interface TurnoDto {
   /** Declarado menos calculado: negativo es faltante. */
   diferencia: number | null;
   notas: string | null;
+  /** En que va el corte en Finanzas. `null` mientras el turno sigue abierto. */
+  corte: CorteDeTurnoDto | null;
 }
+
+/** El corte de caja visto desde Finanzas: lo aceptado, lo que falta y sus abonos. */
+export interface CorteDeTurnoDto {
+  estado: EstadoCorte;
+  /** El dinero aceptado al revisar el corte. `null` mientras Finanzas no lo acepte. */
+  efectivoRecibido: number | null;
+  recibidoEn: string | null;
+  recibidoPorNombre: string | null;
+  /**
+   * El adeudo del cajero: lo calculado menos el dinero aceptado y los abonos
+   * aceptados. Cero mientras Finanzas no acepte el dinero.
+   */
+  saldoPendiente: number;
+  /**
+   * Lo que "Aceptar dinero" aceptaria ahora: lo declarado si el corte sigue
+   * sin aceptar, el abono pendiente si lo hay, o `null` si no hay dinero
+   * esperando.
+   */
+  dineroPorAceptar: number | null;
+  abonos: {
+    id: string;
+    monto: number;
+    registradoPorNombre: string;
+    nota: string | null;
+    creadoEn: string;
+    /** `null` mientras Finanzas no lo acepte: aun no cuenta contra el adeudo. */
+    aceptadoEn: string | null;
+  }[];
+}
+
+/** Los cortes de caja de una pestana de Finanzas, con cuantos hay en cada una. */
+export interface ListadoCortesDeCajaDto {
+  turnos: TurnoDto[];
+  conteos: Record<FiltroCortes, number>;
+}
+
+/** Las mismas pestanas que los cortes de ruta: una por estatus. */
+const WHERE_CORTES_DE_CAJA: Record<FiltroCortes, Prisma.TurnoPdvWhereInput> = {
+  [FiltroCortes.POR_ACEPTAR]: { estadoCorte: EstadoCorte.LIQUIDADO },
+  [FiltroCortes.CON_ADEUDO]: { estadoCorte: EstadoCorte.ACEPTADO },
+  [FiltroCortes.CERRADOS]: { estadoCorte: EstadoCorte.CERRADO },
+};
 
 /** El catalogo de la Tienda con lo que esa tienda puede vender de cada producto. */
 export type CatalogoPdvDto = Omit<CatalogoRecomendadoDto, 'familias'> & {
@@ -114,6 +171,7 @@ const INCLUIR_TURNO = {
       pagadoConBilletera: true,
     },
   },
+  abonos: { orderBy: { creadoEn: 'asc' } },
 } satisfies Prisma.TurnoPdvInclude;
 
 type TurnoCompleto = Prisma.TurnoPdvGetPayload<{ include: typeof INCLUIR_TURNO }>;
@@ -161,6 +219,7 @@ export class PdvService {
     private readonly recomendaciones: RecomendacionesService,
     private readonly tiendas: TiendasService,
     private readonly configuracion: ConfiguracionService,
+    private readonly ingresos: IngresosService,
   ) {}
 
   // ----------------------------------------------------------------
@@ -250,6 +309,9 @@ export class PdvService {
    * No se cierra con pedidos para llevar sin entregar (409
    * `TURNO_CON_PENDIENTES`): su dinero no esta ni cobrado ni descartado, y el
    * corte saldria con una cifra que cambiaria despues.
+   *
+   * Nace LIQUIDADO: desde aqui lo ve Finanzas en "Por aceptar", y hasta que lo
+   * acepta ese efectivo no esta en Ingresos.
    */
   async cerrar(
     id: string,
@@ -274,12 +336,273 @@ export class PdvService {
           efectivoCalculado: totales.efectivo,
           efectivoDeclarado: new Decimal(dto.efectivoDeclarado),
           notas: dto.notas?.trim() || null,
+          estadoCorte: EstadoCorte.LIQUIDADO,
         },
         include: INCLUIR_TURNO,
       });
     });
     this.logger.log(`Corte de caja del turno ${cerrado.folio} por ${usuario.nombre}`);
     return this.conPedidos(cerrado);
+  }
+
+  // ----------------------------------------------------------------
+  // El dinero del corte, despues de hecho
+  // ----------------------------------------------------------------
+
+  /**
+   * "Corregir lo que declare": el cajero conto mal, o aparecio el billete que
+   * faltaba. Pisa lo declarado; solo mientras Finanzas no lo acepte (409
+   * `DINERO_YA_ACEPTADO`): aceptado ya es un ingreso, y lo que falte se cubre
+   * con abonos.
+   */
+  async corregirDeclarado(
+    id: string,
+    dto: CorteDeCajaDto,
+    usuario: UsuarioAutenticado,
+  ): Promise<TurnoDto> {
+    await this.prisma.$transaction(async (tx) => {
+      const turno = await PdvService.bloquearCortado(tx, id);
+      PdvService.exigirPropio(turno, usuario);
+      if (turno.recibidoEn !== null) {
+        throw PdvService.conflicto(
+          'DINERO_YA_ACEPTADO',
+          'Finanzas ya aceptó ese dinero: lo que falte se entrega como abono.',
+        );
+      }
+      await tx.turnoPdv.update({
+        where: { id },
+        data: {
+          efectivoDeclarado: new Decimal(dto.efectivoDeclarado),
+          ...(dto.notas !== undefined && { notas: dto.notas.trim() || null }),
+        },
+      });
+    });
+    return this.dtoDe(id);
+  }
+
+  /**
+   * El cajero entrega mas dinero contra el adeudo de su corte. Como el abono
+   * del repartidor: nace pendiente, no baja el adeudo hasta que Finanzas lo
+   * acepta, y mientras tanto el corte vuelve a LIQUIDADO. Solo cabe uno
+   * pendiente (409 `ABONO_PENDIENTE`), solo con el corte ya aceptado (409
+   * `CORTE_SIN_ACEPTAR`: antes se corrige lo declarado) y nunca por mas de lo
+   * que falta (409 `ABONO_EXCEDE_FALTANTE`).
+   */
+  async abonar(id: string, dto: RegistrarAbonoDto, usuario: UsuarioAutenticado): Promise<TurnoDto> {
+    await this.prisma.$transaction(async (tx) => {
+      // Bloqueado: dos abonos a la vez leerian el mismo adeudo y juntos lo pasarian.
+      const turno = await PdvService.bloquearCortado(tx, id);
+      PdvService.exigirPropio(turno, usuario);
+
+      if (abonoPendiente(turno.abonos)) {
+        throw PdvService.conflicto(
+          'ABONO_PENDIENTE',
+          'Ya hay un abono esperando a que Finanzas lo acepte. ' +
+            'Si te equivocaste, cancélalo y regístralo de nuevo.',
+        );
+      }
+      if (turno.recibidoEn === null) {
+        throw PdvService.conflicto(
+          'CORTE_SIN_ACEPTAR',
+          'Finanzas todavía no acepta ese corte: corrige lo que declaraste.',
+        );
+      }
+
+      const adeudo = adeudoDelCorte(PdvService.enCuenta(turno));
+      const monto = new Decimal(dto.monto);
+      if (monto.gt(adeudo.add(TOLERANCIA))) {
+        throw PdvService.conflicto(
+          'ABONO_EXCEDE_FALTANTE',
+          adeudo.isZero()
+            ? 'Ese corte ya está saldado: no hay nada que abonar.'
+            : `El abono pasa de lo que falta: quedan $${adeudo.toFixed(2)}.`,
+        );
+      }
+
+      await tx.turnoAbono.create({
+        data: {
+          turnoId: id,
+          monto,
+          registradoPorId: usuario.sub,
+          registradoPorNombre: usuario.nombre,
+          nota: dto.nota?.trim() || null,
+        },
+      });
+      await tx.turnoPdv.update({
+        where: { id },
+        data: {
+          estadoCorte: estadoTrasAceptar({
+            ...PdvService.enCuenta(turno),
+            abonos: [...turno.abonos, { monto, aceptadoEn: null }],
+          }),
+        },
+      });
+    });
+    return this.dtoDe(id);
+  }
+
+  /**
+   * Cancela el abono pendiente: se equivoco de monto o ese dinero no llego a
+   * Finanzas. Se borra —nunca conto— y el corte vuelve al estatus que tenia.
+   * Uno aceptado ya es un ingreso y no se toca (409 `ABONO_YA_ACEPTADO`).
+   */
+  async cancelarAbono(id: string, abonoId: string, usuario: UsuarioAutenticado): Promise<TurnoDto> {
+    await this.prisma.$transaction(async (tx) => {
+      const turno = await PdvService.bloquearCortado(tx, id);
+      PdvService.exigirPropio(turno, usuario);
+
+      const abono = turno.abonos.find((a) => a.id === abonoId);
+      if (!abono) throw new NotFoundException('Abono no encontrado');
+      if (abono.aceptadoEn !== null) {
+        throw PdvService.conflicto(
+          'ABONO_YA_ACEPTADO',
+          'Finanzas ya aceptó ese abono: ya no se puede cancelar.',
+        );
+      }
+
+      await tx.turnoAbono.delete({ where: { id: abonoId } });
+      await tx.turnoPdv.update({
+        where: { id },
+        data: {
+          estadoCorte: estadoTrasAceptar({
+            ...PdvService.enCuenta(turno),
+            abonos: turno.abonos.filter((a) => a.id !== abonoId),
+          }),
+        },
+      });
+    });
+    return this.dtoDe(id);
+  }
+
+  // ----------------------------------------------------------------
+  // Finanzas -> Cortes: los cortes de caja
+  // ----------------------------------------------------------------
+
+  /** Los cortes de caja de una pestana, de todas las tiendas, con sus conteos. */
+  async cortesParaFinanzas(filtro: FiltroCortes, limite: number): Promise<ListadoCortesDeCajaDto> {
+    const [turnos, ...cuentas] = await Promise.all([
+      this.prisma.turnoPdv.findMany({
+        where: WHERE_CORTES_DE_CAJA[filtro],
+        orderBy: { cerradoEn: 'desc' },
+        take: limite,
+        include: INCLUIR_TURNO,
+      }),
+      ...Object.values(FiltroCortes).map((f) =>
+        this.prisma.turnoPdv.count({ where: WHERE_CORTES_DE_CAJA[f] }),
+      ),
+    ]);
+    const conteos = Object.fromEntries(
+      Object.values(FiltroCortes).map((f, i) => [f, cuentas[i]]),
+    ) as Record<FiltroCortes, number>;
+
+    return { turnos: turnos.map((t) => PdvService.aDto(t)), conteos };
+  }
+
+  /** Un corte de caja abierto en Finanzas, con los pedidos de los que sale cada cifra. */
+  async corteParaFinanzas(id: string): Promise<TurnoConPedidosDto> {
+    const turno = await this.prisma.turnoPdv.findUnique({ where: { id }, include: INCLUIR_TURNO });
+    // Un turno abierto no es un corte: para Finanzas todavia no existe.
+    if (!turno || turno.cerradoEn === null) throw new NotFoundException('Corte no encontrado');
+    return this.conPedidos(turno);
+  }
+
+  /**
+   * "Aceptar dinero": Finanzas conto lo que el cajero entrega y es lo que
+   * dijo. No captura otra cifra: acepta la que esta escrita, y si no coincide
+   * con lo que tiene en la mano, el cajero la corrige.
+   *
+   * Acepta el dinero que este pendiente: el del corte la primera vez —lo
+   * declarado pasa a ser el dinero aceptado y de ahi sale el adeudo—, o el
+   * abono que el cajero registro despues. Cada uno deja su renglon en
+   * Ingresos, en la misma transaccion.
+   *
+   * En caja no hay mercancia que revisar, asi que aceptar el dinero es aceptar
+   * el corte: queda CERRADO si cubre lo que dice el sistema y ACEPTADO, con
+   * adeudo, si no. **Quien acepta no puede ser el cajero del turno**, salvo el
+   * administrador (409 `RECIBE_EL_MISMO`).
+   */
+  async aceptarDinero(id: string, usuario: UsuarioAutenticado): Promise<TurnoDto> {
+    await this.prisma.$transaction(async (tx) => {
+      // Bloqueado: dos pulsaciones a la vez aceptarian el mismo dinero dos veces.
+      const turno = await PdvService.bloquearCortado(tx, id);
+      if (turno.cajeroId === usuario.sub && !PdvService.esAdmin(usuario)) {
+        throw PdvService.conflicto(
+          'RECIBE_EL_MISMO',
+          'No puedes aceptar tu propio corte: tiene que revisarlo alguien más.',
+        );
+      }
+
+      const ahora = new Date();
+      let efectivoRecibido = turno.efectivoRecibido;
+      let abonos = turno.abonos;
+      let aceptado: Prisma.Decimal;
+
+      if (turno.recibidoEn === null) {
+        aceptado = turno.efectivoDeclarado ?? new Decimal(0);
+        efectivoRecibido = aceptado;
+        await this.ingresos.registrar(tx, {
+          concepto: ConceptoIngreso.PDV,
+          referencia: turno.folio,
+          monto: aceptado,
+          metodo: MetodoPago.EFECTIVO,
+          registradoPorId: usuario.sub,
+          turnoPdvId: id,
+        });
+      } else {
+        const pendiente = abonoPendiente(turno.abonos);
+        if (!pendiente) {
+          throw PdvService.conflicto(
+            'SIN_DINERO_POR_ACEPTAR',
+            'Ese corte no tiene dinero por aceptar.',
+          );
+        }
+        aceptado = pendiente.monto;
+        await tx.turnoAbono.update({
+          where: { id: pendiente.id },
+          data: {
+            aceptadoEn: ahora,
+            aceptadoPorId: usuario.sub,
+            aceptadoPorNombre: usuario.nombre,
+          },
+        });
+        abonos = turno.abonos.map((a) => (a.id === pendiente.id ? { ...a, aceptadoEn: ahora } : a));
+        await this.ingresos.registrar(tx, {
+          concepto: ConceptoIngreso.PDV,
+          referencia: turno.folio,
+          monto: aceptado,
+          metodo: MetodoPago.EFECTIVO,
+          nota: pendiente.nota,
+          registradoPorId: usuario.sub,
+          turnoPdvId: id,
+          turnoAbonoId: pendiente.id,
+        });
+      }
+
+      const recibidoEn = turno.recibidoEn ?? ahora;
+      await tx.turnoPdv.update({
+        where: { id },
+        data: {
+          ...(turno.recibidoEn === null && {
+            efectivoRecibido,
+            recibidoEn,
+            recibidoPorId: usuario.sub,
+            recibidoPorNombre: usuario.nombre,
+          }),
+          estadoCorte: estadoTrasAceptar({
+            ...PdvService.enCuenta(turno),
+            montoRecibido: efectivoRecibido,
+            entregaAceptadaEn: recibidoEn,
+            abonos,
+          }),
+        },
+      });
+
+      this.logger.log(
+        `Dinero del corte de caja ${turno.folio} aceptado por ${usuario.nombre}: ` +
+          `$${aceptado.toFixed(2)} (${turno.recibidoEn === null ? 'corte' : 'abono'})`,
+      );
+    });
+    return this.dtoDe(id);
   }
 
   // ----------------------------------------------------------------
@@ -533,6 +856,14 @@ export class PdvService {
 
   // ----------------------------------------------------------------
 
+  private async dtoDe(id: string): Promise<TurnoDto> {
+    const turno = await this.prisma.turnoPdv.findUniqueOrThrow({
+      where: { id },
+      include: INCLUIR_TURNO,
+    });
+    return PdvService.aDto(turno);
+  }
+
   private async conPedidos(turno: TurnoCompleto): Promise<TurnoConPedidosDto> {
     const pedidos = await this.pedidos.buscar(
       { turnoId: turno.id },
@@ -577,6 +908,43 @@ export class PdvService {
     PdvService.exigirPropio(turno, usuario);
     PdvService.exigirSinCerrar(turno);
     return turno;
+  }
+
+  /** Bloquea la fila de un turno que ya tiene su corte: lo que sigue es su dinero. */
+  private static async bloquearCortado(
+    tx: Prisma.TransactionClient,
+    id: string,
+  ): Promise<TurnoCompleto> {
+    const filas = await tx.$queryRaw<{ id: string }[]>`
+      SELECT id FROM turnos_pdv WHERE id = ${id} FOR UPDATE
+    `;
+    if (filas.length === 0) throw new NotFoundException('Turno no encontrado');
+
+    const turno = await tx.turnoPdv.findUniqueOrThrow({ where: { id }, include: INCLUIR_TURNO });
+    if (turno.cerradoEn === null) {
+      throw PdvService.conflicto(
+        'TURNO_SIN_CORTE',
+        `El turno ${turno.folio} todavía no tiene su corte de caja.`,
+      );
+    }
+    return turno;
+  }
+
+  /**
+   * El turno dicho como lo entienden las cuentas del corte de ruta
+   * (`estado-del-corte`), para que el adeudo y el estatus salgan de la misma
+   * regla. En caja no hay mercancia que revisar: aceptar el dinero es aceptar
+   * el corte, asi que la "entrega aceptada" es la fecha en que se recibio.
+   */
+  private static enCuenta(
+    turno: Pick<TurnoCompleto, 'efectivoCalculado' | 'efectivoRecibido' | 'recibidoEn' | 'abonos'>,
+  ): CorteEnCuenta {
+    return {
+      montoCalculado: turno.efectivoCalculado ?? new Decimal(0),
+      montoRecibido: turno.efectivoRecibido,
+      entregaAceptadaEn: turno.recibidoEn,
+      abonos: turno.abonos,
+    };
   }
 
   /** La caja es de quien la abrio. El administrador puede verla y cerrarla. */
@@ -705,6 +1073,29 @@ export class PdvService {
           ? turno.efectivoDeclarado.sub(turno.efectivoCalculado).toNumber()
           : null,
       notas: turno.notas,
+      corte: PdvService.corteDe(turno),
+    };
+  }
+
+  private static corteDe(turno: TurnoCompleto): CorteDeTurnoDto | null {
+    if (turno.estadoCorte === null) return null;
+    const porAceptar =
+      turno.recibidoEn === null ? turno.efectivoDeclarado : abonoPendiente(turno.abonos)?.monto;
+    return {
+      estado: turno.estadoCorte,
+      efectivoRecibido: turno.efectivoRecibido?.toNumber() ?? null,
+      recibidoEn: turno.recibidoEn?.toISOString() ?? null,
+      recibidoPorNombre: turno.recibidoPorNombre,
+      saldoPendiente: adeudoDelCorte(PdvService.enCuenta(turno)).toNumber(),
+      dineroPorAceptar: porAceptar?.toNumber() ?? null,
+      abonos: turno.abonos.map((a) => ({
+        id: a.id,
+        monto: a.monto.toNumber(),
+        registradoPorNombre: a.registradoPorNombre,
+        nota: a.nota,
+        creadoEn: a.creadoEn.toISOString(),
+        aceptadoEn: a.aceptadoEn?.toISOString() ?? null,
+      })),
     };
   }
 }

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * Finanzas → Cortes de ruta → un corte: aceptar lo que el repartidor trae de
+ * Finanzas → Cortes → un corte de ruta: aceptar lo que el repartidor trae de
  * su entrega.
  *
  * Tiene su propia vista, como la entrega y la liquidación en Rutas: con el
@@ -202,7 +202,7 @@ async function rechazar(): Promise<void> {
 
 <template>
   <div class="pantalla pantalla-rutas sin-colchon">
-    <RouterLink :to="volver" class="admin-back-inline">← Cortes de ruta</RouterLink>
+    <RouterLink :to="volver" class="admin-back-inline">← Cortes</RouterLink>
 
     <SkeletonList v-if="cargando" :cantidad="3" />
 
