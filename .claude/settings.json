@@ -3,7 +3,12 @@
     "allow": [
       "Bash(npm run *)",
       "PowerShell(npm run build 2>&1)",
-      "PowerShell(npm test 2>&1)"
+      "PowerShell(npm test 2>&1)",
+      "Read(//c/proyectos/rapidix-web/src/router/**)",
+      "Read(//c/proyectos/rapidix-web/src/api/**)",
+      "Read(//c/proyectos/rapidix-web/**)",
+      "Bash(git push *)",
+      "Bash(git fetch *)"
     ]
   }
 }

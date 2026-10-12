@@ -11,10 +11,12 @@ import { FinanzasController } from './finanzas.controller';
 import { CxcService } from './cxc.service';
 import { CxcController } from './cxc.controller';
 import { IngresosModule } from '../ingresos/ingresos.module';
+import { TiendasModule } from '../tiendas/tiendas.module';
 
 @Module({
   // El pago de una cuenta por cobrar deja su renglon en el libro de ingresos.
-  imports: [IngresosModule],
+  // El pedido que se recoge en tienda se valida contra el inventario de esa tienda.
+  imports: [IngresosModule, TiendasModule],
   controllers: [
     CarritoController,
     AdminPedidosController,

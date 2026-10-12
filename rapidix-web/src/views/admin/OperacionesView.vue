@@ -3,6 +3,10 @@
  * Administración → Operaciones: surtir los pedidos y dejarlos listos para
  * entrega, o entregarlos en mostrador si se recogen en tienda.
  *
+ * Es lo que surte bodega. El pedido que el cliente eligió recoger en una
+ * tienda no sale aquí: lo prepara y lo entrega esa tienda desde la pestaña
+ * Operaciones de su PDV (`pdv/VentanaOperacionesTienda.vue`).
+ *
  * La pantalla no decide nada: cada pedido llega con su `paso` calculado por la
  * API (siguiente estado, a quién le toca y por qué está bloqueado). Aquí solo
  * se enciende el botón o se enseña el candado.
@@ -21,9 +25,9 @@ import {
 import SkeletonList from '@/components/SkeletonList.vue'
 import BitacoraPedido from '@/components/BitacoraPedido.vue'
 import { sumarProductos } from './operaciones/conteo'
+import { PASOS, bloqueoDe, esPasoSiguiente, pasoDado } from './operaciones/pasos'
 import type {
   EstadoPago,
-  EstadoPedido,
   FiltroOperaciones,
   ListadoOperaciones,
   PedidoEnPantalla,
@@ -114,44 +118,6 @@ function direccionCorta(pedido: PedidoEnPantalla): string {
   const d = pedido.direccion as Record<string, string | null> | null
   if (!d) return ''
   return [d.calle, d.colonia, d.ciudad].filter(Boolean).join(' · ')
-}
-
-/**
- * Los estados del pedido, en orden, pintados como una fila de botones: cada
- * uno se enciende cuando se dio el anterior. «Entregado» solo lo da aquí un
- * pedido de tienda; el de domicilio lo sigue Rutas y se ve apagado.
- */
-const PASOS: EstadoPedido[] = ['EN_PREPARACION', 'PREPARADO', 'LISTO_PARA_ENTREGA', 'ENTREGADO']
-
-const ORDEN_ESTADO: EstadoPedido[] = [
-  'CONFIRMADO',
-  'EN_PREPARACION',
-  'PREPARADO',
-  'LISTO_PARA_ENTREGA',
-  'RECOLECTADO',
-  'EN_RUTA',
-  'ENTREGADO',
-]
-
-/** El pedido ya pasó por ese estado: el botón queda marcado como hecho. */
-function pasoDado(pedido: PedidoEnPantalla, estado: EstadoPedido): boolean {
-  return ORDEN_ESTADO.indexOf(pedido.estado) >= ORDEN_ESTADO.indexOf(estado)
-}
-
-/** Solo se enciende el paso que la API dice que toca a Operaciones. */
-function esPasoSiguiente(pedido: PedidoEnPantalla, estado: EstadoPedido): boolean {
-  return (
-    pedido.pago.estado !== 'CANCELADO' &&
-    pedido.paso.seccion === 'operaciones' &&
-    pedido.paso.siguiente === estado
-  )
-}
-
-/** El bloqueo del paso que toca, para enseñarlo bajo los botones. */
-function bloqueoDe(pedido: PedidoEnPantalla): string | null {
-  const siguiente = pedido.paso.siguiente
-  if (!siguiente || !esPasoSiguiente(pedido, siguiente)) return null
-  return pedido.paso.bloqueo?.mensaje ?? null
 }
 
 function iconoMetodo(metodo: string): string {

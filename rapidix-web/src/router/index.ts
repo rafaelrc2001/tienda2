@@ -26,6 +26,12 @@ declare module 'vue-router' {
      * es de donde se llega a él.
      */
     volverA?: string
+    /**
+     * Pantalla de trabajo que no lleva la barra inferior (Home, Tienda,
+     * Recetario…): el punto de venta es una caja, y esa cinta solo le quita
+     * alto al catálogo. Se sale con «Volver al menú» o con la hamburguesa.
+     */
+    sinNav?: boolean
   }
 }
 
@@ -311,7 +317,7 @@ const routes: RouteRecordRaw[] = [
     path: '/admin/pdv',
     name: 'admin-pdv',
     component: () => import('@/views/admin/AdminPdvView.vue'),
-    meta: { seccion: 'pdv', titulo: 'Punto de Venta' },
+    meta: { seccion: 'pdv', titulo: 'Punto de Venta', sinNav: true },
   },
   {
     // Se abren desde la casilla de términos del carrito, en otra pestaña.

@@ -73,6 +73,7 @@ watch(
     :titulo="titulo"
     :variante="variante"
     :volver-a="volverA"
+    :sin-nav="route.meta.sinNav === true"
     :con-drawer="auth.autenticado"
     :con-carrito="!auth.autenticado || auth.esCliente"
     @menu="ui.abrirDrawer()"

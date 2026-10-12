@@ -11,6 +11,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  IsUUID,
   Matches,
   Max,
   MaxLength,
@@ -213,6 +214,14 @@ export class PrevisualizarCarritoDto {
   @IsOptional()
   @IsEnum(MetodoEntrega, { message: 'El método de entrega no es válido' })
   metodoEntrega?: MetodoEntrega;
+
+  /**
+   * Recoger en tienda: en cual. Con ella la respuesta avisa de lo que esa
+   * tienda no tiene; sin ella, habiendo tiendas, avisa de que falta elegirla.
+   */
+  @IsOptional()
+  @IsUUID('all', { message: 'Elige en qué tienda recoges tu pedido' })
+  tiendaId?: string;
 }
 
 /**
@@ -251,6 +260,14 @@ export class CrearPedidoDto {
   @IsOptional()
   @IsEnum(MetodoEntrega, { message: 'El método de entrega no es válido' })
   metodoEntrega?: MetodoEntrega;
+
+  /**
+   * Recoger en tienda: en cual. Obligatoria si el negocio tiene tiendas
+   * activas (409 `TIENDA_REQUERIDA`); a domicilio se ignora.
+   */
+  @IsOptional()
+  @IsUUID('all', { message: 'Elige en qué tienda recoges tu pedido' })
+  tiendaId?: string;
 
   /**
    * Obligatoria a domicilio (el valor por defecto) y se ignora al recoger en

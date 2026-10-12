@@ -76,12 +76,16 @@ export function precioUnitario(p: ListasDePrecio, cantidad: number): Decimal {
 
 /**
  * Precio tachado: el de la lista anterior a la que se esta cobrando. `null`
- * en la primera lista, donde no hay nada que tachar.
+ * en la primera lista, donde no hay nada que tachar, y cuando la anterior no
+ * era mas cara: las listas no tienen que bajar de precio, y tachar un precio
+ * igual o menor que el que se cobra anunciaria una rebaja que no existe.
  */
 export function precioListaAnterior(p: ListasDePrecio, cantidad: number): Decimal | null {
   const listas = listasDe(p);
   const indice = indiceLista(listas, cantidad);
-  return indice > 0 ? listas[indice - 1].precio : null;
+  if (indice <= 0) return null;
+  const anterior = listas[indice - 1].precio;
+  return anterior.greaterThan(listas[indice].precio) ? anterior : null;
 }
 
 /** "Ahorras": lo que costaria la linea al precio de venta menos lo que cuesta. */
@@ -108,6 +112,8 @@ export function upsell(p: ListasDePrecio, cantidad: number): Upsell | null {
   const siguiente = listas[indice + 1];
   const faltan = siguiente.piso - cantidad;
   if (faltan <= 0 || faltan * 5 > siguiente.piso) return null;
+  // Solo se ofrece subir si la siguiente lista de verdad sale mas barata.
+  if (!siguiente.precio.lessThan(actual.precio)) return null;
 
   return {
     faltan,
@@ -125,7 +131,7 @@ export function upsell(p: ListasDePrecio, cantidad: number): Upsell | null {
  * estrellarse contra una restriccion.
  */
 export function validarEscalones(
-  precioVenta: number,
+  _precioVenta: number,
   escalones: { piso: number; precio: number }[],
 ): string | null {
   if (escalones.length > MAX_ESCALONES) {
@@ -133,7 +139,6 @@ export function validarEscalones(
   }
 
   let pisoAnterior = 1;
-  let precioAnterior = precioVenta;
   for (const [i, escalon] of escalones.entries()) {
     const lista = i + 2;
     if (!Number.isInteger(escalon.piso) || escalon.piso <= pisoAnterior) {
@@ -141,13 +146,12 @@ export function validarEscalones(
         ? `La lista ${lista} debe empezar en 2 piezas o más.`
         : `La lista ${lista} debe empezar en más piezas que la lista ${lista - 1}.`;
     }
-    if (!(escalon.precio >= 0) || escalon.precio >= precioAnterior) {
-      return i === 0
-        ? `El precio de la lista ${lista} debe ser menor que el precio de venta.`
-        : `El precio de la lista ${lista} debe ser menor que el de la lista ${lista - 1}.`;
+    // El precio de cada lista lo pone el negocio: no tiene que bajar respecto
+    // a la anterior. Solo no puede ser negativo.
+    if (!(escalon.precio >= 0)) {
+      return `El precio de la lista ${lista} no puede ser negativo.`;
     }
     pisoAnterior = escalon.piso;
-    precioAnterior = escalon.precio;
   }
   return null;
 }

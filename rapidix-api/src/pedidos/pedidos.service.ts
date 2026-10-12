@@ -17,6 +17,7 @@ import {
   Pedido,
   Prisma,
   Prospecto,
+  Tienda,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConfiguracionService } from '../configuracion/configuracion.service';
@@ -25,6 +26,7 @@ import { CashbackService } from '../cashback/cashback.service';
 import { precioUnitario } from '../catalogo/precios';
 import { CarritoService } from './carrito.service';
 import { InventarioService } from '../inventario/inventario.service';
+import { TiendasService } from '../tiendas/tiendas.service';
 import { CrearPedidoDto, DireccionEntregaDto } from './dto/carrito.dto';
 import { ActorDeBitacora, registrarEnBitacora } from './bitacora';
 import { pagadoDelPedido, saldoDelPedido } from './cxc';
@@ -43,6 +45,7 @@ const INCLUIR_PEDIDO = {
     orderBy: { creadoEn: 'asc' },
     select: { id: true, monto: true, metodo: true, enPuerta: true, creadoEn: true },
   },
+  tienda: { select: { id: true, nombre: true, direccion: true } },
 } satisfies Prisma.PedidoInclude;
 
 export interface PedidoDto {
@@ -50,6 +53,11 @@ export interface PedidoDto {
   folio: string;
   clienteId: string;
   clienteNombre?: string;
+  /**
+   * El telefono con el que se registro el cliente. Solo viaja en las pantallas
+   * del personal: el PDV le manda ahi el comprobante al entregar.
+   */
+  clienteTelefono?: string;
   subtotal: number;
   envio: number;
   recargoFuera: number;
@@ -95,6 +103,11 @@ export interface PedidoDto {
     saldo: number;
   };
   metodoEntrega: MetodoEntrega;
+  /**
+   * La tienda donde se recoge, si es un pedido de la app para recoger. `null`
+   * a domicilio, en los de mostrador y en los que surte bodega.
+   */
+  tienda: { id: string; nombre: string; direccion: string } | null;
   /** Snapshot de la direccion del pedido; `null` si se recoge en tienda. */
   direccion: Record<string, unknown> | null;
   cupon: { code: string; titulo: string } | null;
@@ -162,6 +175,7 @@ export class PedidosService {
     private readonly cupones: CuponesService,
     private readonly cashback: CashbackService,
     private readonly inventario: InventarioService,
+    private readonly tiendas: TiendasService,
   ) {}
 
   /**
@@ -190,6 +204,11 @@ export class PedidosService {
    * el cajero y —si se lleva en mostrador— no aparta nada en bodega: esa
    * mercancia sale del inventario de la tienda al entregarse. Y nace
    * PAGADO, vaya a donde vaya: el punto de venta cobra de contado.
+   *
+   * El pedido de la app que se recoge en tienda queda atado a la que eligio el
+   * cliente (409 `TIENDA_REQUERIDA`, `TIENDA_NO_DISPONIBLE`). Tampoco aparta
+   * en bodega: lo surte esa tienda de su inventario, asi que solo se confirma
+   * lo que tiene (409 `SIN_EXISTENCIA_EN_TIENDA`).
    */
   async crear(
     duenioId: string,
@@ -218,6 +237,13 @@ export class PedidosService {
         `Ahora mismo no estamos recibiendo pedidos. Nuestro horario es de ${config.abre} a ${config.cierra}.`,
       );
     }
+
+    const metodoEntrega = dto.metodoEntrega ?? MetodoEntrega.DOMICILIO;
+    // En mostrador la tienda es la del turno, y su faltante ya lo reviso el PDV.
+    const tiendaDeRecogida =
+      mostrador === undefined && metodoEntrega === MetodoEntrega.TIENDA
+        ? await this.exigirTiendaDeRecogida(dto)
+        : null;
 
     // El % se fija con el nivel que tenia al pedir, antes de que este pedido le
     // sume gasto: es el mismo que vio en la previsualizacion. Un prospecto cae
@@ -265,7 +291,6 @@ export class PedidosService {
       // Mismo calculo que devuelve POST /carrito/previsualizar. La billetera se
       // valida contra el total ya con el cupon, y aqui si se lanza: el cliente
       // tiene que ver el total real antes de confirmar.
-      const metodoEntrega = dto.metodoEntrega ?? MetodoEntrega.DOMICILIO;
       const sinBilletera = CarritoService.calcularCarrito(
         carrito,
         config,
@@ -324,7 +349,11 @@ export class PedidosService {
       }
       const estadoPago =
         aPagar.greaterThan(0) && !deContado ? EstadoPago.PAGO_PENDIENTE : EstadoPago.PAGADO;
-      const saleDeLaTienda = mostrador !== undefined && metodoEntrega === MetodoEntrega.TIENDA;
+      // Lo que se lleva en mostrador y lo que se recoge en una tienda elegida
+      // sale del inventario de esa tienda, no de bodega.
+      const saleDeLaTienda =
+        metodoEntrega === MetodoEntrega.TIENDA &&
+        (mostrador !== undefined || tiendaDeRecogida !== null);
 
       const folio = await PedidosService.siguienteFolio(tx);
       const ahora = new Date();
@@ -358,6 +387,7 @@ export class PedidosService {
           porcentajeCashback,
           estado: EstadoPedido.CONFIRMADO,
           turnoId: mostrador?.turnoId ?? null,
+          tiendaId: tiendaDeRecogida?.id ?? null,
           direccion: PedidosService.copiaDireccion(metodoEntrega, dto.direccion),
           items: {
             create: carrito.lineas.map((l) => ({
@@ -421,9 +451,9 @@ export class PedidosService {
       // todos los productos estan en cero y bloquear las ventas por un saldo
       // que nadie ha capturado seria cerrar la tienda.
       //
-      // Lo que se lleva en el mostrador del punto de venta tampoco pasa por
-      // aqui: no sale de bodega sino del inventario de la tienda, y eso lo
-      // descuenta la entrega.
+      // Lo que se lleva en el mostrador del punto de venta o se recoge en una
+      // tienda tampoco pasa por aqui: no sale de bodega sino del inventario de
+      // la tienda, y eso lo descuenta la entrega.
       if (config.controlInventario && !saleDeLaTienda) {
         await this.inventario.registrarVenta(
           tx,
@@ -507,6 +537,37 @@ export class PedidosService {
         }),
       );
     });
+  }
+
+  /**
+   * La tienda donde se recoge un pedido de la app, ya comprobado que tiene lo
+   * que se pide. `null` si el negocio no tiene tiendas activas: ese pedido lo
+   * surte bodega y sigue por Operaciones, como antes de que hubiera tiendas.
+   *
+   * Va fuera de la transaccion, igual que el faltante del punto de venta: en
+   * la tienda no hay apartado, y lo que de verdad impide entregar lo que no
+   * hay es el `WHERE` de `TiendasService.salir`.
+   */
+  private async exigirTiendaDeRecogida(dto: DatosDelPedido): Promise<Tienda | null> {
+    const recogida = await this.tiendas.resolverRecogida(dto.tiendaId);
+    if (recogida.error) {
+      throw new ConflictException({
+        statusCode: 409,
+        code: recogida.error.codigo,
+        message: recogida.error.mensaje,
+      });
+    }
+    if (!recogida.tienda) return null;
+
+    const faltantes = await this.tiendas.faltantes(recogida.tienda.id, dto.items);
+    if (faltantes.length > 0) {
+      throw new ConflictException({
+        statusCode: 409,
+        code: 'SIN_EXISTENCIA_EN_TIENDA',
+        message: faltantes.map((f) => TiendasService.mensajeDeFaltante(f)).join(' '),
+      });
+    }
+    return recogida.tienda;
   }
 
   /**
@@ -727,10 +788,14 @@ export class PedidosService {
   async detalle(id: string): Promise<PedidoDto> {
     const pedido = await this.prisma.pedido.findUnique({
       where: { id },
-      include: { ...INCLUIR_PEDIDO, cliente: { select: { nombre: true } } },
+      include: { ...INCLUIR_PEDIDO, cliente: { select: { nombre: true, telefono: true } } },
     });
     if (!pedido) throw new NotFoundException('Pedido no encontrado');
-    return { ...this.aDto(pedido), clienteNombre: pedido.cliente.nombre };
+    return {
+      ...this.aDto(pedido),
+      clienteNombre: pedido.cliente.nombre,
+      clienteTelefono: pedido.cliente.telefono,
+    };
   }
 
   /** Recogido en tienda se guarda `{}`: para quien lo lee es "sin direccion". */
@@ -753,9 +818,13 @@ export class PedidosService {
       where,
       orderBy,
       take: limite,
-      include: { ...INCLUIR_PEDIDO, cliente: { select: { nombre: true } } },
+      include: { ...INCLUIR_PEDIDO, cliente: { select: { nombre: true, telefono: true } } },
     });
-    return pedidos.map((p) => ({ ...this.aDto(p), clienteNombre: p.cliente.nombre }));
+    return pedidos.map((p) => ({
+      ...this.aDto(p),
+      clienteNombre: p.cliente.nombre,
+      clienteTelefono: p.cliente.telefono,
+    }));
   }
 
   /** Historial completo para Administracion. */
@@ -763,9 +832,13 @@ export class PedidosService {
     const pedidos = await this.prisma.pedido.findMany({
       orderBy: { creadoEn: 'desc' },
       take: limite,
-      include: { ...INCLUIR_PEDIDO, cliente: { select: { nombre: true } } },
+      include: { ...INCLUIR_PEDIDO, cliente: { select: { nombre: true, telefono: true } } },
     });
-    return pedidos.map((p) => ({ ...this.aDto(p), clienteNombre: p.cliente.nombre }));
+    return pedidos.map((p) => ({
+      ...this.aDto(p),
+      clienteNombre: p.cliente.nombre,
+      clienteTelefono: p.cliente.telefono,
+    }));
   }
 
   private aDto(
@@ -786,6 +859,7 @@ export class PedidosService {
         enPuerta: boolean;
         creadoEn: Date;
       }[];
+      tienda: { id: string; nombre: string; direccion: string } | null;
     },
   ): PedidoDto {
     // Pagado, reembolsado o cancelado no debe nada, haya o no pagos escritos:
@@ -828,6 +902,7 @@ export class PedidosService {
         saldo: debe ? saldoDelPedido(pedido).toNumber() : 0,
       },
       metodoEntrega: pedido.metodoEntrega,
+      tienda: pedido.tienda,
       direccion: PedidosService.direccionLeida(pedido.direccion),
       cupon: pedido.cupon ? { code: pedido.cupon.code, titulo: pedido.cupon.title } : null,
       // El renglon que el cliente no acepto en la puerta queda en cero: el

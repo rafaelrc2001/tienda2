@@ -6,6 +6,7 @@ import { PedidosModule } from '../pedidos/pedidos.module';
 import { TiendasModule } from '../tiendas/tiendas.module';
 import { PdvService } from './pdv.service';
 import { TurnosController } from './turnos.controller';
+import { OperacionesTiendaController } from './operaciones-tienda.controller';
 import { FinanzasCortesDeCajaController } from './finanzas-cortes-de-caja.controller';
 
 /**
@@ -17,7 +18,7 @@ import { FinanzasCortesDeCajaController } from './finanzas-cortes-de-caja.contro
  */
 @Module({
   imports: [PedidosModule, CatalogoModule, TiendasModule, ConfiguracionModule, IngresosModule],
-  controllers: [TurnosController, FinanzasCortesDeCajaController],
+  controllers: [TurnosController, OperacionesTiendaController, FinanzasCortesDeCajaController],
   providers: [PdvService],
 })
 export class PdvModule {}

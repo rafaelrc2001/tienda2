@@ -39,6 +39,11 @@ interface CarritoLocal {
   /** Se recuerda al recargar o al volver al carrito (HU-01). */
   metodoEntrega: MetodoEntrega
   /**
+   * La tienda donde recoge, si eligió «Recoger en tienda». Se recuerda igual
+   * que el método: quien recoge siempre en la misma no la elige cada vez.
+   */
+  tiendaId: string | null
+  /**
    * Lo que el cliente capturó como dirección de ESTE pedido (HU-04).
    * `null` mientras no la toque: entonces el checkout parte del perfil.
    */
@@ -72,6 +77,7 @@ function leerGuardado(): CarritoLocal {
     codigoCupon: null,
     duenio: null,
     metodoEntrega: 'DOMICILIO',
+    tiendaId: null,
     direccion: null,
   }
   try {
@@ -88,6 +94,7 @@ function leerGuardado(): CarritoLocal {
       codigoCupon: typeof datos.codigoCupon === 'string' ? datos.codigoCupon : null,
       duenio: typeof datos.duenio === 'string' ? datos.duenio : null,
       metodoEntrega: datos.metodoEntrega === 'TIENDA' ? 'TIENDA' : 'DOMICILIO',
+      tiendaId: typeof datos.tiendaId === 'string' ? datos.tiendaId : null,
       direccion: leerDireccion(datos.direccion),
     }
   } catch {
@@ -140,6 +147,8 @@ export const useCarritoStore = defineStore('carrito', () => {
   const usarBilletera = ref(0)
   /** A domicilio mientras no elija otra cosa: es lo que cobra envío. */
   const metodoEntrega = ref<MetodoEntrega>(guardado.metodoEntrega)
+  /** Dónde recoge. Solo cuenta con `metodoEntrega` en TIENDA. */
+  const tiendaId = ref<string | null>(guardado.tiendaId)
   /** Borrador de la dirección de este pedido. Nunca toca el perfil (HU-04). */
   const direccion = ref<DireccionEntrega | null>(guardado.direccion)
 
@@ -164,7 +173,13 @@ export const useCarritoStore = defineStore('carrito', () => {
 
   function olvidarEntrega(): void {
     metodoEntrega.value = 'DOMICILIO'
+    tiendaId.value = null
     direccion.value = null
+  }
+
+  /** La tienda viaja solo si se recoge: a domicilio la API la ignoraría. */
+  function tiendaDelPedido(): string | undefined {
+    return metodoEntrega.value === 'TIENDA' ? (tiendaId.value ?? undefined) : undefined
   }
 
   const vacio = computed(() => lineas.value.length === 0)
@@ -225,6 +240,7 @@ export const useCarritoStore = defineStore('carrito', () => {
           codigoCupon: codigoCupon.value,
           duenio: duenio.value,
           metodoEntrega: metodoEntrega.value,
+          tiendaId: tiendaId.value,
           direccion: direccion.value,
         }),
       )
@@ -344,6 +360,16 @@ export const useCarritoStore = defineStore('carrito', () => {
     metodoEntrega.value = entrega
     persistir()
     programarSincronizacion()
+  }
+
+  /**
+   * Elige en qué tienda se recoge. Se queda en este navegador: el respaldo del
+   * servidor guarda lo que cuesta volver a teclear, y esto es un toque. Lo que
+   * esa tienda tiene o no lo dice `recalcular()`.
+   */
+  function fijarTienda(id: string | null): void {
+    tiendaId.value = id
+    persistir()
   }
 
   /**
@@ -496,6 +522,7 @@ export const useCarritoStore = defineStore('carrito', () => {
         pagoCon: pagoCon.value ?? undefined,
         usarBilletera: usarBilletera.value > 0 ? usarBilletera.value : undefined,
         metodoEntrega: metodoEntrega.value,
+        tiendaId: tiendaDelPedido(),
       })
       if (miPeticion !== ultimaPeticion) return
 
@@ -567,6 +594,7 @@ export const useCarritoStore = defineStore('carrito', () => {
       pagoCon: metodoPago.value === 'EFECTIVO' ? (pagoCon.value ?? undefined) : undefined,
       usarBilletera: usarBilletera.value > 0 ? usarBilletera.value : undefined,
       metodoEntrega: metodoEntrega.value,
+      tiendaId: tiendaDelPedido(),
       // Copia completa, con el pin: el pedido no vuelve a leer el perfil (HU-11).
       direccion: metodoEntrega.value === 'DOMICILIO' ? (direccionPedido ?? undefined) : undefined,
       aceptaTerminos,
@@ -581,7 +609,7 @@ export const useCarritoStore = defineStore('carrito', () => {
     errorCupon.value = ''
     olvidarPago()
     // La dirección quedó copiada en el pedido; el próximo parte del perfil.
-    // El método de entrega se queda: es una preferencia, no un borrador.
+    // El método de entrega y la tienda se quedan: son preferencias, no un borrador.
     direccion.value = null
     persistir()
     return pedido
@@ -601,6 +629,7 @@ export const useCarritoStore = defineStore('carrito', () => {
     pagoCon,
     usarBilletera,
     metodoEntrega,
+    tiendaId,
     direccion,
     pagoListo,
     vacio,
@@ -616,6 +645,7 @@ export const useCarritoStore = defineStore('carrito', () => {
     olvidar,
     adoptar,
     fijarEntrega,
+    fijarTienda,
     fijarDireccion,
     refrescarImporte,
     recalcular,

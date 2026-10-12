@@ -22,6 +22,23 @@ export interface FaltanteEnTienda {
   disponible: number;
 }
 
+/** Lo que el cliente necesita de una tienda para elegir donde recoge. */
+export interface TiendaParaRecogerDto {
+  id: string;
+  nombre: string;
+  direccion: string;
+}
+
+/**
+ * Donde se recoge un pedido de la app. `tienda` en `null` y sin error es que
+ * el negocio no tiene tiendas activas: el pedido lo surte bodega, como antes
+ * de que hubiera tiendas.
+ */
+export interface RecogidaResuelta {
+  tienda: Tienda | null;
+  error: { codigo: 'TIENDA_REQUERIDA' | 'TIENDA_NO_DISPONIBLE'; mensaje: string } | null;
+}
+
 /**
  * Las tiendas y lo que hay en cada una.
  *
@@ -45,6 +62,46 @@ export class TiendasService {
   /** Las que se pueden elegir como destino o abrir en el punto de venta. */
   activas(): Promise<Tienda[]> {
     return this.prisma.tienda.findMany({ where: { activa: true }, orderBy: { nombre: 'asc' } });
+  }
+
+  /** Las tiendas entre las que el cliente elige al pedir «Recoger en tienda». */
+  async paraRecoger(): Promise<TiendaParaRecogerDto[]> {
+    const tiendas = await this.activas();
+    return tiendas.map((t) => ({ id: t.id, nombre: t.nombre, direccion: t.direccion }));
+  }
+
+  /**
+   * La tienda donde se recoge un pedido de la app, o por que no vale la que
+   * mando el carrito. No lanza: la previsualizacion lo ensena como aviso y el
+   * checkout lo convierte en su 409.
+   *
+   * Habiendo tiendas activas hay que elegir una: sin ella nadie sabria donde
+   * preparar el pedido.
+   */
+  async resolverRecogida(tiendaId: string | undefined): Promise<RecogidaResuelta> {
+    if (!tiendaId) {
+      const hay = await this.prisma.tienda.count({ where: { activa: true } });
+      return hay === 0
+        ? { tienda: null, error: null }
+        : {
+            tienda: null,
+            error: {
+              codigo: 'TIENDA_REQUERIDA',
+              mensaje: 'Elige en qué tienda recoges tu pedido.',
+            },
+          };
+    }
+    const tienda = await this.prisma.tienda.findUnique({ where: { id: tiendaId } });
+    if (!tienda?.activa) {
+      return {
+        tienda: null,
+        error: {
+          codigo: 'TIENDA_NO_DISPONIBLE',
+          mensaje: 'Esa tienda ya no está disponible para recoger: elige otra.',
+        },
+      };
+    }
+    return { tienda, error: null };
   }
 
   async crear(dto: GuardarTiendaDto): Promise<Tienda> {
@@ -107,7 +164,8 @@ export class TiendasService {
    * Resta del inventario de la tienda lo que se entrega a un cliente.
    *
    * Lo llama el punto de venta dentro de la transaccion que da por entregado
-   * un pedido en mostrador. La condicion de saldo viaja en el `WHERE` del
+   * un pedido: el que se capturo en mostrador o el de la app que se recoge en
+   * esa tienda. La condicion de saldo viaja en el `WHERE` del
    * propio `UPDATE`, igual que en bodega, asi que dos entregas simultaneas no
    * pueden dejar el saldo en negativo.
    *
@@ -159,8 +217,9 @@ export class TiendasService {
    * el que nace la bodega.
    *
    * El saldo baja hasta la entrega, asi que a lo que hay se le quita lo que
-   * ya esta prometido en pedidos de mostrador sin entregar: si no, dos
-   * pedidos confirmarian la misma pieza y el segundo chocaria al entregarse.
+   * ya esta prometido en pedidos sin entregar —los de mostrador de sus turnos
+   * y los de la app que se recogen aqui—: si no, dos pedidos confirmarian la
+   * misma pieza y el segundo chocaria al entregarse.
    */
   async disponibles(tiendaId: string, ids?: string[]): Promise<Map<string, number>> {
     const deEsos = ids && { productoId: { in: ids } };
@@ -174,7 +233,7 @@ export class TiendasService {
         where: {
           ...deEsos,
           pedido: {
-            turno: { tiendaId },
+            OR: [{ turno: { tiendaId } }, { tiendaId }],
             metodoEntrega: MetodoEntrega.TIENDA,
             estado: { not: EstadoPedido.ENTREGADO },
             estadoPago: { not: EstadoPago.CANCELADO },
@@ -197,8 +256,9 @@ export class TiendasService {
    * Lo que la tienda no alcanza a surtir de esas lineas. Vacio es que hay de
    * todo.
    *
-   * Lo llama el punto de venta antes de confirmar un pedido: no se captura lo
-   * que no esta en el anaquel.
+   * Lo llaman el punto de venta y el checkout de la app (al recoger en
+   * tienda) antes de confirmar un pedido: no se vende lo que no esta en el
+   * anaquel.
    */
   async faltantes(tiendaId: string, lineas: LineaAMover[]): Promise<FaltanteEnTienda[]> {
     const pedidas = new Map<string, number>();
