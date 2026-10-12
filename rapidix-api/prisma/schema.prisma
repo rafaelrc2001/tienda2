@@ -283,7 +283,8 @@ model Producto {
   /// No hay tope superior a proposito: el techo de una lista es el piso de la
   /// siguiente, y pasar el piso de la ultima conserva su precio. Asi no pueden
   /// quedar huecos entre rangos. Pares completos, pisos que suben y precios
-  /// que bajan los garantizan los CHECK de la migracion.
+  /// no negativos los garantizan los CHECK de la migracion. El precio de una
+  /// lista no tiene que ser menor que el de la anterior: lo decide el negocio.
   piso2   Int?
   precio2 Decimal? @db.Decimal(12, 2)
   piso3   Int?
@@ -433,6 +434,8 @@ model Tienda {
   existencias    InventarioTienda[]
   transferencias Transferencia[]
   turnos         TurnoPdv[]
+  /// Los pedidos de la app que se recogen aqui.
+  pedidos        Pedido[]
 
   @@map("tiendas")
 }
@@ -871,6 +874,15 @@ model Pedido {
   turnoId String?
   turno   TurnoPdv? @relation(fields: [turnoId], references: [id])
 
+  /// La tienda donde el cliente recoge un pedido de la app (`metodoEntrega`
+  /// TIENDA): la elige en el carrito. Esa tienda lo prepara y lo entrega desde
+  /// la pestana Operaciones de su PDV, y la mercancia sale de su inventario,
+  /// no de bodega. Null a domicilio, en los capturados en mostrador (de esos
+  /// la tienda la dice `turnoId`) y en los anteriores a este campo, que sigue
+  /// surtiendo bodega.
+  tiendaId String?
+  tienda   Tienda? @relation(fields: [tiendaId], references: [id])
+
   /// Cashback que gana el pedido, ya con el multiplicador de la billetera. Se
   /// calcula y congela al crearlo, pero no entra a la billetera hasta que el
   /// pago queda PAGADO (`cashbackAcreditadoEn`): un pedido que se cancela antes
@@ -905,6 +917,7 @@ model Pedido {
   @@index([repartidorId])
   @@index([entregaRutaId])
   @@index([turnoId])
+  @@index([tiendaId])
   @@map("pedidos")
 }
 

@@ -30,6 +30,7 @@ import {
   nombreEstadoPedido,
 } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
+import ComprobanteWhatsApp from '@/components/ComprobanteWhatsApp.vue'
 import {
   centavos,
   errorDelAbono,
@@ -146,6 +147,17 @@ function porEntregar(pedido: Pedido): boolean {
   )
 }
 
+/**
+ * El pedido cuyo comprobante se va a mandar por WhatsApp: el que se acaba de
+ * entregar, o uno ya entregado al que se le pide de nuevo desde la tabla.
+ */
+const comprobante = ref<Pedido | null>(null)
+
+/** Entregado y vivo: tiene comprobante que mandar. */
+function conComprobante(pedido: Pedido): boolean {
+  return pedido.estado === 'ENTREGADO' && pedido.pago.estado !== 'CANCELADO'
+}
+
 /** Entregar desde la tabla: el pedido que se confirmó y se soltó de la caja. */
 async function entregar(pedido: Pedido): Promise<void> {
   // Lo normal es que ya venga pagado desde que se confirmó: solo se entrega.
@@ -156,7 +168,7 @@ async function entregar(pedido: Pedido): Promise<void> {
   if (!confirm(pregunta)) return
   entregando.value = pedido.id
   try {
-    await http.post(`/admin/pdv/pedidos/${pedido.id}/entregar`)
+    comprobante.value = await http.post<Pedido>(`/admin/pdv/pedidos/${pedido.id}/entregar`)
     ui.exito(`Pedido ${pedido.folio} entregado`)
   } catch (fallo) {
     ui.errorDeApi(fallo)
@@ -444,6 +456,15 @@ async function cancelarAbono(turno: TurnoPdv): Promise<void> {
                     >
                       {{ entregando === p.id ? 'Entregando…' : 'Entregado' }}
                     </button>
+                    <!-- Por si no se mandó al entregar, o el cliente lo pide otra vez. -->
+                    <button
+                      v-else-if="conComprobante(p)"
+                      type="button"
+                      class="enlace"
+                      @click="comprobante = p"
+                    >
+                      WhatsApp
+                    </button>
                   </td>
                 </tr>
 
@@ -612,6 +633,8 @@ async function cancelarAbono(turno: TurnoPdv): Promise<void> {
       </div>
       <p v-else class="empty-block">Todavía no hay cortes de caja.</p>
     </template>
+
+    <ComprobanteWhatsApp v-if="comprobante" :pedido="comprobante" @cerrar="comprobante = null" />
 
     <!-- Corregir o entregar dinero: un solo campo y lo que el sistema calculó a la vista. -->
     <div v-if="dialogo" class="modal-overlay" @click.self="dialogo = null">

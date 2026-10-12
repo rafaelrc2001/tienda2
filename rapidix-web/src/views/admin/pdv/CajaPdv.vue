@@ -26,10 +26,11 @@
  * del inventario de la tienda. Un pedido a domicilio se confirma aquí y sigue
  * por Operaciones y Rutas.
  */
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ErrorApi, http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
 import { dinero } from '@/utils/formato'
+import ComprobanteWhatsApp from '@/components/ComprobanteWhatsApp.vue'
 import PanelUltimoPedido from '@/components/tienda/PanelUltimoPedido.vue'
 import type {
   CatalogoPdv,
@@ -98,6 +99,12 @@ const pedido = ref<Pedido | null>(null)
 const confirmando = ref(false)
 const entregando = ref(false)
 const errorOrden = ref('')
+/**
+ * El pedido recién entregado, para mandarle su comprobante por WhatsApp. Va
+ * aparte de `pedido`: la caja ya se limpió para el siguiente cliente y esto
+ * sigue en pantalla hasta que se envía o se cierra.
+ */
+const comprobante = ref<Pedido | null>(null)
 
 const items = computed(() =>
   Object.entries(cantidades.value)
@@ -366,6 +373,172 @@ function alSalirDeCantidad(productoId: string, evento: Event): void {
   ;(evento.target as HTMLInputElement).value = String(cantidades.value[productoId] ?? 0)
 }
 
+// ----------------------------------------------------------------
+// Teclado de cantidad
+// ----------------------------------------------------------------
+
+/**
+ * La cantidad se captura con un teclado propio, no con el del dispositivo: en
+ * la tableta de la caja el del sistema tapa media pantalla —el catálogo y la
+ * barra de compra— para teclear dos dígitos. El campo lleva `inputmode="none"`
+ * para que el sistema no saque el suyo; un teclado físico sigue sirviendo.
+ *
+ * Sale al tocar la cantidad, al lado de la tarjeta del producto, y se va con
+ * «Listo» (o Enter) o al tocar fuera.
+ *
+ * El mismo teclado captura los dos importes del pedido —con cuánto paga y
+ * cuánto descuenta de su billetera—, con punto decimal y junto a su campo.
+ */
+const tecleando = ref<string | null>(null)
+
+type CampoMonto = 'pagoCon' | 'billetera'
+/** El importe que se está capturando con el teclado, si es uno de los dos. */
+const montoTecleado = ref<CampoMonto | null>(null)
+const MONTOS = {
+  pagoCon: { valor: pagoCon, titulo: '¿Con cuánto paga?' },
+  billetera: { valor: montoBilletera, titulo: 'De su billetera' },
+}
+const tecladoCantidad = ref<HTMLElement | null>(null)
+/** Dónde va, pegado a la tarjeta. `null`: no cabe a los lados y va al pie. */
+const posicion = ref<{ top: string; left: string } | null>(null)
+/** El campo que lo abrió: de él sale la tarjeta a la que se pega. */
+let ancla: HTMLElement | null = null
+/** Recién abierto, el primer dígito sustituye a lo que había: no se le añade. */
+let sustituir = false
+const HUECO_TECLADO = 8
+
+const nombreTecleado = computed(
+  () => productos.value.find((p) => p.id === tecleando.value)?.nombre ?? '',
+)
+
+/** Lo que el teclado enseña arriba: de qué es y lo que lleva tecleado. */
+const tituloTeclado = computed(() =>
+  montoTecleado.value ? MONTOS[montoTecleado.value].titulo : nombreTecleado.value,
+)
+const valorTeclado = computed(() => {
+  if (montoTecleado.value) return `$${MONTOS[montoTecleado.value].valor.value || '0'}`
+  return String(tecleando.value ? (cantidades.value[tecleando.value] ?? 0) : 0)
+})
+
+function abrirTeclado(productId: string, evento: FocusEvent): void {
+  const entrada = evento.target as HTMLInputElement
+  entrada.select()
+  ancla = entrada
+  montoTecleado.value = null
+  tecleando.value = productId
+  sustituir = true
+  void nextTick(() => {
+    ubicarTeclado()
+    // Al pie puede tapar la tarjeta que se está capturando: se sube a la vista.
+    if (!posicion.value) entrada.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  })
+}
+
+function abrirTecladoDeMonto(campo: CampoMonto, evento: FocusEvent): void {
+  const entrada = evento.target as HTMLInputElement
+  entrada.select()
+  ancla = entrada
+  tecleando.value = null
+  montoTecleado.value = campo
+  sustituir = true
+  void nextTick(ubicarTeclado)
+}
+
+function cerrarTeclado(): void {
+  tecleando.value = null
+  montoTecleado.value = null
+  ancla = null
+}
+
+/**
+ * Un importe a medio teclear: solo dígitos y un punto, con dos decimales como
+ * mucho. Se guarda como texto para que «50.» no se pierda antes del centavo;
+ * nunca queda un punto suelto, que no sería un número al mandarlo.
+ */
+function limpiarMonto(texto: string): string {
+  const [entero = '', ...decimales] = texto.replace(/[^\d.]/g, '').split('.')
+  if (decimales.length === 0) return entero.slice(0, 7)
+  return `${entero.slice(0, 7) || '0'}.${decimales.join('').slice(0, 2)}`
+}
+
+/** Con teclado físico se escribe en el campo: pasa por el mismo filtro. */
+function alEscribirMonto(campo: CampoMonto, evento: Event): void {
+  const entrada = evento.target as HTMLInputElement
+  MONTOS[campo].valor.value = limpiarMonto(entrada.value)
+  entrada.value = MONTOS[campo].valor.value
+}
+
+/** Una tecla del teclado propio: va a la cantidad o al importe que lo abrió. */
+function pulsarTecla(tecla: string): void {
+  const campo = montoTecleado.value
+  if (!campo) {
+    if (tecla !== '.') teclearCantidad(tecla)
+    return
+  }
+  const destino = MONTOS[campo].valor
+  const actual = sustituir ? '' : String(destino.value)
+  sustituir = false
+  destino.value = limpiarMonto(actual + tecla)
+}
+
+function borrarTecla(): void {
+  const campo = montoTecleado.value
+  if (!campo) {
+    borrarCantidad()
+    return
+  }
+  sustituir = false
+  MONTOS[campo].valor.value = String(MONTOS[campo].valor.value).slice(0, -1)
+}
+
+/**
+ * A la derecha de la tarjeta —o del bloque del importe—; si no cabe, a la
+ * izquierda; si tampoco, al pie.
+ */
+function ubicarTeclado(): void {
+  const teclado = tecladoCantidad.value
+  const tarjeta = ancla?.closest('.producto, .zona-captura')
+  if (!teclado || !tarjeta) return
+  const r = tarjeta.getBoundingClientRect()
+  const ancho = teclado.offsetWidth
+  const alto = teclado.offsetHeight
+  let left = r.right + HUECO_TECLADO
+  if (left + ancho > window.innerWidth - HUECO_TECLADO) left = r.left - ancho - HUECO_TECLADO
+  if (left < HUECO_TECLADO) {
+    posicion.value = null
+    return
+  }
+  const top = Math.min(
+    Math.max(r.top + (r.height - alto) / 2, HUECO_TECLADO),
+    window.innerHeight - alto - HUECO_TECLADO,
+  )
+  posicion.value = { top: `${top}px`, left: `${left}px` }
+}
+
+/** Hasta tres dígitos, como al teclearla; `fijar` la topa a lo que hay en tienda. */
+function teclearCantidad(digito: string): void {
+  const id = tecleando.value
+  if (!id) return
+  const actual = sustituir ? '' : String(cantidades.value[id] ?? 0)
+  sustituir = false
+  fijar(id, Number((actual + digito).slice(0, 3)))
+}
+
+function borrarCantidad(): void {
+  const id = tecleando.value
+  if (!id) return
+  sustituir = false
+  fijar(id, Number(String(cantidades.value[id] ?? 0).slice(0, -1)))
+}
+
+/** Tocar fuera lo cierra; tocar otra cantidad no, que lo pasa a ese producto. */
+function alTocarFuera(evento: PointerEvent): void {
+  if (!tecleando.value && !montoTecleado.value) return
+  const tocado = evento.target as HTMLElement | null
+  if (tecladoCantidad.value?.contains(tocado) || tocado?.closest('.cantidad, .con-teclado')) return
+  cerrarTeclado()
+}
+
 /**
  * «Sí, usar este pedido»: la orden pasa a ser lo de su última compra que esta
  * tienda tiene, hasta donde alcance.
@@ -447,17 +620,26 @@ function alDesplazar(): void {
     plegado.value = true
   }
   scrollAnterior = ahora
+  // El teclado de cantidad sigue a su tarjeta mientras se desplaza el catálogo.
+  if (tecleando.value || montoTecleado.value) ubicarTeclado()
 }
+
+// Cambiar de paso, de familia o de forma de pago quita de la vista lo que se capturaba.
+watch([paso, familia, bloqueada, metodoPago, usarBilletera], cerrarTeclado)
 
 onMounted(() => {
   contenedor = raiz.value?.closest('.app-screen') as HTMLElement | null
   contenedor?.addEventListener('scroll', alDesplazar, { passive: true })
+  document.addEventListener('pointerdown', alTocarFuera)
+  window.addEventListener('resize', ubicarTeclado)
 })
 
 onBeforeUnmount(() => {
   clearTimeout(temporizador)
   clearTimeout(esperaSugerencias)
   contenedor?.removeEventListener('scroll', alDesplazar)
+  document.removeEventListener('pointerdown', alTocarFuera)
+  window.removeEventListener('resize', ubicarTeclado)
 })
 
 async function confirmar(): Promise<void> {
@@ -489,6 +671,7 @@ async function entregar(): Promise<void> {
   try {
     const entregado = await http.post<Pedido>(`/admin/pdv/pedidos/${pedido.value.id}/entregar`)
     ui.exito(`Pedido ${entregado.folio} entregado`)
+    comprobante.value = entregado
     limpiar()
   } catch (fallo) {
     errorOrden.value = fallo instanceof ErrorApi ? fallo.message : 'No pudimos entregar el pedido.'
@@ -709,19 +892,23 @@ function limpiar(): void {
               >
                 −
               </button>
-              <!-- También se teclea: para 24 piezas no hay que pulsar «+» 24 veces. -->
+              <!--
+                También se teclea: para 24 piezas no hay que pulsar «+» 24 veces.
+                `inputmode="none"`: el teclado es el nuestro, no el del dispositivo.
+              -->
               <input
                 class="cantidad"
+                :class="{ tecleando: tecleando === p.id }"
                 type="text"
-                inputmode="numeric"
+                inputmode="none"
                 autocomplete="off"
                 :aria-label="`Cantidad de ${p.nombre}`"
                 :value="cantidades[p.id] ?? 0"
                 :disabled="bloqueada || p.agotado"
-                @focus="($event.target as HTMLInputElement).select()"
+                @focus="abrirTeclado(p.id, $event)"
                 @input="alEscribirCantidad(p.id, $event)"
                 @blur="alSalirDeCantidad(p.id, $event)"
-                @keydown.enter="($event.target as HTMLInputElement).blur()"
+                @keydown.enter="(($event.target as HTMLInputElement).blur(), cerrarTeclado())"
               />
               <button
                 type="button"
@@ -791,6 +978,66 @@ function limpiar(): void {
         </div>
       </template>
     </section>
+
+    <!--
+      El teclado propio, de cantidades e importes. Va en `body` para que su
+      posición fija no dependa de quién desplaza: se coloca junto a lo que lo abrió.
+    -->
+    <Teleport to="body">
+      <div
+        v-if="tecleando || montoTecleado"
+        ref="tecladoCantidad"
+        class="teclado-cantidad"
+        :class="{ 'al-pie': !posicion }"
+        :style="posicion ?? undefined"
+        role="group"
+        :aria-label="`Teclado: ${tituloTeclado}`"
+      >
+        <p class="teclado-producto">
+          <span>{{ tituloTeclado }}</span>
+          <strong>{{ valorTeclado }}</strong>
+        </p>
+        <div class="teclado">
+          <button
+            v-for="tecla in TECLAS"
+            :key="tecla"
+            type="button"
+            class="tecla"
+            @click="pulsarTecla(tecla)"
+          >
+            {{ tecla }}
+          </button>
+          <!-- Un importe lleva punto decimal; una cantidad son piezas enteras. -->
+          <button v-if="montoTecleado" type="button" class="tecla" @click="pulsarTecla('.')">
+            .
+          </button>
+          <button v-else type="button" class="tecla" aria-label="Borrar" @click="borrarTecla">
+            ⌫
+          </button>
+          <button type="button" class="tecla" @click="pulsarTecla('0')">0</button>
+          <button
+            v-if="montoTecleado"
+            type="button"
+            class="tecla"
+            aria-label="Borrar"
+            @click="borrarTecla"
+          >
+            ⌫
+          </button>
+          <button
+            type="button"
+            class="tecla listo"
+            :class="{ ancha: montoTecleado }"
+            aria-label="Listo"
+            @click="cerrarTeclado"
+          >
+            ↵
+          </button>
+        </div>
+      </div>
+    </Teleport>
+
+    <ComprobanteWhatsApp v-if="comprobante" :pedido="comprobante" @cerrar="comprobante = null" />
 
     <!-- 3. Resumen del pedido -->
     <section v-show="paso === 'pedido'" class="columna col-resumen">
@@ -937,14 +1184,18 @@ function limpiar(): void {
               <label class="form-label" for="pdv-billetera">
                 ¿Cuánto descuenta de su billetera?
               </label>
+              <!-- Como la cantidad: teclado propio, no el del dispositivo. -->
               <input
                 id="pdv-billetera"
-                v-model="montoBilletera"
-                class="form-input"
-                type="number"
-                min="0"
-                step="0.01"
-                inputmode="decimal"
+                class="form-input con-teclado"
+                :class="{ tecleando: montoTecleado === 'billetera' }"
+                type="text"
+                inputmode="none"
+                autocomplete="off"
+                :value="montoBilletera"
+                @focus="abrirTecladoDeMonto('billetera', $event)"
+                @input="alEscribirMonto('billetera', $event)"
+                @keydown.enter="(($event.target as HTMLInputElement).blur(), cerrarTeclado())"
                 :placeholder="previa ? `Todo lo que cabe: ${dinero(previa.billetera)}` : ''"
                 :disabled="bloqueada"
               />
@@ -966,12 +1217,15 @@ function limpiar(): void {
               <label class="form-label" for="pdv-pago-con">¿Con cuánto paga?</label>
               <input
                 id="pdv-pago-con"
-                v-model="pagoCon"
-                class="form-input"
-                type="number"
-                min="0"
-                step="0.01"
-                inputmode="decimal"
+                class="form-input con-teclado"
+                :class="{ tecleando: montoTecleado === 'pagoCon' }"
+                type="text"
+                inputmode="none"
+                autocomplete="off"
+                :value="pagoCon"
+                @focus="abrirTecladoDeMonto('pagoCon', $event)"
+                @input="alEscribirMonto('pagoCon', $event)"
+                @keydown.enter="(($event.target as HTMLInputElement).blur(), cerrarTeclado())"
                 :placeholder="previa ? dinero(previa.aPagar) : ''"
                 :disabled="bloqueada"
               />
@@ -1522,7 +1776,73 @@ function limpiar(): void {
   padding: 0;
 }
 
-.cantidad:focus {
+.cantidad:focus,
+.cantidad.tecleando {
+  border-color: var(--terracotta);
+}
+
+/*
+ * El teclado de cantidad: flota junto a la tarjeta que se captura (la posición
+ * la pone `ubicarTeclado`). Donde no cabe a los lados —el teléfono— va al pie.
+ */
+.teclado-cantidad {
+  position: fixed;
+  z-index: 30;
+  width: 216px;
+  padding: 8px;
+  border-radius: 14px;
+  background: var(--white);
+  border: 1.5px solid var(--terracotta);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
+}
+
+.teclado-cantidad.al-pie {
+  left: 50%;
+  bottom: 8px;
+  transform: translateX(-50%);
+}
+
+.teclado-cantidad .teclado {
+  margin-bottom: 0;
+}
+
+.teclado-producto {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 2px 6px;
+  font-family: var(--font-heading);
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.teclado-producto span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.teclado-producto strong {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.tecla.listo {
+  background: var(--sage);
+  color: var(--white);
+}
+
+/* Con el punto decimal ya no cabe en la última fila: ocupa una propia. */
+.tecla.listo.ancha {
+  grid-column: 1 / -1;
+}
+
+.form-input.tecleando {
   border-color: var(--terracotta);
 }
 

@@ -13,7 +13,7 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import CarritoWidget from '@/components/CarritoWidget.vue'
 
-const props = withDefaults(
+withDefaults(
   defineProps<{
     /** Título que se pinta en la barra superior. */
     titulo?: string
@@ -101,7 +101,8 @@ function alDesplazar() {
 }
 
 onMounted(() => {
-  if (props.sinNav) return
+  // Se engancha siempre, aunque la pantalla de entrada no lleve barra: el
+  // layout sobrevive al cambio de ruta y `sinNav` puede apagarse después.
   pantalla.value?.addEventListener('scroll', alDesplazar, { passive: true })
 
   // El alto cambia con el área segura del móvil y al ocultarse «Cupones».
@@ -169,7 +170,8 @@ onBeforeUnmount(() => {
         <slot />
       </main>
 
-      <nav v-if="!sinNav" ref="cinta" class="app-bottom-nav" :class="{ oculta: navOculto }">
+      <!-- `v-show` y no `v-if`: quien mide su alto la sigue observando al volver. -->
+      <nav v-show="!sinNav" ref="cinta" class="app-bottom-nav" :class="{ oculta: navOculto }">
         <slot name="nav" />
       </nav>
     </div>

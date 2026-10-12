@@ -437,6 +437,8 @@ export interface Pedido {
   folio: string
   clienteId: string
   clienteNombre?: string
+  /** Teléfono con el que se registró. Solo en las pantallas del personal. */
+  clienteTelefono?: string
   subtotal: number
   envio: number
   recargoFuera: number
@@ -465,6 +467,11 @@ export interface Pedido {
     saldo: number
   }
   metodoEntrega: MetodoEntrega
+  /**
+   * La tienda donde se recoge, si es un pedido de la app para recoger. `null`
+   * a domicilio, en los de mostrador y en los que surte bodega.
+   */
+  tienda: TiendaParaRecoger | null
   /** Copia de la dirección del pedido; `null` si se recoge en tienda. */
   direccion: Record<string, unknown> | null
   cupon: { code: string; titulo: string } | null
@@ -1442,6 +1449,23 @@ export interface Tienda {
   /** Una tienda no se borra: apagada, deja de ofrecerse como destino. */
   activa: boolean
 }
+
+/**
+ * Una tienda como la ve el cliente al elegir dónde recoge (`GET /tiendas`,
+ * público): solo lo que está en su fachada.
+ */
+export interface TiendaParaRecoger {
+  id: string
+  nombre: string
+  direccion: string
+}
+
+/**
+ * Respuesta de `GET /admin/pdv/operaciones/pendientes`: `tiendaId` → pedidos
+ * para recoger que la tienda no ha terminado de preparar. La que no aparece
+ * no tiene ninguno.
+ */
+export type PendientesPorTienda = Record<string, number>
 
 /**
  * `PENDIENTE`: bodega ya la apartó y la tienda aún no la recibe. `ACEPTADA`:

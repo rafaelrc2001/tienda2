@@ -19,6 +19,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CashbackService } from '../cashback/cashback.service';
 import { ConfiguracionService } from '../configuracion/configuracion.service';
 import { ahorro, precioListaAnterior, precioUnitario, upsell, Upsell } from '../catalogo/precios';
+import { TiendasService } from '../tiendas/tiendas.service';
 import { LineaCarritoDto, PrevisualizarCarritoDto } from './dto/carrito.dto';
 
 const Decimal = Prisma.Decimal;
@@ -243,6 +244,7 @@ export class CarritoService {
     private readonly prisma: PrismaService,
     private readonly configuracion: ConfiguracionService,
     private readonly cashback: CashbackService,
+    private readonly tiendas: TiendasService,
   ) {}
 
   /**
@@ -558,6 +560,23 @@ export class CarritoService {
       );
     }
 
+    // Recoger en tienda: el pedido sale del anaquel de la tienda elegida, asi
+    // que aqui se dice si falta elegirla o si no tiene lo que se pide, en vez
+    // de dejar que el cliente choque con el 409 de POST /pedidos. En mostrador
+    // no aplica: la tienda es la del turno y su faltante lo revisa el PDV.
+    let recogidaLista = true;
+    if (!enMostrador && metodoEntrega === MetodoEntrega.TIENDA) {
+      const recogida = await this.tiendas.resolverRecogida(dto.tiendaId);
+      if (recogida.error) {
+        avisos.push(recogida.error.mensaje);
+        recogidaLista = false;
+      } else if (recogida.tienda) {
+        const faltantes = await this.tiendas.faltantes(recogida.tienda.id, carrito.disponibles);
+        avisos.push(...faltantes.map((f) => TiendasService.mensajeDeFaltante(f)));
+        recogidaLista = faltantes.length === 0;
+      }
+    }
+
     // El cupon se valida contra las lineas comprables, que son las que suman.
     let descuento = new Decimal(0);
     let cupon: PrevisualizacionCarritoDto['cupon'] = null;
@@ -624,7 +643,8 @@ export class CarritoService {
     const puedePedir =
       (dentroDeHorario || config.atenderFuera) &&
       carrito.agotadas.length === 0 &&
-      carrito.disponibles.length > 0;
+      carrito.disponibles.length > 0 &&
+      recogidaLista;
 
     return {
       items: [

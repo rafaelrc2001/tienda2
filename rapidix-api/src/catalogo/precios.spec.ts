@@ -61,6 +61,33 @@ describe('precioListaAnterior', () => {
   });
 });
 
+describe('listas que no bajan de precio', () => {
+  /** La lista 2 cuesta mas que el precio de venta; la 3 vuelve a bajar. */
+  const sube: ListasDePrecio = {
+    precioVenta: D(10),
+    piso2: 5,
+    precio2: D(12),
+    piso3: 10,
+    precio3: D(9),
+  };
+
+  it('cobra el precio de la lista en la que cae, sea mayor o menor', () => {
+    expect(precioUnitario(sube, 5).toNumber()).toBe(12);
+    expect(precioUnitario(sube, 10).toNumber()).toBe(9);
+  });
+
+  it('no tacha un precio que no era mas caro, ni ofrece subir a uno mas caro', () => {
+    expect(precioListaAnterior(sube, 5)).toBeNull();
+    expect(upsell(sube, 4)).toBeNull();
+    expect(ahorro(sube, 5).toNumber()).toBe(0);
+  });
+
+  it('si la siguiente si es mas barata, la tacha y la ofrece', () => {
+    expect(precioListaAnterior(sube, 10)?.toNumber()).toBe(12);
+    expect(upsell(sube, 8)?.precioSiguiente.toNumber()).toBe(9);
+  });
+});
+
 describe('ahorro', () => {
   it('compara contra el precio de venta', () => {
     expect(ahorro(escalonado, 12).toNumber()).toBe(35.4);
@@ -118,14 +145,18 @@ describe('validarEscalones', () => {
     ).toMatch(/más piezas/);
   });
 
-  it('rechaza precios que no bajan', () => {
-    expect(validarEscalones(20, [{ piso: 5, precio: 20 }])).toMatch(/precio de venta/);
+  it('acepta precios que no bajan: los pone el negocio', () => {
+    expect(validarEscalones(20, [{ piso: 5, precio: 20 }])).toBeNull();
     expect(
       validarEscalones(20, [
         { piso: 5, precio: 18 },
-        { piso: 10, precio: 18 },
+        { piso: 10, precio: 19 },
       ]),
-    ).toMatch(/lista 2/);
+    ).toBeNull();
+  });
+
+  it('rechaza precios negativos', () => {
+    expect(validarEscalones(20, [{ piso: 5, precio: -1 }])).toMatch(/negativo/);
   });
 
   it('rechaza mas de dos listas de volumen', () => {

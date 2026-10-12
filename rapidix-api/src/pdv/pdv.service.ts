@@ -30,7 +30,11 @@ import { actorDe } from '../pedidos/bitacora';
 import { CarritoService, PrevisualizacionCarritoDto } from '../pedidos/carrito.service';
 import { DireccionEntregaDto } from '../pedidos/dto/carrito.dto';
 import { FinanzasService } from '../pedidos/finanzas.service';
-import { FlujoPedidosService } from '../pedidos/flujo-pedidos.service';
+import {
+  ESTADOS_POR_SURTIR,
+  FlujoPedidosService,
+  PedidoEnPantallaDto,
+} from '../pedidos/flujo-pedidos.service';
 import { IngresosService } from '../ingresos/ingresos.service';
 import { FiltroCortes } from '../rutas/cortes.service';
 import { RegistrarAbonoDto } from '../rutas/dto/corte.dto';
@@ -200,8 +204,9 @@ const LIMITE_SUGERENCIAS = 6;
 const LIMITE_PEDIDOS = 500;
 
 /**
- * El punto de venta: turnos de caja, y los pedidos que se capturan, se
- * entregan y se cobran en el mostrador.
+ * El punto de venta: turnos de caja, los pedidos que se capturan, se
+ * entregan y se cobran en el mostrador, y los de la app que el cliente pasa a
+ * recoger a la tienda.
  *
  * No repite nada del checkout. El carrito se valora con `CarritoService` y el
  * pedido lo crea `PedidosService.crear`, los mismos que usa la app: aqui solo
@@ -852,6 +857,99 @@ export class PdvService {
     });
 
     return this.pedidos.detalle(pedidoId);
+  }
+
+  // ----------------------------------------------------------------
+  // Operaciones de la tienda: los pedidos de la app que se recogen aqui
+  // ----------------------------------------------------------------
+
+  /**
+   * Lo que la tienda tiene por surtir: los pedidos de la app que el cliente
+   * eligio recoger en ella, del mas antiguo al mas nuevo. Cada uno con su
+   * `paso` ya resuelto, como en Operaciones.
+   *
+   * Los capturados en su mostrador no salen aqui: esos no se preparan, se
+   * entregan desde la caja o desde el corte.
+   */
+  async porSurtir(tiendaId: string): Promise<PedidoEnPantallaDto[]> {
+    await this.tiendas.exigir(tiendaId);
+    const pedidos = await this.pedidos.buscar(
+      {
+        tiendaId,
+        estadoPago: { not: EstadoPago.CANCELADO },
+        estado: { in: [...ESTADOS_POR_SURTIR] },
+      },
+      { creadoEn: 'asc' },
+      LIMITE_PEDIDOS,
+    );
+    return pedidos.map((p) => FlujoPedidosService.enPantalla(p));
+  }
+
+  /**
+   * Cuantos pedidos tiene cada tienda sin terminar de preparar: `tiendaId` ->
+   * pedidos. Es el aviso de la pestana Operaciones del PDV. La tienda que no
+   * aparece no tiene ninguno.
+   *
+   * Cuenta hasta «En preparacion»: el preparado que espera a su cliente ya no
+   * es trabajo pendiente del anaquel.
+   */
+  async pendientesDePreparar(): Promise<Record<string, number>> {
+    const grupos = await this.prisma.pedido.groupBy({
+      by: ['tiendaId'],
+      where: {
+        tiendaId: { not: null },
+        estadoPago: { not: EstadoPago.CANCELADO },
+        estado: { in: [EstadoPedido.CONFIRMADO, EstadoPedido.EN_PREPARACION] },
+      },
+      _count: { _all: true },
+    });
+    return Object.fromEntries(
+      grupos.flatMap((g) => (g.tiendaId ? [[g.tiendaId, g._count._all]] : [])),
+    );
+  }
+
+  /**
+   * Da el siguiente paso de un pedido que se recoge en esa tienda: los mismos
+   * de Operaciones, con sus mismos candados de pago (`flujo.ts`), pero los da
+   * quien atiende el PDV.
+   *
+   * Entregar es el momento en que la mercancia sale del inventario de la
+   * tienda —no del de bodega, que nunca la aparto—: 409
+   * `SIN_EXISTENCIA_EN_TIENDA` con `controlInventario` encendido si no la
+   * tiene. El dinero sigue las reglas de Operaciones: el efectivo se cobra al
+   * entregar y lo valida Finanzas, y el entregado a credito pasa a CXC.
+   */
+  async avanzarEnTienda(
+    tiendaId: string,
+    pedidoId: string,
+    destino: EstadoPedido,
+    usuario: UsuarioAutenticado,
+    nota?: string,
+  ): Promise<PedidoEnPantallaDto> {
+    const controlInventario = (await this.configuracion.obtener()).controlInventario;
+
+    await this.prisma.$transaction(async (tx) => {
+      const pedido = await FlujoPedidosService.bloquear(tx, pedidoId);
+      if (pedido.tiendaId !== tiendaId) {
+        throw new NotFoundException(`El pedido ${pedido.folio} no se recoge en esta tienda.`);
+      }
+      const transicion = FlujoPedidosService.exigirAvance(pedido, destino);
+
+      if (transicion.a === EstadoPedido.ENTREGADO) {
+        const lineas = await tx.pedidoItem.findMany({
+          where: { pedidoId },
+          select: { productoId: true, cantidad: true },
+        });
+        await this.tiendas.salir(tx, tiendaId, lineas, controlInventario);
+      }
+
+      await FlujoPedidosService.aplicar(tx, pedidoId, transicion, actorDe(usuario), nota);
+
+      if (transicion.a === EstadoPedido.ENTREGADO) {
+        await FlujoPedidosService.abrirCxc(tx, pedidoId);
+      }
+    });
+    return FlujoPedidosService.enPantalla(await this.pedidos.detalle(pedidoId));
   }
 
   // ----------------------------------------------------------------

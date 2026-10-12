@@ -19,6 +19,7 @@ import type {
   MetodoPago,
   Pedido,
   Perfil,
+  TiendaParaRecoger,
 } from '@/api/tipos'
 import BloqueDireccionEntrega from '@/components/BloqueDireccionEntrega.vue'
 import { direccionInicial, erroresDireccion } from '@/utils/direccion'
@@ -140,6 +141,52 @@ async function cargarPerfil(): Promise<void> {
   direccion.value = direccionInicial(carrito.direccion, perfil.value)
 }
 
+// ---- Tienda donde se recoge ----
+
+/**
+ * Las tiendas entre las que se elige al recoger. Vacía mientras carga, si
+ * falla o si el negocio no tiene ninguna: entonces no se pregunta nada y el
+ * pedido para recoger sigue como siempre.
+ */
+const tiendas = ref<TiendaParaRecoger[]>([])
+
+async function cargarTiendas(): Promise<void> {
+  try {
+    tiendas.value = await http.get<TiendaParaRecoger[]>('/tiendas')
+  } catch {
+    // Sin la lista no se puede elegir: si hace falta, la API lo dice en `avisos`.
+    tiendas.value = []
+    return
+  }
+  // La que se recordaba pudo desactivarse desde entonces.
+  if (carrito.tiendaId && !tiendas.value.some((t) => t.id === carrito.tiendaId)) {
+    carrito.fijarTienda(null)
+  }
+  if (proponerUnicaTienda() && !carrito.vacio) recalcular()
+}
+
+/** Con una sola tienda no hay nada que elegir: se da por elegida. */
+function proponerUnicaTienda(): boolean {
+  if (aDomicilio.value || carrito.tiendaId || tiendas.value.length !== 1) return false
+  carrito.fijarTienda(tiendas.value[0].id)
+  return true
+}
+
+/**
+ * Elegir tienda en la lista es también elegir «Recoger en tienda»: nadie abre
+ * esa lista para que se lo manden a casa. Lo que esa tienda tiene o no lo
+ * dice la API en la previsualización.
+ */
+function elegirTienda(id: string): void {
+  if (!id || (carrito.tiendaId === id && !aDomicilio.value)) return
+  carrito.fijarTienda(id)
+  if (aDomicilio.value) carrito.fijarEntrega('TIENDA')
+  recalcular()
+}
+
+/** La tienda elegida, para enseñar dónde queda bajo el método de envío. */
+const tiendaElegida = computed(() => tiendas.value.find((t) => t.id === carrito.tiendaId) ?? null)
+
 /** Cada cambio va al borrador del pedido; el perfil se actualiza al confirmarlo. */
 function cambiarDireccion(nueva: DireccionEntrega): void {
   const cambioCp = nueva.cp !== direccion.value?.cp
@@ -175,6 +222,7 @@ onMounted(() => {
   if (!carrito.vacio) recalcular()
   void cargarPerfil()
   void cargarCashback()
+  void cargarTiendas()
 })
 
 watch(() => carrito.lineas.map((l) => `${l.productoId}:${l.cantidad}`).join(','), recalcular)
@@ -223,6 +271,7 @@ function elegirMetodo(metodo: MetodoPago): void {
 function elegirEntrega(entrega: MetodoEntrega): void {
   if (carrito.metodoEntrega === entrega) return
   carrito.fijarEntrega(entrega)
+  proponerUnicaTienda()
   recalcular()
 }
 
@@ -392,12 +441,20 @@ async function confirmar(): Promise<void> {
       </div>
     </div>
 
+    <!-- Dónde se recoge: es a donde tiene que ir. -->
+    <div v-if="pedidoHecho.tienda" class="exito-pago">
+      <p class="exito-pago-titulo">🏪 Recoges en {{ pedidoHecho.tienda.nombre }}</p>
+      <p class="exito-pago-linea">{{ pedidoHecho.tienda.direccion }}</p>
+    </div>
+
     <!-- Cómo se cobra lo que queda. -->
     <div v-if="pedidoHecho.pago.aPagar === 0" class="exito-pago">
       <p class="exito-pago-titulo">Pagado con tu billetera ✓</p>
     </div>
     <div v-else-if="pedidoHecho.pago.metodo === 'EFECTIVO'" class="exito-pago">
-      <p class="exito-pago-titulo">💵 Pagas en efectivo al recibir</p>
+      <p class="exito-pago-titulo">
+        💵 Pagas en efectivo al {{ pedidoHecho.metodoEntrega === 'TIENDA' ? 'recoger' : 'recibir' }}
+      </p>
       <p v-if="pedidoHecho.pago.pagoCon !== null" class="exito-pago-linea">
         Con {{ dinero(pedidoHecho.pago.pagoCon) }} · tu cambio:
         <strong>{{ dinero(pedidoHecho.pago.cambio ?? 0) }}</strong>
@@ -696,16 +753,35 @@ async function confirmar(): Promise<void> {
       <!-- Entrega: recoger en tienda no paga envío; el total nuevo lo trae la API. -->
       <fieldset class="entrega res-seccion">
         <legend class="res-subtitulo">Método de envío</legend>
-        <label v-for="e in ENTREGAS" :key="e.valor" class="entrega-opcion">
-          <input
-            type="radio"
-            name="metodo-entrega"
-            :value="e.valor"
-            :checked="carrito.metodoEntrega === e.valor"
-            @change="elegirEntrega(e.valor)"
-          />
-          <span>{{ e.titulo }}</span>
-        </label>
+        <div v-for="e in ENTREGAS" :key="e.valor" class="entrega-fila">
+          <label class="entrega-opcion">
+            <input
+              type="radio"
+              name="metodo-entrega"
+              :value="e.valor"
+              :checked="carrito.metodoEntrega === e.valor"
+              @change="elegirEntrega(e.valor)"
+            />
+            <span>{{ e.titulo }}</span>
+          </label>
+          <!--
+            En qué tienda recoge, en el mismo renglón: ahí se prepara el pedido
+            y de su inventario sale. Con una sola tienda ya viene elegida.
+          -->
+          <select
+            v-if="e.valor === 'TIENDA' && tiendas.length > 0"
+            class="tienda-select"
+            aria-label="Tienda donde recoges"
+            :value="carrito.tiendaId ?? ''"
+            @change="elegirTienda(($event.target as HTMLSelectElement).value)"
+          >
+            <option value="" disabled>Elige tienda</option>
+            <option v-for="t in tiendas" :key="t.id" :value="t.id">{{ t.nombre }}</option>
+          </select>
+        </div>
+        <p v-if="!aDomicilio && tiendaElegida" class="tienda-direccion">
+          📍 {{ tiendaElegida.nombre }} · {{ tiendaElegida.direccion }}
+        </p>
       </fieldset>
 
       <!-- Lo que falta para envío gratis (HU-20) va pegado a quien lo decide: el envío. -->
@@ -1357,19 +1433,49 @@ async function confirmar(): Promise<void> {
   padding: 0;
 }
 
+/* El renglón: la opción a la izquierda y, en «Recoger en tienda», la lista de tiendas. */
+.entrega-fila {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid var(--divisor);
+}
+
+.entrega-fila:last-of-type {
+  border-bottom: none;
+}
+
 .entrega-opcion {
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 10px;
   font-size: 13.5px;
   color: var(--ink);
   padding: 7px 0;
-  border-bottom: 1px solid var(--divisor);
   cursor: pointer;
 }
 
-.entrega-opcion:last-of-type {
-  border-bottom: none;
+/* Blanca con borde, como todo sitio donde se elige o se escribe. */
+.tienda-select {
+  flex: 0 1 46%;
+  min-width: 0;
+  height: 36px;
+  padding: 0 8px;
+  border: 1.5px solid var(--line);
+  border-radius: 10px;
+  background: var(--white);
+  color: var(--ink);
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+}
+
+.tienda-select:focus {
+  border-color: var(--terracotta);
+  outline: none;
 }
 
 .entrega-opcion:has(input:checked) span {
@@ -1381,7 +1487,16 @@ async function confirmar(): Promise<void> {
   width: 18px;
   height: 18px;
   margin: 0;
+  /* Con la dirección debajo el renglón tiene dos líneas: el radio no se encoge. */
+  flex-shrink: 0;
   accent-color: var(--verde-dark);
+}
+
+/* Dónde queda la tienda elegida, bajo los dos renglones. */
+.tienda-direccion {
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  color: var(--muted);
 }
 
 .cambio {

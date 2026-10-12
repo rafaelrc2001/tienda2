@@ -6,10 +6,13 @@
  * turno, su inventario y sus cortes, y nada de eso se mezcla con lo de otra.
  * No se recuerda la última a propósito: elegirla es un toque, y equivocarse
  * de tienda es cobrar en la caja de otra.
+ *
+ * Cada tienda enseña cuántos pedidos para recoger tiene sin preparar: así se
+ * sabe a cuál hay que entrar antes de elegirla.
  */
-import type { Tienda } from '@/api/tipos'
+import type { PendientesPorTienda, Tienda } from '@/api/tipos'
 
-defineProps<{ tiendas: Tienda[] }>()
+defineProps<{ tiendas: Tienda[]; pendientes: PendientesPorTienda }>()
 defineEmits<{ elegir: [tienda: Tienda] }>()
 </script>
 
@@ -24,6 +27,7 @@ defineEmits<{ elegir: [tienda: Tienda] }>()
             <th>Tienda</th>
             <th>Dirección</th>
             <th>Responsable</th>
+            <th>Por preparar</th>
             <th />
           </tr>
         </thead>
@@ -34,6 +38,12 @@ defineEmits<{ elegir: [tienda: Tienda] }>()
             </td>
             <td>{{ tienda.direccion }}</td>
             <td>{{ tienda.responsable }}</td>
+            <td>
+              <span v-if="pendientes[tienda.id]" class="pastilla por-preparar">
+                🔔 {{ pendientes[tienda.id] }} pedido(s)
+              </span>
+              <template v-else>—</template>
+            </td>
             <td class="num">
               <button type="button" class="btn-primary entrar" @click="$emit('elegir', tienda)">
                 Entrar
@@ -60,7 +70,12 @@ h3 {
 }
 
 .tabla {
-  min-width: 480px;
+  min-width: 600px;
+}
+
+.por-preparar {
+  background: var(--rojo);
+  color: var(--white);
 }
 
 .entrar {

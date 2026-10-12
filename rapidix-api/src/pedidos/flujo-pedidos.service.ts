@@ -57,24 +57,37 @@ export enum FiltroOperaciones {
 
 const NO_CANCELADO: Prisma.PedidoWhereInput = { estadoPago: { not: EstadoPago.CANCELADO } };
 
+/** Lo que esta por surtir: de Confirmado a Listo para entrega. */
+export const ESTADOS_POR_SURTIR: readonly EstadoPedido[] = [
+  EstadoPedido.CONFIRMADO,
+  EstadoPedido.EN_PREPARACION,
+  EstadoPedido.PREPARADO,
+  EstadoPedido.LISTO_PARA_ENTREGA,
+];
+
+/**
+ * Lo que surte bodega. El pedido que se recoge en una tienda no es de esta
+ * pantalla: lo prepara y lo entrega esa tienda desde su PDV.
+ */
+const DE_BODEGA: Prisma.PedidoWhereInput = { tiendaId: null };
+
 const WHERE_OPERACIONES: Record<FiltroOperaciones, Prisma.PedidoWhereInput> = {
   [FiltroOperaciones.ACTIVOS]: {
+    ...DE_BODEGA,
     ...NO_CANCELADO,
-    estado: {
-      in: [
-        EstadoPedido.CONFIRMADO,
-        EstadoPedido.EN_PREPARACION,
-        EstadoPedido.PREPARADO,
-        EstadoPedido.LISTO_PARA_ENTREGA,
-      ],
-    },
+    estado: { in: [...ESTADOS_POR_SURTIR] },
   },
   [FiltroOperaciones.EN_RUTA]: {
+    ...DE_BODEGA,
     ...NO_CANCELADO,
     estado: { in: [EstadoPedido.RECOLECTADO, EstadoPedido.EN_RUTA] },
   },
-  [FiltroOperaciones.ENTREGADOS]: { ...NO_CANCELADO, estado: EstadoPedido.ENTREGADO },
-  [FiltroOperaciones.CANCELADOS]: { estadoPago: EstadoPago.CANCELADO },
+  [FiltroOperaciones.ENTREGADOS]: {
+    ...DE_BODEGA,
+    ...NO_CANCELADO,
+    estado: EstadoPedido.ENTREGADO,
+  },
+  [FiltroOperaciones.CANCELADOS]: { ...DE_BODEGA, estadoPago: EstadoPago.CANCELADO },
 };
 
 export interface ListadoOperacionesDto {
@@ -110,6 +123,10 @@ export class FlujoPedidosService {
    *
    * Entregar en tienda es el momento en que la mercancia sale de bodega: con
    * el control de inventario encendido, el pedido entero baja del fisico.
+   *
+   * El pedido que se recoge en una tienda elegida no avanza por aqui (409
+   * `PEDIDO_DE_TIENDA`): lo mueve esa tienda desde su PDV, que es quien lo
+   * descuenta de su inventario y no del de bodega.
    */
   async avanzarEnOperaciones(
     id: string,
@@ -121,6 +138,13 @@ export class FlujoPedidosService {
 
     await this.prisma.$transaction(async (tx) => {
       const pedido = await FlujoPedidosService.bloquear(tx, id);
+      if (pedido.tiendaId !== null) {
+        throw new ConflictException({
+          statusCode: 409,
+          code: 'PEDIDO_DE_TIENDA',
+          message: `El pedido ${pedido.folio} se recoge en una tienda: lo prepara y lo entrega esa tienda desde su PDV.`,
+        });
+      }
       const transicion = FlujoPedidosService.exigirAvance(pedido, destino);
 
       if (transicion.seccion !== 'operaciones') {
@@ -157,8 +181,11 @@ export class FlujoPedidosService {
    * El de ruta no pasa por aqui: entra a CXC cuando Finanzas acepta su entrega
    * (`CortesService.aceptarEntrega`), que es cuando se sabe que se entrego de
    * verdad y cuanto. Uno cubierto entero con la billetera no debe nada.
+   *
+   * Publico porque la tienda que entrega un pedido de la app desde su PDV
+   * aplica la misma regla.
    */
-  private static async abrirCxc(tx: Prisma.TransactionClient, id: string): Promise<void> {
+  static async abrirCxc(tx: Prisma.TransactionClient, id: string): Promise<void> {
     const pedido = await tx.pedido.findUniqueOrThrow({
       where: { id },
       select: {
@@ -253,7 +280,7 @@ export class FlujoPedidosService {
   static async bloquear(
     tx: Prisma.TransactionClient,
     id: string,
-  ): Promise<PedidoEnFlujo & { id: string; folio: string }> {
+  ): Promise<PedidoEnFlujo & { id: string; folio: string; tiendaId: string | null }> {
     await FlujoPedidosService.bloquearFila(tx, id);
     return tx.pedido.findUniqueOrThrow({
       where: { id },
@@ -264,6 +291,7 @@ export class FlujoPedidosService {
         estadoPago: true,
         metodoEntrega: true,
         metodoPago: true,
+        tiendaId: true,
       },
     });
   }

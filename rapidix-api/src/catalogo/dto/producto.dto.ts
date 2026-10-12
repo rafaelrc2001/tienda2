@@ -25,7 +25,10 @@ export class EscalonDto {
   piso: number;
 
   @Type(() => Number)
-  @IsNumber({ maxDecimalPlaces: 2 }, { message: 'El precio de una lista debe ser un número' })
+  @IsNumber(
+    { maxDecimalPlaces: 2 },
+    { message: 'El precio de una lista debe ser un número con máximo 2 decimales' },
+  )
   @Min(0)
   precio: number;
 }
@@ -73,7 +76,7 @@ export class CrearProductoDto {
 
   /**
    * Listas de precio por volumen (HU-08), de menor a mayor piso. Vacio = sin
-   * precio escalonado. Que los pisos suban y los precios bajen lo comprueba el
+   * precio escalonado. Que los pisos suban lo comprueba el
    * servicio, que es quien conoce el precio de venta.
    */
   @IsOptional()
