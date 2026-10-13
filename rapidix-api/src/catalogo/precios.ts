@@ -38,6 +38,28 @@ export interface Upsell {
   ahorro: Decimal;
 }
 
+/**
+ * Decimales que admite el precio de una pieza (el de venta y el de cada
+ * lista). Son muchos mas que los centavos a proposito: una lista de "3 por
+ * $10" es 3.333333333333333 la pieza, y con dos decimales cobraria $9.99. Es
+ * la escala de las columnas de precio en la base.
+ *
+ * Quince es tambien hasta donde llega un numero de JSON sin perder digitos:
+ * el precio viaja como `number`, y mas alla el ultimo decimal ya no es fiable.
+ */
+export const DECIMALES_PRECIO = 15;
+
+/**
+ * Lo que vale un renglon: precio por cantidad, ya en centavos.
+ *
+ * El precio puede traer mas de dos decimales, pero el dinero no: se redondea
+ * aqui, renglon por renglon, para que la suma que ve el cliente sea la de los
+ * importes que ve. Todo el que multiplique un precio por piezas pasa por aqui.
+ */
+export function importeDeLinea(precio: Decimal | number, cantidad: number): Decimal {
+  return new Decimal(precio).mul(cantidad).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+}
+
 /** Listas por encima del precio de venta. Son las de la tabla del negocio. */
 export const MAX_ESCALONES = 2;
 
@@ -92,7 +114,7 @@ export function precioListaAnterior(p: ListasDePrecio, cantidad: number): Decima
 export function ahorro(p: ListasDePrecio, cantidad: number): Decimal {
   if (cantidad < 1) return new Decimal(0);
   const diferencia = new Decimal(p.precioVenta).sub(precioUnitario(p, cantidad));
-  return Decimal.max(0, diferencia.mul(cantidad));
+  return Decimal.max(0, importeDeLinea(diferencia, cantidad));
 }
 
 /**
@@ -118,7 +140,7 @@ export function upsell(p: ListasDePrecio, cantidad: number): Upsell | null {
   return {
     faltan,
     precioSiguiente: siguiente.precio,
-    ahorro: Decimal.max(0, actual.precio.sub(siguiente.precio).mul(siguiente.piso)),
+    ahorro: Decimal.max(0, importeDeLinea(actual.precio.sub(siguiente.precio), siguiente.piso)),
   };
 }
 

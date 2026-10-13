@@ -869,7 +869,8 @@ export class PdvService {
    * `paso` ya resuelto, como en Operaciones.
    *
    * Los capturados en su mostrador no salen aqui: esos no se preparan, se
-   * entregan desde la caja o desde el corte.
+   * entregan desde la caja o desde el corte. Los de aqui entran al corte de
+   * caja al entregarse (`avanzarEnTienda`).
    */
   async porSurtir(tiendaId: string): Promise<PedidoEnPantallaDto[]> {
     await this.tiendas.exigir(tiendaId);
@@ -918,8 +919,14 @@ export class PdvService {
    * Entregar es el momento en que la mercancia sale del inventario de la
    * tienda —no del de bodega, que nunca la aparto—: 409
    * `SIN_EXISTENCIA_EN_TIENDA` con `controlInventario` encendido si no la
-   * tiene. El dinero sigue las reglas de Operaciones: el efectivo se cobra al
-   * entregar y lo valida Finanzas, y el entregado a credito pasa a CXC.
+   * tiene.
+   *
+   * Y es tambien el momento en que el pedido entra a la caja: queda atado al
+   * turno abierto de quien lo entrega y, si estaba pendiente de pago, se da
+   * por cobrado ahi mismo, igual que el de mostrador. Asi sale en su corte de
+   * caja con su dinero y su mercancia. Por eso no se entrega sin turno (409
+   * `SIN_TURNO`): ese efectivo no tendria corte en el que rendirse. El
+   * entregado a credito pasa a CXC y no suma a la caja.
    */
   async avanzarEnTienda(
     tiendaId: string,
@@ -929,6 +936,7 @@ export class PdvService {
     nota?: string,
   ): Promise<PedidoEnPantallaDto> {
     const controlInventario = (await this.configuracion.obtener()).controlInventario;
+    const quien = actorDe(usuario);
 
     await this.prisma.$transaction(async (tx) => {
       const pedido = await FlujoPedidosService.bloquear(tx, pedidoId);
@@ -936,8 +944,11 @@ export class PdvService {
         throw new NotFoundException(`El pedido ${pedido.folio} no se recoge en esta tienda.`);
       }
       const transicion = FlujoPedidosService.exigirAvance(pedido, destino);
+      const entrega = transicion.a === EstadoPedido.ENTREGADO;
 
-      if (transicion.a === EstadoPedido.ENTREGADO) {
+      let turnoId: string | null = null;
+      if (entrega) {
+        turnoId = await PdvService.turnoParaEntregar(tx, tiendaId, usuario);
         const lineas = await tx.pedidoItem.findMany({
           where: { pedidoId },
           select: { productoId: true, cantidad: true },
@@ -945,10 +956,21 @@ export class PdvService {
         await this.tiendas.salir(tx, tiendaId, lineas, controlInventario);
       }
 
-      await FlujoPedidosService.aplicar(tx, pedidoId, transicion, actorDe(usuario), nota);
+      await FlujoPedidosService.aplicar(tx, pedidoId, transicion, quien, nota);
 
-      if (transicion.a === EstadoPedido.ENTREGADO) {
+      if (entrega) {
+        await tx.pedido.update({ where: { id: pedidoId }, data: { turnoId } });
         await FlujoPedidosService.abrirCxc(tx, pedidoId);
+        // Solo el pendiente: el pagado ya lo esta, y al de credito nadie le
+        // cobro nada en caja.
+        if (pedido.estadoPago === EstadoPago.PAGO_PENDIENTE) {
+          await this.finanzas.marcarPagado(
+            tx,
+            pedidoId,
+            quien,
+            'Cobrado al recogerlo en la tienda',
+          );
+        }
       }
     });
     return FlujoPedidosService.enPantalla(await this.pedidos.detalle(pedidoId));
@@ -1008,6 +1030,30 @@ export class PdvService {
     PdvService.exigirPropio(turno, usuario);
     PdvService.exigirSinCerrar(turno);
     return turno;
+  }
+
+  /**
+   * El turno abierto de quien entrega en esa tienda, bloqueado hasta el final
+   * de la transaccion: el corte de caja espera a que la entrega termine, o la
+   * entrega se encuentra el turno ya cerrado y no entra en el.
+   */
+  private static async turnoParaEntregar(
+    tx: Prisma.TransactionClient,
+    tiendaId: string,
+    usuario: UsuarioAutenticado,
+  ): Promise<string> {
+    const filas = await tx.$queryRaw<{ id: string }[]>`
+      SELECT id FROM turnos_pdv
+      WHERE "tiendaId" = ${tiendaId} AND "cajeroId" = ${usuario.sub} AND "cerradoEn" IS NULL
+      FOR UPDATE
+    `;
+    if (filas.length === 0) {
+      throw PdvService.conflicto(
+        'SIN_TURNO',
+        'Crea tu turno en Punto de Venta antes de entregar: el pedido entra a tu corte de caja.',
+      );
+    }
+    return filas[0].id;
   }
 
   /** Bloquea la fila de un turno que ya tiene su corte: lo que sigue es su dinero. */

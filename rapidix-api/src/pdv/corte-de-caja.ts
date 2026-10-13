@@ -19,7 +19,10 @@ export interface PedidoDelTurno {
 }
 
 export interface TotalesDelTurno {
-  /** Todos los que se capturaron en el turno, cancelados incluidos. */
+  /**
+   * Todos los del turno, cancelados incluidos: los que se capturaron en el y
+   * los de la app que se entregaron en el al recogerse en la tienda.
+   */
   pedidos: number;
   /** Los que suman a la caja: ver `cobradoEnCaja`. */
   cobrados: number;

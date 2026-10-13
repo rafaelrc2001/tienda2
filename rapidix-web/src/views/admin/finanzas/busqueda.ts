@@ -1,7 +1,7 @@
 /**
  * La búsqueda de Finanzas → Pedidos.
  *
- * Funciones puras. Se busca sobre lo que la tabla enseña —folio, cliente,
+ * Funciones puras. Se busca sobre lo que la tabla enseña —folio, canal, cliente,
  * estado del pedido y estatus de pago, con sus nombres en pantalla— y no sobre
  * los códigos: quien escribe «pendiente» espera los «Pago pendiente».
  */
@@ -18,6 +18,7 @@ function textoDe(pedido: PedidoEnFinanzas): string {
   return normalizar(
     [
       pedido.folio,
+      pedido.canal,
       pedido.clienteNombre ?? '',
       nombreEstadoPedido(pedido.estado),
       nombreEstadoPago(pedido.pago.estado),

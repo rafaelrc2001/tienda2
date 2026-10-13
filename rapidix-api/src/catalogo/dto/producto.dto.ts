@@ -15,7 +15,8 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
-import { MAX_ESCALONES } from '../precios';
+import { DECIMALES_PRECIO, MAX_ESCALONES } from '../precios';
+import { EsPrecio } from './es-precio';
 
 /** Una lista de precio por volumen: desde `piso` piezas, cada una a `precio`. */
 export class EscalonDto {
@@ -25,10 +26,9 @@ export class EscalonDto {
   piso: number;
 
   @Type(() => Number)
-  @IsNumber(
-    { maxDecimalPlaces: 2 },
-    { message: 'El precio de una lista debe ser un número con máximo 2 decimales' },
-  )
+  @EsPrecio({
+    message: `El precio de una lista debe ser un número con máximo ${DECIMALES_PRECIO} decimales`,
+  })
   @Min(0)
   precio: number;
 }
@@ -57,7 +57,7 @@ export class CrearProductoDto {
   precioCosto?: number;
 
   @Type(() => Number)
-  @IsNumber({ maxDecimalPlaces: 2 }, { message: 'El precio de venta es obligatorio' })
+  @EsPrecio({ message: 'El precio de venta es obligatorio' })
   @Min(0)
   precioVenta: number;
 
@@ -120,7 +120,7 @@ export class ActualizarProductoDto {
 
   @IsOptional()
   @Type(() => Number)
-  @IsNumber({ maxDecimalPlaces: 2 })
+  @EsPrecio({ message: `El precio de venta admite máximo ${DECIMALES_PRECIO} decimales` })
   @Min(0)
   precioVenta?: number;
 

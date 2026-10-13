@@ -23,7 +23,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ConfiguracionService } from '../configuracion/configuracion.service';
 import { CuponesService } from '../cupones/cupones.service';
 import { CashbackService } from '../cashback/cashback.service';
-import { precioUnitario } from '../catalogo/precios';
+import { importeDeLinea, precioUnitario } from '../catalogo/precios';
 import { CarritoService } from './carrito.service';
 import { InventarioService } from '../inventario/inventario.service';
 import { TiendasService } from '../tiendas/tiendas.service';
@@ -46,7 +46,14 @@ const INCLUIR_PEDIDO = {
     select: { id: true, monto: true, metodo: true, enPuerta: true, creadoEn: true },
   },
   tienda: { select: { id: true, nombre: true, direccion: true } },
+  // Solo para el canal: el pedido de mostrador no lleva `tiendaId`, su tienda
+  // es la del turno en el que se capturo.
+  turno: { select: { tienda: { select: { nombre: true } } } },
 } satisfies Prisma.PedidoInclude;
+
+/** El canal de lo que no paso por ninguna tienda. */
+const CANAL_APP = 'App';
+const CANAL_RUTA = 'Ruta';
 
 export interface PedidoDto {
   id: string;
@@ -108,6 +115,12 @@ export interface PedidoDto {
    * a domicilio, en los de mostrador y en los que surte bodega.
    */
   tienda: { id: string; nombre: string; direccion: string } | null;
+  /**
+   * Por donde entro la venta, ya con su nombre en pantalla: el de la tienda
+   * que lo capturo en su mostrador o donde se recoge; "Ruta" si nacio de un
+   * faltante del camion; "App" en los demas, que surte bodega.
+   */
+  canal: string;
   /** Snapshot de la direccion del pedido; `null` si se recoge en tienda. */
   direccion: Record<string, unknown> | null;
   cupon: { code: string; titulo: string } | null;
@@ -759,7 +772,7 @@ export class PedidosService {
         avisos.push(`${producto.nombre} está agotado ahora mismo.`);
       }
 
-      const importe = precioHoy.mul(item.cantidad);
+      const importe = importeDeLinea(precioHoy, item.cantidad);
       if (disponible) subtotal = subtotal.add(importe);
 
       return {
@@ -860,6 +873,7 @@ export class PedidosService {
         creadoEn: Date;
       }[];
       tienda: { id: string; nombre: string; direccion: string } | null;
+      turno: { tienda: { nombre: string } } | null;
     },
   ): PedidoDto {
     // Pagado, reembolsado o cancelado no debe nada, haya o no pagos escritos:
@@ -903,6 +917,10 @@ export class PedidosService {
       },
       metodoEntrega: pedido.metodoEntrega,
       tienda: pedido.tienda,
+      canal:
+        pedido.turno?.tienda.nombre ??
+        pedido.tienda?.nombre ??
+        (pedido.porFaltante ? CANAL_RUTA : CANAL_APP),
       direccion: PedidosService.direccionLeida(pedido.direccion),
       cupon: pedido.cupon ? { code: pedido.cupon.code, titulo: pedido.cupon.title } : null,
       // El renglon que el cliente no acepto en la puerta queda en cero: el
@@ -916,7 +934,7 @@ export class PedidosService {
           unidad: i.unidad,
           precioUnitario: i.precioUnitario.toNumber(),
           cantidad: i.cantidad,
-          importe: i.precioUnitario.mul(i.cantidad).toNumber(),
+          importe: importeDeLinea(i.precioUnitario, i.cantidad).toNumber(),
         })),
       creadoEn: pedido.creadoEn.toISOString(),
     };

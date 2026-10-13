@@ -250,7 +250,7 @@ model Producto {
   categoria   Categoria @relation(fields: [categoriaId], references: [id])
   unidad      String
   precioCosto Decimal @db.Decimal(12, 2)
-  precioVenta Decimal @db.Decimal(12, 2)
+  precioVenta Decimal @db.Decimal(25, 15)
   imagenUrl   String?
   agotado     Boolean @default(false)
 
@@ -286,9 +286,9 @@ model Producto {
   /// no negativos los garantizan los CHECK de la migracion. El precio de una
   /// lista no tiene que ser menor que el de la anterior: lo decide el negocio.
   piso2   Int?
-  precio2 Decimal? @db.Decimal(12, 2)
+  precio2 Decimal? @db.Decimal(25, 15)
   piso3   Int?
-  precio3 Decimal? @db.Decimal(12, 2)
+  precio3 Decimal? @db.Decimal(25, 15)
 
   /// Si el producto suma a la base del cashback (HU-12). Nace encendido: lo
   /// normal es que todo participe y se excluye lo que no deja margen.
@@ -868,9 +868,11 @@ model Pedido {
   /// No tiene renglones de camion; su producto cuenta como entregado.
   porFaltante  Boolean   @default(false)
 
-  /// El turno del punto de venta en el que se capturo. Null en los pedidos de
-  /// la app. Dice tambien de que tienda sale la mercancia si se entrega en
-  /// mostrador: la del turno.
+  /// El turno del punto de venta en cuyo corte de caja entra. El de mostrador
+  /// lo lleva desde que se captura, y dice tambien de que tienda sale la
+  /// mercancia: la del turno. El de la app que se recoge en una tienda
+  /// (`tiendaId`) lo recibe al entregarse: el turno de quien lo entrego. Null
+  /// en los demas pedidos de la app.
   turnoId String?
   turno   TurnoPdv? @relation(fields: [turnoId], references: [id])
 
@@ -964,7 +966,7 @@ model PedidoItem {
   nombre         String
   categoria      String
   unidad         String
-  precioUnitario Decimal @db.Decimal(12, 2)
+  precioUnitario Decimal @db.Decimal(25, 15)
   cantidad       Int
 
   cargas CargaRepartidor[]
@@ -1125,11 +1127,11 @@ model CargaRepartidor {
   cantidadDevuelta Int @default(0)
 
   /// Precio congelado al recolectar (el del pedido).
-  precioUnitario Decimal @db.Decimal(12, 2)
+  precioUnitario Decimal @db.Decimal(25, 15)
   /// Solo en entregas parciales: el precio re-cotizado al escalon de lo que el
   /// cliente si acepto. Null significa entrega completa, y entonces manda
   /// `precioUnitario`.
-  precioEntregado Decimal? @db.Decimal(12, 2)
+  precioEntregado Decimal? @db.Decimal(25, 15)
 
   motivoDevolucion MotivoDevolucion?
 

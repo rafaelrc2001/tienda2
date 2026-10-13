@@ -1,4 +1,5 @@
 import { EstadoPago, MetodoPago, Prisma } from '@prisma/client';
+import { importeDeLinea } from '../catalogo/precios';
 
 const Decimal = Prisma.Decimal;
 type Decimal = Prisma.Decimal;
@@ -51,12 +52,12 @@ export function traeEfectivo(pedido: PedidoALiquidar): boolean {
 /** Lo que se cobra por un renglon: el precio que toque por lo que acepto el cliente. */
 export function cobradoDelRenglon(carga: CargaLiquidable): Decimal {
   const precio = carga.precioEntregado ?? carga.precioUnitario;
-  return new Decimal(precio).mul(carga.cantidadEntregada);
+  return importeDeLinea(precio, carga.cantidadEntregada);
 }
 
 /** Lo que el pedido cobraba por ese renglon antes de salir el camion. */
 export function cotizadoDelRenglon(carga: CargaLiquidable): Decimal {
-  return new Decimal(carga.precioUnitario).mul(carga.cantidadCargada);
+  return importeDeLinea(carga.precioUnitario, carga.cantidadCargada);
 }
 
 /**

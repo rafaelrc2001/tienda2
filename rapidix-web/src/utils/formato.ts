@@ -28,6 +28,23 @@ const FECHA_HORA = new Intl.DateTimeFormat('es-MX', {
   minute: '2-digit',
 })
 
+/**
+ * El precio de una pieza admite hasta quince decimales (una lista de «3 por
+ * $10» es 3.333333333333333 la pieza); los importes, no. Solo se usa donde el negocio
+ * captura y revisa precios.
+ */
+const PRECIO = new Intl.NumberFormat('es-MX', {
+  style: 'currency',
+  currency: 'MXN',
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 15,
+})
+
+/** `3.3333` → `$3.3333`; `12.5` → `$12.50`. Solo pinta los decimales que hay. */
+export function precio(monto: number): string {
+  return PRECIO.format(Number.isFinite(monto) ? monto : 0)
+}
+
 /** `1234.5` → `$1,234.50`. */
 export function dinero(monto: number): string {
   return MONEDA.format(Number.isFinite(monto) ? monto : 0)

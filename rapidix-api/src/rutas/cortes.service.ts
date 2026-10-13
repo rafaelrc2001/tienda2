@@ -24,7 +24,7 @@ import {
   planDeDescarga,
 } from './alcance-del-corte';
 import { PedidosService } from '../pedidos/pedidos.service';
-import { precioUnitario } from '../catalogo/precios';
+import { importeDeLinea, precioUnitario } from '../catalogo/precios';
 import {
   CerrarCorteDto,
   CorregirDeclaradoDto,
@@ -469,7 +469,7 @@ export class CortesService {
         };
       });
       const total = lineas.reduce(
-        (suma, l) => suma.add(new Decimal(l.precioUnitario).mul(l.cantidad)),
+        (suma, l) => suma.add(importeDeLinea(l.precioUnitario, l.cantidad)),
         new Decimal(0),
       );
 
@@ -679,9 +679,7 @@ export class CortesService {
     // El pedido por faltante no subio al camion: sus productos cuentan como
     // entregados y bajan la devolucion en lo que ya se cobro.
     const renglones = (pedido: (typeof pedidos)[number]) =>
-      pedido.porFaltante
-        ? pedido.items.map(renglonDelFaltante)
-        : pedido.cargas.map(conNombre);
+      pedido.porFaltante ? pedido.items.map(renglonDelFaltante) : pedido.cargas.map(conNombre);
     return {
       montoCalculado: cuenta.montoCalculado.toNumber(),
       pedidos: pedidos.map((pedido, i) => {

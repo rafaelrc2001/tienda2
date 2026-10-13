@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import {
   ahorro,
+  importeDeLinea,
   ListasDePrecio,
   precioListaAnterior,
   precioUnitario,
@@ -167,5 +168,24 @@ describe('validarEscalones', () => {
         { piso: 4, precio: 17 },
       ]),
     ).toMatch(/máximo/);
+  });
+});
+
+describe('importeDeLinea', () => {
+  it('redondea el renglon a centavos: 3 piezas a 3.3333 son $10.00', () => {
+    expect(importeDeLinea(D(3.3333), 3).toNumber()).toBe(10);
+  });
+
+  it('con quince decimales cuadra tambien en cantidades grandes', () => {
+    expect(importeDeLinea(D(3.333333333333333), 3000).toNumber()).toBe(10000);
+    expect(importeDeLinea(D(1.428571428571429), 700).toNumber()).toBe(1000);
+  });
+
+  it('con dos decimales el mismo renglon se queda en $9.99', () => {
+    expect(importeDeLinea(D(3.33), 3).toNumber()).toBe(9.99);
+  });
+
+  it('no toca un precio que ya esta en centavos', () => {
+    expect(importeDeLinea(D(12.5), 4).toNumber()).toBe(50);
   });
 });
