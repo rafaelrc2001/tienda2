@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { UsuarioAutenticado } from '../auth/jwt-payload';
 import { IngresosService } from '../ingresos/ingresos.service';
 import { actorDe } from './bitacora';
+import { importeDeLinea } from '../catalogo/precios';
 import { pagadoDelPedido, pagoCabe, saldoDelPedido } from './cxc';
 import { RegistrarPagoDto } from './dto/registrar-pago.dto';
 import { FinanzasService } from './finanzas.service';
@@ -260,7 +261,7 @@ export class CxcService {
           unidad: item.unidad,
           cantidad: item.cantidad,
           precioUnitario: item.precioUnitario.toNumber(),
-          importe: item.precioUnitario.mul(item.cantidad).toNumber(),
+          importe: importeDeLinea(item.precioUnitario, item.cantidad).toNumber(),
         })),
       pagos: pedido.pagos.map((pago) => ({
         id: pago.id,

@@ -13,8 +13,9 @@
  * cobrar— son las pestañas de arriba (`PestanasFinanzas`).
  *
  * La lista trae todos los pedidos, del más reciente al más viejo, y la lupa de
- * la barra los filtra mientras se escribe: por folio, cliente, estado del
- * pedido o estatus de pago. Sustituye a las pestañas por estatus, que con las
+ * la barra los filtra mientras se escribe: por folio, canal, cliente, estado
+ * del pedido o estatus de pago. El canal es la tienda por la que entró el
+ * pedido, y lo resuelve la API. Sustituye a las pestañas por estatus, que con las
  * de sección encima dejaban la pantalla con dos tiras y tres enlaces.
  */
 import { computed, nextTick, onMounted, ref } from 'vue'
@@ -199,7 +200,7 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
         type="search"
         autocomplete="off"
         enterkeyhint="search"
-        placeholder="Pedido, cliente, estado o estatus de pago"
+        placeholder="Pedido, canal, cliente, estado o estatus de pago"
         aria-label="Buscar pedidos"
         @input="abierto = null"
       />
@@ -214,6 +215,7 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
         <thead>
           <tr>
             <th>Pedido</th>
+            <th>Canal</th>
             <th>Cliente</th>
             <th>Fecha</th>
             <th>Estado del pedido</th>
@@ -247,6 +249,8 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
                 </button>
                 <span class="folio">{{ pedido.folio }}</span>
               </td>
+              <!-- La tienda por la que entró; «App» o «Ruta» si no pasó por ninguna. -->
+              <td>{{ pedido.canal }}</td>
               <td>{{ pedido.clienteNombre ?? '—' }}</td>
               <td>{{ fechaNumerica(pedido.creadoEn) }}</td>
               <td>
@@ -281,7 +285,7 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
             </tr>
 
             <tr v-if="abierto === pedido.id" class="fila-detalle">
-              <td colspan="7">
+              <td colspan="8">
                 <div class="detalle-pedido">
                   <ul class="renglones">
                     <li v-for="item in pedido.items" :key="item.productoId">
@@ -474,7 +478,7 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
 }
 
 .tabla {
-  min-width: 1060px;
+  min-width: 1160px;
 }
 
 /* Los estatus uno al costado del otro, como una sola tira. */

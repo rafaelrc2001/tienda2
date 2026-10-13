@@ -472,6 +472,11 @@ export interface Pedido {
    * a domicilio, en los de mostrador y en los que surte bodega.
    */
   tienda: TiendaParaRecoger | null
+  /**
+   * Por dónde entró la venta, listo para pintarse: el nombre de la tienda que
+   * lo capturó o donde se recoge; «Ruta» o «App» si no pasó por ninguna.
+   */
+  canal: string
   /** Copia de la dirección del pedido; `null` si se recoge en tienda. */
   direccion: Record<string, unknown> | null
   cupon: { code: string; titulo: string } | null

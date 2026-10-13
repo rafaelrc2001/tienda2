@@ -12,7 +12,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { descargarArchivo, ErrorApi, http, subirArchivo } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
-import { dinero } from '@/utils/formato'
+import { precio } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
 import SubidorImagen from '@/components/SubidorImagen.vue'
 import { nombreRol, ROLES } from './etiquetas'
@@ -409,14 +409,14 @@ const filasConError = computed(() => resumen.value?.filas.filter((f) => f.estado
           <div class="info">
             <p class="nombre">{{ producto.nombre }}</p>
             <p class="detalle">
-              {{ dinero(producto.precioVenta) }}
+              {{ precio(producto.precioVenta) }}
               <span v-if="producto.unidad"> · {{ producto.unidad }}</span>
               · {{ nombreRol(producto.rol) }}
             </p>
             <p v-if="producto.escalones.length > 0 || !producto.aplicaCashback" class="detalle">
               <template v-if="producto.escalones.length > 0">
                 <span v-for="lista in listaDePrecios(producto)" :key="lista.rango" class="escalon">
-                  {{ lista.rango }} {{ producto.unidad }} · {{ dinero(lista.precio) }}
+                  {{ lista.rango }} {{ producto.unidad }} · {{ precio(lista.precio) }}
                 </span>
               </template>
               <span v-if="!producto.aplicaCashback" class="escalon">Sin cashback</span>
@@ -548,7 +548,7 @@ const filasConError = computed(() => resumen.value?.filas.filter((f) => f.estado
             class="form-input"
             :class="{ 'is-invalid': errores.precioVenta }"
             type="number"
-            step="0.01"
+            step="any"
             min="0"
             aria-label="Lista 1: precio de venta"
           />
@@ -584,7 +584,7 @@ const filasConError = computed(() => resumen.value?.filas.filter((f) => f.estado
               v-model.number="fila.precio"
               class="form-input"
               type="number"
-              step="0.01"
+              step="any"
               min="0"
               :aria-label="`Lista ${i + 2}: precio`"
             />

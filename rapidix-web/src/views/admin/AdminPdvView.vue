@@ -17,8 +17,9 @@
  *  - **Corte de caja**: el total de los pedidos del turno, y su cierre.
  *  - **Operaciones**: los pedidos de la app que el cliente eligió recoger en
  *    esta tienda, que aquí se preparan y se entregan. Lleva una campana con
- *    cuántos faltan por preparar, para que quien está cobrando se entere de
- *    que entró uno sin tener que abrirla.
+ *    cuántos faltan por preparar —el mismo globo del carrito—, para que quien
+ *    está cobrando se entere de que entró uno sin tener que abrirla. El aviso
+ *    va solo aquí, ya dentro de la tienda: la lista de tiendas no lo enseña.
  *
  * Como en Rutas, la pestaña va en la URL y cada una se vuelve a montar —y a
  * pedir sus datos— en cada toque: así nunca enseña datos viejos.
@@ -58,7 +59,7 @@ const error = ref('')
 
 /**
  * Pedidos para recoger que cada tienda no ha terminado de preparar. Los cuenta
- * la API; aquí solo se pinta la campana.
+ * la API; aquí solo se pinta la campana de la tienda elegida.
  */
 const pendientes = ref<PendientesPorTienda>({})
 
@@ -133,12 +134,7 @@ function abrir(id: Ventana): void {
 
     <p v-else-if="error" class="form-error">{{ error }}</p>
 
-    <SelectorTienda
-      v-else-if="!tienda"
-      :tiendas="tiendas"
-      :pendientes="pendientes"
-      @elegir="elegir"
-    />
+    <SelectorTienda v-else-if="!tienda" :tiendas="tiendas" @elegir="elegir" />
 
     <template v-else>
       <div class="tienda-actual">
@@ -169,7 +165,7 @@ function abrir(id: Ventana): void {
             :aria-label="`${porPreparar} pedido(s) por preparar`"
             :title="`${porPreparar} pedido(s) por preparar`"
           >
-            <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
               <path
                 d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.94 1.94 0 0 0 3.4 0"
                 fill="none"
@@ -179,7 +175,7 @@ function abrir(id: Ventana): void {
                 stroke-linejoin="round"
               />
             </svg>
-            {{ porPreparar }}
+            <span class="globo">{{ porPreparar }}</span>
           </span>
         </button>
       </div>
@@ -272,19 +268,36 @@ function abrir(id: Ventana): void {
   margin: 0 0 12px;
 }
 
-/* Rojo sobre la pestaña apagada y sobre la encendida: es lo único de la fila
-   que pide atención. */
+/* La campana toma el color del texto de la pestaña; el número va encima, en el
+   mismo globo verde del carrito. El margen derecho le deja sitio al globo, que
+   sobresale: `.subtab` recorta lo que se sale de la pestaña. */
 .campana {
+  position: relative;
   display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  margin-left: 4px;
-  padding: 1px 6px 1px 4px;
-  border-radius: 999px;
-  background: var(--rojo);
-  color: var(--white);
-  font-size: 10px;
-  line-height: 1.5;
+  margin: 0 12px 0 4px;
   vertical-align: middle;
+}
+
+.globo {
+  position: absolute;
+  top: -7px;
+  left: 8px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--verde);
+  color: var(--white);
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 9.5px;
+  line-height: 15px;
+  text-align: center;
+  /* El aro del color de la pestaña lo despega de la campana. */
+  box-shadow: 0 0 0 2px var(--cream-2);
+}
+
+.subtab.active .globo {
+  box-shadow: 0 0 0 2px var(--terracotta);
 }
 </style>

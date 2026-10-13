@@ -24,7 +24,7 @@ import { NOMBRE_ESTADO_PEDIDO, PedidoEnFlujo } from '../pedidos/flujo';
 import { PedidoDto, PedidosService } from '../pedidos/pedidos.service';
 import { InventarioService } from '../inventario/inventario.service';
 import { ConfiguracionService } from '../configuracion/configuracion.service';
-import { ListasDePrecio, precioUnitario } from '../catalogo/precios';
+import { importeDeLinea, ListasDePrecio, precioUnitario } from '../catalogo/precios';
 import { CashbackService } from '../cashback/cashback.service';
 import {
   EntregarPedidoDto,
@@ -1157,7 +1157,7 @@ export class RutasService {
     const ajuste = ajusteDeEntrega(pedido, liquidables);
     const base = pedido.items
       .filter((i) => i.producto.aplicaCashback)
-      .reduce((suma, i) => suma.add(i.precioUnitario.mul(i.cantidad)), new Decimal(0));
+      .reduce((suma, i) => suma.add(importeDeLinea(i.precioUnitario, i.cantidad)), new Decimal(0));
     // Nunca sube: la re-cotizacion podria dar un unitario mayor, pero el
     // cliente no gana premio por llevarse menos.
     const cashback = Decimal.min(
@@ -1278,7 +1278,7 @@ export class RutasService {
         pedidoItemId: carga.pedidoItemId,
         cantidadEntregada,
         precio: precio.toNumber(),
-        importe: precio.mul(cantidadEntregada).toNumber(),
+        importe: importeDeLinea(precio, cantidadEntregada).toNumber(),
       });
     }
 

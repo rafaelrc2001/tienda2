@@ -18,7 +18,14 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CashbackService } from '../cashback/cashback.service';
 import { ConfiguracionService } from '../configuracion/configuracion.service';
-import { ahorro, precioListaAnterior, precioUnitario, upsell, Upsell } from '../catalogo/precios';
+import {
+  ahorro,
+  importeDeLinea,
+  precioListaAnterior,
+  precioUnitario,
+  upsell,
+  Upsell,
+} from '../catalogo/precios';
 import { TiendasService } from '../tiendas/tiendas.service';
 import { LineaCarritoDto, PrevisualizarCarritoDto } from './dto/carrito.dto';
 
@@ -877,7 +884,7 @@ export class CarritoService {
       unidad: p.unidad,
       precioUnitario: precio,
       cantidad,
-      importe: precio.mul(cantidad),
+      importe: importeDeLinea(precio, cantidad),
       aplicaCashback: p.aplicaCashback,
       precioLista: precioListaAnterior(p, cantidad),
       ahorro: ahorro(p, cantidad),
