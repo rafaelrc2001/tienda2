@@ -891,14 +891,16 @@ export class PdvService {
    * aparece no tiene ninguno.
    *
    * Cuenta hasta «En preparacion»: el preparado que espera a su cliente ya no
-   * es trabajo pendiente del anaquel.
+   * es trabajo pendiente del anaquel. Tampoco el que Finanzas retuvo: mientras
+   * no lo libere la tienda no puede moverlo, y avisarle seria pedirle algo que
+   * no esta en su mano.
    */
   async pendientesDePreparar(): Promise<Record<string, number>> {
     const grupos = await this.prisma.pedido.groupBy({
       by: ['tiendaId'],
       where: {
         tiendaId: { not: null },
-        estadoPago: { not: EstadoPago.CANCELADO },
+        estadoPago: { notIn: [EstadoPago.CANCELADO, EstadoPago.RETENER] },
         estado: { in: [EstadoPedido.CONFIRMADO, EstadoPedido.EN_PREPARACION] },
       },
       _count: { _all: true },
