@@ -226,8 +226,8 @@ export class PrevisualizarCarritoDto {
 
 /**
  * No hereda de PrevisualizarCarritoDto a proposito: class-validator acumula los
- * decoradores del padre, y el `@IsOptional` de `metodoPago` dejaria pasar un
- * pedido sin metodo.
+ * decoradores del padre y aqui cada campo lleva su propio mensaje y sus propias
+ * reglas (la direccion, los terminos).
  */
 export class CrearPedidoDto {
   @IsArray()
@@ -241,9 +241,13 @@ export class CrearPedidoDto {
   @Matches(/^[A-Za-z0-9]{4,12}$/, { message: 'El código de cupón no es válido' })
   codigoCupon?: string;
 
-  // Al confirmar el metodo ya no es opcional (HU-14).
+  // Opcional solo en la forma: si queda algo por cobrar, `evaluarPago` lo exige
+  // al confirmar (400 `METODO_REQUERIDO`, HU-14). Aqui no se puede pedir
+  // siempre porque, cuando la billetera cubre el pedido entero, la app no
+  // pregunta el metodo y el cliente no tiene de donde elegirlo.
+  @IsOptional()
   @IsEnum(MetodoPago, { message: 'Elige cómo vas a pagar' })
-  metodoPago: MetodoPago;
+  metodoPago?: MetodoPago;
 
   @IsOptional()
   @Type(() => Number)

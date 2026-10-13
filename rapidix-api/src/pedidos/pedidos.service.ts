@@ -386,7 +386,10 @@ export class PedidosService {
           recargoFuera,
           descuento,
           total,
-          metodoPago: dto.metodoPago,
+          // Sin metodo solo se llega aqui con el pedido cubierto por la
+          // billetera (`evaluarPago` rechaza lo demas): no hay nada que cobrar
+          // y la columna, que no admite nulo, se queda con su valor de siempre.
+          metodoPago: dto.metodoPago ?? MetodoPago.EFECTIVO,
           estadoPago,
           pagadoConBilletera: billetera.monto,
           // Opcional: sin el, el pedido nace sin monto ni cambio avisados.
