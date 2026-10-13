@@ -157,8 +157,8 @@ function abrir(id: Ventana): void {
           :aria-controls="`ventana-${v.id}`"
           @click="abrir(v.id)"
         >
-          {{ v.titulo }}
-          <!-- La campana solo aparece si hay algo que preparar. -->
+          <!-- La campana solo aparece si hay algo que preparar. Va antes del rótulo:
+               a la derecha era lo primero que se recortaba en un teléfono. -->
           <span
             v-if="v.id === 'operaciones' && porPreparar > 0"
             class="campana"
@@ -177,6 +177,7 @@ function abrir(id: Ventana): void {
             </svg>
             <span class="globo">{{ porPreparar }}</span>
           </span>
+          <span class="rotulo">{{ v.titulo }}</span>
         </button>
       </div>
 
@@ -268,14 +269,33 @@ function abrir(id: Ventana): void {
   margin: 0 0 12px;
 }
 
+/* Las pestañas de `base.css` miden todas lo mismo, y en un teléfono a
+   «Operaciones» no le cabía la campana: el texto se cortaba y de ella solo
+   asomaba un trozo del globo. Aquí cada una mide lo que ocupa su contenido y
+   se reparten lo que sobra; si aun así no cabe, se recorta el rótulo, nunca
+   la campana. */
+.subtab-row .subtab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.rotulo {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* La campana toma el color del texto de la pestaña; el número va encima, en el
    mismo globo verde del carrito. El margen derecho le deja sitio al globo, que
-   sobresale: `.subtab` recorta lo que se sale de la pestaña. */
+   sobresale, antes de que empiece el rótulo. */
 .campana {
   position: relative;
   display: inline-flex;
-  margin: 0 12px 0 4px;
-  vertical-align: middle;
+  flex-shrink: 0;
+  margin: 0 12px 0 2px;
 }
 
 .globo {
