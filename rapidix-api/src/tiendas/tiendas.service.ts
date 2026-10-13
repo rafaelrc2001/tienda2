@@ -109,9 +109,30 @@ export class TiendasService {
     return this.prisma.tienda.create({ data: TiendasService.datos(dto) });
   }
 
+  /**
+   * No se apaga una tienda con pedidos de la app por recoger (409
+   * `TIENDA_CON_PEDIDOS`): apagada ya no se abre en el punto de venta, y esos
+   * pedidos tampoco salen en Operaciones, asi que nadie podria entregarlos.
+   */
   async actualizar(id: string, dto: GuardarTiendaDto): Promise<Tienda> {
-    await this.exigir(id);
+    const tienda = await this.exigir(id);
     await this.exigirNombreLibre(dto.nombre, id);
+    if (tienda.activa && dto.activa === false) {
+      const porRecoger = await this.prisma.pedido.count({
+        where: {
+          tiendaId: id,
+          estado: { not: EstadoPedido.ENTREGADO },
+          estadoPago: { not: EstadoPago.CANCELADO },
+        },
+      });
+      if (porRecoger > 0) {
+        throw new ConflictException({
+          statusCode: 409,
+          code: 'TIENDA_CON_PEDIDOS',
+          message: `La tienda tiene ${porRecoger} pedido(s) por recoger: entrégalos o pide a Finanzas que los cancele antes de desactivarla.`,
+        });
+      }
+    }
     return this.prisma.tienda.update({ where: { id }, data: TiendasService.datos(dto) });
   }
 

@@ -200,6 +200,7 @@ function abrir(id: Ventana): void {
           v-else-if="ventana === 'operaciones'"
           :key="`operaciones-${tienda.id}-${vuelta}`"
           :tienda="tienda"
+          :por-preparar="porPreparar"
           @cambio="contarPendientes"
         />
         <VentanaCorteDeCaja v-else :key="`corte-${tienda.id}-${vuelta}`" :tienda="tienda" />

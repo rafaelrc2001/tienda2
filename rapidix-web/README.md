@@ -44,6 +44,7 @@ puerto que usa `npm run dev`.
 | Variable | Obligatoria | Para qué |
 | --- | --- | --- |
 | `VITE_API_URL` | sí | URL base de la API. Sin ella se asume `http://localhost:3000`. |
+| `VITE_WHATSAPP_REAL` | no | `true` para que el comprobante de entrega del PDV abra WhatsApp de verdad. Sin ella el envío es simulado: solo avisa a qué número habría salido. |
 | `PORT` | no | Puerto del servidor de producción. Railway lo inyecta. |
 
 Las variables `VITE_*` **se incrustan en el build**: cambiar `VITE_API_URL`

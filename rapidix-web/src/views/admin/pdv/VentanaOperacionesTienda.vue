@@ -11,7 +11,7 @@
  * Los pedidos capturados en el mostrador no pasan por aquí: esos no se
  * preparan, se entregan desde la caja o desde Corte de caja.
  */
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { ErrorApi, http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
 import {
@@ -28,7 +28,7 @@ import ComprobanteWhatsApp from '@/components/ComprobanteWhatsApp.vue'
 import { PASOS, bloqueoDe, esPasoSiguiente, pasoDado } from '../operaciones/pasos'
 import type { EstadoPago, PedidoEnPantalla, Tienda } from '@/api/tipos'
 
-const props = defineProps<{ tienda: Tienda }>()
+const props = defineProps<{ tienda: Tienda; porPreparar: number }>()
 /** Un pedido avanzó: quien pinta el aviso de la pestaña vuelve a contarlos. */
 const emit = defineEmits<{ cambio: [] }>()
 
@@ -62,6 +62,14 @@ async function cargar(conEsqueleto = true): Promise<void> {
 }
 
 onMounted(() => cargar())
+
+// La campana se sondea sola: si su número cambia con la pestaña abierta es que
+// entró un pedido o alguien más movió uno, y la tabla se pone al día sin
+// esqueleto para no brincar bajo el dedo de quien está surtiendo.
+watch(
+  () => props.porPreparar,
+  () => void cargar(false),
+)
 
 async function avanzar(pedido: PedidoEnPantalla): Promise<void> {
   const destino = pedido.paso.siguiente

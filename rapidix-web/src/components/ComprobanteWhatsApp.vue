@@ -7,10 +7,17 @@
  * fecha, productos, cantidades, precios y total— y el botón abre WhatsApp en
  * ese chat: solo falta pulsar enviar. Es un enlace que toca la persona, no un
  * `window.open` tras la petición: eso el navegador de la tableta lo bloquea.
+ *
+ * Mientras la tienda no tenga WhatsApp el envío es **simulado**: el botón no
+ * abre nada, solo avisa a qué número habría salido. `VITE_WHATSAPP_REAL=true`
+ * lo vuelve el enlace de verdad; como toda `VITE_*`, exige recompilar.
  */
 import { computed } from 'vue'
-import { enlaceDeEntrega, mensajeDeEntrega } from '@/utils/whatsapp'
+import { useUiStore } from '@/stores/ui'
+import { enlaceDeEntrega, mensajeDeEntrega, telefonoParaWhatsApp } from '@/utils/whatsapp'
 import type { Pedido } from '@/api/tipos'
+
+const ENVIO_REAL = import.meta.env.VITE_WHATSAPP_REAL === 'true'
 
 const props = defineProps<{
   pedido: Pedido
@@ -21,6 +28,17 @@ const emit = defineEmits<{ cerrar: [] }>()
 
 const mensaje = computed(() => mensajeDeEntrega(props.pedido))
 const enlace = computed(() => enlaceDeEntrega(props.pedido, props.telefono))
+const numero = computed(() =>
+  telefonoParaWhatsApp(props.telefono ?? props.pedido.clienteTelefono),
+)
+
+const ui = useUiStore()
+
+/** No sale ningún mensaje: se dice a quién habría ido, y que fue simulado. */
+function simularEnvio(): void {
+  ui.exito(`Comprobante enviado a +${numero.value} (simulado)`)
+  emit('cerrar')
+}
 </script>
 
 <template>
@@ -35,11 +53,22 @@ const enlace = computed(() => enlaceDeEntrega(props.pedido, props.telefono))
       <p v-if="!enlace" class="form-error">
         El cliente no tiene un teléfono válido registrado: no se puede abrir su WhatsApp.
       </p>
+      <p v-else-if="!ENVIO_REAL" class="aviso-simulado">
+        Envío simulado a +{{ numero }}: todavía no sale ningún WhatsApp.
+      </p>
 
       <div class="modal-actions">
         <button type="button" class="btn-cancel" @click="emit('cerrar')">Cerrar</button>
+        <button
+          v-if="enlace && !ENVIO_REAL"
+          type="button"
+          class="btn-primary whatsapp"
+          @click="simularEnvio"
+        >
+          Enviar por WhatsApp
+        </button>
         <a
-          v-if="enlace"
+          v-else-if="enlace"
           class="btn-primary whatsapp"
           :href="enlace"
           target="_blank"
@@ -68,6 +97,12 @@ const enlace = computed(() => enlaceDeEntrega(props.pedido, props.telefono))
   color: var(--ink);
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.aviso-simulado {
+  margin: 0 0 12px;
+  font-size: 11.5px;
+  color: var(--muted);
 }
 
 .whatsapp {
