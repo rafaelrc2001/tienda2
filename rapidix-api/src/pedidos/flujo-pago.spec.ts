@@ -1,5 +1,12 @@
-import { EstadoPago, EstadoPedido } from '@prisma/client';
-import { botonesDePago, ESTADOS_PAGO, evaluarCambioPago, PedidoEnPago } from './flujo-pago';
+import { EstadoPago, EstadoPedido, Prisma } from '@prisma/client';
+import {
+  bloqueoDeCancelacion,
+  botonesDePago,
+  ESTADOS_PAGO,
+  evaluarCambioPago,
+  PedidoCancelable,
+  PedidoEnPago,
+} from './flujo-pago';
 
 const pedido = (cambios: Partial<PedidoEnPago> = {}): PedidoEnPago => ({
   estado: EstadoPedido.CONFIRMADO,
@@ -132,5 +139,41 @@ describe('botonesDePago', () => {
   it('en un pedido cancelado los apaga todos', () => {
     const botones = botonesDePago(pedido({ estadoPago: EstadoPago.CANCELADO }));
     expect(botones.filter((b) => b.bloqueo === null && !b.actual)).toHaveLength(0);
+  });
+});
+
+describe('cancelar fuera de Finanzas (cliente o tienda)', () => {
+  const cancelable = (cambios: Partial<PedidoCancelable> = {}): PedidoCancelable => ({
+    estado: EstadoPedido.CONFIRMADO,
+    estadoPago: EstadoPago.PAGO_PENDIENTE,
+    total: new Prisma.Decimal(100),
+    pagadoConBilletera: new Prisma.Decimal(0),
+    ...cambios,
+  });
+  const codigo = (p: PedidoCancelable): string | null => bloqueoDeCancelacion(p)?.codigo ?? null;
+
+  it('deja cancelar lo que sigue en bodega y no se ha cobrado', () => {
+    expect(codigo(cancelable())).toBeNull();
+    expect(codigo(cancelable({ estado: EstadoPedido.LISTO_PARA_ENTREGA }))).toBeNull();
+    expect(codigo(cancelable({ estadoPago: EstadoPago.RETENER }))).toBeNull();
+    expect(codigo(cancelable({ estadoPago: EstadoPago.CREDITO }))).toBeNull();
+  });
+
+  it('respeta los candados de Finanzas', () => {
+    expect(codigo(cancelable({ estadoPago: EstadoPago.CANCELADO }))).toBe('PAGO_TERMINAL');
+    expect(codigo(cancelable({ estado: EstadoPedido.EN_RUTA }))).toBe('MERCANCIA_FUERA');
+    expect(codigo(cancelable({ estado: EstadoPedido.ENTREGADO }))).toBe('MERCANCIA_FUERA');
+  });
+
+  it('no cancela lo pagado con dinero que hay que reembolsar', () => {
+    expect(codigo(cancelable({ estadoPago: EstadoPago.PAGADO }))).toBe('PAGO_RECIBIDO');
+  });
+
+  it('si lo pagado fue solo billetera, si: la billetera se devuelve sola', () => {
+    const conBilletera = cancelable({
+      estadoPago: EstadoPago.PAGADO,
+      pagadoConBilletera: new Prisma.Decimal(100),
+    });
+    expect(codigo(conBilletera)).toBeNull();
   });
 });

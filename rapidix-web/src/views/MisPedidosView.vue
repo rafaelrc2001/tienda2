@@ -24,8 +24,9 @@ const ui = useUiStore()
 const pedidos = ref<Pedido[]>([])
 const cargando = ref(true)
 const abierto = ref<string | null>(null)
+const cancelando = ref<string | null>(null)
 
-onMounted(async () => {
+async function cargar(): Promise<void> {
   try {
     pedidos.value = await http.get<Pedido[]>('/pedidos/mios')
   } catch (fallo) {
@@ -33,7 +34,35 @@ onMounted(async () => {
   } finally {
     cargando.value = false
   }
-})
+}
+
+onMounted(cargar)
+
+/**
+ * Lo que devuelve la API (inventario, billetera, cashback) lo hace ella; aquí
+ * solo se pregunta y se pinta el pedido como quedó.
+ */
+async function cancelar(pedido: Pedido): Promise<void> {
+  if (cancelando.value) return
+  const devuelve =
+    pedido.pago.billetera > 0
+      ? ` Los ${dinero(pedido.pago.billetera)} de tu billetera regresan a tu saldo.`
+      : ''
+  if (!confirm(`¿Cancelar el pedido ${pedido.folio}?${devuelve}`)) return
+
+  cancelando.value = pedido.id
+  try {
+    await http.post(`/pedidos/${pedido.id}/cancelar`)
+    ui.exito(`Pedido ${pedido.folio} cancelado`)
+  } catch (fallo) {
+    ui.errorDeApi(fallo)
+  } finally {
+    cancelando.value = null
+  }
+  // Tanto si se canceló como si alguien lo movió mientras tanto (409), se
+  // enseña lo vigente.
+  await cargar()
+}
 
 function alternar(id: string): void {
   abierto.value = abierto.value === id ? null : id
@@ -103,7 +132,13 @@ function alternar(id: string): void {
                       <td colspan="2">Productos</td>
                       <td class="num">{{ dinero(pedido.subtotal) }}</td>
                     </tr>
-                    <tr>
+                    <!-- Recogido en tienda no tiene envío: decir «Gratis» prometería algo
+                         que no aplica. -->
+                    <tr v-if="pedido.metodoEntrega === 'TIENDA'">
+                      <td colspan="2">Entrega en tienda</td>
+                      <td class="num">{{ pedido.tienda?.nombre ?? '' }}</td>
+                    </tr>
+                    <tr v-else>
                       <td colspan="2">Envío</td>
                       <td class="num">
                         {{ pedido.envio === 0 ? 'Gratis' : dinero(pedido.envio) }}
@@ -163,6 +198,18 @@ function alternar(id: string): void {
                 >
                   Cashback por acreditar: {{ dinero(pedido.cashbackGenerado) }} al quedar pagado
                 </p>
+                <!-- Solo mientras la API lo permite: sigue en bodega y no hay dinero
+                     que reembolsar. -->
+                <div v-if="pedido.cancelable" class="cancelar">
+                  <button
+                    type="button"
+                    class="btn-cancelar"
+                    :disabled="cancelando === pedido.id"
+                    @click="cancelar(pedido)"
+                  >
+                    {{ cancelando === pedido.id ? 'Cancelando…' : 'Cancelar pedido' }}
+                  </button>
+                </div>
               </td>
             </tr>
           </template>
@@ -231,6 +278,29 @@ function alternar(id: string): void {
   color: var(--terracotta-dark);
   border-top: 1px solid var(--line);
   padding-top: 7px;
+}
+
+.cancelar {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+.btn-cancelar {
+  background: var(--white);
+  color: var(--rojo);
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 12.5px;
+  border: 1.5px solid var(--rojo);
+  border-radius: 12px;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+.btn-cancelar:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 
 .cashback {

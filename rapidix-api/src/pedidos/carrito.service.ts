@@ -575,7 +575,9 @@ export class CarritoService {
     if (!enMostrador && metodoEntrega === MetodoEntrega.TIENDA) {
       const recogida = await this.tiendas.resolverRecogida(dto.tiendaId);
       if (recogida.error) {
-        avisos.push(recogida.error.mensaje);
+        // Que falte elegirla no se avisa arriba, a peticion del negocio: el
+        // selector ya dice "Elige tienda" y confirmar sigue bloqueado.
+        if (recogida.error.codigo !== 'TIENDA_REQUERIDA') avisos.push(recogida.error.mensaje);
         recogidaLista = false;
       } else if (recogida.tienda) {
         const faltantes = await this.tiendas.faltantes(recogida.tienda.id, carrito.disponibles);

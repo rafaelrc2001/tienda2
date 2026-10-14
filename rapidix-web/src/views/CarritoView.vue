@@ -154,7 +154,7 @@ async function cargarTiendas(): Promise<void> {
   try {
     tiendas.value = await http.get<TiendaParaRecoger[]>('/tiendas')
   } catch {
-    // Sin la lista no se puede elegir: si hace falta, la API lo dice en `avisos`.
+    // Sin la lista no se puede elegir; confirmar sigue bloqueado por la API.
     tiendas.value = []
     return
   }
@@ -771,6 +771,7 @@ async function confirmar(): Promise<void> {
           <select
             v-if="e.valor === 'TIENDA' && tiendas.length > 0"
             class="tienda-select"
+            :class="{ falta: !aDomicilio && !carrito.tiendaId }"
             aria-label="Tienda donde recoges"
             :value="carrito.tiendaId ?? ''"
             @change="elegirTienda(($event.target as HTMLSelectElement).value)"
@@ -1471,6 +1472,11 @@ async function confirmar(): Promise<void> {
   font-weight: 700;
   font-size: 12.5px;
   text-overflow: ellipsis;
+}
+
+/* Falta elegirla: no hay aviso arriba, el propio selector lo marca. */
+.tienda-select.falta {
+  border-color: var(--terracotta);
 }
 
 .tienda-select:focus {

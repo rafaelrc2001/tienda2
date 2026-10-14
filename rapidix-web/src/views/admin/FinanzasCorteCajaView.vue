@@ -130,10 +130,6 @@ async function aceptar(): Promise<void> {
           <h3 class="paso-titulo">Ingresos del turno</h3>
           <table class="tabla-lineas">
             <tbody>
-              <tr>
-                <td>Ventas cobradas en mostrador ({{ turno.totales.cobrados }})</td>
-                <td class="num">{{ dinero(turno.totales.ventas) }}</td>
-              </tr>
               <tr class="fuerte">
                 <td>Efectivo</td>
                 <td class="num">{{ dinero(turno.totales.efectivo) }}</td>
@@ -147,6 +143,13 @@ async function aceptar(): Promise<void> {
                 <td class="num">{{ dinero(turno.totales.billetera) }}</td>
               </tr>
             </tbody>
+            <!-- El total general va al final, separado: es la suma de las formas de pago. -->
+            <tfoot>
+              <tr class="total-general">
+                <td>Ventas cobradas en mostrador ({{ turno.totales.cobrados }})</td>
+                <td class="num">{{ dinero(turno.totales.ventas) }}</td>
+              </tr>
+            </tfoot>
           </table>
         </section>
 
@@ -361,6 +364,15 @@ async function aceptar(): Promise<void> {
 
 .tabla-lineas.pedidos {
   min-width: 560px;
+}
+
+/* Toda la fila en negritas y una línea marcada que la separa del desglose. */
+.tabla-lineas tr.total-general td {
+  font-family: var(--font-heading);
+  font-weight: 800;
+  color: var(--ink);
+  border-top: 2px solid var(--ink);
+  padding-top: 8px;
 }
 
 .tabla-lineas td.falta {
