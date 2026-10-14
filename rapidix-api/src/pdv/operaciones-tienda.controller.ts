@@ -1,10 +1,23 @@
-import { Body, Controller, Get, Param, Patch } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { RequiereSeccion } from '../auth/seccion.decorator';
 import { UsuarioActual } from '../auth/usuario-actual.decorator';
 import { UsuarioAutenticado } from '../auth/jwt-payload';
 import { AvanzarPedidoDto } from '../pedidos/dto/avanzar-pedido.dto';
-import { PedidoEnPantallaDto } from '../pedidos/flujo-pedidos.service';
+import { CancelarPedidoDto } from '../pedidos/dto/cancelar-pedido.dto';
+import { FinanzasService } from '../pedidos/finanzas.service';
+import { FlujoPedidosService, PedidoEnPantallaDto } from '../pedidos/flujo-pedidos.service';
+import { PedidosService } from '../pedidos/pedidos.service';
 import { PdvService } from './pdv.service';
 
 /**
@@ -20,7 +33,11 @@ import { PdvService } from './pdv.service';
 @Controller('admin/pdv')
 @RequiereSeccion('pdv')
 export class OperacionesTiendaController {
-  constructor(private readonly pdv: PdvService) {}
+  constructor(
+    private readonly pdv: PdvService,
+    private readonly finanzas: FinanzasService,
+    private readonly pedidos: PedidosService,
+  ) {}
 
   /**
    * El aviso de la pestana: cuantos pedidos tiene cada tienda sin terminar de
@@ -50,5 +67,23 @@ export class OperacionesTiendaController {
     @UsuarioActual() usuario: UsuarioAutenticado,
   ): Promise<PedidoEnPantallaDto> {
     return this.pdv.avanzarEnTienda(id, pedidoId, dto.estado, usuario, dto.nota);
+  }
+
+  /**
+   * Cancela un pedido que el cliente ya no paso a recoger. Mismos efectos y
+   * candados que la cancelacion del cliente (`FinanzasService.cancelar`): lo
+   * ya cobrado lo cancela Finanzas. 404 si no se recoge en esta tienda.
+   */
+  @Post('tiendas/:id/operaciones/pedidos/:pedidoId/cancelar')
+  @HttpCode(HttpStatus.OK)
+  async cancelar(
+    @Param('id') id: string,
+    @Param('pedidoId', ParseUUIDPipe) pedidoId: string,
+    @Body() dto: CancelarPedidoDto,
+    @UsuarioActual() usuario: UsuarioAutenticado,
+  ): Promise<PedidoEnPantallaDto> {
+    const nota = dto.nota?.trim() || 'El cliente no pasó a recogerlo';
+    await this.finanzas.cancelar(pedidoId, { tiendaId: id }, usuario, nota);
+    return FlujoPedidosService.enPantalla(await this.pedidos.detalle(pedidoId));
   }
 }

@@ -30,6 +30,7 @@ import { TiendasService } from '../tiendas/tiendas.service';
 import { CrearPedidoDto, DireccionEntregaDto } from './dto/carrito.dto';
 import { ActorDeBitacora, registrarEnBitacora } from './bitacora';
 import { pagadoDelPedido, saldoDelPedido } from './cxc';
+import { bloqueoDeCancelacion } from './flujo-pago';
 
 const Decimal = Prisma.Decimal;
 type Decimal = Prisma.Decimal;
@@ -74,6 +75,12 @@ export interface PedidoDto {
   /** false mientras el pago no quede PAGADO: el cashback aun no esta en la billetera. */
   cashbackAcreditado: boolean;
   estado: EstadoPedido;
+  /**
+   * Si el cliente (o la tienda donde se recoge) puede cancelarlo todavia
+   * (`bloqueoDeCancelacion`). Lo decide la API para que el boton no lleve
+   * copia de la regla.
+   */
+  cancelable: boolean;
   pago: {
     metodo: MetodoPago;
     estado: EstadoPago;
@@ -897,6 +904,7 @@ export class PedidosService {
       cashbackGenerado: pedido.cashbackGenerado.toNumber(),
       cashbackAcreditado: pedido.cashbackAcreditadoEn !== null,
       estado: pedido.estado,
+      cancelable: bloqueoDeCancelacion(pedido) === null,
       pago: {
         metodo: pedido.metodoPago,
         estado: pedido.estadoPago,

@@ -1,4 +1,4 @@
-import { EstadoPago, EstadoPedido } from '@prisma/client';
+import { EstadoPago, EstadoPedido, Prisma } from '@prisma/client';
 
 /**
  * Reglas del eje del dinero. Funciones puras, sin base de datos: las usa
@@ -52,7 +52,7 @@ const FUERA_DE_BODEGA: readonly EstadoPedido[] = [
 ];
 
 export type CodigoBloqueoPago =
-  'PAGO_TERMINAL' | 'MERCANCIA_FUERA' | 'PEDIDO_EN_CXC' | 'MISMO_ESTADO';
+  'PAGO_TERMINAL' | 'MERCANCIA_FUERA' | 'PEDIDO_EN_CXC' | 'MISMO_ESTADO' | 'PAGO_RECIBIDO';
 
 export interface BloqueoPago {
   codigo: CodigoBloqueoPago;
@@ -136,6 +136,46 @@ export function evaluarCambioPago(
   }
 
   return { accion: 'cambiar' };
+}
+
+/** Lo minimo para decidir si alguien que no es Finanzas puede cancelar. */
+export interface PedidoCancelable {
+  estado: EstadoPedido;
+  estadoPago: EstadoPago;
+  total: Prisma.Decimal;
+  pagadoConBilletera: Prisma.Decimal;
+}
+
+/**
+ * Decide si el pedido se puede cancelar **fuera de Finanzas**: el cliente
+ * desde Mis Pedidos, o la tienda cuando nadie pasa a recogerlo.
+ *
+ * Son los candados de Finanzas (terminal, mercancia fuera de bodega) mas uno:
+ * si ya entro dinero que no es de la billetera, no. La billetera se devuelve
+ * sola al cancelar; una transferencia o un cobro en efectivo exigen un
+ * reembolso que solo puede hacer Finanzas, y cancelarlo aqui dejaria ese
+ * dinero sin dueno en ningun libro.
+ *
+ * Devuelve el candado, o `null` si se puede.
+ */
+export function bloqueoDeCancelacion(pedido: PedidoCancelable): BloqueoPago | null {
+  const resultado = evaluarCambioPago(
+    { estado: pedido.estado, estadoPago: pedido.estadoPago },
+    EstadoPago.CANCELADO,
+  );
+  if ('bloqueo' in resultado) return resultado.bloqueo;
+
+  const cobradoAparte = pedido.total.greaterThan(pedido.pagadoConBilletera);
+  if (
+    cobradoAparte &&
+    (pedido.estadoPago === EstadoPago.PAGADO || pedido.estadoPago === EstadoPago.REEMBOLSADO)
+  ) {
+    return {
+      codigo: 'PAGO_RECIBIDO',
+      mensaje: 'El pedido ya está pagado: lo cancela Finanzas, que es quien devuelve el dinero.',
+    };
+  }
+  return null;
 }
 
 /** Lo que la pantalla necesita para pintar cada uno de los siete botones. */

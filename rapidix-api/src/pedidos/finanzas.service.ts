@@ -1,11 +1,17 @@
-import { ConflictException, Injectable, Logger } from '@nestjs/common';
+import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { EjeBitacora, EstadoPago, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsuarioAutenticado } from '../auth/jwt-payload';
 import { CashbackService } from '../cashback/cashback.service';
 import { InventarioService } from '../inventario/inventario.service';
 import { ActorDeBitacora, actorDe, registrarEnBitacora } from './bitacora';
-import { BotonPago, botonesDePago, evaluarCambioPago, NOMBRE_ESTADO_PAGO } from './flujo-pago';
+import {
+  bloqueoDeCancelacion,
+  BotonPago,
+  botonesDePago,
+  evaluarCambioPago,
+  NOMBRE_ESTADO_PAGO,
+} from './flujo-pago';
 import { FlujoPedidosService } from './flujo-pedidos.service';
 import { PedidoDto, PedidosService } from './pedidos.service';
 
@@ -165,6 +171,61 @@ export class FinanzasService {
     });
 
     return FinanzasService.enPantalla(await this.pedidos.detalle(id));
+  }
+
+  /**
+   * Cancela un pedido desde fuera de Finanzas: el cliente desde Mis Pedidos, o
+   * la tienda cuando el cliente ya no pasa a recogerlo.
+   *
+   * Es el mismo camino que el boton "Cancelado" de Finanzas —estatus, renglon
+   * de bitacora y `deshacer()`—, con el candado mas estricto de
+   * `bloqueoDeCancelacion` (lo ya cobrado lo reembolsa Finanzas).
+   *
+   * `de` acota a quien le toca: el cliente solo cancela los suyos y la tienda
+   * solo los que se recogen en ella. Si no es asi, 404, como si no existiera.
+   */
+  async cancelar(
+    id: string,
+    de: { clienteId: string } | { tiendaId: string },
+    usuario: UsuarioAutenticado,
+    nota?: string,
+  ): Promise<void> {
+    const quien = actorDe(usuario);
+
+    await this.prisma.$transaction(async (tx) => {
+      await FlujoPedidosService.bloquearFila(tx, id);
+      const pedido = await tx.pedido.findUniqueOrThrow({
+        where: { id },
+        select: {
+          id: true,
+          folio: true,
+          clienteId: true,
+          tiendaId: true,
+          estado: true,
+          estadoPago: true,
+          total: true,
+          pagadoConBilletera: true,
+          cashbackGenerado: true,
+          cashbackAcreditadoEn: true,
+        },
+      });
+
+      const ajeno =
+        'clienteId' in de ? pedido.clienteId !== de.clienteId : pedido.tiendaId !== de.tiendaId;
+      if (ajeno) throw new NotFoundException('Pedido no encontrado');
+
+      const bloqueo = bloqueoDeCancelacion(pedido);
+      if (bloqueo) {
+        throw new ConflictException({
+          statusCode: 409,
+          code: bloqueo.codigo,
+          message: bloqueo.mensaje,
+        });
+      }
+
+      await this.aplicarPago(tx, pedido, EstadoPago.CANCELADO, quien, nota);
+      await this.deshacer(tx, pedido, quien);
+    });
   }
 
   /**

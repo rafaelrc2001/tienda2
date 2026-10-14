@@ -96,6 +96,37 @@ async function avanzar(pedido: PedidoEnPantalla): Promise<void> {
   await cargar(false)
 }
 
+/**
+ * El cliente ya no pasó por su pedido. La API lo cancela con los mismos
+ * efectos que Finanzas (devuelve la billetera al cliente) y deja en la
+ * bitácora que fue la tienda; si ya estaba pagado, se lo deja a Finanzas.
+ */
+async function cancelar(pedido: PedidoEnPantalla): Promise<void> {
+  if (avanzando.value) return
+  if (
+    !confirm(
+      `¿Cancelar el pedido ${pedido.folio} de ${pedido.clienteNombre ?? 'este cliente'}? ` +
+        'Úsalo cuando el cliente ya no pasa a recogerlo.',
+    )
+  ) {
+    return
+  }
+  avanzando.value = pedido.id
+  try {
+    await http.post(
+      `/admin/pdv/tiendas/${props.tienda.id}/operaciones/pedidos/${pedido.id}/cancelar`,
+    )
+    ui.exito(`${pedido.folio} cancelado`)
+  } catch (fallo) {
+    ui.errorDeApi(fallo)
+  } finally {
+    avanzando.value = null
+  }
+  emit('cambio')
+  // El cancelado ya no está por surtir; con un 409 se enseña lo vigente.
+  await cargar(false)
+}
+
 function alternar(id: string): void {
   abierto.value = abierto.value === id ? null : id
 }
@@ -201,6 +232,15 @@ function iconoMetodo(metodo: string): string {
                       }}{{ esPasoSiguiente(pedido, estado) && pedido.paso.bloqueo ? '🔒 ' : ''
                       }}{{ nombreEstadoPedido(estado) }}
                     </template>
+                  </button>
+                  <button
+                    v-if="pedido.cancelable"
+                    type="button"
+                    class="btn-cancelar"
+                    :disabled="avanzando === pedido.id"
+                    @click="cancelar(pedido)"
+                  >
+                    Cancelar
                   </button>
                 </div>
 
@@ -321,6 +361,25 @@ function iconoMetodo(metodo: string): string {
 .btn-paso {
   border: 1px solid var(--line);
   color: var(--ink);
+}
+
+/* Separado de los pasos: no es el siguiente estado sino salir del flujo. */
+.tabla.lineal .en-linea > .btn-cancelar {
+  margin-left: 8px;
+  padding: 5px 12px;
+  border: 1px solid var(--rojo);
+  border-radius: 8px;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--white);
+  color: var(--rojo);
+  cursor: pointer;
+}
+
+.btn-cancelar:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 
 /* Mismo selector que el botón base: si no, su fondo blanco gana y el texto

@@ -448,6 +448,11 @@ export interface Pedido {
   /** `false` hasta que el pago queda `PAGADO`: todavía no está en la billetera. */
   cashbackAcreditado: boolean
   estado: EstadoPedido
+  /**
+   * Si el cliente (o la tienda donde se recoge) todavía puede cancelarlo. Lo
+   * decide la API: sigue en bodega y no entró dinero que haya que reembolsar.
+   */
+  cancelable: boolean
   pago: {
     metodo: MetodoPago
     estado: EstadoPago
