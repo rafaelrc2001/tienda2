@@ -318,11 +318,6 @@ async function cancelarAbono(turno: TurnoPdv): Promise<void> {
             </thead>
             <tbody>
               <tr>
-                <td>Ventas cobradas en mostrador</td>
-                <td class="num">{{ abierto.totales.cobrados }}</td>
-                <td class="num fuerte">{{ dinero(abierto.totales.ventas) }}</td>
-              </tr>
-              <tr>
                 <td>Efectivo</td>
                 <td />
                 <td class="num fuerte">{{ dinero(abierto.totales.efectivo) }}</td>
@@ -353,6 +348,14 @@ async function cancelarAbono(turno: TurnoPdv): Promise<void> {
                 <td />
               </tr>
             </tbody>
+            <!-- El total general va al final, separado: es la suma de las formas de pago. -->
+            <tfoot>
+              <tr class="total-general">
+                <td>Ventas cobradas en mostrador</td>
+                <td class="num">{{ abierto.totales.cobrados }}</td>
+                <td class="num">{{ dinero(abierto.totales.ventas) }}</td>
+              </tr>
+            </tfoot>
           </table>
         </div>
 
@@ -714,6 +717,15 @@ h4:not(:first-child) {
 .fuerte {
   font-family: var(--font-heading);
   font-weight: 800;
+}
+
+/* Toda la fila en negritas y una línea marcada que la separa del desglose. */
+.total-general td {
+  padding: 10px 12px;
+  font-family: var(--font-heading);
+  font-weight: 800;
+  color: var(--ink);
+  border-top: 2px solid var(--ink);
 }
 
 .pendiente td,
