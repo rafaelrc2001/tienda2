@@ -214,7 +214,7 @@ describe("carrito · sincronización con el servidor (HU-13)", () => {
 
     expect(put).toHaveBeenCalledWith("/perfil/carrito", {
       items: [{ productoId: "p1", cantidad: 3 }],
-      entrega: { metodoEntrega: "DOMICILIO", direccion: null },
+      entrega: { metodoEntrega: "TIENDA", direccion: null },
     });
   });
 
@@ -360,7 +360,7 @@ describe("carrito · importe sin sesión (HU-11)", () => {
     expect(post).toHaveBeenCalledWith("/carrito/previsualizar", {
       items: [{ productoId: "p1", cantidad: 1 }],
       codigoCupon: undefined,
-      metodoEntrega: "DOMICILIO",
+      metodoEntrega: "TIENDA",
     });
     expect(carrito.subtotal).toBe(300);
     expect(carrito.cashbackEstimado).toBe(6);
@@ -380,7 +380,7 @@ describe("carrito · previsualización", () => {
     expect(post).toHaveBeenCalledWith("/carrito/previsualizar", {
       items: [{ productoId: "p1", cantidad: 1 }],
       codigoCupon: undefined,
-      metodoEntrega: "DOMICILIO",
+      metodoEntrega: "TIENDA",
     });
     expect(carrito.previsualizacion?.total).toBe(290);
   });
@@ -622,6 +622,7 @@ describe("carrito · confirmar pedido", () => {
 
     const carrito = useCarritoStore();
     carrito.agregar("p1");
+    carrito.fijarEntrega("DOMICILIO");
     carrito.metodoPago = "TRANSFERENCIA";
     carrito.pagoCon = 500;
     const pedido = await carrito.confirmar(true, DIRECCION);
@@ -662,12 +663,12 @@ describe("carrito · confirmar pedido", () => {
 describe("carrito · entrega", () => {
   it("recuerda el método de entrega y el borrador de dirección al recargar", () => {
     const carrito = useCarritoStore();
-    carrito.fijarEntrega("TIENDA");
+    carrito.fijarEntrega("DOMICILIO");
     carrito.fijarDireccion(DIRECCION);
 
     setActivePinia(createPinia());
     const recargado = useCarritoStore();
-    expect(recargado.metodoEntrega).toBe("TIENDA");
+    expect(recargado.metodoEntrega).toBe("DOMICILIO");
     expect(recargado.direccion).toEqual(DIRECCION);
   });
 
@@ -681,7 +682,7 @@ describe("carrito · entrega", () => {
       }),
     );
     const carrito = useCarritoStore();
-    expect(carrito.metodoEntrega).toBe("DOMICILIO");
+    expect(carrito.metodoEntrega).toBe("TIENDA");
     expect(carrito.direccion?.calle).toBe("X");
     expect(carrito.direccion?.cp).toBe("");
   });
@@ -698,7 +699,7 @@ describe("carrito · entrega", () => {
       expect(put).toHaveBeenCalledTimes(1);
       expect(put).toHaveBeenCalledWith("/perfil/carrito", {
         items: [{ productoId: "p1", cantidad: 1 }],
-        entrega: { metodoEntrega: "DOMICILIO", direccion: DIRECCION },
+        entrega: { metodoEntrega: "TIENDA", direccion: DIRECCION },
       });
     } finally {
       vi.useRealTimers();
@@ -735,12 +736,12 @@ describe("carrito · entrega", () => {
     get.mockResolvedValue({ items: [], actualizadoEn: null, entrega: null });
     const carrito = useCarritoStore();
     carrito.duenio = "otra";
-    carrito.fijarEntrega("TIENDA");
+    carrito.fijarEntrega("DOMICILIO");
     carrito.fijarDireccion(DIRECCION);
 
     await carrito.adoptar("c1");
 
     expect(carrito.direccion).toBeNull();
-    expect(carrito.metodoEntrega).toBe("DOMICILIO");
+    expect(carrito.metodoEntrega).toBe("TIENDA");
   });
 });

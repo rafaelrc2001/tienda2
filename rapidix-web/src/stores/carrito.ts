@@ -76,7 +76,7 @@ function leerGuardado(): CarritoLocal {
     lineas: [],
     codigoCupon: null,
     duenio: null,
-    metodoEntrega: 'DOMICILIO',
+    metodoEntrega: 'TIENDA',
     tiendaId: null,
     direccion: null,
   }
@@ -93,7 +93,7 @@ function leerGuardado(): CarritoLocal {
         : [],
       codigoCupon: typeof datos.codigoCupon === 'string' ? datos.codigoCupon : null,
       duenio: typeof datos.duenio === 'string' ? datos.duenio : null,
-      metodoEntrega: datos.metodoEntrega === 'TIENDA' ? 'TIENDA' : 'DOMICILIO',
+      metodoEntrega: datos.metodoEntrega === 'DOMICILIO' ? 'DOMICILIO' : 'TIENDA',
       tiendaId: typeof datos.tiendaId === 'string' ? datos.tiendaId : null,
       direccion: leerDireccion(datos.direccion),
     }
@@ -145,7 +145,7 @@ export const useCarritoStore = defineStore('carrito', () => {
   const pagoCon = ref<number | null>(null)
   /** Saldo de billetera que quiere aplicar. */
   const usarBilletera = ref(0)
-  /** A domicilio mientras no elija otra cosa: es lo que cobra envío. */
+  /** Recoger en tienda mientras no elija otra cosa, a petición del negocio. */
   const metodoEntrega = ref<MetodoEntrega>(guardado.metodoEntrega)
   /** Dónde recoge. Solo cuenta con `metodoEntrega` en TIENDA. */
   const tiendaId = ref<string | null>(guardado.tiendaId)
@@ -172,7 +172,7 @@ export const useCarritoStore = defineStore('carrito', () => {
   }
 
   function olvidarEntrega(): void {
-    metodoEntrega.value = 'DOMICILIO'
+    metodoEntrega.value = 'TIENDA'
     tiendaId.value = null
     direccion.value = null
   }
