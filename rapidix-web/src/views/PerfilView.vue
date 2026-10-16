@@ -2,8 +2,8 @@
 /**
  * Mi Perfil (Word 4.7).
  *
- * Datos personales, quién recibe, dirección con mapa, notificaciones, tarjeta
- * de cashback y accesos a Mis Pedidos y al estado de cuenta.
+ * Datos personales, quién recibe, dirección con mapa, notificaciones, datos de
+ * facturación, tarjeta de cashback y accesos a Mis Pedidos y al estado de cuenta.
  *
  * `telefono` se muestra pero no se edita: es la identidad de login y mandarlo
  * en el `PATCH` daría 400 por `forbidNonWhitelisted`.
@@ -14,6 +14,7 @@ import { ErrorApi, http } from '@/api/http'
 import { useAuthStore } from '@/stores/auth'
 import { useUiStore } from '@/stores/ui'
 import { dinero } from '@/utils/formato'
+import DatosFacturacionPerfil from '@/components/DatosFacturacionPerfil.vue'
 /*
  * Leaflet pesa más que todo el resto del perfil junto. Se carga aparte para
  * que el formulario se pueda usar sin esperar al mapa.
@@ -298,6 +299,9 @@ async function salir(): Promise<void> {
           {{ guardando ? 'Guardando…' : 'Guardar cambios' }}
         </button>
       </div>
+
+      <!-- Va después de «Guardar cambios» porque se guarda con su propio botón. -->
+      <DatosFacturacionPerfil />
 
       <RouterLink to="/perfil/pedidos" class="profile-menu-item">
         <span>🧾</span><span class="flex">Mis pedidos</span><span class="chev">›</span>
