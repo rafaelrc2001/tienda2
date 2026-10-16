@@ -144,7 +144,12 @@ export interface Producto {
   escalones: Escalon[]
   /** Si suma a la base del cashback (HU-12). */
   aplicaCashback: boolean
+  /** IVA con el que se factura; el precio de venta ya lo incluye. */
+  tasaIva: TasaIva
 }
+
+/** Tasa de IVA de un producto en la factura: alimentos básicos al 0 %, lo demás al 16 %. */
+export type TasaIva = 'CERO' | 'DIECISEIS'
 
 /** Una lista de precio por volumen: desde `piso` piezas, cada una a `precio`. */
 export interface Escalon {
@@ -453,6 +458,13 @@ export interface Pedido {
    * decide la API: sigue en bodega y no entró dinero que haya que reembolsar.
    */
   cancelable: boolean
+  /**
+   * Si el cliente ya puede pedir su factura: entregado, pagado y sin CFDI. Lo
+   * decide la API, igual que `cancelable`.
+   */
+  facturable: boolean
+  /** Su CFDI, si ya se timbró. */
+  factura: FacturaDePedido | null
   pago: {
     metodo: MetodoPago
     estado: EstadoPago
@@ -487,6 +499,46 @@ export interface Pedido {
   cupon: { code: string; titulo: string } | null
   items: ItemPedido[]
   creadoEn: string
+}
+
+/**
+ * Quién timbró. `SIMULADO` corre mientras la API no tiene llaves de
+ * factura.com: el folio es inventado y el documento no vale ante el SAT.
+ */
+export type ModoTimbrado = 'SIMULADO' | 'FACTURA_COM'
+
+export interface FacturaDePedido {
+  /** Folio fiscal. */
+  uuid: string
+  modo: ModoTimbrado
+  timbradaEn: string
+}
+
+/** Lo que pide el CFDI 4.0 del receptor, como viene en su constancia fiscal. */
+export interface DatosFiscales {
+  rfc: string
+  razonSocial: string
+  regimenFiscal: string
+  usoCfdi: string
+  cpFiscal: string
+  email: string | null
+}
+
+export interface RegimenFiscal {
+  clave: string
+  nombre: string
+  /** El RFC de 12 caracteres es de persona moral; el de 13, de física. */
+  personas: ('FISICA' | 'MORAL')[]
+}
+
+/** `GET /perfil/datos-fiscales`: lo guardado y los catálogos del formulario. */
+export interface DatosFiscalesRespuesta {
+  datos: DatosFiscales | null
+  /** El correo del perfil, para pre-llenar cuando aún no hay datos guardados. */
+  emailSugerido: string | null
+  regimenes: RegimenFiscal[]
+  usos: { clave: string; nombre: string }[]
+  modo: ModoTimbrado
 }
 
 /** Por qué no se puede dar el siguiente paso. El `codigo` es el mismo del 409. */

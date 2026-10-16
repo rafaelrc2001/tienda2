@@ -6,7 +6,7 @@
  * llega tanto desde el Perfil como desde el drawer.
  */
 import { onMounted, ref } from 'vue'
-import { http } from '@/api/http'
+import { descargarArchivo, http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
 import {
   dinero,
@@ -17,6 +17,7 @@ import {
   nombreMetodoPago,
 } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
+import FacturarPedidoModal from '@/components/FacturarPedidoModal.vue'
 import type { Pedido } from '@/api/tipos'
 
 const ui = useUiStore()
@@ -25,6 +26,8 @@ const pedidos = ref<Pedido[]>([])
 const cargando = ref(true)
 const abierto = ref<string | null>(null)
 const cancelando = ref<string | null>(null)
+const facturando = ref<Pedido | null>(null)
+const descargando = ref<string | null>(null)
 
 async function cargar(): Promise<void> {
   try {
@@ -66,6 +69,30 @@ async function cancelar(pedido: Pedido): Promise<void> {
 
 function alternar(id: string): void {
   abierto.value = abierto.value === id ? null : id
+}
+
+/**
+ * Al timbrar no se toca el pedido a mano: se relee la lista y la API ya lo
+ * trae con su `factura`, así que el botón cambia solo por las descargas.
+ */
+async function alFacturar(): Promise<void> {
+  facturando.value = null
+  await cargar()
+}
+
+async function descargar(pedido: Pedido, formato: 'pdf' | 'xml'): Promise<void> {
+  if (descargando.value) return
+  descargando.value = `${pedido.id}-${formato}`
+  try {
+    await descargarArchivo(
+      `/pedidos/${pedido.id}/factura/${formato}`,
+      `factura-${pedido.folio}.${formato}`,
+    )
+  } catch (fallo) {
+    ui.errorDeApi(fallo)
+  } finally {
+    descargando.value = null
+  }
 }
 </script>
 
@@ -198,6 +225,40 @@ function alternar(id: string): void {
                 >
                   Cashback por acreditar: {{ dinero(pedido.cashbackGenerado) }} al quedar pagado
                 </p>
+                <!-- Facturar lo decide la API (`facturable`): entregado, pagado y sin CFDI. -->
+                <div v-if="pedido.factura" class="factura">
+                  <p class="factura-estado">
+                    ✓ Facturado
+                    <span v-if="pedido.factura.modo === 'SIMULADO'" class="mini-tag">Prueba</span>
+                  </p>
+                  <p class="factura-uuid">Folio fiscal {{ pedido.factura.uuid }}</p>
+                  <div class="factura-acciones">
+                    <button
+                      type="button"
+                      class="btn-secondary"
+                      :disabled="descargando !== null"
+                      @click="descargar(pedido, 'pdf')"
+                    >
+                      {{ descargando === `${pedido.id}-pdf` ? 'Descargando…' : 'PDF' }}
+                    </button>
+                    <button
+                      type="button"
+                      class="btn-secondary"
+                      :disabled="descargando !== null"
+                      @click="descargar(pedido, 'xml')"
+                    >
+                      {{ descargando === `${pedido.id}-xml` ? 'Descargando…' : 'XML' }}
+                    </button>
+                  </div>
+                </div>
+                <div v-else-if="pedido.facturable" class="factura">
+                  <button type="button" class="btn-primary" @click="facturando = pedido">
+                    🧾 Facturar
+                  </button>
+                </div>
+                <p v-else-if="pedido.pago.estado !== 'CANCELADO'" class="factura-pendiente">
+                  Podrás facturarlo cuando esté entregado y pagado.
+                </p>
                 <!-- Solo mientras la API lo permite: sigue en bodega y no hay dinero
                      que reembolsar. -->
                 <div v-if="pedido.cancelable" class="cancelar">
@@ -218,6 +279,13 @@ function alternar(id: string): void {
     </div>
 
     <p v-else class="empty-block">Todavía no has hecho ningún pedido.</p>
+
+    <FacturarPedidoModal
+      v-if="facturando"
+      :pedido="facturando"
+      @cerrar="facturando = null"
+      @facturado="alFacturar"
+    />
   </div>
 </template>
 
@@ -301,6 +369,52 @@ function alternar(id: string): void {
 .btn-cancelar:disabled {
   opacity: 0.55;
   cursor: default;
+}
+
+.factura {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  margin-top: 10px;
+}
+
+.factura-estado {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 12.5px;
+  color: var(--sage);
+}
+
+/* El UUID son 36 caracteres sin espacios: en un teléfono tiene que poder partirse. */
+.factura-uuid {
+  margin: 0;
+  font-size: 10.5px;
+  color: var(--muted);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.factura-acciones {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.factura-acciones .btn-secondary:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.factura-pendiente {
+  margin: 8px 0 0;
+  font-size: 11.5px;
+  color: var(--muted);
+  text-align: right;
 }
 
 .cashback {

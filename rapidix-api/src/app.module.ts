@@ -20,6 +20,7 @@ import { RutasModule } from './rutas/rutas.module';
 import { IngresosModule } from './ingresos/ingresos.module';
 import { CashbackModule } from './cashback/cashback.module';
 import { ClientesModule } from './clientes/clientes.module';
+import { FacturacionModule } from './facturacion/facturacion.module';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { RolesGuard } from './auth/roles.guard';
 
@@ -47,6 +48,7 @@ import { RolesGuard } from './auth/roles.guard';
     RutasModule,
     PdvModule,
     IngresosModule,
+    FacturacionModule,
     HealthModule,
   ],
   providers: [

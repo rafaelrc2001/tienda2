@@ -10,10 +10,12 @@ import {
   Cliente,
   EjeBitacora,
   EstadoCupon,
+  EstadoFactura,
   EstadoPago,
   EstadoPedido,
   MetodoEntrega,
   MetodoPago,
+  ModoTimbrado,
   Pedido,
   Prisma,
   Prospecto,
@@ -31,6 +33,7 @@ import { CrearPedidoDto, DireccionEntregaDto } from './dto/carrito.dto';
 import { ActorDeBitacora, registrarEnBitacora } from './bitacora';
 import { pagadoDelPedido, saldoDelPedido } from './cxc';
 import { bloqueoDeCancelacion } from './flujo-pago';
+import { bloqueoDeFacturacion } from '../facturacion/comprobante';
 
 const Decimal = Prisma.Decimal;
 type Decimal = Prisma.Decimal;
@@ -50,6 +53,7 @@ const INCLUIR_PEDIDO = {
   // Solo para el canal: el pedido de mostrador no lleva `tiendaId`, su tienda
   // es la del turno en el que se capturo.
   turno: { select: { tienda: { select: { nombre: true } } } },
+  factura: { select: { estado: true, uuid: true, modo: true, timbradaEn: true } },
 } satisfies Prisma.PedidoInclude;
 
 /** El canal de lo que no paso por ninguna tienda. */
@@ -81,6 +85,13 @@ export interface PedidoDto {
    * copia de la regla.
    */
   cancelable: boolean;
+  /**
+   * Si el cliente puede pedir ya su factura: entregado, pagado y todavia sin
+   * CFDI (`bloqueoDeFacturacion`). Lo decide la API, como `cancelable`.
+   */
+  facturable: boolean;
+  /** Su CFDI, si ya se timbro. Una reserva a medio timbrar no cuenta. */
+  factura: { uuid: string; modo: ModoTimbrado; timbradaEn: string } | null;
   pago: {
     metodo: MetodoPago;
     estado: EstadoPago;
@@ -420,6 +431,7 @@ export class PedidosService {
               unidad: l.unidad,
               precioUnitario: l.precioUnitario,
               cantidad: l.cantidad,
+              tasaIva: l.tasaIva,
             })),
           },
         },
@@ -884,8 +896,15 @@ export class PedidosService {
       }[];
       tienda: { id: string; nombre: string; direccion: string } | null;
       turno: { tienda: { nombre: string } } | null;
+      factura?: {
+        estado: EstadoFactura;
+        uuid: string | null;
+        modo: ModoTimbrado;
+        timbradaEn: Date | null;
+      } | null;
     },
   ): PedidoDto {
+    const timbrada = pedido.factura?.estado === EstadoFactura.TIMBRADA ? pedido.factura : null;
     // Pagado, reembolsado o cancelado no debe nada, haya o no pagos escritos:
     // el efectivo cobrado en la puerta, por ejemplo, no deja renglon de pago.
     const debe =
@@ -905,6 +924,16 @@ export class PedidosService {
       cashbackAcreditado: pedido.cashbackAcreditadoEn !== null,
       estado: pedido.estado,
       cancelable: bloqueoDeCancelacion(pedido) === null,
+      // Una reserva TIMBRANDO tampoco se ofrece: hay un timbre en camino.
+      facturable: !pedido.factura && bloqueoDeFacturacion(pedido) === null,
+      factura:
+        timbrada?.uuid && timbrada.timbradaEn
+          ? {
+              uuid: timbrada.uuid,
+              modo: timbrada.modo,
+              timbradaEn: timbrada.timbradaEn.toISOString(),
+            }
+          : null,
       pago: {
         metodo: pedido.metodoPago,
         estado: pedido.estadoPago,

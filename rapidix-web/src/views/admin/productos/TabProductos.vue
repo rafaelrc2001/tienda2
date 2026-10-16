@@ -15,9 +15,9 @@ import { useUiStore } from '@/stores/ui'
 import { precio } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
 import SubidorImagen from '@/components/SubidorImagen.vue'
-import { nombreRol, ROLES } from './etiquetas'
+import { nombreRol, ROLES, TASAS_IVA } from './etiquetas'
 import { limiteSuperior, moverPiso, moverTecho, sinValor, type FilaEscalon } from './rangos'
-import type { CategoriaConProductos, Escalon, Producto, RolProducto } from '@/api/tipos'
+import type { CategoriaConProductos, Escalon, Producto, RolProducto, TasaIva } from '@/api/tipos'
 
 const props = defineProps<{ activa: boolean }>()
 
@@ -126,6 +126,7 @@ const formulario = ref({
   rol: 'RUTINA' as RolProducto,
   escalones: filasEscalon(),
   aplicaCashback: true,
+  tasaIva: 'CERO' as TasaIva,
 })
 
 const gruposVisibles = computed<CategoriaConProductos[]>(() => {
@@ -195,6 +196,7 @@ function abrirAlta(): void {
     rol: 'RUTINA',
     escalones: filasEscalon(),
     aplicaCashback: true,
+    tasaIva: 'CERO',
   }
   errores.value = {}
   erroresGenerales.value = []
@@ -213,6 +215,7 @@ function abrirEdicion(producto: Producto): void {
     rol: producto.rol,
     escalones: filasEscalon(producto.escalones),
     aplicaCashback: producto.aplicaCashback,
+    tasaIva: producto.tasaIva,
   }
   errores.value = {}
   erroresGenerales.value = []
@@ -227,6 +230,7 @@ function cuerpo(): Record<string, unknown> {
     precioVenta: formulario.value.precioVenta ?? 0,
     rol: formulario.value.rol,
     aplicaCashback: formulario.value.aplicaCashback,
+    tasaIva: formulario.value.tasaIva,
     // Siempre viaja, aunque sea vacía: es como se le quitan las listas a un
     // producto. Una fila a medias sí viaja, para que la API diga qué le falta.
     escalones: formulario.value.escalones
@@ -347,11 +351,11 @@ const filasConError = computed(() => resumen.value?.filas.filter((f) => f.estado
     <section class="admin-section">
       <h4>📥 Cargar por Excel</h4>
       <p class="columnas-plantilla">
-        Columnas: <strong>Categoría</strong>, <strong>Producto</strong>,
-        <strong>Unidad</strong>, <strong>Precio de costo</strong> y
-        <strong>Precio de venta</strong>. Opcionales: <em>Imagen</em> (URL), <em>Piso 2</em>,
-        <em>Precio 2</em>, <em>Piso 3</em> y <em>Precio 3</em> (precio por volumen) y
-        <em>Aplica cashback</em> (Sí / No).
+        Columnas: <strong>Categoría</strong>, <strong>Producto</strong>, <strong>Unidad</strong>,
+        <strong>Precio de costo</strong> y <strong>Precio de venta</strong>. Opcionales:
+        <em>Imagen</em> (URL), <em>Piso 2</em>, <em>Precio 2</em>, <em>Piso 3</em> y
+        <em>Precio 3</em> (precio por volumen), <em>Aplica cashback</em> (Sí / No) e <em>IVA</em> (0
+        o 16).
       </p>
       <label class="file-drop">
         <input type="file" accept=".xlsx" :disabled="importando" @change="importar" />
@@ -413,13 +417,22 @@ const filasConError = computed(() => resumen.value?.filas.filter((f) => f.estado
               <span v-if="producto.unidad"> · {{ producto.unidad }}</span>
               · {{ nombreRol(producto.rol) }}
             </p>
-            <p v-if="producto.escalones.length > 0 || !producto.aplicaCashback" class="detalle">
+            <p
+              v-if="
+                producto.escalones.length > 0 ||
+                !producto.aplicaCashback ||
+                producto.tasaIva === 'DIECISEIS'
+              "
+              class="detalle"
+            >
               <template v-if="producto.escalones.length > 0">
                 <span v-for="lista in listaDePrecios(producto)" :key="lista.rango" class="escalon">
                   {{ lista.rango }} {{ producto.unidad }} · {{ precio(lista.precio) }}
                 </span>
               </template>
               <span v-if="!producto.aplicaCashback" class="escalon">Sin cashback</span>
+              <!-- El 0 % es lo normal en un abarrote: solo se marca la excepción. -->
+              <span v-if="producto.tasaIva === 'DIECISEIS'" class="escalon">IVA 16 %</span>
             </p>
             <p class="saldo">
               {{ producto.aptInventario }} para venta
@@ -602,6 +615,16 @@ const filasConError = computed(() => resumen.value?.filas.filter((f) => f.estado
             <span class="slider-switch" />
           </label>
         </div>
+
+        <label class="form-label" for="pr-iva">IVA en la factura</label>
+        <select id="pr-iva" v-model="formulario.tasaIva" class="form-input">
+          <option v-for="tasa in TASAS_IVA" :key="tasa.valor" :value="tasa.valor">
+            {{ tasa.etiqueta }}
+          </option>
+        </select>
+        <p class="form-hint">
+          El precio de venta ya lo incluye: la factura lo desglosa. Cambiarlo no toca lo ya vendido.
+        </p>
 
         <label class="form-label">Imagen del producto</label>
         <SubidorImagen v-model="formulario.imagenUrl" carpeta="productos" />

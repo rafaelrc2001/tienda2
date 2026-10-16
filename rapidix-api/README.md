@@ -50,6 +50,13 @@ configuración que ya trae el `.env.example`.
 | `S3_ACCESS_KEY_ID` | no | Credencial de acceso. |
 | `S3_SECRET_ACCESS_KEY` | no | Credencial secreta. |
 | `S3_PUBLIC_BASE_URL` | no | Base pública desde la que se sirven las imágenes. |
+| `FACTURACOM_API_KEY` | no | Llave de factura.com (Desarrolladores > API > Datos de acceso). Sin ella y las dos siguientes, las facturas se timbran en modo **simulado**: folio inventado, sin validez fiscal. |
+| `FACTURACOM_SECRET_KEY` | no | Llave secreta de factura.com. |
+| `FACTURACOM_SERIE` | no | Id numérico de la serie de facturas en factura.com (Configuraciones > Series). |
+| `FACTURACOM_ENTORNO` | no | `sandbox` (por defecto) o `produccion`. |
+| `FACTURACION_CLAVE_PRODUCTO` | no | c_ClaveProdServ de los productos. Por defecto `01010101`. |
+| `FACTURACION_CLAVE_SERVICIO` | no | c_ClaveProdServ del envío y del recargo. Por defecto `78102203`. |
+| `FACTURACION_EMISOR_RFC`, `_NOMBRE`, `_REGIMEN`, `_CP` | no | Emisor que imprime el modo simulado. Por defecto el RFC de pruebas del SAT (`EKU9003173C9`). |
 
 ### Dónde acaban las imágenes
 

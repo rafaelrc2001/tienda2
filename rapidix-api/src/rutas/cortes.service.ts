@@ -452,6 +452,7 @@ export class CortesService {
           precio2: true,
           piso3: true,
           precio3: true,
+          tasaIva: true,
           categoria: { select: { nombre: true } },
         },
       });
@@ -466,6 +467,7 @@ export class CortesService {
           unidad: p.unidad,
           precioUnitario: precioUnitario(p, cantidad),
           cantidad,
+          tasaIva: p.tasaIva,
         };
       });
       const total = lineas.reduce(

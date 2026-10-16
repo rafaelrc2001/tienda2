@@ -21,6 +21,7 @@ negocio, el [README](README.md); esto es el *dónde está cada cosa*.
 - [`src/tiendas/` — tiendas, su inventario y transferencias](#srctiendas--tiendas-su-inventario-y-transferencias)
 - [`src/clientes/` — perfil, clientes y prospectos](#srcclientes--perfil-clientes-y-prospectos)
 - [`src/pedidos/` — carrito y checkout](#srcpedidos--carrito-y-checkout)
+- [`src/facturacion/` — CFDI 4.0](#srcfacturacion--cfdi-40)
 - [`src/cupones/` — motor de cupones](#srccupones--motor-de-cupones)
 - [`src/cashback/` — saldo y niveles](#srccashback--saldo-y-niveles)
 - [`src/recetario/` — recetas](#srcrecetario--recetas)
@@ -88,6 +89,11 @@ negocio, el [README](README.md); esto es el *dónde está cada cosa*.
 - `enum EstadoPedido` — eje físico: `CONFIRMADO → EN_PREPARACION → PREPARADO → LISTO_PARA_ENTREGA → RECOLECTADO → EN_RUTA → ENTREGADO`. No tiene cancelado.
 - `enum EstadoPago` — eje de pago: `PAGO_PENDIENTE`, `RETENER`, `CREDITO`, `REEMBOLSADO`, `PAGADO`, `CANCELADO` (terminal). `LIBERAR` existió hasta la migración `quitar_liberar`, que pasó sus pedidos a `PAGO_PENDIENTE`.
 - `BitacoraPedido` — un renglón por cambio de estado en cualquiera de los dos ejes (`eje`, `estadoAnterior`, `estadoNuevo`, `nota`, actor congelado con su nombre). Solo se escribe; `src/pedidos/bitacora.ts` es el único sitio que la escribe.
+
+**Facturación**
+- `Factura` — el CFDI de un pedido (`pedidoId @unique`). Copia el receptor, los conceptos (JSON) y los totales tal como se timbraron; `estado` (TIMBRANDO es la reserva antes de llamar al proveedor, TIMBRADA ya tiene UUID, lo exige un `CHECK`) y `modo` (SIMULADO / FACTURA_COM).
+- `Cliente.rfc`, `razonSocial`, `regimenFiscal`, `usoCfdi`, `cpFiscal`, `emailFacturacion` — lo guardado para pre-llenar la siguiente factura. Solo en clientes: el prospecto no ha comprado.
+- `enum TasaIva` (CERO / DIECISEIS) en `Producto` y congelada en `PedidoItem`.
 
 **Rutas** — la jornada del repartidor, el camión y el dinero que trae de vuelta. Cuatro columnas de `Pedido` cuelgan de aquí: `repartidorId` (se lo queda el primero que lo recolecta), `liquidado`/`liquidadoEn` y `corteId`.
 - `SesionEntrega` — de «Inicio de entregas» a la liquidación. **Un repartidor solo puede tener una sin liquidar**, garantizado por un índice único parcial (`repartidorId WHERE corteId IS NULL`) escrito en la migración, porque Prisma no sabe expresarlo.
@@ -387,6 +393,38 @@ Códigos de error que interpreta la interfaz: `SIN_JORNADA`, `JORNADA_ABIERTA`,
 `IMAGEN_NO_ENCONTRADA`, `CORTE_DE_OTRO`, `CORTE_RECIBIDO`,
 `CORTE_SIN_RECIBIR`, `RECIBE_EL_MISMO`, `CONTEO_NO_CUADRA`, más los del flujo
 (`PAGO_NO_LIBERADO`, `TRANSICION_INVALIDA`…).
+
+---
+
+## `src/facturacion/` — CFDI 4.0
+
+El cliente pide la factura de su pedido desde Mis pedidos. **El timbrado vive
+detrás de un enchufe con dos implementaciones** que devuelven la misma forma:
+`TimbradorFacturaCom` si están las tres `FACTURACOM_*`, `TimbradorSimulado` si
+no. El servicio no lleva ningún `if (modo)`: el demo y la producción son el
+mismo código. Una factura simulada se sigue sirviendo con el simulado aunque
+después se pongan las llaves (`Factura.modo`).
+
+**Solo se factura lo cerrado:** `ENTREGADO` y `PAGADO`. Una entrega parcial ya
+reescribió renglones y total, así que la factura sale por lo que de verdad se
+llevó el cliente; y como está pagado, siempre es método PUE. **Un pedido, un
+CFDI**, garantizado por el `@unique` de `Factura.pedidoId`: el botón apagado en
+la interfaz es solo cortesía.
+
+| Archivo | Qué contiene |
+| --- | --- |
+| [facturacion.module.ts](src/facturacion/facturacion.module.ts) | Un controlador, un servicio. |
+| [facturacion.controller.ts](src/facturacion/facturacion.controller.ts) | Solo clientes (rol comprobado a mano). `GET/PUT /perfil/datos-fiscales` (lo guardado para pre-llenar, más los catálogos del SAT y el `modo`), `POST /pedidos/:id/factura` y `GET /pedidos/:id/factura/pdf` / `xml`. Comparte el prefijo `pedidos/` con `PedidosController` sin chocar: aquí todo termina en `/factura`. |
+| [facturacion.service.ts](src/facturacion/facturacion.service.ts) | Los candados en orden: el pedido es suyo (404, no 403), no tiene CFDI (409 `YA_FACTURADO`, `TIMBRADO_EN_CURSO`), está cerrado (409 `PEDIDO_SIN_ENTREGAR`, `PEDIDO_SIN_PAGAR`, `PEDIDO_CANCELADO`), los datos no se contradicen (400 `DATOS_FISCALES_INCOMPATIBLES`) y los conceptos cuadran con el total (409 `FACTURA_NO_CUADRA`). Antes de llamar al proveedor **escribe una reserva `TIMBRANDO`**: el `@unique` impide que dos peticiones simultáneas timbren dos CFDI; si el proveedor rechaza, la reserva se borra y se puede corregir (422 `TIMBRADO_RECHAZADO` con el motivo del SAT, 502 `PROVEEDOR_NO_DISPONIBLE`). Una reserva de más de 2 minutos se da por abandonada. Un timbre bueno que no se pudo guardar es otro error (503 `FACTURA_SIN_GUARDAR`) y deja el UUID en el log. |
+| [comprobante.ts](src/facturacion/comprobante.ts) | Cuentas **puras** del CFDI (probadas en `comprobante.spec.ts`). Los precios de Rapidix ya incluyen el IVA; `armarComprobante()` lo desglosa buscando, concepto por concepto, la base que con su IVA redondeado da justo lo cobrado (`baseAl16`), y arrastra el centavo que no se alcanza hasta un producto al 0 %, que lo absorbe. El cupón se reparte entre productos (solo los de sus categorías, si las tenía) y nunca toca el envío. Envío y recargo van como servicios al 16 %. También `bloqueoDeFacturacion()` (lo usa `PedidosService` para el `facturable` del `PedidoDto`), `claveUnidad()` y `formaDePago()` (la que cubrió más: la billetera es monedero electrónico, 05). |
+| [catalogos-sat.ts](src/facturacion/catalogos-sat.ts) | Regímenes fiscales y usos del CFDI que se ofrecen, e `incompatibilidad()`: régimen de persona física con RFC de moral y viceversa, y el 616 que solo admite S01. |
+| [timbrador.ts](src/facturacion/timbrador.ts) | La interfaz `Timbrador` (`timbrar`, `pdf`, `xml`) y los dos errores que traduce el servicio: `TimbradoRechazado` y `ProveedorNoDisponible`. |
+| [timbrador-factura-com.ts](src/facturacion/timbrador-factura-com.ts) | factura.com API v4. Busca al receptor por RFC y lo **actualiza siempre** (o lo da de alta) antes de timbrar: el SAT valida nombre, régimen y CP contra la constancia. Manda el folio del pedido como `NumOrder`. Sandbox salvo `FACTURACOM_ENTORNO=produccion`. La descarga acepta binario o base64, porque la documentación no dice cuál llega. |
+| [timbrador-simulado.ts](src/facturacion/timbrador-simulado.ts) | UUID al azar, PDF con `pdf-lib` y XML de CFDI 4.0, los dos **con la leyenda «CFDI SIMULADO — no tiene validez fiscal»**. Se arman desde los conceptos congelados en la factura, no desde el pedido. |
+| [dto/factura.dto.ts](src/facturacion/dto/factura.dto.ts) | `DatosFiscalesDto` (RFC y razón social a mayúsculas, CP de 5 dígitos, correo opcional) y `FacturarPedidoDto`, que añade `guardarDatos`. |
+
+La tasa de IVA es de cada producto (`Producto.tasaIva`, nace en 0 %) y **cada
+renglón de pedido congela la suya** al venderse, igual que el precio.
 
 ---
 

@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, Producto, RolProducto } from '@prisma/client';
+import { Prisma, Producto, RolProducto, TasaIva } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CategoriasService } from './categorias.service';
 import { escalonesAColumnas, escalonesDe, validarEscalones } from './precios';
@@ -34,6 +34,8 @@ export interface ProductoDto {
   escalones: { piso: number; precio: number }[];
   /** Si suma a la base del cashback (HU-12). */
   aplicaCashback: boolean;
+  /** IVA con el que se factura; el precio de venta ya lo incluye. */
+  tasaIva: TasaIva;
 }
 
 export interface CategoriaConProductos {
@@ -75,6 +77,7 @@ export class CatalogoService {
       aptInventario: p.aptInventario,
       escalones: escalonesDe(p).map((e) => ({ piso: e.piso, precio: e.precio.toNumber() })),
       aplicaCashback: p.aplicaCashback,
+      tasaIva: p.tasaIva,
     };
   }
 
@@ -154,6 +157,7 @@ export class CatalogoService {
         agotado: dto.agotado ?? false,
         ...(dto.rol !== undefined && { rol: dto.rol }),
         ...(dto.aplicaCashback !== undefined && { aplicaCashback: dto.aplicaCashback }),
+        ...(dto.tasaIva !== undefined && { tasaIva: dto.tasaIva }),
       },
       include: { categoria: { select: { nombre: true } } },
     });
@@ -188,6 +192,7 @@ export class CatalogoService {
         ...(dto.imagenUrl !== undefined && { imagenUrl: dto.imagenUrl.trim() || null }),
         ...(dto.rol !== undefined && { rol: dto.rol }),
         ...(dto.aplicaCashback !== undefined && { aplicaCashback: dto.aplicaCashback }),
+        ...(dto.tasaIva !== undefined && { tasaIva: dto.tasaIva }),
       },
       include: { categoria: { select: { nombre: true } } },
     });

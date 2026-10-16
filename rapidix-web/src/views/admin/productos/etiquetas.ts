@@ -10,6 +10,7 @@ import type {
   EstadoTransferencia,
   MotivoMovimiento,
   RolProducto,
+  TasaIva,
   TipoMovimiento,
 } from '@/api/tipos'
 
@@ -37,6 +38,15 @@ const NOMBRE_ROL: Record<RolProducto, string> = {
 export function nombreRol(rol: RolProducto): string {
   return NOMBRE_ROL[rol]
 }
+
+/**
+ * La tasa de IVA con la que se factura. La ayuda dice qué va en cada una
+ * porque quien da de alta el producto no tiene por qué saberse la ley del IVA.
+ */
+export const TASAS_IVA: { valor: TasaIva; etiqueta: string }[] = [
+  { valor: 'CERO', etiqueta: '0 % — alimentos básicos (frutas, carne, abarrotes)' },
+  { valor: 'DIECISEIS', etiqueta: '16 % — refrescos, botanas, dulces, limpieza' },
+]
 
 export const TIPOS: { valor: TipoMovimiento; etiqueta: string }[] = [
   { valor: 'ENTRADA', etiqueta: 'Entrada' },

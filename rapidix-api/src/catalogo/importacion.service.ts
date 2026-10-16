@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { TasaIva } from '@prisma/client';
 import { Workbook } from 'exceljs';
 import { PrismaService } from '../prisma/prisma.service';
 import { CategoriasService } from './categorias.service';
@@ -18,8 +19,15 @@ export const COLUMNA_OPCIONAL = 'Imagen';
 export const COLUMNAS_LISTAS = ['Piso 2', 'Precio 2', 'Piso 3', 'Precio 3'] as const;
 /** Si el producto suma a la base del cashback (HU-12). Si / No. */
 export const COLUMNA_CASHBACK = 'Aplica cashback';
+/** Tasa de IVA para facturar: 0 o 16 (con o sin %). */
+export const COLUMNA_IVA = 'IVA';
 
-export const COLUMNAS_OPCIONALES = [COLUMNA_OPCIONAL, ...COLUMNAS_LISTAS, COLUMNA_CASHBACK];
+export const COLUMNAS_OPCIONALES = [
+  COLUMNA_OPCIONAL,
+  ...COLUMNAS_LISTAS,
+  COLUMNA_CASHBACK,
+  COLUMNA_IVA,
+];
 
 type BufferDeExcelJs = Parameters<Workbook['xlsx']['load']>[0];
 
@@ -51,6 +59,7 @@ interface FilaLeida {
   piso3: string;
   precio3: string;
   aplicaCashback: string;
+  iva: string;
   /**
    * El archivo trae las columnas de listas. Sin ellas no se tocan las listas
    * que ya tuviera el producto: un Excel viejo, de antes del precio
@@ -59,6 +68,8 @@ interface FilaLeida {
   conListas: boolean;
   /** Lo mismo con la columna de cashback. */
   conCashback: boolean;
+  /** Y con la de IVA. */
+  conIva: boolean;
 }
 
 @Injectable()
@@ -98,6 +109,19 @@ export class ImportacionService {
     if (limpio === '') return undefined;
     if (['si', 's', 'x', '1', 'true', 'verdadero'].includes(limpio)) return true;
     if (['no', 'n', '0', 'false', 'falso'].includes(limpio)) return false;
+    return null;
+  }
+
+  /**
+   * "0", "16", "16%" o "0.16" de la columna de IVA. `undefined` si la celda
+   * esta vacia —no se toca lo que hubiera— y `null` si no se entiende.
+   */
+  private static aTasaIva(valor: string): TasaIva | null | undefined {
+    const limpio = valor.replace(/[%\s]/g, '');
+    if (limpio === '') return undefined;
+    const n = Number(limpio);
+    if (n === 0) return TasaIva.CERO;
+    if (n === 16 || n === 0.16) return TasaIva.DIECISEIS;
     return null;
   }
 
@@ -187,6 +211,7 @@ export class ImportacionService {
 
     const conListas = COLUMNAS_LISTAS.some((c) => indices.has(ImportacionService.normalizar(c)));
     const conCashback = indices.has(ImportacionService.normalizar(COLUMNA_CASHBACK));
+    const conIva = indices.has(ImportacionService.normalizar(COLUMNA_IVA));
 
     const leerCelda = (numeroFila: number, encabezado: string): string => {
       const columna = indices.get(ImportacionService.normalizar(encabezado));
@@ -213,8 +238,10 @@ export class ImportacionService {
         piso3: leerCelda(n, 'Piso 3'),
         precio3: leerCelda(n, 'Precio 3'),
         aplicaCashback: leerCelda(n, COLUMNA_CASHBACK),
+        iva: leerCelda(n, COLUMNA_IVA),
         conListas,
         conCashback,
+        conIva,
       };
       // Fila completamente vacia: se ignora sin contarla como error.
       const vacia = !fila.categoria && !fila.producto && !fila.precioVenta;
@@ -274,6 +301,15 @@ export class ImportacionService {
       };
     }
 
+    const tasaIva = fila.conIva ? ImportacionService.aTasaIva(fila.iva) : undefined;
+    if (tasaIva === null) {
+      return {
+        fila: fila.numero,
+        estado: 'error',
+        motivo: `La columna ${COLUMNA_IVA} solo acepta 0 o 16`,
+      };
+    }
+
     const clave = CategoriasService.limpiar(categoria).toLowerCase();
     let categoriaId = resueltas.get(clave);
     if (!categoriaId) {
@@ -289,6 +325,7 @@ export class ImportacionService {
       ...(fila.imagen.trim() && { imagenUrl: fila.imagen.trim() }),
       ...(listas && escalonesAColumnas(listas)),
       ...(aplicaCashback !== undefined && { aplicaCashback }),
+      ...(tasaIva !== undefined && { tasaIva }),
     };
 
     // Mismo nombre y misma categoria = mismo producto: se actualiza en vez de
@@ -326,9 +363,10 @@ export class ImportacionService {
     hoja.getRow(1).font = { bold: true };
 
     // El arroz lleva listas de volumen: desde 5 kg a $26.50 y desde 10 a $25.
+    // El refresco va al 16 %: no es alimento basico.
     hoja.addRows([
-      ['Frutas y Verduras', 'Tomate bola', 'kg', 9, 18, '', '', '', '', '', 'Sí'],
-      ['Carnes', 'Pechuga de pollo', 'kg', 62, 89, '', '', '', '', '', 'Sí'],
+      ['Frutas y Verduras', 'Tomate bola', 'kg', 9, 18, '', '', '', '', '', 'Sí', 0],
+      ['Carnes', 'Pechuga de pollo', 'kg', 62, 89, '', '', '', '', '', 'Sí', 0],
       [
         'Abarrotes',
         'Arroz 1kg',
@@ -341,8 +379,10 @@ export class ImportacionService {
         10,
         25,
         'Sí',
+        0,
       ],
-      ['Bebidas', 'Agua mineral', 'pza', 8, 14, '', 6, 13, 12, 12, 'No'],
+      ['Bebidas', 'Agua mineral', 'pza', 8, 14, '', 6, 13, 12, 12, 'No', 0],
+      ['Bebidas', 'Refresco de cola 600ml', 'pza', 11, 18, '', '', '', '', '', 'Sí', 16],
     ]);
 
     return Buffer.from(await libro.xlsx.writeBuffer());
