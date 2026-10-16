@@ -9,6 +9,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  Matches,
   Max,
   MaxLength,
   Min,
@@ -17,6 +18,10 @@ import {
 } from 'class-validator';
 import { DECIMALES_PRECIO, MAX_ESCALONES } from '../precios';
 import { EsPrecio } from './es-precio';
+
+/** Formatos de las claves del SAT; la cadena vacia es «quitarla». */
+const FORMATO_CLAVE_PROD_SERV = /^(\d{8})?$/;
+const FORMATO_CLAVE_UNIDAD = /^([A-Za-z0-9]{1,3})?$/;
 
 /** Una lista de precio por volumen: desde `piso` piezas, cada una a `precio`. */
 export class EscalonDto {
@@ -97,6 +102,21 @@ export class CrearProductoDto {
   @IsOptional()
   @IsEnum(TasaIva)
   tasaIva?: TasaIva;
+  /**
+   * c_ClaveProdServ del SAT. Sin decir nada o vacia, el producto queda sin
+   * clasificar y se factura con la generica. Que exista en el catalogo lo
+   * comprueba el servicio.
+   */
+  @IsOptional()
+  @IsString()
+  @Matches(FORMATO_CLAVE_PROD_SERV, { message: 'La clave SAT del producto son 8 dígitos' })
+  claveProdServ?: string;
+
+  /** c_ClaveUnidad del SAT. Vacia = sin clasificar. */
+  @IsOptional()
+  @IsString()
+  @Matches(FORMATO_CLAVE_UNIDAD, { message: 'La clave de unidad son hasta 3 letras o números' })
+  claveUnidad?: string;
 }
 
 export class ActualizarProductoDto {
@@ -155,6 +175,19 @@ export class ActualizarProductoDto {
   @IsOptional()
   @IsEnum(TasaIva)
   tasaIva?: TasaIva;
+  /**
+   * Vacia = quitarla; no mandarla la deja como esta. A diferencia de la tasa,
+   * corregirla si alcanza a los pedidos que todavia no se facturan.
+   */
+  @IsOptional()
+  @IsString()
+  @Matches(FORMATO_CLAVE_PROD_SERV, { message: 'La clave SAT del producto son 8 dígitos' })
+  claveProdServ?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(FORMATO_CLAVE_UNIDAD, { message: 'La clave de unidad son hasta 3 letras o números' })
+  claveUnidad?: string;
 }
 
 export class MarcarAgotadoDto {

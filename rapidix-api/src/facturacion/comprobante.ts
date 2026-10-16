@@ -27,6 +27,10 @@ export interface RenglonFacturable {
   cantidad: number;
   precioUnitario: Decimal;
   tasaIva: TasaIva;
+  /** c_ClaveProdServ asignada al producto. Sin ella va la generica de `ClavesSat`. */
+  claveProdServ?: string | null;
+  /** c_ClaveUnidad asignada al producto. Sin ella se deduce de `unidad`. */
+  claveUnidad?: { clave: string; nombre: string } | null;
 }
 
 export interface PedidoFacturable {
@@ -41,7 +45,7 @@ export interface PedidoFacturable {
 
 /** Claves del catalogo del SAT que no salen del pedido. */
 export interface ClavesSat {
-  /** c_ClaveProdServ de los productos. */
+  /** c_ClaveProdServ de los productos que no tienen una propia. */
   producto: string;
   /** c_ClaveProdServ del envio y del recargo. */
   servicio: string;
@@ -287,11 +291,11 @@ export function armarComprobante(
     orden: number;
   };
   const pendientes: Pendiente[] = renglones.map((r, i) => {
-    const unidad = claveUnidad(r.unidad);
+    const unidad = r.claveUnidad ?? claveUnidad(r.unidad);
     return {
       datos: {
         descripcion: r.nombre,
-        claveProdServ: claves.producto,
+        claveProdServ: r.claveProdServ ?? claves.producto,
         claveUnidad: unidad.clave,
         unidad: unidad.nombre,
         cantidad: r.cantidad,

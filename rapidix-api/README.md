@@ -54,9 +54,22 @@ configuración que ya trae el `.env.example`.
 | `FACTURACOM_SECRET_KEY` | no | Llave secreta de factura.com. |
 | `FACTURACOM_SERIE` | no | Id numérico de la serie de facturas en factura.com (Configuraciones > Series). |
 | `FACTURACOM_ENTORNO` | no | `sandbox` (por defecto) o `produccion`. |
-| `FACTURACION_CLAVE_PRODUCTO` | no | c_ClaveProdServ de los productos. Por defecto `01010101`. |
+| `FACTURACION_CLAVE_PRODUCTO` | no | c_ClaveProdServ de los productos **que no tienen una propia** (se elige en Administración → Productos). Por defecto `01010101`. |
 | `FACTURACION_CLAVE_SERVICIO` | no | c_ClaveProdServ del envío y del recargo. Por defecto `78102203`. |
 | `FACTURACION_EMISOR_RFC`, `_NOMBRE`, `_REGIMEN`, `_CP` | no | Emisor que imprime el modo simulado. Por defecto el RFC de pruebas del SAT (`EKU9003173C9`). |
+
+### Catálogos del SAT
+
+Las claves que se le asignan a cada producto (c_ClaveProdServ y c_ClaveUnidad)
+salen del catálogo oficial del SAT, guardado en `catalogos-sat/*.tsv` y cargado
+en memoria al arrancar. Cuando el SAT publique una versión nueva:
+
+```bash
+npm run sat:catalogos        # baja el catCFDI vigente del Anexo 20 y regenera los .tsv
+```
+
+y se suben los `.tsv` al repo. No lo hace el servidor solo: el `.xls` del SAT
+pesa ~50 MB y leerlo ocupa más de 1 GB de memoria.
 
 ### Dónde acaban las imágenes
 

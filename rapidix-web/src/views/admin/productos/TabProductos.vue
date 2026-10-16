@@ -15,6 +15,7 @@ import { useUiStore } from '@/stores/ui'
 import { precio } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
 import SubidorImagen from '@/components/SubidorImagen.vue'
+import SelectorClaveSat from '@/components/SelectorClaveSat.vue'
 import { nombreRol, ROLES, TASAS_IVA } from './etiquetas'
 import { limiteSuperior, moverPiso, moverTecho, sinValor, type FilaEscalon } from './rangos'
 import type { CategoriaConProductos, Escalon, Producto, RolProducto, TasaIva } from '@/api/tipos'
@@ -23,7 +24,15 @@ const props = defineProps<{ activa: boolean }>()
 
 const ui = useUiStore()
 
-const CAMPOS = ['nombre', 'categoria', 'unidad', 'precioCosto', 'precioVenta'] as const
+const CAMPOS = [
+  'nombre',
+  'categoria',
+  'unidad',
+  'precioCosto',
+  'precioVenta',
+  'claveProdServ',
+  'claveUnidad',
+] as const
 
 interface FilaImportacion {
   fila: number
@@ -127,6 +136,8 @@ const formulario = ref({
   escalones: filasEscalon(),
   aplicaCashback: true,
   tasaIva: 'CERO' as TasaIva,
+  claveProdServ: '',
+  claveUnidad: '',
 })
 
 const gruposVisibles = computed<CategoriaConProductos[]>(() => {
@@ -197,6 +208,8 @@ function abrirAlta(): void {
     escalones: filasEscalon(),
     aplicaCashback: true,
     tasaIva: 'CERO',
+    claveProdServ: '',
+    claveUnidad: '',
   }
   errores.value = {}
   erroresGenerales.value = []
@@ -216,6 +229,8 @@ function abrirEdicion(producto: Producto): void {
     escalones: filasEscalon(producto.escalones),
     aplicaCashback: producto.aplicaCashback,
     tasaIva: producto.tasaIva,
+    claveProdServ: producto.claveProdServ ?? '',
+    claveUnidad: producto.claveUnidad ?? '',
   }
   errores.value = {}
   erroresGenerales.value = []
@@ -231,6 +246,9 @@ function cuerpo(): Record<string, unknown> {
     rol: formulario.value.rol,
     aplicaCashback: formulario.value.aplicaCashback,
     tasaIva: formulario.value.tasaIva,
+    // Las claves del SAT viajan aunque estén vacías: vacía es como se quitan.
+    claveProdServ: formulario.value.claveProdServ,
+    claveUnidad: formulario.value.claveUnidad,
     // Siempre viaja, aunque sea vacía: es como se le quitan las listas a un
     // producto. Una fila a medias sí viaja, para que la API diga qué le falta.
     escalones: formulario.value.escalones
@@ -354,8 +372,8 @@ const filasConError = computed(() => resumen.value?.filas.filter((f) => f.estado
         Columnas: <strong>Categoría</strong>, <strong>Producto</strong>, <strong>Unidad</strong>,
         <strong>Precio de costo</strong> y <strong>Precio de venta</strong>. Opcionales:
         <em>Imagen</em> (URL), <em>Piso 2</em>, <em>Precio 2</em>, <em>Piso 3</em> y
-        <em>Precio 3</em> (precio por volumen), <em>Aplica cashback</em> (Sí / No) e <em>IVA</em> (0
-        o 16).
+        <em>Precio 3</em> (precio por volumen), <em>Aplica cashback</em> (Sí / No), <em>IVA</em> (0
+        o 16), <em>Clave SAT</em> (8 dígitos) y <em>Clave de unidad</em> (H87, KGM…).
       </p>
       <label class="file-drop">
         <input type="file" accept=".xlsx" :disabled="importando" @change="importar" />
@@ -421,7 +439,9 @@ const filasConError = computed(() => resumen.value?.filas.filter((f) => f.estado
               v-if="
                 producto.escalones.length > 0 ||
                 !producto.aplicaCashback ||
-                producto.tasaIva === 'DIECISEIS'
+                producto.tasaIva === 'DIECISEIS' ||
+                producto.claveProdServ ||
+                producto.claveUnidad
               "
               class="detalle"
             >
@@ -433,6 +453,9 @@ const filasConError = computed(() => resumen.value?.filas.filter((f) => f.estado
               <span v-if="!producto.aplicaCashback" class="escalon">Sin cashback</span>
               <!-- El 0 % es lo normal en un abarrote: solo se marca la excepción. -->
               <span v-if="producto.tasaIva === 'DIECISEIS'" class="escalon">IVA 16 %</span>
+              <span v-if="producto.claveProdServ || producto.claveUnidad" class="escalon">
+                SAT {{ [producto.claveProdServ, producto.claveUnidad].filter(Boolean).join(' · ') }}
+              </span>
             </p>
             <p class="saldo">
               {{ producto.aptInventario }} para venta
@@ -624,6 +647,31 @@ const filasConError = computed(() => resumen.value?.filas.filter((f) => f.estado
         </select>
         <p class="form-hint">
           El precio de venta ya lo incluye: la factura lo desglosa. Cambiarlo no toca lo ya vendido.
+        </p>
+
+        <label class="form-label" for="pr-clave-sat">Clave SAT del producto</label>
+        <SelectorClaveSat
+          id="pr-clave-sat"
+          v-model="formulario.claveProdServ"
+          tipo="productos-servicios"
+          placeholder="Busca en el catálogo del SAT: «botella», «refresco»…"
+          :invalido="!!errores.claveProdServ"
+        />
+        <p v-if="errores.claveProdServ" class="form-error">{{ errores.claveProdServ }}</p>
+
+        <label class="form-label" for="pr-clave-unidad">Clave de unidad SAT</label>
+        <SelectorClaveSat
+          id="pr-clave-unidad"
+          v-model="formulario.claveUnidad"
+          tipo="unidades"
+          placeholder="Pieza, kilogramo, litro…"
+          :invalido="!!errores.claveUnidad"
+        />
+        <p v-if="errores.claveUnidad" class="form-error">{{ errores.claveUnidad }}</p>
+        <p class="form-hint">
+          Salen del catálogo oficial vigente del SAT. Sin clave, la factura usa la genérica 01010101
+          («No existe en el catálogo») y deduce la unidad de la de arriba (kg, litro…) o pone Pieza.
+          Corregirlas sí alcanza a los pedidos que todavía no se facturan.
         </p>
 
         <label class="form-label">Imagen del producto</label>

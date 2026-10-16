@@ -146,10 +146,29 @@ export interface Producto {
   aplicaCashback: boolean
   /** IVA con el que se factura; el precio de venta ya lo incluye. */
   tasaIva: TasaIva
+  /** Clave de producto o servicio del SAT. `null`: la factura usa la genérica 01010101. */
+  claveProdServ: string | null
+  /** Clave de unidad del SAT. `null`: la factura la deduce de `unidad`. */
+  claveUnidad: string | null
 }
 
 /** Tasa de IVA de un producto en la factura: alimentos básicos al 0 %, lo demás al 16 %. */
 export type TasaIva = 'CERO' | 'DIECISEIS'
+
+/** Una clave del catálogo c_ClaveProdServ del SAT (`GET /admin/sat/productos-servicios`). */
+export interface ClaveProdServSat {
+  clave: string
+  descripcion: string
+  /** «Palabras similares» del SAT: por ellas también se encuentra. */
+  similares: string
+}
+
+/** Una clave del catálogo c_ClaveUnidad del SAT (`GET /admin/sat/unidades`). */
+export interface ClaveUnidadSat {
+  clave: string
+  nombre: string
+  simbolo: string
+}
 
 /** Una lista de precio por volumen: desde `piso` piezas, cada una a `precio`. */
 export interface Escalon {

@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { FacturacionModule } from '../facturacion/facturacion.module';
 import { CatalogoService } from './catalogo.service';
 import { CategoriasService } from './categorias.service';
 import { RecomendacionesService } from './recomendaciones.service';
@@ -9,6 +10,8 @@ import { AdminImportacionController } from './admin-importacion.controller';
 import { AdminCategoriasController } from './admin-categorias.controller';
 
 @Module({
+  // Los catalogos del SAT validan las claves que se le ponen a un producto.
+  imports: [FacturacionModule],
   // AdminImportacionController va antes que AdminProductosController para que
   // GET /admin/productos/plantilla no lo capture la ruta GET :id.
   controllers: [

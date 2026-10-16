@@ -26,6 +26,7 @@ import {
   UsoCfdi,
 } from './catalogos-sat';
 import { DatosFiscalesDto, FacturarPedidoDto } from './dto/factura.dto';
+import { CatalogoSatService } from './catalogo-sat.service';
 import {
   FacturaTimbrada,
   ProveedorNoDisponible,
@@ -88,7 +89,10 @@ export class FacturacionService implements OnModuleInit {
     servicio: process.env.FACTURACION_CLAVE_SERVICIO?.trim() || '78102203',
   };
 
-  constructor(private readonly prisma: PrismaService) {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly catalogoSat: CatalogoSatService,
+  ) {
     const config = configFacturaComDesdeEntorno();
     this.facturaCom = config ? new TimbradorFacturaCom(config) : null;
   }
@@ -192,7 +196,7 @@ export class FacturacionService implements OnModuleInit {
     const pedido = await this.prisma.pedido.findFirst({
       where: { id: pedidoId, clienteId },
       include: {
-        items: true,
+        items: { include: { producto: { select: { claveProdServ: true, claveUnidad: true } } } },
         cupon: { select: { sourceKind: true, sourceCode: true } },
         factura: { select: { id: true, estado: true, uuid: true, creadoEn: true } },
       },
@@ -232,7 +236,16 @@ export class FacturacionService implements OnModuleInit {
     this.exigirCompatibles(dto);
 
     const comprobante = armarComprobante(
-      pedido,
+      {
+        ...pedido,
+        // Las claves del SAT se leen del producto de hoy, no del renglon: no
+        // mueven dinero y corregirlas tiene que alcanzar a lo no facturado.
+        items: pedido.items.map((i) => ({
+          ...i,
+          claveProdServ: i.producto.claveProdServ,
+          claveUnidad: this.unidadSat(i.producto.claveUnidad),
+        })),
+      },
       await this.categoriasDelCupon(pedido.cupon),
       this.claves,
     );
@@ -428,6 +441,17 @@ export class FacturacionService implements OnModuleInit {
   // ----------------------------------------------------------------
   // Ayudas
   // ----------------------------------------------------------------
+
+  /**
+   * La clave de unidad con el nombre que la acompania en el CFDI. Una clave
+   * que el catalogo ya no trae (el SAT la dio de baja) se ignora y la unidad
+   * se deduce del texto, que es lo que pasaria sin clave.
+   */
+  private unidadSat(clave: string | null): { clave: string; nombre: string } | null {
+    if (!clave) return null;
+    const unidad = this.catalogoSat.unidad(clave);
+    return unidad ? { clave: unidad.clave, nombre: unidad.nombre } : null;
+  }
 
   private exigirCompatibles(dto: DatosFiscalesDto): void {
     const motivo = incompatibilidad(dto);
