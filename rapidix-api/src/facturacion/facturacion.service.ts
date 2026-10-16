@@ -26,7 +26,7 @@ import {
   UsoCfdi,
 } from './catalogos-sat';
 import { DatosFiscalesDto, FacturarPedidoDto } from './dto/factura.dto';
-import { CatalogoSatService } from './catalogo-sat.service';
+import { CatalogoSatService, FormaPagoSat } from './catalogo-sat.service';
 import {
   FacturaTimbrada,
   ProveedorNoDisponible,
@@ -66,6 +66,11 @@ export interface DatosFiscalesRespuesta {
   emailSugerido: string | null;
   regimenes: RegimenFiscal[];
   usos: UsoCfdi[];
+  /**
+   * c_FormaPago del SAT, para «Facturar». No se guarda con los datos fiscales:
+   * es de cada pedido, y llega ya elegida en `PedidoDto.formaPagoFactura`.
+   */
+  formasPago: FormaPagoSat[];
   /** SIMULADO mientras no haya llaves: la interfaz avisa que no tiene validez. */
   modo: ModoTimbrado;
 }
@@ -153,6 +158,7 @@ export class FacturacionService implements OnModuleInit {
       emailSugerido: cliente?.emailFacturacion ?? cliente?.email ?? null,
       regimenes: REGIMENES_FISCALES,
       usos: USOS_CFDI,
+      formasPago: this.catalogoSat.formasDePago(),
       modo: this.timbrador.modo,
     };
   }
@@ -187,7 +193,8 @@ export class FacturacionService implements OnModuleInit {
    *  1. El pedido es de quien pregunta (404 si no: no se confirma que exista).
    *  2. No tiene ya un CFDI (409 YA_FACTURADO) ni uno timbrandose (409).
    *  3. Esta cerrado: entregado y pagado (409 con el `code` del bloqueo).
-   *  4. Los datos fiscales no se contradicen (400).
+   *  4. Los datos fiscales no se contradicen y la forma de pago esta en el
+   *     catalogo (400).
    *  5. Los conceptos cuadran con el total cobrado (409 FACTURA_NO_CUADRA).
    *  6. Se reserva la fila y se timbra; si el proveedor rechaza, la reserva
    *     se borra y el cliente puede corregir y reintentar (422 / 502).
@@ -234,6 +241,13 @@ export class FacturacionService implements OnModuleInit {
       });
     }
     this.exigirCompatibles(dto);
+    if (dto.formaPago !== undefined && !this.catalogoSat.formaDePagoValida(dto.formaPago)) {
+      throw new BadRequestException({
+        statusCode: 400,
+        code: 'FORMA_PAGO_INVALIDA',
+        message: 'Esa forma de pago no está en el catálogo del SAT para facturas ya pagadas.',
+      });
+    }
 
     const comprobante = armarComprobante(
       {
@@ -271,6 +285,10 @@ export class FacturacionService implements OnModuleInit {
         message: 'Este pedido no tiene importe que facturar.',
       });
     }
+
+    // El cliente puede corregir la forma de pago que Rapidix dedujo del pedido
+    // (pago con tarjeta en la terminal, por ejemplo, queda como efectivo).
+    if (dto.formaPago) comprobante.formaPago = dto.formaPago;
 
     const receptor: Receptor = {
       rfc: dto.rfc,

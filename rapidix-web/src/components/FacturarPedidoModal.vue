@@ -37,6 +37,7 @@ const catalogos = ref<DatosFiscalesRespuesta | null>(null)
 const cargando = ref(true)
 const enviando = ref(false)
 const errores = ref<Partial<Record<CampoFiscal, string>>>({})
+const errorFormaPago = ref('')
 const erroresGenerales = ref<string[]>([])
 
 const formulario = ref<FormularioFiscal>({
@@ -47,15 +48,17 @@ const formulario = ref<FormularioFiscal>({
   cpFiscal: '',
   email: '',
 })
-const guardarDatos = ref(true)
+/**
+ * Llega con la forma en que se pagó el pedido. Se puede cambiar por otra del
+ * catálogo del SAT (pagó con tarjeta en la terminal, por ejemplo) y no se
+ * guarda con los datos fiscales: es de este pedido.
+ */
+const formaPago = ref(props.pedido.formaPagoFactura)
 
 onMounted(async () => {
   try {
     catalogos.value = await http.get<DatosFiscalesRespuesta>('/perfil/datos-fiscales')
     formulario.value = formularioFiscalDesde(catalogos.value)
-    // Ya los tenía guardados: la casilla nace apagada, porque no hay nada
-    // nuevo que guardar salvo que los cambie.
-    guardarDatos.value = catalogos.value.datos === null
   } catch (fallo) {
     ui.errorDeApi(fallo)
     emit('cerrar')
@@ -70,11 +73,16 @@ async function timbrar(): Promise<void> {
   if (enviando.value) return
   enviando.value = true
   errores.value = {}
+  errorFormaPago.value = ''
   erroresGenerales.value = []
   try {
     const factura = await http.post<FacturaDePedido>(`/pedidos/${props.pedido.id}/factura`, {
       ...cuerpoFiscal(formulario.value),
-      guardarDatos: guardarDatos.value,
+      // Son los mismos datos del Perfil vistos desde otro lado: lo que se
+      // corrige aquí queda guardado allá. La API solo los guarda si el SAT
+      // aceptó el timbre, así que un dato rechazado no pisa al bueno.
+      guardarDatos: true,
+      formaPago: formaPago.value,
     })
     ui.exito(`Factura del pedido ${props.pedido.folio} timbrada`)
     emit('facturado', factura)
@@ -86,8 +94,12 @@ async function timbrar(): Promise<void> {
       ui.info(fallo.message)
       emit('facturado', null)
     } else if (fallo.mensajes.length > 0) {
-      const { campos, generales } = fallo.porCampo(CAMPOS_FISCALES)
-      errores.value = erroresSinNombreDeCampo(campos)
+      const { campos, generales } = fallo.porCampo([...CAMPOS_FISCALES, 'formaPago'])
+      const { formaPago: mensajeForma, ...fiscales } = erroresSinNombreDeCampo<
+        CampoFiscal | 'formaPago'
+      >(campos)
+      errores.value = fiscales
+      errorFormaPago.value = mensajeForma ?? ''
       erroresGenerales.value = generales
     } else {
       // El rechazo del SAT (422) y los candados (409) se quedan en la hoja:
@@ -125,10 +137,21 @@ async function timbrar(): Promise<void> {
           prefijo="fa"
         />
 
-        <label class="guardar">
-          <input v-model="guardarDatos" type="checkbox" />
-          Guardar estos datos para mis próximas facturas
-        </label>
+        <label class="form-label" for="fa-forma-pago">Forma de pago</label>
+        <select
+          id="fa-forma-pago"
+          v-model="formaPago"
+          class="select-input"
+          :class="{ 'is-invalid': errorFormaPago }"
+        >
+          <option v-for="f in catalogos?.formasPago ?? []" :key="f.clave" :value="f.clave">
+            {{ f.clave }} · {{ f.descripcion }}
+          </option>
+        </select>
+        <p v-if="errorFormaPago" class="form-error">{{ errorFormaPago }}</p>
+        <p class="form-hint">Ya viene con la forma en que pagaste este pedido.</p>
+
+        <p class="nota-guardado">Estos datos también quedan guardados en tu perfil.</p>
 
         <div class="modal-actions">
           <button type="button" class="btn-cancel" @click="emit('cerrar')">Cancelar</button>
@@ -160,12 +183,20 @@ async function timbrar(): Promise<void> {
   color: var(--terracotta-dark);
 }
 
-.guardar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.select-input {
+  /* 16 px como los demás campos: por debajo, Safari en iPhone hace zoom. */
+  font-size: 16px;
+}
+
+.form-hint {
+  margin: -6px 0 10px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.nota-guardado {
   margin: 4px 0 14px;
-  font-size: 12.5px;
-  color: var(--ink);
+  font-size: 11px;
+  color: var(--muted);
 }
 </style>

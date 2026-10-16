@@ -51,13 +51,13 @@ export function cuerpoFiscal(f: FormularioFiscal): DatosFiscales & { email: stri
 }
 
 /** «rfc no es válido…» llega con el nombre del campo delante; bajo el campo sobra. */
-export function erroresSinNombreDeCampo(
+export function erroresSinNombreDeCampo<C extends string = CampoFiscal>(
   campos: Record<string, string>,
-): Partial<Record<CampoFiscal, string>> {
+): Partial<Record<C, string>> {
   return Object.fromEntries(
     Object.entries(campos).map(([campo, mensaje]) => {
       const resto = mensaje.slice(campo.length + 1)
       return [campo, resto.charAt(0).toUpperCase() + resto.slice(1)]
     }),
-  )
+  ) as Partial<Record<C, string>>
 }

@@ -65,4 +65,14 @@ export class FacturarPedidoDto extends DatosFiscalesDto {
   @IsOptional()
   @IsBoolean()
   guardarDatos?: boolean;
+
+  /**
+   * c_FormaPago que eligio el cliente. Sin ella, la del pedido
+   * (`formaDePago` de `comprobante.ts`). Que este en el catalogo lo
+   * comprueba el servicio.
+   */
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{2}$/, { message: 'formaPago debe ser una clave de 2 dígitos del SAT' })
+  formaPago?: string;
 }

@@ -1,6 +1,7 @@
 /**
- * Baja del SAT los catalogos del CFDI 4.0 y deja en `catalogos-sat/` las dos
- * listas que usa el panel de productos: c_ClaveProdServ y c_ClaveUnidad.
+ * Baja del SAT los catalogos del CFDI 4.0 y deja en `catalogos-sat/` los que
+ * usa Rapidix: c_ClaveProdServ y c_ClaveUnidad (panel de productos) y
+ * c_FormaPago (formulario «Facturar» del cliente).
  *
  *   npm run sat:catalogos                       # la version vigente del Anexo 20
  *   npm run sat:catalogos -- ruta/catCFDI.xls   # un archivo ya descargado
@@ -53,7 +54,7 @@ function filasDe(libro: XLSX.WorkBook, catalogo: string): Fila[] {
     const todas = XLSX.utils.sheet_to_json<Fila>(libro.Sheets[hoja], { header: 1, defval: '' });
     const encabezado = todas.findIndex((f) => String(f[0]).trim() === catalogo);
     if (encabezado < 0) throw new Error(`La hoja ${hoja} no tiene el encabezado ${catalogo}`);
-    filas.push(...todas.slice(encabezado + 1).filter((f) => String(f[0]).trim() !== ''));
+    filas.push(...todas.slice(encabezado + 1).filter((f) => limpio(f[0]) !== ''));
   }
   return filas;
 }
@@ -102,6 +103,12 @@ async function main(): Promise<void> {
     .filter((f) => limpio(f[5]) === '')
     .map((f) => [clave(f[0], 2), limpio(f[1]), limpio(f[6])]);
   escribir('c_ClaveUnidad.tsv', nombre, ['clave', 'nombre', 'simbolo'], unidades);
+
+  // c_FormaPago | Descripcion | Bancarizado | ... (columnas de cuentas) | Inicio | Fin
+  const formas = filasDe(libro, 'c_FormaPago')
+    .filter((f) => limpio(f[13]) === '')
+    .map((f) => [clave(f[0], 2), limpio(f[1])]);
+  escribir('c_FormaPago.tsv', nombre, ['clave', 'descripcion'], formas);
 }
 
 main().catch((fallo: unknown) => {
