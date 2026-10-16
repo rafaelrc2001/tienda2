@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { TasaIva } from '@prisma/client';
 import { Workbook } from 'exceljs';
 import { PrismaService } from '../prisma/prisma.service';
+import { CatalogoSatService } from '../facturacion/catalogo-sat.service';
 import { CategoriasService } from './categorias.service';
 import { escalonesAColumnas, validarEscalones } from './precios';
 
@@ -21,12 +22,17 @@ export const COLUMNAS_LISTAS = ['Piso 2', 'Precio 2', 'Piso 3', 'Precio 3'] as c
 export const COLUMNA_CASHBACK = 'Aplica cashback';
 /** Tasa de IVA para facturar: 0 o 16 (con o sin %). */
 export const COLUMNA_IVA = 'IVA';
+/** c_ClaveProdServ y c_ClaveUnidad del SAT, para la factura. */
+export const COLUMNA_CLAVE_SAT = 'Clave SAT';
+export const COLUMNA_CLAVE_UNIDAD = 'Clave de unidad';
 
 export const COLUMNAS_OPCIONALES = [
   COLUMNA_OPCIONAL,
   ...COLUMNAS_LISTAS,
   COLUMNA_CASHBACK,
   COLUMNA_IVA,
+  COLUMNA_CLAVE_SAT,
+  COLUMNA_CLAVE_UNIDAD,
 ];
 
 type BufferDeExcelJs = Parameters<Workbook['xlsx']['load']>[0];
@@ -60,6 +66,8 @@ interface FilaLeida {
   precio3: string;
   aplicaCashback: string;
   iva: string;
+  claveSat: string;
+  claveUnidad: string;
   /**
    * El archivo trae las columnas de listas. Sin ellas no se tocan las listas
    * que ya tuviera el producto: un Excel viejo, de antes del precio
@@ -77,6 +85,7 @@ export class ImportacionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly categorias: CategoriasService,
+    private readonly catalogoSat: CatalogoSatService,
   ) {}
 
   /**
@@ -239,6 +248,8 @@ export class ImportacionService {
         precio3: leerCelda(n, 'Precio 3'),
         aplicaCashback: leerCelda(n, COLUMNA_CASHBACK),
         iva: leerCelda(n, COLUMNA_IVA),
+        claveSat: leerCelda(n, COLUMNA_CLAVE_SAT),
+        claveUnidad: leerCelda(n, COLUMNA_CLAVE_UNIDAD),
         conListas,
         conCashback,
         conIva,
@@ -310,6 +321,21 @@ export class ImportacionService {
       };
     }
 
+    // Celda vacia o columna ausente: no se toca la clave que ya tuviera. Para
+    // quitarla esta el panel; un Excel no distingue «vacio» de «no la se».
+    const claveSat = fila.claveSat.trim()
+      ? this.catalogoSat.validarClaveProdServ(fila.claveSat)
+      : null;
+    if (claveSat && 'motivo' in claveSat) {
+      return { fila: fila.numero, estado: 'error', motivo: claveSat.motivo };
+    }
+    const claveUnidad = fila.claveUnidad.trim()
+      ? this.catalogoSat.validarClaveUnidad(fila.claveUnidad)
+      : null;
+    if (claveUnidad && 'motivo' in claveUnidad) {
+      return { fila: fila.numero, estado: 'error', motivo: claveUnidad.motivo };
+    }
+
     const clave = CategoriasService.limpiar(categoria).toLowerCase();
     let categoriaId = resueltas.get(clave);
     if (!categoriaId) {
@@ -326,6 +352,8 @@ export class ImportacionService {
       ...(listas && escalonesAColumnas(listas)),
       ...(aplicaCashback !== undefined && { aplicaCashback }),
       ...(tasaIva !== undefined && { tasaIva }),
+      ...(claveSat && { claveProdServ: claveSat.clave }),
+      ...(claveUnidad && { claveUnidad: claveUnidad.clave }),
     };
 
     // Mismo nombre y misma categoria = mismo producto: se actualiza en vez de
@@ -363,10 +391,26 @@ export class ImportacionService {
     hoja.getRow(1).font = { bold: true };
 
     // El arroz lleva listas de volumen: desde 5 kg a $26.50 y desde 10 a $25.
-    // El refresco va al 16 %: no es alimento basico.
+    // El refresco va al 16 %: no es alimento basico. Las claves del SAT son
+    // opcionales: la pechuga y el arroz se quedan con la generica.
     hoja.addRows([
-      ['Frutas y Verduras', 'Tomate bola', 'kg', 9, 18, '', '', '', '', '', 'Sí', 0],
-      ['Carnes', 'Pechuga de pollo', 'kg', 62, 89, '', '', '', '', '', 'Sí', 0],
+      [
+        'Frutas y Verduras',
+        'Tomate bola',
+        'kg',
+        9,
+        18,
+        '',
+        '',
+        '',
+        '',
+        '',
+        'Sí',
+        0,
+        '50406500',
+        'KGM',
+      ],
+      ['Carnes', 'Pechuga de pollo', 'kg', 62, 89, '', '', '', '', '', 'Sí', 0, '', 'KGM'],
       [
         'Abarrotes',
         'Arroz 1kg',
@@ -381,8 +425,23 @@ export class ImportacionService {
         'Sí',
         0,
       ],
-      ['Bebidas', 'Agua mineral', 'pza', 8, 14, '', 6, 13, 12, 12, 'No', 0],
-      ['Bebidas', 'Refresco de cola 600ml', 'pza', 11, 18, '', '', '', '', '', 'Sí', 16],
+      ['Bebidas', 'Agua mineral', 'pza', 8, 14, '', 6, 13, 12, 12, 'No', 0, '', 'H87'],
+      [
+        'Bebidas',
+        'Refresco de cola 600ml',
+        'pza',
+        11,
+        18,
+        '',
+        '',
+        '',
+        '',
+        '',
+        'Sí',
+        16,
+        '50202306',
+        'H87',
+      ],
     ]);
 
     return Buffer.from(await libro.xlsx.writeBuffer());

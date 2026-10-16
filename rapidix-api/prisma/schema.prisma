@@ -310,6 +310,15 @@ model Producto {
   /// limpieza) se marca a mano. El precio de venta ya la incluye.
   tasaIva TasaIva @default(CERO)
 
+  /// Clasificacion del producto en el catalogo del SAT (c_ClaveProdServ y
+  /// c_ClaveUnidad), elegida en el panel. Nulas = sin clasificar: la factura
+  /// usa la clave generica (01010101) y deduce la unidad del texto de
+  /// `unidad`. No se congelan en el renglon del pedido como la tasa: no mueven
+  /// dinero, y corregirlas debe servir tambien para los pedidos que todavia
+  /// no se facturan.
+  claveProdServ String?
+  claveUnidad   String?
+
   /// Borrado logico. Un producto que ya aparece en pedidos no puede salir de
   /// la tabla —las lineas lo referencian—, asi que "eliminarlo" es poner esta
   /// fecha: desaparece de la Tienda, del panel, del inventario y del carrito,

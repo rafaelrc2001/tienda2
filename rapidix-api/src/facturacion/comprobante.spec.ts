@@ -25,6 +25,8 @@ const renglon = (
   cantidad: r.cantidad,
   precioUnitario: D(r.precio),
   tasaIva: r.tasaIva ?? TasaIva.CERO,
+  claveProdServ: r.claveProdServ,
+  claveUnidad: r.claveUnidad,
 });
 
 const pedido = (
@@ -168,6 +170,32 @@ describe('armarComprobante', () => {
     expect(c.iva.toFixed(2)).toBe('0.00');
     expect(c.total.toFixed(2)).toBe('60.00');
     expect(c.conceptos[0].claveUnidad).toBe('KGM');
+  });
+
+  it('usa las claves del SAT del producto y la generica en el que no tiene', () => {
+    const c = armarComprobante(
+      pedido({
+        items: [
+          renglon({
+            precio: 12,
+            cantidad: 1,
+            unidad: 'kg',
+            claveProdServ: '24122002',
+            claveUnidad: { clave: 'H87', nombre: 'Pieza' },
+          }),
+          renglon({ precio: 18, cantidad: 1, unidad: 'kg' }),
+        ],
+        envio: D(35),
+        total: 65,
+      }),
+      [],
+      CLAVES,
+    );
+    expect(c.conceptos.map((k) => [k.claveProdServ, k.claveUnidad, k.unidad])).toEqual([
+      ['24122002', 'H87', 'Pieza'],
+      ['01010101', 'KGM', 'Kilogramo'],
+      ['78102203', 'E48', 'Unidad de servicio'],
+    ]);
   });
 
   it('desglosa el IVA del 16 % sin moverse del total', () => {

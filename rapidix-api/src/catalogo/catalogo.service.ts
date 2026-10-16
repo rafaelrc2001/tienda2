@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, Producto, RolProducto, TasaIva } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { CatalogoSatService } from '../facturacion/catalogo-sat.service';
 import { CategoriasService } from './categorias.service';
 import { escalonesAColumnas, escalonesDe, validarEscalones } from './precios';
 import {
@@ -36,6 +37,10 @@ export interface ProductoDto {
   aplicaCashback: boolean;
   /** IVA con el que se factura; el precio de venta ya lo incluye. */
   tasaIva: TasaIva;
+  /** c_ClaveProdServ del SAT. `null` = sin clasificar (la factura usa la generica). */
+  claveProdServ: string | null;
+  /** c_ClaveUnidad del SAT. `null` = se deduce de `unidad`. */
+  claveUnidad: string | null;
 }
 
 export interface CategoriaConProductos {
@@ -55,6 +60,7 @@ export class CatalogoService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly categorias: CategoriasService,
+    private readonly catalogoSat: CatalogoSatService,
   ) {}
 
   /**
@@ -78,6 +84,8 @@ export class CatalogoService {
       escalones: escalonesDe(p).map((e) => ({ piso: e.piso, precio: e.precio.toNumber() })),
       aplicaCashback: p.aplicaCashback,
       tasaIva: p.tasaIva,
+      claveProdServ: p.claveProdServ,
+      claveUnidad: p.claveUnidad,
     };
   }
 
@@ -88,6 +96,28 @@ export class CatalogoService {
   ): void {
     const motivo = validarEscalones(precioVenta, escalones);
     if (motivo) throw new BadRequestException(motivo);
+  }
+
+  /**
+   * Las claves del SAT que llegaron, ya comprobadas contra el catalogo y como
+   * se guardan: `null` para quitarla y fuera del objeto la que no llego.
+   */
+  private clavesSat(dto: { claveProdServ?: string; claveUnidad?: string }): {
+    claveProdServ?: string | null;
+    claveUnidad?: string | null;
+  } {
+    const claves: { claveProdServ?: string | null; claveUnidad?: string | null } = {};
+    if (dto.claveProdServ !== undefined) {
+      const r = this.catalogoSat.validarClaveProdServ(dto.claveProdServ);
+      if ('motivo' in r) throw new BadRequestException(r.motivo);
+      claves.claveProdServ = r.clave;
+    }
+    if (dto.claveUnidad !== undefined) {
+      const r = this.catalogoSat.validarClaveUnidad(dto.claveUnidad);
+      if ('motivo' in r) throw new BadRequestException(r.motivo);
+      claves.claveUnidad = r.clave;
+    }
+    return claves;
   }
 
   /** Catalogo agrupado por categoria, como lo pinta la Tienda (Word 4.3). */
@@ -143,6 +173,7 @@ export class CatalogoService {
   async crear(dto: CrearProductoDto): Promise<ProductoDto> {
     const escalones = dto.escalones ?? [];
     CatalogoService.exigirEscalones(dto.precioVenta, escalones);
+    const clavesSat = this.clavesSat(dto);
 
     const categoriaId = await this.categorias.resolver(dto.categoria);
     const producto = await this.prisma.producto.create({
@@ -158,6 +189,7 @@ export class CatalogoService {
         ...(dto.rol !== undefined && { rol: dto.rol }),
         ...(dto.aplicaCashback !== undefined && { aplicaCashback: dto.aplicaCashback }),
         ...(dto.tasaIva !== undefined && { tasaIva: dto.tasaIva }),
+        ...clavesSat,
       },
       include: { categoria: { select: { nombre: true } } },
     });
@@ -177,6 +209,8 @@ export class CatalogoService {
       );
     }
 
+    const clavesSat = this.clavesSat(dto);
+
     const categoriaId =
       dto.categoria !== undefined ? await this.categorias.resolver(dto.categoria) : undefined;
     const producto = await this.prisma.producto.update({
@@ -193,6 +227,7 @@ export class CatalogoService {
         ...(dto.rol !== undefined && { rol: dto.rol }),
         ...(dto.aplicaCashback !== undefined && { aplicaCashback: dto.aplicaCashback }),
         ...(dto.tasaIva !== undefined && { tasaIva: dto.tasaIva }),
+        ...clavesSat,
       },
       include: { categoria: { select: { nombre: true } } },
     });
