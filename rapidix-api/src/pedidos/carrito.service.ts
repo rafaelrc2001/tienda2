@@ -13,6 +13,7 @@ import {
   OrigenCupon,
   Prisma,
   Producto,
+  TasaIva,
   TipoDescuento,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -45,6 +46,8 @@ export interface LineaResuelta {
   importe: Decimal;
   /** El producto suma a la base del cashback (HU-12). */
   aplicaCashback: boolean;
+  /** Tasa de IVA del producto, que el pedido congela para facturar. */
+  tasaIva: TasaIva;
   /** Precio de la lista anterior, para tacharlo. Null en la primera lista. */
   precioLista: Decimal | null;
   /** Lo que se ahorra frente al precio de venta. */
@@ -888,6 +891,7 @@ export class CarritoService {
       cantidad,
       importe: importeDeLinea(precio, cantidad),
       aplicaCashback: p.aplicaCashback,
+      tasaIva: p.tasaIva,
       precioLista: precioListaAnterior(p, cantidad),
       ahorro: ahorro(p, cantidad),
       upsell: upsell(p, cantidad),

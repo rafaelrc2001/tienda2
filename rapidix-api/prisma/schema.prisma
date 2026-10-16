@@ -110,9 +110,20 @@ model Cliente {
   primerPedido DateTime?
   ultimoPedido DateTime?
 
+  /// Datos fiscales guardados para pre-llenar la siguiente factura. Solo los
+  /// tiene el cliente: un prospecto no ha comprado, asi que no hay que facturar.
+  /// Cada factura copia los suyos; cambiarlos aqui no reescribe ninguna.
+  rfc              String?
+  razonSocial      String?
+  regimenFiscal    String?
+  usoCfdi          String?
+  cpFiscal         String?
+  emailFacturacion String?
+
   creado        DateTime @default(now())
   actualizadoEn DateTime @updatedAt
 
+  facturas          Factura[]
   solicitudes       SolicitudProducto[]
   recetasCreadas    Receta[]
   recetasGuardadas  RecetaGuardada[]
@@ -294,6 +305,11 @@ model Producto {
   /// normal es que todo participe y se excluye lo que no deja margen.
   aplicaCashback Boolean @default(true)
 
+  /// Con que tasa de IVA se factura. Nace en CERO: casi todo lo que vende un
+  /// abarrote es alimento basico; lo que va al 16 % (refrescos, botanas,
+  /// limpieza) se marca a mano. El precio de venta ya la incluye.
+  tasaIva TasaIva @default(CERO)
+
   /// Borrado logico. Un producto que ya aparece en pedidos no puede salir de
   /// la tabla —las lineas lo referencian—, asi que "eliminarlo" es poner esta
   /// fecha: desaparece de la Tienda, del panel, del inventario y del carrito,
@@ -312,6 +328,14 @@ model Producto {
 
   @@index([categoriaId])
   @@map("productos")
+}
+
+/// Tasa de IVA de un producto en la factura (CFDI). Catalogo cerrado: son las
+/// dos que aplican a lo que se vende; exento no se usa en abarrotes.
+enum TasaIva {
+  /// Alimentos basicos (art. 2-A, fraccion I, LIVA).
+  CERO
+  DIECISEIS
 }
 
 /// Boton "Programar" de un producto agotado: intencion de compra futura.
@@ -913,6 +937,8 @@ model Pedido {
   cargas      CargaRepartidor[]
   entrega     EntregaPedido?
   pagos       PagoPedido[]
+  /// Su CFDI. Uno como maximo: lo garantiza el @unique de Factura.pedidoId.
+  factura     Factura?
 
   @@index([clienteId, creadoEn])
   @@index([cxcDesde])
@@ -968,11 +994,83 @@ model PedidoItem {
   unidad         String
   precioUnitario Decimal @db.Decimal(25, 15)
   cantidad       Int
+  /// La tasa de IVA del producto al venderse. Se congela como el precio: si
+  /// despues se corrige el producto, la factura de esta venta no cambia.
+  tasaIva        TasaIva @default(CERO)
 
   cargas CargaRepartidor[]
 
   @@index([pedidoId])
   @@map("pedido_items")
+}
+
+// ============================================================
+// Facturacion (CFDI 4.0)
+// ============================================================
+
+/// Quien timbro la factura. SIMULADO inventa el folio fiscal y no tiene validez
+/// ante el SAT: es lo que corre mientras no hay llaves de factura.com.
+enum ModoTimbrado {
+  SIMULADO
+  FACTURA_COM
+}
+
+/// TIMBRANDO es la reserva que se escribe antes de llamar al proveedor: el
+/// @unique de `pedidoId` impide que dos peticiones simultaneas timbren dos
+/// CFDI del mismo pedido. Si el proveedor rechaza, la reserva se borra.
+enum EstadoFactura {
+  TIMBRANDO
+  TIMBRADA
+}
+
+/// El CFDI de un pedido. El emisor es Rapidix y vive en la cuenta del proveedor
+/// (o en variables de entorno, en modo simulado); aqui va el receptor y lo que
+/// se timbro.
+///
+/// Todo se congela al timbrar —receptor, conceptos y totales—: un CFDI timbrado
+/// no se corrige, se cancela y se vuelve a emitir. Por eso el PDF simulado se
+/// regenera desde `conceptos` y no desde el pedido.
+model Factura {
+  id        String  @id @default(uuid())
+  pedidoId  String  @unique
+  pedido    Pedido  @relation(fields: [pedidoId], references: [id])
+  clienteId String
+  cliente   Cliente @relation(fields: [clienteId], references: [id])
+
+  estado EstadoFactura @default(TIMBRANDO)
+  modo   ModoTimbrado
+
+  // Receptor, como lo capturo el cliente para esta factura.
+  rfc           String
+  razonSocial   String
+  regimenFiscal String
+  usoCfdi       String
+  cpFiscal      String
+  email         String?
+
+  /// Folio fiscal (UUID del timbre del SAT). Null mientras se timbra.
+  uuid        String?   @unique
+  /// Identificador de la factura en el proveedor (`uid` de factura.com). Con
+  /// el se descargan el PDF y el XML.
+  proveedorId String?
+  serie       String?
+  folio       String?
+  formaPago   String
+  subtotal    Decimal   @db.Decimal(12, 2)
+  descuento   Decimal   @db.Decimal(12, 2)
+  iva         Decimal   @db.Decimal(12, 2)
+  total       Decimal   @db.Decimal(12, 2)
+  /// Los conceptos tal como se mandaron a timbrar (`Concepto[]` de
+  /// `facturacion/comprobante.ts`), con importes como texto.
+  conceptos   Json
+  /// Respuesta cruda del proveedor, para auditar sin volver a llamarlo.
+  respuesta   Json?
+  timbradaEn  DateTime?
+
+  creadoEn DateTime @default(now())
+
+  @@index([clienteId])
+  @@map("facturas")
 }
 
 // ============================================================

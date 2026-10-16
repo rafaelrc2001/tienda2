@@ -1,0 +1,4 @@
+# Certificados de prueba del SAT para el sandbox de factura.com. No son código:
+# cada quien los descarga, y un .key no debe vivir en el repositorio.
+sellos-sandbox/
+sellos-sandbox.zip

@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { RolProducto } from '@prisma/client';
+import { RolProducto, TasaIva } from '@prisma/client';
 import {
   ArrayMaxSize,
   IsArray,
@@ -92,6 +92,11 @@ export class CrearProductoDto {
   @IsOptional()
   @IsBoolean()
   aplicaCashback?: boolean;
+
+  /** IVA con el que se factura. Sin decir nada, 0 % (alimento basico). */
+  @IsOptional()
+  @IsEnum(TasaIva)
+  tasaIva?: TasaIva;
 }
 
 export class ActualizarProductoDto {
@@ -145,6 +150,11 @@ export class ActualizarProductoDto {
   @IsOptional()
   @IsBoolean()
   aplicaCashback?: boolean;
+
+  /** Cambiarla no toca lo ya vendido: cada renglon de pedido congela la suya. */
+  @IsOptional()
+  @IsEnum(TasaIva)
+  tasaIva?: TasaIva;
 }
 
 export class MarcarAgotadoDto {
