@@ -37,6 +37,7 @@ const catalogos = ref<DatosFiscalesRespuesta | null>(null)
 const cargando = ref(true)
 const enviando = ref(false)
 const errores = ref<Partial<Record<CampoFiscal, string>>>({})
+const errorFormaPago = ref('')
 const erroresGenerales = ref<string[]>([])
 
 const formulario = ref<FormularioFiscal>({
@@ -48,6 +49,12 @@ const formulario = ref<FormularioFiscal>({
   email: '',
 })
 const guardarDatos = ref(true)
+/**
+ * Llega con la forma en que se pagó el pedido. Se puede cambiar por otra del
+ * catálogo del SAT (pagó con tarjeta en la terminal, por ejemplo) y no se
+ * guarda con los datos fiscales: es de este pedido.
+ */
+const formaPago = ref(props.pedido.formaPagoFactura)
 
 onMounted(async () => {
   try {
@@ -70,11 +77,13 @@ async function timbrar(): Promise<void> {
   if (enviando.value) return
   enviando.value = true
   errores.value = {}
+  errorFormaPago.value = ''
   erroresGenerales.value = []
   try {
     const factura = await http.post<FacturaDePedido>(`/pedidos/${props.pedido.id}/factura`, {
       ...cuerpoFiscal(formulario.value),
       guardarDatos: guardarDatos.value,
+      formaPago: formaPago.value,
     })
     ui.exito(`Factura del pedido ${props.pedido.folio} timbrada`)
     emit('facturado', factura)
@@ -86,8 +95,12 @@ async function timbrar(): Promise<void> {
       ui.info(fallo.message)
       emit('facturado', null)
     } else if (fallo.mensajes.length > 0) {
-      const { campos, generales } = fallo.porCampo(CAMPOS_FISCALES)
-      errores.value = erroresSinNombreDeCampo(campos)
+      const { campos, generales } = fallo.porCampo([...CAMPOS_FISCALES, 'formaPago'])
+      const { formaPago: mensajeForma, ...fiscales } = erroresSinNombreDeCampo<
+        CampoFiscal | 'formaPago'
+      >(campos)
+      errores.value = fiscales
+      errorFormaPago.value = mensajeForma ?? ''
       erroresGenerales.value = generales
     } else {
       // El rechazo del SAT (422) y los candados (409) se quedan en la hoja:
@@ -125,6 +138,20 @@ async function timbrar(): Promise<void> {
           prefijo="fa"
         />
 
+        <label class="form-label" for="fa-forma-pago">Forma de pago</label>
+        <select
+          id="fa-forma-pago"
+          v-model="formaPago"
+          class="select-input"
+          :class="{ 'is-invalid': errorFormaPago }"
+        >
+          <option v-for="f in catalogos?.formasPago ?? []" :key="f.clave" :value="f.clave">
+            {{ f.clave }} · {{ f.descripcion }}
+          </option>
+        </select>
+        <p v-if="errorFormaPago" class="form-error">{{ errorFormaPago }}</p>
+        <p class="form-hint">Ya viene con la forma en que pagaste este pedido.</p>
+
         <label class="guardar">
           <input v-model="guardarDatos" type="checkbox" />
           Guardar estos datos para mis próximas facturas
@@ -158,6 +185,17 @@ async function timbrar(): Promise<void> {
   font-weight: 700;
   font-size: 11.5px;
   color: var(--terracotta-dark);
+}
+
+.select-input {
+  /* 16 px como los demás campos: por debajo, Safari en iPhone hace zoom. */
+  font-size: 16px;
+}
+
+.form-hint {
+  margin: -6px 0 10px;
+  font-size: 11px;
+  color: var(--muted);
 }
 
 .guardar {

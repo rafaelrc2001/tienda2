@@ -482,6 +482,8 @@ export interface Pedido {
    * decide la API, igual que `cancelable`.
    */
   facturable: boolean
+  /** Forma de pago con la que «Facturar» llega elegida: la que más cubrió el pedido. */
+  formaPagoFactura: string
   /** Su CFDI, si ya se timbró. */
   factura: FacturaDePedido | null
   pago: {
@@ -557,6 +559,8 @@ export interface DatosFiscalesRespuesta {
   emailSugerido: string | null
   regimenes: RegimenFiscal[]
   usos: { clave: string; nombre: string }[]
+  /** c_FormaPago del SAT, sin «99 Por definir» (no vale en una factura ya pagada). */
+  formasPago: { clave: string; descripcion: string }[]
   modo: ModoTimbrado
 }
 

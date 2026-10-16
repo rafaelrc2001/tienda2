@@ -33,7 +33,7 @@ import { CrearPedidoDto, DireccionEntregaDto } from './dto/carrito.dto';
 import { ActorDeBitacora, registrarEnBitacora } from './bitacora';
 import { pagadoDelPedido, saldoDelPedido } from './cxc';
 import { bloqueoDeCancelacion } from './flujo-pago';
-import { bloqueoDeFacturacion } from '../facturacion/comprobante';
+import { bloqueoDeFacturacion, formaDePago } from '../facturacion/comprobante';
 
 const Decimal = Prisma.Decimal;
 type Decimal = Prisma.Decimal;
@@ -90,6 +90,12 @@ export interface PedidoDto {
    * CFDI (`bloqueoDeFacturacion`). Lo decide la API, como `cancelable`.
    */
   facturable: boolean;
+  /**
+   * c_FormaPago con la que «Facturar» llega elegida: la que cubrio la mayor
+   * parte del pedido (efectivo 01, transferencia 03, monedero 05). El cliente
+   * la puede cambiar por otra del catalogo del SAT.
+   */
+  formaPagoFactura: string;
   /** Su CFDI, si ya se timbro. Una reserva a medio timbrar no cuenta. */
   factura: { uuid: string; modo: ModoTimbrado; timbradaEn: string } | null;
   pago: {
@@ -926,6 +932,7 @@ export class PedidosService {
       cancelable: bloqueoDeCancelacion(pedido) === null,
       // Una reserva TIMBRANDO tampoco se ofrece: hay un timbre en camino.
       facturable: !pedido.factura && bloqueoDeFacturacion(pedido) === null,
+      formaPagoFactura: formaDePago(pedido),
       factura:
         timbrada?.uuid && timbrada.timbradaEn
           ? {

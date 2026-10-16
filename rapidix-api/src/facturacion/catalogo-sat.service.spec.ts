@@ -38,4 +38,12 @@ describe('CatalogoSatService', () => {
     expect(catalogo.validarClaveUnidad('kgm')).toEqual({ clave: 'KGM' });
     expect(catalogo.validarClaveUnidad('ZZZ')).toHaveProperty('motivo');
   });
+
+  it('ofrece las formas de pago del SAT salvo «Por definir», que no vale con PUE', () => {
+    const claves = catalogo.formasDePago().map((f) => f.clave);
+    expect(claves).toEqual(expect.arrayContaining(['01', '03', '04', '05', '28']));
+    expect(claves).not.toContain('99');
+    expect(catalogo.formaDePagoValida('04')).toBe(true);
+    expect(catalogo.formaDePagoValida('99')).toBe(false);
+  });
 });

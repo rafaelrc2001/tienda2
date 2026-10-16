@@ -3,8 +3,9 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 /**
- * Los catalogos oficiales del SAT para clasificar productos: c_ClaveProdServ
- * (~52 mil claves) y c_ClaveUnidad (~2,400).
+ * Los catalogos oficiales del SAT: c_ClaveProdServ (~52 mil claves) y
+ * c_ClaveUnidad (~2,400) para clasificar productos, y c_FormaPago para el
+ * formulario de factura.
  *
  * Viven en memoria, leidos al arrancar de `catalogos-sat/*.tsv`, que genera
  * `npm run sat:catalogos` desde el .xls del SAT. No van a la base: no los
@@ -32,6 +33,17 @@ export interface ClaveUnidad {
   nombre: string;
   simbolo: string;
 }
+
+export interface FormaPagoSat {
+  clave: string;
+  descripcion: string;
+}
+
+/**
+ * 99 «Por definir» solo vale con metodo PPD. Rapidix factura lo ya pagado
+ * (PUE, `comprobante.ts`), asi que el SAT la rechazaria: no se ofrece.
+ */
+const FORMA_PAGO_POR_DEFINIR = '99';
 
 /**
  * Las unidades que usa un abarrote. Con el buscador vacio se ofrecen estas:
@@ -66,6 +78,7 @@ export class CatalogoSatService implements OnModuleInit {
   private unidades: Indexada<ClaveUnidad>[] = [];
   private readonly porClaveProducto = new Map<string, ClaveProdServ>();
   private readonly porClaveUnidad = new Map<string, ClaveUnidad>();
+  private formasPago: FormaPagoSat[] = [];
 
   onModuleInit(): void {
     this.cargar();
@@ -95,12 +108,16 @@ export class CatalogoSatService implements OnModuleInit {
           principal: normalizar(nombre),
         });
       }
+      this.formasPago = leerTsv('c_FormaPago.tsv')
+        .map(([clave, descripcion]) => ({ clave, descripcion }))
+        .filter((f) => f.clave !== FORMA_PAGO_POR_DEFINIR);
       this.logger.log(
-        `Catalogos del SAT: ${this.productos.length} claves de producto, ${this.unidades.length} de unidad`,
+        `Catalogos del SAT: ${this.productos.length} claves de producto, ${this.unidades.length} de unidad, ${this.formasPago.length} formas de pago`,
       );
     } catch (fallo) {
       this.productos = [];
       this.unidades = [];
+      this.formasPago = [];
       this.porClaveProducto.clear();
       this.porClaveUnidad.clear();
       this.logger.error(
@@ -164,6 +181,20 @@ export class CatalogoSatService implements OnModuleInit {
       return { motivo: `La clave de unidad ${limpia} no existe en el catálogo vigente del SAT` };
     }
     return { clave: unidad.clave };
+  }
+
+  /** Las formas de pago que se pueden poner en una factura PUE. */
+  formasDePago(): FormaPagoSat[] {
+    return this.formasPago;
+  }
+
+  /**
+   * Si `clave` es una forma de pago del catalogo que se puede usar. Sin
+   * catalogo cargado solo pasan las que Rapidix pone por su cuenta.
+   */
+  formaDePagoValida(clave: string): boolean {
+    if (this.formasPago.length === 0) return ['01', '03', '05'].includes(clave);
+    return this.formasPago.some((f) => f.clave === clave);
   }
 
   /** Buscador de «Clave SAT». Vacio no devuelve nada: 52 mil claves no se hojean. */
