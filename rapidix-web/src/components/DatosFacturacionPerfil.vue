@@ -2,9 +2,9 @@
 /**
  * Tarjeta «Datos de facturación» del Perfil.
  *
- * Son los mismos datos que pre-llenan «Facturar» en Mis pedidos (y que aquel
- * guarda si marcan la casilla): una sola copia en la API, editable desde los
- * dos lados.
+ * Son los mismos datos que pre-llenan «Facturar» en Mis pedidos, y que aquel
+ * vuelve a guardar en cada factura timbrada: una sola copia en la API,
+ * editable desde los dos lados.
  *
  * Tiene su propio botón porque va a otro endpoint (`PUT /perfil/datos-fiscales`)
  * y exige los seis campos completos: meterlo en «Guardar cambios» del perfil

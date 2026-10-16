@@ -48,7 +48,6 @@ const formulario = ref<FormularioFiscal>({
   cpFiscal: '',
   email: '',
 })
-const guardarDatos = ref(true)
 /**
  * Llega con la forma en que se pagó el pedido. Se puede cambiar por otra del
  * catálogo del SAT (pagó con tarjeta en la terminal, por ejemplo) y no se
@@ -60,9 +59,6 @@ onMounted(async () => {
   try {
     catalogos.value = await http.get<DatosFiscalesRespuesta>('/perfil/datos-fiscales')
     formulario.value = formularioFiscalDesde(catalogos.value)
-    // Ya los tenía guardados: la casilla nace apagada, porque no hay nada
-    // nuevo que guardar salvo que los cambie.
-    guardarDatos.value = catalogos.value.datos === null
   } catch (fallo) {
     ui.errorDeApi(fallo)
     emit('cerrar')
@@ -82,7 +78,10 @@ async function timbrar(): Promise<void> {
   try {
     const factura = await http.post<FacturaDePedido>(`/pedidos/${props.pedido.id}/factura`, {
       ...cuerpoFiscal(formulario.value),
-      guardarDatos: guardarDatos.value,
+      // Son los mismos datos del Perfil vistos desde otro lado: lo que se
+      // corrige aquí queda guardado allá. La API solo los guarda si el SAT
+      // aceptó el timbre, así que un dato rechazado no pisa al bueno.
+      guardarDatos: true,
       formaPago: formaPago.value,
     })
     ui.exito(`Factura del pedido ${props.pedido.folio} timbrada`)
@@ -152,10 +151,7 @@ async function timbrar(): Promise<void> {
         <p v-if="errorFormaPago" class="form-error">{{ errorFormaPago }}</p>
         <p class="form-hint">Ya viene con la forma en que pagaste este pedido.</p>
 
-        <label class="guardar">
-          <input v-model="guardarDatos" type="checkbox" />
-          Guardar estos datos para mis próximas facturas
-        </label>
+        <p class="nota-guardado">Estos datos también quedan guardados en tu perfil.</p>
 
         <div class="modal-actions">
           <button type="button" class="btn-cancel" @click="emit('cerrar')">Cancelar</button>
@@ -198,12 +194,9 @@ async function timbrar(): Promise<void> {
   color: var(--muted);
 }
 
-.guardar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.nota-guardado {
   margin: 4px 0 14px;
-  font-size: 12.5px;
-  color: var(--ink);
+  font-size: 11px;
+  color: var(--muted);
 }
 </style>
