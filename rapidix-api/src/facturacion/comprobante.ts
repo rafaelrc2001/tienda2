@@ -91,10 +91,17 @@ export interface Comprobante {
  * renglones y su total) y pagado (el CFDI va con metodo PUE, pago en una sola
  * exhibicion). Un CFDI timbrado no se corrige: facturar antes seria arriesgarse
  * a una factura por 10 y una entrega de 6.
+ *
+ * Pagado es tambien el efectivo entregado que sigue en PAGO_PENDIENTE: el
+ * cliente le pago al repartidor en la puerta y solo falta que Finanzas acepte
+ * el corte, que es cuenta entre el repartidor y el negocio. Si el repartidor
+ * entrega de menos es adeudo suyo, no del cliente (`destinoAlAceptar`). La
+ * transferencia pendiente no entra: ese dinero nadie lo ha visto todavia.
  */
 export function bloqueoDeFacturacion(pedido: {
   estado: EstadoPedido;
   estadoPago: EstadoPago;
+  metodoPago: MetodoPago;
 }): { codigo: string; mensaje: string } | null {
   if (pedido.estadoPago === EstadoPago.CANCELADO) {
     return { codigo: 'PEDIDO_CANCELADO', mensaje: 'Un pedido cancelado no se factura.' };
@@ -105,7 +112,9 @@ export function bloqueoDeFacturacion(pedido: {
       mensaje: 'Podrás facturar este pedido cuando se haya entregado.',
     };
   }
-  if (pedido.estadoPago !== EstadoPago.PAGADO) {
+  const cobradoEnLaPuerta =
+    pedido.metodoPago === MetodoPago.EFECTIVO && pedido.estadoPago === EstadoPago.PAGO_PENDIENTE;
+  if (pedido.estadoPago !== EstadoPago.PAGADO && !cobradoEnLaPuerta) {
     return {
       codigo: 'PEDIDO_SIN_PAGAR',
       mensaje: 'Podrás facturar este pedido cuando quede pagado.',
@@ -206,6 +215,42 @@ export function repartirDescuento(
 }
 
 /**
+ * Parte el envio en partes iguales entre los renglones, sin importar lo que
+ * valga cada uno: 6 de envio con dos productos son 3 y 3. El ultimo se lleva
+ * el centavo que no se reparte parejo (10 entre 3 son 3.33, 3.33 y 3.34).
+ */
+export function repartirEnvio(renglones: number, envio: Decimal): Decimal[] {
+  if (renglones === 0) return [];
+  const parte = envio.div(renglones).toDecimalPlaces(2, Decimal.ROUND_DOWN);
+  const partes = Array.from({ length: renglones }, () => parte);
+  partes[renglones - 1] = envio.sub(parte.mul(renglones - 1));
+  return partes;
+}
+
+/**
+ * Lo que hay que mover en cada renglon para que quede en pesos enteros, sin
+ * mover el total: cada uno se redondea al peso mas cercano y el renglon
+ * `absorbe` se lleva la diferencia, con los centavos que traiga el pedido.
+ * 12.50 y 14.50 quedan en 13 y 14 (ajustes +0.50 y -0.50).
+ *
+ * Uno que redondeado quedaria en cero no se toca: un concepto en cero no es
+ * una venta. Y si el que absorbe quedaria en cero o menos, no se redondea
+ * nada.
+ */
+export function redondearAPesos(montos: Decimal[], absorbe: number): Decimal[] {
+  if (absorbe < 0 || absorbe >= montos.length) return montos.map(() => new Decimal(0));
+  const ajustes = montos.map((m, i) => {
+    if (i === absorbe) return new Decimal(0);
+    const entero = m.toDecimalPlaces(0, Decimal.ROUND_HALF_UP);
+    return entero.greaterThan(0) ? entero.sub(m) : new Decimal(0);
+  });
+  const movido = ajustes.reduce((s, a) => s.add(a), new Decimal(0));
+  if (!montos[absorbe].sub(movido).greaterThan(0)) return montos.map(() => new Decimal(0));
+  ajustes[absorbe] = movido.neg();
+  return ajustes;
+}
+
+/**
  * c_FormaPago: la que cubrio la mayor parte del pedido. La billetera de
  * cashback es un monedero electronico (05).
  */
@@ -265,9 +310,16 @@ function concepto(
 /**
  * Los conceptos y totales del CFDI de un pedido.
  *
- * Productos con su tasa congelada; envio y recargo como servicios al 16 %. El
- * cupon se reparte solo entre productos: nunca toco el envio (el envio gratis
- * se mide antes del descuento). Primero van los conceptos al 16 % y despues
+ * Productos con su tasa congelada y el recargo como servicio al 16 %. El envio
+ * no sale como concepto: se reparte en partes iguales dentro de los productos
+ * (`repartirEnvio`), con la tasa de cada uno; solo en la factura, el pedido y
+ * el ticket lo siguen mostrando aparte. Sin productos que lo reciban vuelve a
+ * ir como servicio. El cupon se reparte antes, solo sobre lo que valian los
+ * productos: nunca toco el envio (el envio gratis se mide antes del
+ * descuento). Ya con su envio y su descuento, cada producto se redondea a
+ * pesos enteros (`redondearAPesos`) y los centavos van a uno solo, el ultimo
+ * en cuadrarse, para que caigan donde cae tambien el centavo del IVA.
+ * Primero van los conceptos al 16 % y despues
  * los de tasa 0, que absorben sin perdida el centavo que aquellos no alcanzan.
  * Si no hay ninguno al 0 %, el total puede quedar a un centavo del pedido:
  * quien llama decide si eso cuadra.
@@ -283,6 +335,12 @@ export function armarComprobante(
     categoria: r.categoria,
   }));
   const descuentos = repartirDescuento(brutos, pedido.descuento, categoriasDelCupon);
+  const envios = repartirEnvio(renglones.length, pedido.envio);
+  const netos = brutos.map((b, i) => b.importe.sub(descuentos[i]).add(envios[i]));
+  // Absorbe el ultimo al 0 %, que es tambien el ultimo en cuadrarse.
+  const ceros = renglones.map((r, i) => (r.tasaIva === TasaIva.DIECISEIS ? -1 : i));
+  const absorbe = Math.max(...ceros) >= 0 ? Math.max(...ceros) : renglones.length - 1;
+  const ajustes = redondearAPesos(netos, absorbe);
 
   type Pendiente = {
     datos: Parameters<typeof concepto>[0];
@@ -301,8 +359,10 @@ export function armarComprobante(
         cantidad: r.cantidad,
         tasa: r.tasaIva,
       },
-      bruto: brutos[i].importe,
-      neto: brutos[i].importe.sub(descuentos[i]),
+      // El envio y el redondeo entran en los dos: no son descuento, el
+      // producto vale eso mas (o menos).
+      bruto: brutos[i].importe.add(envios[i]).add(ajustes[i]),
+      neto: netos[i].add(ajustes[i]),
       orden: i,
     };
   });
@@ -320,7 +380,7 @@ export function armarComprobante(
     neto: monto,
     orden,
   });
-  if (pedido.envio.greaterThan(0)) {
+  if (pedido.envio.greaterThan(0) && renglones.length === 0) {
     pendientes.push(servicio('Envío a domicilio', pedido.envio, pendientes.length));
   }
   if (pedido.recargoFuera.greaterThan(0)) {

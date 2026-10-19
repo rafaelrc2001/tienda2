@@ -8,6 +8,8 @@ import {
   PedidoFacturable,
   RenglonFacturable,
   repartirDescuento,
+  redondearAPesos,
+  repartirEnvio,
 } from './comprobante';
 
 const D = (n: number | string) => new Prisma.Decimal(n);
@@ -55,21 +57,28 @@ function exigirConceptosValidos(c: ReturnType<typeof armarComprobante>): void {
 }
 
 describe('bloqueoDeFacturacion', () => {
+  const bloqueo = (
+    estado: EstadoPedido,
+    estadoPago: EstadoPago,
+    metodoPago: MetodoPago = MetodoPago.EFECTIVO,
+  ) => bloqueoDeFacturacion({ estado, estadoPago, metodoPago })?.codigo ?? null;
+
   it('solo deja facturar lo entregado y pagado', () => {
+    expect(bloqueo(EstadoPedido.ENTREGADO, EstadoPago.PAGADO)).toBeNull();
+    expect(bloqueo(EstadoPedido.EN_RUTA, EstadoPago.PAGADO)).toBe('PEDIDO_SIN_ENTREGAR');
+    expect(bloqueo(EstadoPedido.ENTREGADO, EstadoPago.CREDITO)).toBe('PEDIDO_SIN_PAGAR');
+    expect(bloqueo(EstadoPedido.CONFIRMADO, EstadoPago.CANCELADO)).toBe('PEDIDO_CANCELADO');
+  });
+
+  it('el efectivo cobrado en la puerta se factura sin esperar el corte', () => {
+    expect(bloqueo(EstadoPedido.ENTREGADO, EstadoPago.PAGO_PENDIENTE)).toBeNull();
+    expect(bloqueo(EstadoPedido.EN_RUTA, EstadoPago.PAGO_PENDIENTE)).toBe('PEDIDO_SIN_ENTREGAR');
+  });
+
+  it('la transferencia pendiente espera a que se valide', () => {
     expect(
-      bloqueoDeFacturacion({ estado: EstadoPedido.ENTREGADO, estadoPago: EstadoPago.PAGADO }),
-    ).toBeNull();
-    expect(
-      bloqueoDeFacturacion({ estado: EstadoPedido.EN_RUTA, estadoPago: EstadoPago.PAGADO })?.codigo,
-    ).toBe('PEDIDO_SIN_ENTREGAR');
-    expect(
-      bloqueoDeFacturacion({ estado: EstadoPedido.ENTREGADO, estadoPago: EstadoPago.CREDITO })
-        ?.codigo,
+      bloqueo(EstadoPedido.ENTREGADO, EstadoPago.PAGO_PENDIENTE, MetodoPago.TRANSFERENCIA),
     ).toBe('PEDIDO_SIN_PAGAR');
-    expect(
-      bloqueoDeFacturacion({ estado: EstadoPedido.CONFIRMADO, estadoPago: EstadoPago.CANCELADO })
-        ?.codigo,
-    ).toBe('PEDIDO_CANCELADO');
   });
 });
 
@@ -135,6 +144,36 @@ describe('repartirDescuento', () => {
   });
 });
 
+describe('repartirEnvio', () => {
+  it('partes iguales y el ultimo se lleva el centavo', () => {
+    expect(repartirEnvio(2, D(6)).map((p) => p.toFixed(2))).toEqual(['3.00', '3.00']);
+    expect(repartirEnvio(3, D(10)).map((p) => p.toFixed(2))).toEqual(['3.33', '3.33', '3.34']);
+    expect(repartirEnvio(0, D(6))).toEqual([]);
+  });
+});
+
+describe('redondearAPesos', () => {
+  const ajustes = (montos: (number | string)[], absorbe: number) =>
+    redondearAPesos(montos.map(D), absorbe).map((a) => a.toFixed(2));
+
+  it('cada uno al peso mas cercano y el que absorbe se lleva la diferencia', () => {
+    expect(ajustes(['12.50', '14.50'], 1)).toEqual(['0.50', '-0.50']);
+    expect(ajustes(['12.50', '14.50'], 0)).toEqual(['-0.50', '0.50']);
+    expect(ajustes(['10.40', '12.30', '5.25'], 2)).toEqual(['-0.40', '-0.30', '0.70']);
+  });
+
+  it('el que absorbe se queda con los centavos del pedido', () => {
+    // 10.40 + 12.35 = 22.75: el primero baja a 10 y el segundo sube a 12.75.
+    expect(ajustes(['10.40', '12.35'], 1)).toEqual(['-0.40', '0.40']);
+  });
+
+  it('no deja conceptos en cero', () => {
+    expect(ajustes(['0.30', '5'], 1)).toEqual(['0.00', '0.00']);
+    // 5.70 sube a 6 y dejaria al que absorbe en 0.00.
+    expect(ajustes(['5.70', '0.30'], 1)).toEqual(['0.00', '0.00']);
+  });
+});
+
 describe('formaDePago', () => {
   it('la que cubrio la mayor parte', () => {
     expect(
@@ -194,7 +233,6 @@ describe('armarComprobante', () => {
     expect(c.conceptos.map((k) => [k.claveProdServ, k.claveUnidad, k.unidad])).toEqual([
       ['24122002', 'H87', 'Pieza'],
       ['01010101', 'KGM', 'Kilogramo'],
-      ['78102203', 'E48', 'Unidad de servicio'],
     ]);
   });
 
@@ -212,7 +250,83 @@ describe('armarComprobante', () => {
     expect(c.descuento.toFixed(2)).toBe('0.00');
   });
 
-  it('envio y recargo van como servicios al 16 % al final', () => {
+  it('el envio se reparte parejo dentro de los productos, sin concepto propio', () => {
+    const uno = armarComprobante(
+      pedido({ items: [renglon({ precio: 10, cantidad: 1 })], envio: D(6), total: 16 }),
+      [],
+      CLAVES,
+    );
+    exigirConceptosValidos(uno);
+    expect(uno.conceptos.map((k) => k.importe.toFixed(2))).toEqual(['16.00']);
+
+    const dos = armarComprobante(
+      pedido({
+        items: [renglon({ precio: 10, cantidad: 1 }), renglon({ precio: 12, cantidad: 1 })],
+        envio: D(6),
+        total: 28,
+      }),
+      [],
+      CLAVES,
+    );
+    exigirConceptosValidos(dos);
+    expect(dos.conceptos.map((k) => k.importe.toFixed(2))).toEqual(['13.00', '15.00']);
+    expect(dos.total.toFixed(2)).toBe('28.00');
+  });
+
+  it('cada producto queda en pesos enteros y el total no se mueve', () => {
+    const c = armarComprobante(
+      pedido({
+        items: [renglon({ precio: 10, cantidad: 1 }), renglon({ precio: 12, cantidad: 1 })],
+        envio: D(5),
+        total: 27,
+      }),
+      [],
+      CLAVES,
+    );
+    exigirConceptosValidos(c);
+    // 12.50 y 14.50 con el envio: el primero sube a 13 y el ultimo baja a 14.
+    expect(c.conceptos.map((k) => k.importe.toFixed(2))).toEqual(['13.00', '14.00']);
+    expect(c.descuento.toFixed(2)).toBe('0.00');
+    expect(c.total.toFixed(2)).toBe('27.00');
+  });
+
+  it('los centavos del pedido van al ultimo al 0 %', () => {
+    const c = armarComprobante(
+      pedido({
+        items: [
+          renglon({ precio: '10.40', cantidad: 1 }),
+          renglon({ precio: '7.30', cantidad: 1, tasaIva: TasaIva.DIECISEIS }),
+        ],
+        envio: D(6),
+        total: 23.7,
+      }),
+      [],
+      CLAVES,
+    );
+    exigirConceptosValidos(c);
+    // 13.40 y 10.30: el del 16 % baja a 10 y el del 0 % se queda con 13.70.
+    const conIva = c.conceptos.map((k) => k.base.add(k.iva).toFixed(2));
+    expect(conIva).toEqual(['13.70', '10.00']);
+    expect(c.total.toFixed(2)).toBe('23.70');
+  });
+
+  it('el envio dentro de un producto al 16 % lleva su IVA y no cuenta como descuento', () => {
+    const c = armarComprobante(
+      pedido({
+        items: [renglon({ precio: 14, cantidad: 3, tasaIva: TasaIva.DIECISEIS })],
+        envio: D(35),
+        total: 77,
+      }),
+      [],
+      CLAVES,
+    );
+    exigirConceptosValidos(c);
+    expect(c.conceptos).toHaveLength(1);
+    expect(c.descuento.toFixed(2)).toBe('0.00');
+    expect(c.total.toFixed(2)).toBe('77.00');
+  });
+
+  it('el recargo sigue como servicio al 16 % al final', () => {
     const c = armarComprobante(
       pedido({
         items: [renglon({ precio: 89, cantidad: 1, unidad: 'kg' })],
@@ -226,9 +340,9 @@ describe('armarComprobante', () => {
     exigirConceptosValidos(c);
     expect(c.conceptos.map((k) => k.descripcion)).toEqual([
       'Producto',
-      'Envío a domicilio',
       'Recargo por servicio fuera de horario',
     ]);
+    expect(c.conceptos[0].importe.toFixed(2)).toBe('124.00');
     expect(c.conceptos[1].claveUnidad).toBe('E48');
     expect(c.total.toFixed(2)).toBe('132.90');
   });
