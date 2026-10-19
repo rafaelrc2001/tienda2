@@ -21,7 +21,6 @@ const route = useRoute()
 const router = useRouter()
 
 const abierto = ref(false)
-const vaciando = ref(false)
 
 /** Hay piezas pero la API aún no las valoró: «Cargando...». */
 const lineas = computed(() => carrito.lineasValoradas)
@@ -66,20 +65,16 @@ async function verResumen(): Promise<void> {
 }
 
 /**
- * «Vaciar carrito». El cliente se queda donde está, salvo en el resumen: un
- * resumen vacío no sirve de nada y lo mandamos a la Tienda.
+ * «Vaciar carrito». Un desplegable que solo dice «vacío» no sirve de nada: se
+ * cierra en el acto y el cliente vuelve a la Tienda a llenarlo, venga de donde
+ * venga. No espera al `PUT`: lo local ya quedó vacío al instante, y con la red
+ * lenta la ventana se quedaba abierta un par de segundos diciendo «vacío».
  */
 async function vaciar(): Promise<void> {
-  vaciando.value = true
-  try {
-    await carrito.vaciarAhora()
-  } finally {
-    vaciando.value = false
-  }
-  if (route.path === '/carrito') {
-    cerrar()
-    await router.push('/tienda')
-  }
+  const enCurso = carrito.vaciarAhora()
+  cerrar()
+  if (route.path !== '/tienda') await router.push('/tienda')
+  await enCurso
 }
 </script>
 
@@ -141,13 +136,8 @@ async function vaciar(): Promise<void> {
           <button type="button" class="ver" :disabled="carrito.vacio" @click="verResumen">
             Ver resumen →
           </button>
-          <button
-            type="button"
-            class="vaciar"
-            :disabled="carrito.vacio || vaciando"
-            @click="vaciar"
-          >
-            {{ vaciando ? 'Vaciando…' : 'Vaciar carrito' }}
+          <button type="button" class="vaciar" :disabled="carrito.vacio" @click="vaciar">
+            Vaciar carrito
           </button>
         </div>
       </section>

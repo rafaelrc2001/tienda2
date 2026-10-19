@@ -375,4 +375,40 @@ router.beforeEach(async (destino) => {
   return { path: decision.a, query: decision.query }
 })
 
+/**
+ * Pantalla que no se pudo descargar tras un despliegue.
+ *
+ * Cada pantalla es un archivo aparte con un hash en el nombre. Quien tenía la
+ * app abierta antes de desplegar sigue con el índice viejo, pide un archivo
+ * que ya no existe y Vue Router aborta la navegación sin decir nada: el clic
+ * «no hace nada». Se recarga la página directo en el destino, que trae el
+ * índice nuevo. Una sola vez por destino, para no entrar en bucle si el fallo
+ * es otro (sin red, servidor caído).
+ */
+const PANTALLA_NO_DESCARGADA =
+  /dynamically imported module|Importing a module script failed|Unable to preload CSS/i
+const CLAVE_RECARGA = 'rapidix.recargaPorDespliegue'
+
+router.onError((error, destino) => {
+  if (!(error instanceof Error) || !PANTALLA_NO_DESCARGADA.test(error.message)) return
+  try {
+    if (sessionStorage.getItem(CLAVE_RECARGA) === destino.fullPath) return
+    sessionStorage.setItem(CLAVE_RECARGA, destino.fullPath)
+  } catch {
+    // Sin almacenamiento no hay cómo evitar el bucle: mejor no recargar.
+    return
+  }
+  window.location.assign(destino.fullPath)
+})
+
+// Se llegó a una pantalla: si vuelve a faltar un archivo, se puede recargar otra vez.
+router.afterEach((_destino, _origen, fallo) => {
+  if (fallo) return
+  try {
+    sessionStorage.removeItem(CLAVE_RECARGA)
+  } catch {
+    // Nada que limpiar.
+  }
+})
+
 export { inicioDe }

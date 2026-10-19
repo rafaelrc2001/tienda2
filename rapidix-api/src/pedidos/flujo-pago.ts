@@ -1,4 +1,4 @@
-import { EstadoPago, EstadoPedido, Prisma } from '@prisma/client';
+import { EstadoPago, EstadoPedido, MetodoPago, Prisma } from '@prisma/client';
 
 /**
  * Reglas del eje del dinero. Funciones puras, sin base de datos: las usa
@@ -52,7 +52,13 @@ const FUERA_DE_BODEGA: readonly EstadoPedido[] = [
 ];
 
 export type CodigoBloqueoPago =
-  'PAGO_TERMINAL' | 'MERCANCIA_FUERA' | 'PEDIDO_EN_CXC' | 'MISMO_ESTADO' | 'PAGO_RECIBIDO';
+  | 'PAGO_TERMINAL'
+  | 'MERCANCIA_FUERA'
+  | 'PEDIDO_EN_CXC'
+  | 'MISMO_ESTADO'
+  | 'PAGO_RECIBIDO'
+  | 'EN_CAMINO'
+  | 'YA_FACTURADO';
 
 export interface BloqueoPago {
   codigo: CodigoBloqueoPago;
@@ -173,6 +179,64 @@ export function bloqueoDeCancelacion(pedido: PedidoCancelable): BloqueoPago | nu
     return {
       codigo: 'PAGO_RECIBIDO',
       mensaje: 'El pedido ya está pagado: lo cancela Finanzas, que es quien devuelve el dinero.',
+    };
+  }
+  return null;
+}
+
+/** Lo minimo para decidir si Finanzas puede cambiarle el precio a un renglon. */
+export interface PedidoConPrecio {
+  estado: EstadoPedido;
+  estadoPago: EstadoPago;
+  metodoPago: MetodoPago;
+  /** Tiene CFDI, timbrado o timbrandose. */
+  facturado: boolean;
+}
+
+/**
+ * Decide si Finanzas puede cambiar el precio de un producto en este pedido: el
+ * precio nuevo es lo que se cobra, asi que solo mientras no este pagado.
+ *
+ *  - Pagado, reembolsado o cancelado: el dinero ya se movio con el precio de
+ *    antes; cambiarlo pediria devolver o cobrar una diferencia.
+ *  - Facturado: el CFDI ya dice cuanto se cobro y no se corrige.
+ *  - Recolectado o en ruta: el camion salio con el precio copiado en su carga
+ *    (`CargaRepartidor.precioUnitario`) y la hoja del repartidor cobra ese.
+ *  - Entregado en efectivo y pendiente: el repartidor ya lo cobro en la
+ *    puerta, igual que lo cuenta la factura (`bloqueoDeFacturacion`).
+ *
+ * Lo demas se puede: antes de salir, y entregado a credito o por
+ * transferencia que nadie ha validado. Devuelve el candado, o `null`.
+ */
+export function bloqueoDeCambioDePrecio(pedido: PedidoConPrecio): BloqueoPago | null {
+  if (pedido.estadoPago === EstadoPago.CANCELADO) {
+    return { codigo: 'PAGO_TERMINAL', mensaje: 'Un pedido cancelado ya no cambia de precio.' };
+  }
+  if (pedido.estadoPago === EstadoPago.PAGADO || pedido.estadoPago === EstadoPago.REEMBOLSADO) {
+    return {
+      codigo: 'PAGO_RECIBIDO',
+      mensaje: 'El pedido ya está pagado: se cobró con el precio que tenía.',
+    };
+  }
+  if (pedido.facturado) {
+    return { codigo: 'YA_FACTURADO', mensaje: 'El pedido ya está facturado.' };
+  }
+  if (pedido.estado === EstadoPedido.RECOLECTADO || pedido.estado === EstadoPedido.EN_RUTA) {
+    return {
+      codigo: 'EN_CAMINO',
+      mensaje:
+        'El pedido va en camino y el repartidor cobra el precio con que salió. ' +
+        'Cámbialo antes de que salga o cuando regrese a bodega.',
+    };
+  }
+  if (
+    pedido.estado === EstadoPedido.ENTREGADO &&
+    pedido.metodoPago === MetodoPago.EFECTIVO &&
+    pedido.estadoPago === EstadoPago.PAGO_PENDIENTE
+  ) {
+    return {
+      codigo: 'PAGO_RECIBIDO',
+      mensaje: 'El repartidor ya cobró este pedido en la puerta con el precio que tenía.',
     };
   }
   return null;

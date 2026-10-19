@@ -1,5 +1,6 @@
-import { EstadoPago, EstadoPedido, Prisma } from '@prisma/client';
+import { EstadoPago, EstadoPedido, MetodoPago, Prisma } from '@prisma/client';
 import {
+  bloqueoDeCambioDePrecio,
   bloqueoDeCancelacion,
   botonesDePago,
   ESTADOS_PAGO,
@@ -175,5 +176,50 @@ describe('cancelar fuera de Finanzas (cliente o tienda)', () => {
       pagadoConBilletera: new Prisma.Decimal(100),
     });
     expect(codigo(conBilletera)).toBeNull();
+  });
+});
+
+describe('bloqueoDeCambioDePrecio', () => {
+  const codigo = (
+    cambios: Partial<Parameters<typeof bloqueoDeCambioDePrecio>[0]> = {},
+  ): string | null =>
+    bloqueoDeCambioDePrecio({
+      estado: EstadoPedido.CONFIRMADO,
+      estadoPago: EstadoPago.PAGO_PENDIENTE,
+      metodoPago: MetodoPago.EFECTIVO,
+      facturado: false,
+      ...cambios,
+    })?.codigo ?? null;
+
+  it('se puede antes de que salga, aunque Finanzas lo retenga o lo de a credito', () => {
+    for (const estado of [
+      EstadoPedido.CONFIRMADO,
+      EstadoPedido.EN_PREPARACION,
+      EstadoPedido.PREPARADO,
+      EstadoPedido.LISTO_PARA_ENTREGA,
+    ]) {
+      expect(codigo({ estado })).toBeNull();
+    }
+    expect(codigo({ estadoPago: EstadoPago.RETENER })).toBeNull();
+    expect(codigo({ estadoPago: EstadoPago.CREDITO })).toBeNull();
+  });
+
+  it('no mientras va en el camion: el repartidor cobra el precio con que salio', () => {
+    expect(codigo({ estado: EstadoPedido.RECOLECTADO })).toBe('EN_CAMINO');
+    expect(codigo({ estado: EstadoPedido.EN_RUTA })).toBe('EN_CAMINO');
+  });
+
+  it('entregado: si a credito o por transferencia sin validar, no en efectivo ya cobrado', () => {
+    const entregado = { estado: EstadoPedido.ENTREGADO };
+    expect(codigo({ ...entregado, estadoPago: EstadoPago.CREDITO })).toBeNull();
+    expect(codigo({ ...entregado, metodoPago: MetodoPago.TRANSFERENCIA })).toBeNull();
+    expect(codigo(entregado)).toBe('PAGO_RECIBIDO');
+  });
+
+  it('no si ya esta pagado, cancelado o facturado', () => {
+    expect(codigo({ estadoPago: EstadoPago.PAGADO })).toBe('PAGO_RECIBIDO');
+    expect(codigo({ estadoPago: EstadoPago.REEMBOLSADO })).toBe('PAGO_RECIBIDO');
+    expect(codigo({ estadoPago: EstadoPago.CANCELADO })).toBe('PAGO_TERMINAL');
+    expect(codigo({ estadoPago: EstadoPago.CREDITO, facturado: true })).toBe('YA_FACTURADO');
   });
 });

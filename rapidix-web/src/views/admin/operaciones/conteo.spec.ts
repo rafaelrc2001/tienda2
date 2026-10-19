@@ -3,11 +3,13 @@ import { sumarProductos } from './conteo'
 import type { ItemPedido } from '@/api/tipos'
 
 const item = (productoId: string, nombre: string, cantidad: number, unidad = 'pz'): ItemPedido => ({
+  id: `item-${productoId}`,
   productoId,
   nombre,
   categoria: 'Abarrotes',
   unidad,
   precioUnitario: 10,
+  precioOriginal: null,
   cantidad,
   importe: 10 * cantidad,
 })
