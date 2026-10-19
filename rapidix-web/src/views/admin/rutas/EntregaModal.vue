@@ -703,6 +703,10 @@ async function entregar(): Promise<void> {
                 <span>Recargo fuera de horario</span>
                 <strong>{{ dinero(cuenta.recargoFuera) }}</strong>
               </p>
+              <p v-if="cuenta.redondeo > 0" class="renglon-cuenta">
+                <span>Redondeo del efectivo</span>
+                <strong>{{ dinero(cuenta.redondeo) }}</strong>
+              </p>
               <p v-if="cuenta.descuento > 0" class="renglon-cuenta">
                 <span>{{ pedido.cupon ? `Cupón ${pedido.cupon.code}` : 'Descuento' }}</span>
                 <strong>−{{ dinero(cuenta.descuento) }}</strong>

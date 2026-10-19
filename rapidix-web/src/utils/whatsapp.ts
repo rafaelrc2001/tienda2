@@ -45,6 +45,7 @@ export function mensajeDeEntrega(pedido: Pedido): string {
   if (pedido.envio > 0) lineas.push(`Envío: ${dinero(pedido.envio)}`)
   if (pedido.recargoFuera > 0)
     lineas.push(`Recargo fuera de horario: ${dinero(pedido.recargoFuera)}`)
+  if (pedido.redondeo > 0) lineas.push(`Redondeo del efectivo: ${dinero(pedido.redondeo)}`)
   if (pedido.descuento > 0) lineas.push(`Descuento: −${dinero(pedido.descuento)}`)
   lineas.push(`*Total: ${dinero(pedido.total)}*`)
   if (pedido.pago.billetera > 0) lineas.push(`Billetera: −${dinero(pedido.pago.billetera)}`)

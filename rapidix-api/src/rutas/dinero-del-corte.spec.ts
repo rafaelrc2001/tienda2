@@ -14,11 +14,14 @@ import {
 
 const D = (n: number) => new Prisma.Decimal(n);
 
+type ConRedondeo = PedidoALiquidar & { redondeo: Prisma.Decimal };
+
 /** Efectivo contra entrega con el pago pendiente: el caso de todos los días. */
-const enEfectivo: PedidoALiquidar = {
+const enEfectivo: ConRedondeo = {
   metodoPago: MetodoPago.EFECTIVO,
   estadoPago: EstadoPago.PAGO_PENDIENTE,
   total: D(300),
+  redondeo: D(0),
   pagadoConBilletera: D(0),
 };
 
@@ -48,7 +51,7 @@ describe('traeEfectivo', () => {
 });
 
 describe('ajusteDeEntrega', () => {
-  const total = (pedido: PedidoALiquidar, cargas: CargaLiquidable[]) =>
+  const total = (pedido: ConRedondeo, cargas: CargaLiquidable[]) =>
     ajusteDeEntrega(pedido, cargas).total.toNumber();
 
   it('entrega completa: el pedido no cambia', () => {
@@ -82,7 +85,8 @@ describe('ajusteDeEntrega', () => {
       cantidadEntregada: 4,
       precioEntregado: D(19.95),
     };
-    expect(total(enEfectivo, [cuatro])).toBe(300 - 170 + 79.8);
+    // $209.80, que en efectivo se cobran $210.
+    expect(total(enEfectivo, [cuatro])).toBe(210);
   });
 
   it('el envío y el descuento no se tocan aunque se devuelva todo', () => {
@@ -115,7 +119,22 @@ describe('ajusteDeEntrega', () => {
       precioUnitario: D(8.1),
       precioEntregado: null,
     };
-    expect(total({ ...enEfectivo, total: D(26.5) }, [carga])).toBe(18.4);
+    // Por transferencia, que no se redondea: los centavos se quedan.
+    const transferencia = { ...enEfectivo, metodoPago: MetodoPago.TRANSFERENCIA };
+    expect(total({ ...transferencia, total: D(26.5) }, [carga])).toBe(18.4);
+  });
+
+  it('en efectivo vuelve a redondear hacia arriba lo que queda', () => {
+    const carga: CargaLiquidable = {
+      cantidadCargada: 3,
+      cantidadEntregada: 2,
+      precioUnitario: D(8.1),
+      precioEntregado: null,
+    };
+    // Se cobro $27 ($26.50 + $0.50 de redondeo); queda $18.40, que se cobra $19.
+    const ajuste = ajusteDeEntrega({ ...enEfectivo, total: D(27), redondeo: D(0.5) }, [carga]);
+    expect(ajuste.total.toNumber()).toBe(19);
+    expect(ajuste.redondeo.toNumber()).toBe(0.6);
   });
 
   it('la billetera que ya no hace falta vuelve al cliente', () => {

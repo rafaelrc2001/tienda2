@@ -354,6 +354,10 @@ function marcarTodos(): void {
                       <dt>Recargo fuera de horario</dt>
                       <dd>{{ dinero(pedido.recargoFuera) }}</dd>
                     </div>
+                    <div v-if="pedido.redondeo > 0">
+                      <dt>Redondeo del efectivo</dt>
+                      <dd>{{ dinero(pedido.redondeo) }}</dd>
+                    </div>
                     <div v-if="pedido.descuento > 0">
                       <dt>
                         {{ pedido.cupon ? `Cupón ${pedido.cupon.code}` : 'Descuento' }}

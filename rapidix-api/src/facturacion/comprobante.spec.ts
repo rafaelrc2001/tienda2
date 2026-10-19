@@ -38,6 +38,7 @@ const pedido = (
   envio: p.envio ?? D(0),
   recargoFuera: p.recargoFuera ?? D(0),
   descuento: p.descuento ?? D(0),
+  redondeo: p.redondeo ?? D(0),
   total: D(p.total).toDecimalPlaces(2),
   pagadoConBilletera: p.pagadoConBilletera ?? D(0),
   metodoPago: p.metodoPago ?? MetodoPago.EFECTIVO,
@@ -324,6 +325,24 @@ describe('armarComprobante', () => {
     expect(c.conceptos).toHaveLength(1);
     expect(c.descuento.toFixed(2)).toBe('0.00');
     expect(c.total.toFixed(2)).toBe('77.00');
+  });
+
+  it('el redondeo del efectivo se reparte en los productos y la factura sale entera', () => {
+    // $10.40 + $12.35 = $22.75, cobrado en efectivo a $23.
+    const c = armarComprobante(
+      pedido({
+        items: [renglon({ precio: '10.40', cantidad: 1 }), renglon({ precio: '12.35', cantidad: 1 })],
+        redondeo: D('0.25'),
+        total: 23,
+      }),
+      [],
+      CLAVES,
+    );
+    exigirConceptosValidos(c);
+    expect(c.conceptos).toHaveLength(2);
+    // Con su parte del redondeo quedan en 10.52 y 12.48: 11 y 12.
+    expect(c.conceptos.map((k) => k.importe.toFixed(2))).toEqual(['11.00', '12.00']);
+    expect(c.total.toFixed(2)).toBe('23.00');
   });
 
   it('el recargo sigue como servicio al 16 % al final', () => {
