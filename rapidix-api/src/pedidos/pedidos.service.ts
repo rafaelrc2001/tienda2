@@ -86,7 +86,7 @@ export interface PedidoDto {
    */
   cancelable: boolean;
   /**
-   * Si el cliente puede pedir ya su factura: entregado, pagado y todavia sin
+   * Si el cliente puede pedir ya su factura: pagado y todavia sin
    * CFDI (`bloqueoDeFacturacion`). Lo decide la API, como `cancelable`.
    */
   facturable: boolean;

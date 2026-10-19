@@ -477,7 +477,7 @@ export interface Pedido {
    */
   cancelable: boolean
   /**
-   * Si el cliente ya puede pedir su factura: entregado, pagado y sin CFDI. Lo
+   * Si el cliente ya puede pedir su factura: pagado y sin CFDI. Lo
    * decide la API, igual que `cancelable`.
    */
   facturable: boolean

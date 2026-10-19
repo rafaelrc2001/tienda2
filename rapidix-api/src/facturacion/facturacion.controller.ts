@@ -49,7 +49,7 @@ export class FacturacionController {
 
   /**
    * Timbra el CFDI del pedido. 409 con su `code` si ya tiene uno o si todavia
-   * no esta entregado y pagado; 422 `TIMBRADO_RECHAZADO` con el motivo del SAT
+   * no esta pagado; 422 `TIMBRADO_RECHAZADO` con el motivo del SAT
    * si los datos fiscales no pasan.
    */
   @Post('pedidos/:id/factura')

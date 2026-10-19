@@ -225,7 +225,7 @@ async function descargar(pedido: Pedido, formato: 'pdf' | 'xml'): Promise<void> 
                 >
                   Cashback por acreditar: {{ dinero(pedido.cashbackGenerado) }} al quedar pagado
                 </p>
-                <!-- Facturar lo decide la API (`facturable`): entregado, pagado y sin CFDI. -->
+                <!-- Facturar lo decide la API (`facturable`): pagado y sin CFDI. -->
                 <div v-if="pedido.factura" class="factura">
                   <p class="factura-estado">
                     ✓ Facturado
@@ -257,7 +257,7 @@ async function descargar(pedido: Pedido, formato: 'pdf' | 'xml'): Promise<void> 
                   </button>
                 </div>
                 <p v-else-if="pedido.pago.estado !== 'CANCELADO'" class="factura-pendiente">
-                  Podrás facturarlo cuando esté entregado y pagado.
+                  Podrás facturarlo cuando esté pagado.
                 </p>
                 <!-- Solo mientras la API lo permite: sigue en bodega y no hay dinero
                      que reembolsar. -->
