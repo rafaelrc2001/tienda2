@@ -423,6 +423,9 @@ async function confirmar(): Promise<void> {
         <div v-if="pedidoHecho.recargoFuera > 0" class="cart-summary-row">
           <span>Recargo fuera de horario</span><span>{{ dinero(pedidoHecho.recargoFuera) }}</span>
         </div>
+        <div v-if="pedidoHecho.redondeo > 0" class="cart-summary-row">
+          <span>Redondeo del efectivo</span><span>{{ dinero(pedidoHecho.redondeo) }}</span>
+        </div>
         <div v-if="pedidoHecho.descuento > 0" class="cart-summary-row descuento">
           <span>{{ pedidoHecho.cupon ? `Cupón ${pedidoHecho.cupon.code}` : 'Descuento' }}</span>
           <span>−{{ dinero(pedidoHecho.descuento) }}</span>
@@ -740,6 +743,11 @@ async function confirmar(): Promise<void> {
           <div v-if="previsualizacion.recargoFuera > 0" class="cart-summary-row">
             <span>Recargo fuera de horario</span>
             <span>{{ dinero(previsualizacion.recargoFuera) }}</span>
+          </div>
+          <!-- En efectivo se cobra en pesos enteros: lo que sube, aquí. -->
+          <div v-if="previsualizacion.redondeo > 0" class="cart-summary-row">
+            <span>Redondeo del efectivo</span>
+            <span>{{ dinero(previsualizacion.redondeo) }}</span>
           </div>
           <div v-if="previsualizacion.descuento > 0" class="cart-summary-row descuento">
             <span>{{

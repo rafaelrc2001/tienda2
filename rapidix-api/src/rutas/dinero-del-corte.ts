@@ -1,5 +1,6 @@
 import { EstadoPago, MetodoPago, Prisma } from '@prisma/client';
 import { importeDeLinea } from '../catalogo/precios';
+import { totalRedondeado } from '../pedidos/redondeo';
 
 const Decimal = Prisma.Decimal;
 type Decimal = Prisma.Decimal;
@@ -121,6 +122,8 @@ export interface AjusteDeEntrega {
   /** Lo que valia lo que el cliente no acepto, a los precios que correspondan. */
   noEntregado: Decimal;
   total: Decimal;
+  /** El redondeo del efectivo, vuelto a calcular sobre el total nuevo. */
+  redondeo: Decimal;
   /** Lo que queda pagado con billetera: nunca mas que el total nuevo. */
   pagadoConBilletera: Decimal;
   /** El saldo de billetera que ya no hace falta y vuelve al cliente. */
@@ -136,20 +139,30 @@ export interface AjusteDeEntrega {
  * tocan —el viaje se hizo y el cupon se uso— y el total nunca baja de cero.
  * Si baja de lo que ya pago con su billetera, el sobrante le vuelve: el
  * repartidor no cobra nada y el cliente no pierde saldo por algo que no se llevo.
+ *
+ * El redondeo del efectivo se calculo sobre el total de antes: se quita y se
+ * vuelve a sacar sobre lo que queda, para que lo que cobra el repartidor siga
+ * en pesos enteros. Una entrega completa no lo mueve.
  */
 export function ajusteDeEntrega(
-  pedido: Pick<PedidoALiquidar, 'total' | 'pagadoConBilletera'>,
+  pedido: Pick<PedidoALiquidar, 'total' | 'pagadoConBilletera' | 'metodoPago'> & {
+    redondeo: Decimal;
+  },
   cargas: CargaLiquidable[],
 ): AjusteDeEntrega {
   const noEntregado = cargas.reduce(
     (suma, carga) => suma.add(cotizadoDelRenglon(carga).sub(cobradoDelRenglon(carga))),
     new Decimal(0),
   );
-  const total = Decimal.max(0, new Decimal(pedido.total).sub(noEntregado));
-  const pagadoConBilletera = Decimal.min(pedido.pagadoConBilletera, total);
+  const { total, redondeo, pagadoConBilletera } = totalRedondeado(
+    new Decimal(pedido.total).sub(pedido.redondeo).sub(noEntregado),
+    new Decimal(pedido.pagadoConBilletera),
+    pedido.metodoPago,
+  );
   return {
     noEntregado,
     total,
+    redondeo,
     pagadoConBilletera,
     billeteraDevuelta: new Decimal(pedido.pagadoConBilletera).sub(pagadoConBilletera),
   };
@@ -159,6 +172,8 @@ export function ajusteDeEntrega(
 export interface CuentaDeLaEntrega {
   /** Lo que vale lo que el cliente acepto, ya re-cotizado. */
   productos: Decimal;
+  /** El redondeo del efectivo sobre el total ya ajustado: ya va en `aCobrar`. */
+  redondeo: Decimal;
   /** El efectivo que se cobra en la puerta: el mismo numero que pedira el corte. */
   aCobrar: Decimal;
   /** `null` mientras el pago recibido no cubra el cobro. */
@@ -185,7 +200,7 @@ export interface CuentaDeLaEntrega {
  * lo que debe, porque lo que sobre no tendria donde quedar escrito.
  */
 export function cuentaDeLaEntrega(
-  pedido: PedidoALiquidar,
+  pedido: PedidoALiquidar & { redondeo: Decimal },
   cargas: CargaLiquidable[],
   pagoRecibido: Decimal | null,
 ): CuentaDeLaEntrega {
@@ -199,6 +214,7 @@ export function cuentaDeLaEntrega(
     const saldoCredito = saldoDelCredito(ajustado);
     return {
       productos,
+      redondeo: ajustado.redondeo,
       aCobrar: new Decimal(0),
       cambio: null,
       cubre: pagoRecibido === null || pagoRecibido.lessThanOrEqualTo(saldoCredito),
@@ -208,11 +224,19 @@ export function cuentaDeLaEntrega(
 
   const aCobrar = efectivoDelPedido(ajustado);
   if (aCobrar.isZero()) {
-    return { productos, aCobrar, cambio: null, cubre: true, saldoCredito: null };
+    return {
+      productos,
+      redondeo: ajustado.redondeo,
+      aCobrar,
+      cambio: null,
+      cubre: true,
+      saldoCredito: null,
+    };
   }
   const cubre = pagoRecibido !== null && pagoRecibido.greaterThanOrEqualTo(aCobrar);
   return {
     productos,
+    redondeo: ajustado.redondeo,
     aCobrar,
     cambio: cubre ? pagoRecibido.sub(aCobrar) : null,
     cubre,

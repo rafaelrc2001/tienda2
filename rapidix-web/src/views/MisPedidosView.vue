@@ -175,6 +175,10 @@ async function descargar(pedido: Pedido, formato: 'pdf' | 'xml'): Promise<void> 
                       <td colspan="2">Recargo fuera de horario</td>
                       <td class="num">{{ dinero(pedido.recargoFuera) }}</td>
                     </tr>
+                    <tr v-if="pedido.redondeo > 0">
+                      <td colspan="2">Redondeo del efectivo</td>
+                      <td class="num">{{ dinero(pedido.redondeo) }}</td>
+                    </tr>
                     <tr v-if="pedido.descuento > 0" class="descuento">
                       <td colspan="2">
                         {{ pedido.cupon ? `Cupón ${pedido.cupon.code}` : 'Descuento' }}

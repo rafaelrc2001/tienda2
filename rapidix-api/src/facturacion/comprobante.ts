@@ -38,6 +38,8 @@ export interface PedidoFacturable {
   envio: Decimal;
   recargoFuera: Decimal;
   descuento: Decimal;
+  /** El redondeo del efectivo: se reparte dentro de los productos, como el envio. */
+  redondeo: Decimal;
   total: Decimal;
   pagadoConBilletera: Decimal;
   metodoPago: MetodoPago;
@@ -313,8 +315,8 @@ function concepto(
  * Productos con su tasa congelada y el recargo como servicio al 16 %. El envio
  * no sale como concepto: se reparte en partes iguales dentro de los productos
  * (`repartirEnvio`), con la tasa de cada uno; solo en la factura, el pedido y
- * el ticket lo siguen mostrando aparte. Sin productos que lo reciban vuelve a
- * ir como servicio. El cupon se reparte antes, solo sobre lo que valian los
+ * el ticket lo siguen mostrando aparte. El redondeo del efectivo se reparte
+ * junto con el. Sin productos que los reciban vuelven a ir como servicio. El cupon se reparte antes, solo sobre lo que valian los
  * productos: nunca toco el envio (el envio gratis se mide antes del
  * descuento). Ya con su envio y su descuento, cada producto se redondea a
  * pesos enteros (`redondearAPesos`) y los centavos van a uno solo, el ultimo
@@ -335,7 +337,8 @@ export function armarComprobante(
     categoria: r.categoria,
   }));
   const descuentos = repartirDescuento(brutos, pedido.descuento, categoriasDelCupon);
-  const envios = repartirEnvio(renglones.length, pedido.envio);
+  // El redondeo del efectivo viaja con el envio: tampoco es un producto.
+  const envios = repartirEnvio(renglones.length, pedido.envio.add(pedido.redondeo));
   const netos = brutos.map((b, i) => b.importe.sub(descuentos[i]).add(envios[i]));
   // Absorbe el ultimo al 0 %, que es tambien el ultimo en cuadrarse.
   const ceros = renglones.map((r, i) => (r.tasaIva === TasaIva.DIECISEIS ? -1 : i));
@@ -382,6 +385,9 @@ export function armarComprobante(
   });
   if (pedido.envio.greaterThan(0) && renglones.length === 0) {
     pendientes.push(servicio('Envío a domicilio', pedido.envio, pendientes.length));
+  }
+  if (pedido.redondeo.greaterThan(0) && renglones.length === 0) {
+    pendientes.push(servicio('Redondeo del pago en efectivo', pedido.redondeo, pendientes.length));
   }
   if (pedido.recargoFuera.greaterThan(0)) {
     pendientes.push(

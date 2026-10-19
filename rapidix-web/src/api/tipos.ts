@@ -316,6 +316,8 @@ export interface PrevisualizacionCarrito {
   envio: number
   recargoFuera: number
   descuento: number
+  /** En efectivo, lo que se suma para cobrar en pesos enteros. Ya va en `total`. */
+  redondeo: number
   total: number
   /** Saldo de billetera aplicado. */
   billetera: number
@@ -466,6 +468,8 @@ export interface Pedido {
   envio: number
   recargoFuera: number
   descuento: number
+  /** En efectivo, lo que se sumó para cobrar en pesos enteros. Ya va en `total`. */
+  redondeo: number
   total: number
   cashbackGenerado: number
   /** `false` hasta que el pago queda `PAGADO`: todavía no está en la billetera. */
@@ -771,6 +775,8 @@ export interface PrevisualizacionEntrega {
   envio: number
   recargoFuera: number
   descuento: number
+  /** El redondeo del efectivo sobre lo aceptado. Ya va en `aCobrar`. */
+  redondeo: number
   billetera: number
   cobraEnEfectivo: boolean
   /** El efectivo que se cobra en la puerta. */

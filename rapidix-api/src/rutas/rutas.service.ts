@@ -178,6 +178,8 @@ export interface PrevisualizacionEntregaDto {
   envio: number;
   recargoFuera: number;
   descuento: number;
+  /** El redondeo del efectivo sobre lo aceptado: ya va en `aCobrar`. */
+  redondeo: number;
   /** Lo que el cliente ya pago con su saldo al confirmar. */
   billetera: number;
   /** Si el repartidor cobra en la puerta. */
@@ -1141,6 +1143,8 @@ export class RutasService {
         clienteId: true,
         subtotal: true,
         total: true,
+        redondeo: true,
+        metodoPago: true,
         pagadoConBilletera: true,
         pagoCon: true,
         porcentajeCashback: true,
@@ -1176,6 +1180,7 @@ export class RutasService {
       data: {
         subtotal: Decimal.max(0, pedido.subtotal.sub(ajuste.noEntregado)),
         total: ajuste.total,
+        redondeo: ajuste.redondeo,
         pagadoConBilletera: ajuste.pagadoConBilletera,
         // El cambio que se aviso al comprar era sobre el total de entonces.
         cambio: pedido.pagoCon ? Decimal.max(0, pedido.pagoCon.sub(aPagar)) : null,
@@ -1250,6 +1255,7 @@ export class RutasService {
         envio: true,
         recargoFuera: true,
         descuento: true,
+        redondeo: true,
         pagadoConBilletera: true,
       },
     });
@@ -1292,6 +1298,7 @@ export class RutasService {
       envio: pedido.envio.toNumber(),
       recargoFuera: pedido.recargoFuera.toNumber(),
       descuento: pedido.descuento.toNumber(),
+      redondeo: cuenta.redondeo.toNumber(),
       billetera: pedido.pagadoConBilletera.toNumber(),
       cobraEnEfectivo: traeEfectivo(pedido),
       aCobrar: cuenta.aCobrar.toNumber(),
@@ -1702,6 +1709,7 @@ export class RutasService {
       entregaRutaId: string | null;
       metodoPago: MetodoPago;
       total: Prisma.Decimal;
+      redondeo: Prisma.Decimal;
       pagadoConBilletera: Prisma.Decimal;
       items: { id: string; productoId: string; precioUnitario: Prisma.Decimal; cantidad: number }[];
     }
@@ -1720,6 +1728,7 @@ export class RutasService {
         // Lo que decide cuanto efectivo se cobra en la puerta.
         metodoPago: true,
         total: true,
+        redondeo: true,
         pagadoConBilletera: true,
         items: { select: { id: true, productoId: true, precioUnitario: true, cantidad: true } },
       },

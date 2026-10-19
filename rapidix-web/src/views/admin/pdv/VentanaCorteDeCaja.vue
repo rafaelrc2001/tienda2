@@ -506,6 +506,10 @@ async function cancelarAbono(turno: TurnoPdv): Promise<void> {
                           <dt>{{ p.cupon ? `Cupón ${p.cupon.code}` : 'Descuento' }}</dt>
                           <dd>−{{ dinero(p.descuento) }}</dd>
                         </div>
+                        <div v-if="p.redondeo > 0">
+                          <dt>Redondeo del efectivo</dt>
+                          <dd>{{ dinero(p.redondeo) }}</dd>
+                        </div>
                         <div class="total">
                           <dt>Total</dt>
                           <dd>{{ dinero(p.total) }}</dd>
