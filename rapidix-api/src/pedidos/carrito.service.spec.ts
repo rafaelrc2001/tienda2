@@ -1,4 +1,4 @@
-import { ConfiguracionNegocio, MetodoEntrega, MetodoPago, Prisma } from '@prisma/client';
+import { ConfiguracionNegocio, MetodoEntrega, Prisma } from '@prisma/client';
 import { CarritoService } from './carrito.service';
 
 const D = (n: number) => new Prisma.Decimal(n);
@@ -82,53 +82,6 @@ describe('CarritoService: cupon y billetera', () => {
     const desglose = CarritoService.calcularCarrito(base, config, true, D(1), D(0), D(9999));
     expect(desglose.billetera.toNumber()).toBe(700);
     expect(desglose.aPagar.toNumber()).toBe(0);
-  });
-});
-
-describe('CarritoService: redondeo del efectivo', () => {
-  const calcular = (subtotal: number, billetera: number, metodo?: MetodoPago) =>
-    CarritoService.calcularCarrito(
-      { subtotal: D(subtotal), baseCashback: D(0) },
-      config,
-      true,
-      D(1),
-      D(0),
-      D(billetera),
-      MetodoEntrega.TIENDA,
-      metodo,
-    );
-
-  it('en efectivo lo que se cobra sube al siguiente peso entero', () => {
-    for (const [subtotal, cobra] of [
-      [22.27, 23],
-      [22.83, 23],
-      [22.5, 23],
-      [22, 22],
-    ]) {
-      const d = calcular(subtotal, 0, MetodoPago.EFECTIVO);
-      expect(d.aPagar.toNumber()).toBe(cobra);
-      expect(d.total.toNumber()).toBe(cobra);
-      expect(d.redondeo.toNumber()).toBe(Number((cobra - subtotal).toFixed(2)));
-    }
-  });
-
-  it('la transferencia y el pedido sin metodo no se redondean', () => {
-    expect(calcular(22.27, 0, MetodoPago.TRANSFERENCIA).total.toNumber()).toBe(22.27);
-    expect(calcular(22.27, 0).redondeo.toNumber()).toBe(0);
-  });
-
-  it('solo se redondea lo que queda tras la billetera', () => {
-    // $22.27 con $10.50 de billetera: quedan $11.77, que se cobran $12.
-    const d = calcular(22.27, 10.5, MetodoPago.EFECTIVO);
-    expect(d.aPagar.toNumber()).toBe(12);
-    expect(d.redondeo.toNumber()).toBe(0.23);
-    expect(d.total.toNumber()).toBe(22.5);
-  });
-
-  it('cubierto entero con la billetera no hay nada que redondear', () => {
-    const d = calcular(22.27, 22.27, MetodoPago.EFECTIVO);
-    expect(d.aPagar.toNumber()).toBe(0);
-    expect(d.redondeo.toNumber()).toBe(0);
   });
 });
 

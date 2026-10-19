@@ -29,7 +29,6 @@ import {
 } from '../catalogo/precios';
 import { TiendasService } from '../tiendas/tiendas.service';
 import { LineaCarritoDto, PrevisualizarCarritoDto } from './dto/carrito.dto';
-import { redondeoDelEfectivo } from './redondeo';
 
 const Decimal = Prisma.Decimal;
 type Decimal = Prisma.Decimal;
@@ -92,9 +91,7 @@ export interface DesgloseCarrito {
   envio: Decimal;
   recargoFuera: Decimal;
   descuento: Decimal;
-  /** Lo que se suma para cobrar el efectivo en pesos enteros (`redondeoDelEfectivo`). */
-  redondeo: Decimal;
-  /** Lo que vale el pedido: subtotal + envio + recargo - cupon + redondeo. */
+  /** Lo que vale el pedido: subtotal + envio + recargo - cupon. */
   total: Decimal;
   /** Saldo de billetera aplicado, ya acotado al total. */
   billetera: Decimal;
@@ -178,8 +175,6 @@ export interface PrevisualizacionCarritoDto {
   envio: number;
   recargoFuera: number;
   descuento: number;
-  /** Lo que se suma para cobrar el efectivo en pesos enteros. Cero si no es efectivo. */
-  redondeo: number;
   total: number;
   /** Saldo de billetera aplicado. */
   billetera: number;
@@ -640,7 +635,6 @@ export class CarritoService {
       descuento,
       billetera.monto,
       metodoEntrega,
-      dto.metodoPago,
     );
     const pago = CarritoService.evaluarPago(dto.metodoPago, dto.pagoCon, desglose.aPagar);
 
@@ -673,7 +667,6 @@ export class CarritoService {
       envio: desglose.envio.toNumber(),
       recargoFuera: desglose.recargoFuera.toNumber(),
       descuento: desglose.descuento.toNumber(),
-      redondeo: desglose.redondeo.toNumber(),
       total: desglose.total.toNumber(),
       billetera: desglose.billetera.toNumber(),
       aPagar: desglose.aPagar.toNumber(),
@@ -707,11 +700,6 @@ export class CarritoService {
    *
    * `porcentajeCashback` es el del nivel de quien compra mas su bono
    * (`CashbackService.porcentajePara`): no es de la configuracion.
-   *
-   * Con `metodoPago` en efectivo, lo que queda por cobrar tras la billetera
-   * sube al siguiente peso entero (`redondeoDelEfectivo`) y ese redondeo entra
-   * al total. Sin metodo no se redondea: es lo que mide la billetera, que no
-   * puede gastarse en un redondeo.
    */
   static calcularCarrito(
     carrito: Pick<CarritoResuelto, 'subtotal' | 'baseCashback'>,
@@ -721,7 +709,6 @@ export class CarritoService {
     descuento: Decimal = new Decimal(0),
     billeteraSolicitada: Decimal = new Decimal(0),
     metodoEntrega: MetodoEntrega = MetodoEntrega.DOMICILIO,
-    metodoPago?: MetodoPago,
   ): DesgloseCarrito {
     const { subtotal } = carrito;
 
@@ -757,18 +744,15 @@ export class CarritoService {
     // Aqui solo se acota para que `aPagar` nunca sea negativo. Si pedir de mas
     // es un error o no lo decide quien llama, con `validarBilletera`.
     const billetera = Decimal.max(Decimal.min(billeteraSolicitada, totalFinal), 0);
-    const redondeo = redondeoDelEfectivo(metodoPago, totalFinal.sub(billetera));
-    const conRedondeo = totalFinal.add(redondeo);
 
     return {
       subtotal,
       envio,
       recargoFuera,
       descuento,
-      redondeo,
-      total: conRedondeo,
+      total: totalFinal,
       billetera,
-      aPagar: conRedondeo.sub(billetera),
+      aPagar: totalFinal.sub(billetera),
       cashback,
       cashbackBilletera: CashbackService.aBilletera(cashback, config.multiplicadorCashback),
     };
