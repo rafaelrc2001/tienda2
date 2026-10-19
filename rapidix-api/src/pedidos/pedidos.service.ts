@@ -149,11 +149,15 @@ export interface PedidoDto {
   direccion: Record<string, unknown> | null;
   cupon: { code: string; titulo: string } | null;
   items: {
+    /** El renglon (`PedidoItem.id`): Finanzas le cambia el precio por aqui. */
+    id: string;
     productoId: string;
     nombre: string;
     categoria: string;
     unidad: string;
     precioUnitario: number;
+    /** El precio con que se vendio, si Finanzas le puso otro; `null` si no. */
+    precioOriginal: number | null;
     cantidad: number;
     importe: number;
   }[];
@@ -885,11 +889,13 @@ export class PedidosService {
   private aDto(
     pedido: Pedido & {
       items: {
+        id: string;
         productoId: string;
         nombre: string;
         categoria: string;
         unidad: string;
         precioUnitario: Decimal;
+        precioOriginal: Decimal | null;
         cantidad: number;
       }[];
       cupon?: { code: string; title: string } | null;
@@ -975,11 +981,13 @@ export class PedidosService {
       items: pedido.items
         .filter((i) => i.cantidad > 0)
         .map((i) => ({
+          id: i.id,
           productoId: i.productoId,
           nombre: i.nombre,
           categoria: i.categoria,
           unidad: i.unidad,
           precioUnitario: i.precioUnitario.toNumber(),
+          precioOriginal: i.precioOriginal?.toNumber() ?? null,
           cantidad: i.cantidad,
           importe: importeDeLinea(i.precioUnitario, i.cantidad).toNumber(),
         })),

@@ -214,6 +214,8 @@ interface CargaEnCamion {
   productoId: string;
   cantidadCargada: number;
   precioUnitario: Decimal;
+  /** Finanzas le puso precio a mano (`PedidoItem.precioOriginal`): no se re-cotiza. */
+  precioFijo: boolean;
 }
 
 /** Las pestanas de Rutas. */
@@ -1520,6 +1522,7 @@ export class RutasService {
         productoId: true,
         cantidadCargada: true,
         precioUnitario: true,
+        pedidoItem: { select: { precioOriginal: true } },
       },
       orderBy: { creadoEn: 'asc' },
     });
@@ -1530,7 +1533,10 @@ export class RutasService {
         message: 'Ese pedido no va en tu camión. Actualiza la pantalla.',
       });
     }
-    return cargas;
+    return cargas.map(({ pedidoItem, ...carga }) => ({
+      ...carga,
+      precioFijo: pedidoItem.precioOriginal !== null,
+    }));
   }
 
   /**
@@ -1615,12 +1621,16 @@ export class RutasService {
    * guarda el unitario que se cobro, no las listas con que se calculo. Si el
    * negocio cambio de precios entre el pedido y la entrega, el escalon nuevo
    * es lo unico que hay; si el producto ya no existe, manda el congelado.
+   *
+   * El precio que Finanzas puso a mano tampoco se re-cotiza: es un precio
+   * pactado con ese cliente por pieza, no un escalon de la lista.
    */
   private static recotizar(
     carga: CargaEnCamion,
     cantidadEntregada: number,
     listas: ListasDePrecio | undefined,
   ): Decimal | null {
+    if (carga.precioFijo) return null;
     if (cantidadEntregada === carga.cantidadCargada || cantidadEntregada === 0) return null;
     if (!listas) return null;
 

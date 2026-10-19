@@ -18,6 +18,7 @@ import {
   PedidoEnFinanzasDto,
 } from './finanzas.service';
 import { CambiarPagoDto } from './dto/cambiar-pago.dto';
+import { CambiarPrecioDto } from './dto/cambiar-precio.dto';
 import { RequiereSeccion } from '../auth/seccion.decorator';
 import { SoloPersonal } from '../auth/solo-personal.decorator';
 import { UsuarioActual } from '../auth/usuario-actual.decorator';
@@ -61,5 +62,20 @@ export class FinanzasController {
     @UsuarioActual() usuario: UsuarioAutenticado,
   ): Promise<PedidoEnFinanzasDto> {
     return this.finanzas.cambiarPago(id, dto.estado, usuario, dto.nota);
+  }
+
+  /**
+   * Le pone otro precio por pieza a un producto de este pedido: lo que se le
+   * pacto a ese cliente. Se cobra y se factura con el. Solo mientras no este
+   * pagado (409 PAGO_RECIBIDO, EN_CAMINO, YA_FACTURADO...).
+   */
+  @Patch('pedidos/:id/items/:itemId/precio')
+  cambiarPrecio(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('itemId', ParseUUIDPipe) itemId: string,
+    @Body() dto: CambiarPrecioDto,
+    @UsuarioActual() usuario: UsuarioAutenticado,
+  ): Promise<PedidoEnFinanzasDto> {
+    return this.finanzas.cambiarPrecio(id, itemId, dto.precio, usuario, dto.nota);
   }
 }

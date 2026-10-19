@@ -286,12 +286,7 @@ export type MetodoEntrega = 'DOMICILIO' | 'TIENDA'
 
 /** Lo que decidió Finanzas sobre el dinero. Nace en `PAGO_PENDIENTE`. */
 export type EstadoPago =
-  | 'PAGO_PENDIENTE'
-  | 'RETENER'
-  | 'CREDITO'
-  | 'REEMBOLSADO'
-  | 'PAGADO'
-  | 'CANCELADO'
+  'PAGO_PENDIENTE' | 'RETENER' | 'CREDITO' | 'REEMBOLSADO' | 'PAGADO' | 'CANCELADO'
 
 /** Dónde está físicamente la mercancía. Cancelar vive en el eje de pago. */
 export type EstadoPedido =
@@ -437,11 +432,15 @@ export type ResultadoCupon =
   | { valido: false; motivo: string; mensaje: string; subtotal: number }
 
 export interface ItemPedido {
+  /** El renglón del pedido: Finanzas le cambia el precio por aquí. */
+  id: string
   productoId: string
   nombre: string
   categoria: string
   unidad: string
   precioUnitario: number
+  /** El precio con que se vendió, si Finanzas le puso otro; `null` si no. */
+  precioOriginal: number | null
   cantidad: number
   importe: number
 }
@@ -607,7 +606,14 @@ export interface ListadoOperaciones {
 
 /** Por qué Finanzas no puede dejar el pedido en ese estatus. */
 export interface BloqueoPago {
-  codigo: 'PAGO_TERMINAL' | 'MERCANCIA_FUERA' | 'PEDIDO_EN_CXC' | 'MISMO_ESTADO'
+  codigo:
+    | 'PAGO_TERMINAL'
+    | 'MERCANCIA_FUERA'
+    | 'PEDIDO_EN_CXC'
+    | 'MISMO_ESTADO'
+    | 'PAGO_RECIBIDO'
+    | 'EN_CAMINO'
+    | 'YA_FACTURADO'
   mensaje: string
 }
 
@@ -623,6 +629,8 @@ export interface BotonPago {
 /** Pedido de la pantalla de Finanzas. */
 export interface PedidoEnFinanzas extends Pedido {
   botones: BotonPago[]
+  /** Si se le puede cambiar el precio a sus productos (`null`) o por qué no. */
+  bloqueoPrecio: BloqueoPago | null
 }
 
 export type FiltroFinanzas = 'por-decidir' | 'credito' | 'pagados' | 'cancelados' | 'todos'
@@ -638,11 +646,7 @@ export interface ListadoFinanzas {
 // ------------------------------------------------------------------
 
 /** Por qué el cliente no se quedó con la mercancía. Catálogo cerrado de la API. */
-export type MotivoDevolucion =
-  | 'NO_LO_QUISO'
-  | 'DANADO'
-  | 'SIN_QUIEN_RECIBA'
-  | 'PRECIO_EQUIVOCADO'
+export type MotivoDevolucion = 'NO_LO_QUISO' | 'DANADO' | 'SIN_QUIEN_RECIBA' | 'PRECIO_EQUIVOCADO'
 
 /** La jornada del repartidor. `null` hasta que crea su primera entrega del día. */
 export interface Jornada {
@@ -842,12 +846,7 @@ export interface EntregaEnHistorial {
 
 /** Cómo acabó un pedido en una entrega concreta, que no es su estado de hoy. */
 export type ResultadoDelIntento =
-  | 'ENTREGADO'
-  | 'PARCIAL'
-  | 'EN_CAMION'
-  | 'EN_RUTA'
-  | 'DEVUELTO'
-  | 'CANCELADO'
+  'ENTREGADO' | 'PARCIAL' | 'EN_CAMION' | 'EN_RUTA' | 'DEVUELTO' | 'CANCELADO'
 
 export interface PedidoEnHistorial {
   id: string

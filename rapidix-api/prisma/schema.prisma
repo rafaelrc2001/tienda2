@@ -1002,6 +1002,11 @@ model PedidoItem {
   categoria      String
   unidad         String
   precioUnitario Decimal @db.Decimal(25, 15)
+  /// El unitario con que se vendio, si Finanzas le puso otro a mano a este
+  /// pedido (`precioUnitario` ya es el nuevo). Null si nunca se cambio. Guarda
+  /// el primero aunque se cambie dos veces, y marca el precio como pactado:
+  /// una entrega parcial no lo re-cotiza con la lista.
+  precioOriginal Decimal? @db.Decimal(25, 15)
   cantidad       Int
   /// La tasa de IVA del producto al venderse. Se congela como el precio: si
   /// despues se corrige el producto, la factura de esta venta no cambia.

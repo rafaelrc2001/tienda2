@@ -32,7 +32,14 @@ import SkeletonList from '@/components/SkeletonList.vue'
 import BitacoraPedido from '@/components/BitacoraPedido.vue'
 import PestanasFinanzas from './finanzas/PestanasFinanzas.vue'
 import { buscarPedidos } from './finanzas/busqueda'
-import type { BotonPago, EstadoPago, ListadoFinanzas, PedidoEnFinanzas } from '@/api/tipos'
+import { montoCapturado } from './rutas/liquidacion'
+import type {
+  BotonPago,
+  EstadoPago,
+  ItemPedido,
+  ListadoFinanzas,
+  PedidoEnFinanzas,
+} from '@/api/tipos'
 
 const ui = useUiStore()
 
@@ -150,6 +157,57 @@ async function aplicar(
 /** El nombre del estatus sale de la API, que es quien manda los botones. */
 function tituloDe(pedido: PedidoEnFinanzas, estado: EstadoPago): string {
   return pedido.botones.find((b) => b.estado === estado)?.titulo ?? estado
+}
+
+// ------------------------------------------------------------------
+// Precio pactado: otro precio por pieza solo en este pedido
+// ------------------------------------------------------------------
+
+/**
+ * El renglón al que se le está poniendo precio. Si se puede lo decide la API
+ * (`bloqueoPrecio`): mientras no esté pagado ni vaya en el camión. El total
+ * nuevo también lo calcula ella; aquí solo se captura el unitario.
+ */
+const precioDe = ref<{ pedido: PedidoEnFinanzas; item: ItemPedido } | null>(null)
+/** Texto y no número: el campo vacío no es cero. */
+const precio = ref('')
+const notaPrecio = ref('')
+const errorPrecio = ref('')
+const guardandoPrecio = ref(false)
+
+function abrirPrecio(pedido: PedidoEnFinanzas, item: ItemPedido): void {
+  precio.value = String(item.precioUnitario)
+  notaPrecio.value = ''
+  errorPrecio.value = ''
+  precioDe.value = { pedido, item }
+}
+
+async function guardarPrecio(): Promise<void> {
+  const pendiente = precioDe.value
+  if (!pendiente) return
+  const capturado = montoCapturado(precio.value)
+  if (capturado === null || capturado <= 0) {
+    errorPrecio.value = 'Escribe un precio mayor que cero.'
+    return
+  }
+
+  guardandoPrecio.value = true
+  try {
+    const actualizado = await http.patch<PedidoEnFinanzas>(
+      `/admin/finanzas/pedidos/${pendiente.pedido.id}/items/${pendiente.item.id}/precio`,
+      { precio: capturado, ...(notaPrecio.value.trim() && { nota: notaPrecio.value.trim() }) },
+    )
+    pedidos.value = pedidos.value.map((p) => (p.id === actualizado.id ? actualizado : p))
+    ui.exito(
+      `${actualizado.folio}: ${pendiente.item.nombre} a ${dinero(capturado)} por pieza. Total ${dinero(actualizado.total)}.`,
+    )
+    precioDe.value = null
+  } catch (fallo) {
+    // Un 409 aquí es que el pedido cambió mientras tanto: salió a ruta, se pagó…
+    errorPrecio.value = fallo instanceof ErrorApi ? fallo.message : 'No se pudo cambiar el precio.'
+  } finally {
+    guardandoPrecio.value = false
+  }
 }
 
 function alternar(id: string): void {
@@ -287,9 +345,25 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
             <tr v-if="abierto === pedido.id" class="fila-detalle">
               <td colspan="8">
                 <div class="detalle-pedido">
+                  <!-- Cada producto con su precio; el pactado a mano lleva tachado el
+                       de la venta. Cambiarlo solo se ofrece mientras la API lo deja. -->
                   <ul class="renglones">
-                    <li v-for="item in pedido.items" :key="item.productoId">
-                      <strong>{{ item.cantidad }}-</strong>{{ item.nombre }}
+                    <li v-for="item in pedido.items" :key="item.id" class="renglon-precio">
+                      <span>
+                        <strong>{{ item.cantidad }}-</strong>{{ item.nombre }} ·
+                        <s v-if="item.precioOriginal !== null" class="precio-original">
+                          {{ dinero(item.precioOriginal) }}
+                        </s>
+                        {{ dinero(item.precioUnitario) }} c/u
+                      </span>
+                      <button
+                        v-if="pedido.bloqueoPrecio === null"
+                        type="button"
+                        class="enlace cambiar-precio"
+                        @click="abrirPrecio(pedido, item)"
+                      >
+                        Cambiar precio
+                      </button>
                     </li>
                   </ul>
 
@@ -413,6 +487,64 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
             @click="confirmar"
           >
             {{ confirmando.boton.titulo }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Precio pactado: se cobra y se factura con él, solo en este pedido. -->
+    <div v-if="precioDe" class="modal-overlay" @click.self="precioDe = null">
+      <div class="modal-sheet" role="dialog" aria-label="Cambiar precio">
+        <div class="modal-handle" />
+        <p class="modal-title">Cambiar precio · {{ precioDe.pedido.folio }}</p>
+        <p class="modal-texto">
+          {{ precioDe.item.cantidad }} × {{ precioDe.item.nombre }}, hoy a
+          {{ dinero(precioDe.item.precioUnitario) }} por pieza. El precio nuevo es solo para este
+          pedido: se le cobra y se le factura con él, y el total se recalcula.
+        </p>
+
+        <div class="zona-captura">
+          <label class="form-label" for="precio-nuevo">Precio por pieza (IVA incluido)</label>
+          <input
+            id="precio-nuevo"
+            v-model="precio"
+            class="form-input monto"
+            :class="{ 'is-invalid': errorPrecio }"
+            type="text"
+            inputmode="decimal"
+            autocomplete="off"
+            placeholder="0.00"
+            @keyup.enter="guardarPrecio"
+          />
+          <p v-if="errorPrecio" class="form-error">{{ errorPrecio }}</p>
+
+          <label class="form-label" for="precio-nota">Motivo (opcional)</label>
+          <textarea
+            id="precio-nota"
+            v-model="notaPrecio"
+            class="form-textarea"
+            rows="2"
+            maxlength="500"
+            placeholder="Ej.: precio de mayoreo acordado con el cliente"
+          />
+        </div>
+
+        <div class="modal-actions">
+          <button
+            type="button"
+            class="btn-cancel"
+            :disabled="guardandoPrecio"
+            @click="precioDe = null"
+          >
+            Volver
+          </button>
+          <button
+            type="button"
+            class="btn-primary"
+            :disabled="guardandoPrecio"
+            @click="guardarPrecio"
+          >
+            {{ guardandoPrecio ? 'Guardando…' : 'Cambiar precio' }}
           </button>
         </div>
       </div>
@@ -550,5 +682,51 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
 
 .campo .form-input {
   resize: vertical;
+}
+
+/* El producto a la izquierda y «Cambiar precio» al final del renglón. */
+.renglon-precio {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.precio-original {
+  color: var(--muted);
+}
+
+.tabla .detalle-pedido .enlace.cambiar-precio {
+  margin-top: 0;
+  font-size: 12px;
+}
+
+/* Donde se escribe: bloque crema y campos blancos, para que se vea dónde capturar. */
+.zona-captura {
+  background: var(--cream-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+
+.zona-captura .form-input,
+.zona-captura .form-textarea {
+  background: var(--white);
+}
+
+.zona-captura .form-textarea {
+  margin-bottom: 0;
+}
+
+/* 16px reales: con menos, Safari en iPhone amplía la página al enfocar el campo. */
+.monto {
+  font-size: 16px;
+  font-weight: 700;
+  text-align: right;
+}
+
+.form-error {
+  margin: -4px 0 10px;
 }
 </style>
