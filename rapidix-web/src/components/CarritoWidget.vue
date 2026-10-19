@@ -66,8 +66,8 @@ async function verResumen(): Promise<void> {
 }
 
 /**
- * «Vaciar carrito». El cliente se queda donde está, salvo en el resumen: un
- * resumen vacío no sirve de nada y lo mandamos a la Tienda.
+ * «Vaciar carrito». Un desplegable que solo dice «vacío» no sirve de nada: se
+ * cierra y el cliente vuelve a la Tienda a llenarlo, venga de donde venga.
  */
 async function vaciar(): Promise<void> {
   vaciando.value = true
@@ -76,10 +76,8 @@ async function vaciar(): Promise<void> {
   } finally {
     vaciando.value = false
   }
-  if (route.path === '/carrito') {
-    cerrar()
-    await router.push('/tienda')
-  }
+  cerrar()
+  if (route.path !== '/tienda') await router.push('/tienda')
 }
 </script>
 
