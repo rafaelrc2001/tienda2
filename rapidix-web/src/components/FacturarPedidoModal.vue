@@ -2,9 +2,13 @@
 /**
  * «Facturar» de Mis pedidos: los datos fiscales del cliente y el timbrado.
  *
+ * Finanzas usa la misma hoja (`porFinanzas`) para facturar a nombre del
+ * cliente: cambian las rutas —las del panel, que sacan al cliente del
+ * pedido— y los textos, que le hablan al personal y no al cliente.
+ *
  * Los catálogos (régimen y uso del CFDI) y lo guardado —aquí o en el Perfil—
  * llegan juntos de `GET /perfil/datos-fiscales`: la interfaz no lleva copia de
- * los catálogos del SAT. Los candados (entregado, pagado, una factura por
+ * los catálogos del SAT. Los candados (pagado, una factura por
  * pedido) los pone la API; aquí solo se captura y se enseña lo que responda.
  *
  * Tocar fuera de la hoja no la cierra: con el formulario a medias se perdía
@@ -25,7 +29,14 @@ import {
 import CamposFiscales from '@/components/CamposFiscales.vue'
 import type { DatosFiscalesRespuesta, FacturaDePedido, Pedido } from '@/api/tipos'
 
-const props = defineProps<{ pedido: Pedido }>()
+const props = defineProps<{ pedido: Pedido; porFinanzas?: boolean }>()
+
+/** Las del cliente, o las del panel, que facturan a nombre del cliente del pedido. */
+const base = computed(() =>
+  props.porFinanzas ? `/admin/finanzas/pedidos/${props.pedido.id}` : null,
+)
+const rutaDatos = computed(() => (base.value ? `${base.value}/datos-fiscales` : '/perfil/datos-fiscales'))
+const rutaFactura = computed(() => `${base.value ?? `/pedidos/${props.pedido.id}`}/factura`)
 const emit = defineEmits<{
   (e: 'cerrar'): void
   /** Ya tiene CFDI (o alguien lo timbró mientras tanto): quien abrió relee la lista. */
@@ -57,7 +68,7 @@ const formaPago = ref(props.pedido.formaPagoFactura)
 
 onMounted(async () => {
   try {
-    catalogos.value = await http.get<DatosFiscalesRespuesta>('/perfil/datos-fiscales')
+    catalogos.value = await http.get<DatosFiscalesRespuesta>(rutaDatos.value)
     formulario.value = formularioFiscalDesde(catalogos.value)
   } catch (fallo) {
     ui.errorDeApi(fallo)
@@ -76,7 +87,7 @@ async function timbrar(): Promise<void> {
   errorFormaPago.value = ''
   erroresGenerales.value = []
   try {
-    const factura = await http.post<FacturaDePedido>(`/pedidos/${props.pedido.id}/factura`, {
+    const factura = await http.post<FacturaDePedido>(rutaFactura.value, {
       ...cuerpoFiscal(formulario.value),
       // Son los mismos datos del Perfil vistos desde otro lado: lo que se
       // corrige aquí queda guardado allá. La API solo los guarda si el SAT
@@ -125,7 +136,13 @@ async function timbrar(): Promise<void> {
           Modo demostración: la factura se genera con un folio de prueba y no tiene validez fiscal.
         </p>
         <p class="modal-texto">
-          Escribe tus datos tal cual aparecen en tu Constancia de Situación Fiscal.
+          <template v-if="porFinanzas">
+            Los datos de {{ pedido.clienteNombre ?? 'el cliente' }} tal cual aparecen en su
+            Constancia de Situación Fiscal. Si ya los tenía guardados, vienen llenos.
+          </template>
+          <template v-else>
+            Escribe tus datos tal cual aparecen en tu Constancia de Situación Fiscal.
+          </template>
         </p>
 
         <p v-for="(mensaje, i) in erroresGenerales" :key="i" class="form-error">{{ mensaje }}</p>
@@ -149,9 +166,13 @@ async function timbrar(): Promise<void> {
           </option>
         </select>
         <p v-if="errorFormaPago" class="form-error">{{ errorFormaPago }}</p>
-        <p class="form-hint">Ya viene con la forma en que pagaste este pedido.</p>
+        <p class="form-hint">
+          Ya viene con la forma en que {{ porFinanzas ? 'se pagó' : 'pagaste' }} este pedido.
+        </p>
 
-        <p class="nota-guardado">Estos datos también quedan guardados en tu perfil.</p>
+        <p class="nota-guardado">
+          Estos datos también quedan guardados en {{ porFinanzas ? 'el perfil del cliente' : 'tu perfil' }}.
+        </p>
 
         <div class="modal-actions">
           <button type="button" class="btn-cancel" @click="emit('cerrar')">Cancelar</button>

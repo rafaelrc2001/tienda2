@@ -8,7 +8,6 @@ import { ConfiguracionService } from '../configuracion/configuracion.service';
 import { importeDeLinea } from '../catalogo/precios';
 import { ActorDeBitacora, actorDe, registrarEnBitacora } from './bitacora';
 import { pagadoDelPedido } from './cxc';
-import { totalRedondeado } from './redondeo';
 import {
   BloqueoPago,
   bloqueoDeCambioDePrecio,
@@ -120,8 +119,7 @@ export class FinanzasService {
    * todo lo que colgaba del total, en la misma transaccion y como en una
    * entrega parcial (`dejarComoSeEntrego`):
    *  - subtotal y total suben o bajan la diferencia; envio, recargo y cupon
-   *    no se tocan (el envio gratis ya se gano o no al comprar). El redondeo
-   *    del efectivo se vuelve a sacar sobre el total nuevo;
+   *    no se tocan (el envio gratis ya se gano o no al comprar);
    *  - si el total baja de lo que pago con su billetera, el sobrante vuelve;
    *  - el cashback se recalcula con el % congelado. Todavia no esta en la
    *    billetera: eso pasa al quedar PAGADO, y pagado ya no se cambia;
@@ -151,7 +149,6 @@ export class FinanzasService {
           metodoPago: true,
           subtotal: true,
           total: true,
-          redondeo: true,
           pagadoConBilletera: true,
           pagoCon: true,
           porcentajeCashback: true,
@@ -195,12 +192,8 @@ export class FinanzasService {
       const diferencia = importeDeLinea(nuevo, item.cantidad).sub(
         importeDeLinea(item.precioUnitario, item.cantidad),
       );
-      // El redondeo del efectivo era sobre el total de antes: se saca otra vez.
-      const { total, redondeo, pagadoConBilletera } = totalRedondeado(
-        pedido.total.sub(pedido.redondeo).add(diferencia),
-        pedido.pagadoConBilletera,
-        pedido.metodoPago,
-      );
+      const total = Decimal.max(0, pedido.total.add(diferencia));
+      const pagadoConBilletera = Decimal.min(pedido.pagadoConBilletera, total);
       const billeteraDevuelta = pedido.pagadoConBilletera.sub(pagadoConBilletera);
       const aPagar = total.sub(pagadoConBilletera);
 
@@ -238,7 +231,6 @@ export class FinanzasService {
         data: {
           subtotal: Decimal.max(0, pedido.subtotal.add(diferencia)),
           total,
-          redondeo,
           pagadoConBilletera,
           // El cambio que se aviso al comprar era sobre el total de entonces.
           cambio: pedido.pagoCon ? Decimal.max(0, pedido.pagoCon.sub(aPagar)) : null,

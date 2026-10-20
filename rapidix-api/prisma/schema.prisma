@@ -863,9 +863,6 @@ model Pedido {
   /// Recargo por atencion fuera de horario (Word 6.8). Columna propia para poder auditarlo.
   recargoFuera Decimal @default(0) @db.Decimal(12, 2)
   descuento    Decimal @default(0) @db.Decimal(12, 2)
-  /// Lo que se sumo para cobrar el efectivo en pesos enteros, hacia arriba
-  /// (`redondeoDelEfectivo`). Ya va dentro de `total`. Cero si no es efectivo.
-  redondeo     Decimal @default(0) @db.Decimal(12, 2)
   total        Decimal @db.Decimal(12, 2)
 
   // Pago (HU-09 a HU-12). `total` es lo que vale el pedido; lo que cobra el

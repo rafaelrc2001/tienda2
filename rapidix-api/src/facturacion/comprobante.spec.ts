@@ -1,4 +1,4 @@
-import { EstadoPago, EstadoPedido, MetodoPago, Prisma, TasaIva } from '@prisma/client';
+import { EstadoPago, MetodoPago, Prisma, TasaIva } from '@prisma/client';
 import {
   armarComprobante,
   baseAl16,
@@ -10,6 +10,7 @@ import {
   repartirDescuento,
   redondearAPesos,
   repartirEnvio,
+  totalFacturado,
 } from './comprobante';
 
 const D = (n: number | string) => new Prisma.Decimal(n);
@@ -38,7 +39,6 @@ const pedido = (
   envio: p.envio ?? D(0),
   recargoFuera: p.recargoFuera ?? D(0),
   descuento: p.descuento ?? D(0),
-  redondeo: p.redondeo ?? D(0),
   total: D(p.total).toDecimalPlaces(2),
   pagadoConBilletera: p.pagadoConBilletera ?? D(0),
   metodoPago: p.metodoPago ?? MetodoPago.EFECTIVO,
@@ -58,28 +58,23 @@ function exigirConceptosValidos(c: ReturnType<typeof armarComprobante>): void {
 }
 
 describe('bloqueoDeFacturacion', () => {
-  const bloqueo = (
-    estado: EstadoPedido,
-    estadoPago: EstadoPago,
-    metodoPago: MetodoPago = MetodoPago.EFECTIVO,
-  ) => bloqueoDeFacturacion({ estado, estadoPago, metodoPago })?.codigo ?? null;
+  const bloqueo = (estadoPago: EstadoPago) =>
+    bloqueoDeFacturacion({ estadoPago })?.codigo ?? null;
 
-  it('solo deja facturar lo entregado y pagado', () => {
-    expect(bloqueo(EstadoPedido.ENTREGADO, EstadoPago.PAGADO)).toBeNull();
-    expect(bloqueo(EstadoPedido.EN_RUTA, EstadoPago.PAGADO)).toBe('PEDIDO_SIN_ENTREGAR');
-    expect(bloqueo(EstadoPedido.ENTREGADO, EstadoPago.CREDITO)).toBe('PEDIDO_SIN_PAGAR');
-    expect(bloqueo(EstadoPedido.CONFIRMADO, EstadoPago.CANCELADO)).toBe('PEDIDO_CANCELADO');
+  it('solo deja facturar lo pagado, se haya entregado o no', () => {
+    expect(bloqueo(EstadoPago.PAGADO)).toBeNull();
   });
 
-  it('el efectivo cobrado en la puerta se factura sin esperar el corte', () => {
-    expect(bloqueo(EstadoPedido.ENTREGADO, EstadoPago.PAGO_PENDIENTE)).toBeNull();
-    expect(bloqueo(EstadoPedido.EN_RUTA, EstadoPago.PAGO_PENDIENTE)).toBe('PEDIDO_SIN_ENTREGAR');
-  });
-
-  it('la transferencia pendiente espera a que se valide', () => {
-    expect(
-      bloqueo(EstadoPedido.ENTREGADO, EstadoPago.PAGO_PENDIENTE, MetodoPago.TRANSFERENCIA),
-    ).toBe('PEDIDO_SIN_PAGAR');
+  it('nada que no este pagado, ni el efectivo cobrado en la puerta', () => {
+    for (const estadoPago of [
+      EstadoPago.PAGO_PENDIENTE,
+      EstadoPago.RETENER,
+      EstadoPago.CREDITO,
+      EstadoPago.REEMBOLSADO,
+    ]) {
+      expect(bloqueo(estadoPago)).toBe('PEDIDO_SIN_PAGAR');
+    }
+    expect(bloqueo(EstadoPago.CANCELADO)).toBe('PEDIDO_CANCELADO');
   });
 });
 
@@ -291,7 +286,36 @@ describe('armarComprobante', () => {
     expect(c.total.toFixed(2)).toBe('27.00');
   });
 
-  it('los centavos del pedido van al ultimo al 0 %', () => {
+  it('la factura va por el total al peso mas cercano: .50 sube y .49 baja', () => {
+    const facturado = (precio: string, tasaIva: TasaIva = TasaIva.CERO) =>
+      armarComprobante(
+        pedido({ items: [renglon({ precio, cantidad: 1, tasaIva })], total: Number(precio) }),
+        [],
+        CLAVES,
+      ).total.toFixed(2);
+    expect(facturado('22.50')).toBe('23.00');
+    expect(facturado('22.49')).toBe('22.00');
+    expect(facturado('22.83')).toBe('23.00');
+    expect(facturado('22.27')).toBe('22.00');
+    // Como ORD000147: un producto al 16 % cobrado en $22.50 se factura en $23.
+    expect(facturado('22.50', TasaIva.DIECISEIS)).toBe('23.00');
+  });
+
+  it('producto de 67.80 con envio de 3: la factura dice un solo producto de 71', () => {
+    for (const tasaIva of [TasaIva.CERO, TasaIva.DIECISEIS]) {
+      const c = armarComprobante(
+        pedido({ items: [renglon({ precio: '67.80', cantidad: 1, tasaIva })], envio: D(3), total: 70.8 }),
+        [],
+        CLAVES,
+      );
+      exigirConceptosValidos(c);
+      expect(c.conceptos).toHaveLength(1);
+      expect(c.conceptos[0].base.add(c.conceptos[0].iva).toFixed(2)).toBe('71.00');
+      expect(c.total.toFixed(2)).toBe('71.00');
+    }
+  });
+
+  it('los centavos que no se reparten parejo van al ultimo al 0 %', () => {
     const c = armarComprobante(
       pedido({
         items: [
@@ -305,10 +329,11 @@ describe('armarComprobante', () => {
       CLAVES,
     );
     exigirConceptosValidos(c);
-    // 13.40 y 10.30: el del 16 % baja a 10 y el del 0 % se queda con 13.70.
+    // $23.70 se factura en $24: con el envio y los 30 centavos quedan 13.55 y
+    // 10.45. El del 16 % baja a 10 y el del 0 % absorbe: 14.
     const conIva = c.conceptos.map((k) => k.base.add(k.iva).toFixed(2));
-    expect(conIva).toEqual(['13.70', '10.00']);
-    expect(c.total.toFixed(2)).toBe('23.70');
+    expect(conIva).toEqual(['14.00', '10.00']);
+    expect(c.total.toFixed(2)).toBe('24.00');
   });
 
   it('el envio dentro de un producto al 16 % lleva su IVA y no cuenta como descuento', () => {
@@ -327,24 +352,6 @@ describe('armarComprobante', () => {
     expect(c.total.toFixed(2)).toBe('77.00');
   });
 
-  it('el redondeo del efectivo se reparte en los productos y la factura sale entera', () => {
-    // $10.40 + $12.35 = $22.75, cobrado en efectivo a $23.
-    const c = armarComprobante(
-      pedido({
-        items: [renglon({ precio: '10.40', cantidad: 1 }), renglon({ precio: '12.35', cantidad: 1 })],
-        redondeo: D('0.25'),
-        total: 23,
-      }),
-      [],
-      CLAVES,
-    );
-    exigirConceptosValidos(c);
-    expect(c.conceptos).toHaveLength(2);
-    // Con su parte del redondeo quedan en 10.52 y 12.48: 11 y 12.
-    expect(c.conceptos.map((k) => k.importe.toFixed(2))).toEqual(['11.00', '12.00']);
-    expect(c.total.toFixed(2)).toBe('23.00');
-  });
-
   it('el recargo sigue como servicio al 16 % al final', () => {
     const c = armarComprobante(
       pedido({
@@ -361,9 +368,10 @@ describe('armarComprobante', () => {
       'Producto',
       'Recargo por servicio fuera de horario',
     ]);
-    expect(c.conceptos[0].importe.toFixed(2)).toBe('124.00');
+    // $132.90 se factura en $133: los 10 centavos van al producto con el envio.
+    expect(c.conceptos[0].importe.toFixed(2)).toBe('124.10');
     expect(c.conceptos[1].claveUnidad).toBe('E48');
-    expect(c.total.toFixed(2)).toBe('132.90');
+    expect(c.total.toFixed(2)).toBe('133.00');
   });
 
   it('con cupon y tasas mezcladas cuadra al centavo', () => {
@@ -382,7 +390,8 @@ describe('armarComprobante', () => {
       CLAVES,
     );
     exigirConceptosValidos(c);
-    expect(c.total.toFixed(2)).toBe((91 + 84 + 10 + 35 - 17.37).toFixed(2));
+    // $202.63 se factura en $203.
+    expect(c.total.toFixed(2)).toBe('203.00');
     expect(c.descuento.greaterThan(0)).toBe(true);
   });
 
@@ -401,16 +410,12 @@ describe('armarComprobante', () => {
         CLAVES,
       );
       exigirConceptosValidos(c);
-      expect(
-        c.total
-          .sub(D(precio + (precio + 1) * 2).toDecimalPlaces(2))
-          .abs()
-          .lessThanOrEqualTo(D('0.01')),
-      ).toBe(true);
+      const esperado = totalFacturado(D(precio + (precio + 1) * 2).toDecimalPlaces(2));
+      expect(c.total.sub(esperado).abs().lessThanOrEqualTo(D('0.01'))).toBe(true);
     }
   });
 
-  it('con un producto al 0 % absorbe el centavo y el total es exacto', () => {
+  it('con un producto al 0 % absorbe el centavo y el total es el redondeado exacto', () => {
     for (let centavos = 101; centavos <= 400; centavos += 7) {
       const precio = centavos / 100;
       const total = D(precio).add(18);
@@ -426,7 +431,7 @@ describe('armarComprobante', () => {
         CLAVES,
       );
       exigirConceptosValidos(c);
-      expect(c.total.toFixed(2)).toBe(total.toFixed(2));
+      expect(c.total.toFixed(2)).toBe(totalFacturado(total).toFixed(2));
     }
   });
 

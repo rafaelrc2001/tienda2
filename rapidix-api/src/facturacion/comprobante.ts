@@ -1,4 +1,4 @@
-import { EstadoPago, EstadoPedido, MetodoPago, Prisma, TasaIva } from '@prisma/client';
+import { EstadoPago, MetodoPago, Prisma, TasaIva } from '@prisma/client';
 import { importeDeLinea } from '../catalogo/precios';
 
 const Decimal = Prisma.Decimal;
@@ -38,8 +38,6 @@ export interface PedidoFacturable {
   envio: Decimal;
   recargoFuera: Decimal;
   descuento: Decimal;
-  /** El redondeo del efectivo: se reparte dentro de los productos, como el envio. */
-  redondeo: Decimal;
   total: Decimal;
   pagadoConBilletera: Decimal;
   metodoPago: MetodoPago;
@@ -89,34 +87,21 @@ export interface Comprobante {
 /**
  * Por que todavia no se puede facturar, o null si ya se puede.
  *
- * Solo se factura lo cerrado: entregado (una entrega parcial ya reescribio sus
- * renglones y su total) y pagado (el CFDI va con metodo PUE, pago en una sola
- * exhibicion). Un CFDI timbrado no se corrige: facturar antes seria arriesgarse
- * a una factura por 10 y una entrega de 6.
+ * Solo cuenta el pago: se factura lo que esta PAGADO (el CFDI va con metodo
+ * PUE, pago en una sola exhibicion), se haya entregado o no. Decision del
+ * negocio: si despues una entrega parcial baja el total, el CFDI ya timbrado
+ * no se corrige solo y hay que cancelarlo y emitir otro a mano.
  *
- * Pagado es tambien el efectivo entregado que sigue en PAGO_PENDIENTE: el
- * cliente le pago al repartidor en la puerta y solo falta que Finanzas acepte
- * el corte, que es cuenta entre el repartidor y el negocio. Si el repartidor
- * entrega de menos es adeudo suyo, no del cliente (`destinoAlAceptar`). La
- * transferencia pendiente no entra: ese dinero nadie lo ha visto todavia.
+ * Pago pendiente no, ni siquiera el efectivo ya cobrado en la puerta: se
+ * factura cuando Finanzas acepta el corte y el pedido pasa a PAGADO.
  */
 export function bloqueoDeFacturacion(pedido: {
-  estado: EstadoPedido;
   estadoPago: EstadoPago;
-  metodoPago: MetodoPago;
 }): { codigo: string; mensaje: string } | null {
   if (pedido.estadoPago === EstadoPago.CANCELADO) {
     return { codigo: 'PEDIDO_CANCELADO', mensaje: 'Un pedido cancelado no se factura.' };
   }
-  if (pedido.estado !== EstadoPedido.ENTREGADO) {
-    return {
-      codigo: 'PEDIDO_SIN_ENTREGAR',
-      mensaje: 'Podrás facturar este pedido cuando se haya entregado.',
-    };
-  }
-  const cobradoEnLaPuerta =
-    pedido.metodoPago === MetodoPago.EFECTIVO && pedido.estadoPago === EstadoPago.PAGO_PENDIENTE;
-  if (pedido.estadoPago !== EstadoPago.PAGADO && !cobradoEnLaPuerta) {
+  if (pedido.estadoPago !== EstadoPago.PAGADO) {
     return {
       codigo: 'PEDIDO_SIN_PAGAR',
       mensaje: 'Podrás facturar este pedido cuando quede pagado.',
@@ -214,6 +199,15 @@ export function repartirDescuento(
     repartido = repartido.add(acotada);
   });
   return partes;
+}
+
+/**
+ * El total de la factura: el del pedido al peso mas cercano. Desde .50 sube y
+ * hasta .49 baja ($22.50 → $23, $22.49 → $22). Solo la factura se redondea:
+ * el pedido, lo que se cobra y el corte siguen con sus centavos.
+ */
+export function totalFacturado(total: Decimal): Decimal {
+  return total.toDecimalPlaces(0, Decimal.ROUND_HALF_UP);
 }
 
 /**
@@ -315,12 +309,13 @@ function concepto(
  * Productos con su tasa congelada y el recargo como servicio al 16 %. El envio
  * no sale como concepto: se reparte en partes iguales dentro de los productos
  * (`repartirEnvio`), con la tasa de cada uno; solo en la factura, el pedido y
- * el ticket lo siguen mostrando aparte. El redondeo del efectivo se reparte
- * junto con el. Sin productos que los reciban vuelven a ir como servicio. El cupon se reparte antes, solo sobre lo que valian los
+ * el ticket lo siguen mostrando aparte. Sin productos que lo reciban vuelve a
+ * ir como servicio. El cupon se reparte antes, solo sobre lo que valian los
  * productos: nunca toco el envio (el envio gratis se mide antes del
- * descuento). Ya con su envio y su descuento, cada producto se redondea a
- * pesos enteros (`redondearAPesos`) y los centavos van a uno solo, el ultimo
- * en cuadrarse, para que caigan donde cae tambien el centavo del IVA.
+ * descuento). El total se redondea al peso mas cercano (`totalFacturado`) y
+ * la diferencia se reparte con el envio. Ya con su envio y su descuento, cada
+ * producto se redondea a pesos enteros (`redondearAPesos`) y lo que sobre va a
+ * uno solo, el ultimo en cuadrarse, donde cae tambien el centavo del IVA.
  * Primero van los conceptos al 16 % y despues
  * los de tasa 0, que absorben sin perdida el centavo que aquellos no alcanzan.
  * Si no hay ninguno al 0 %, el total puede quedar a un centavo del pedido:
@@ -337,8 +332,11 @@ export function armarComprobante(
     categoria: r.categoria,
   }));
   const descuentos = repartirDescuento(brutos, pedido.descuento, categoriasDelCupon);
-  // El redondeo del efectivo viaja con el envio: tampoco es un producto.
-  const envios = repartirEnvio(renglones.length, pedido.envio.add(pedido.redondeo));
+  // Lo que separa el total del pedido del facturado (de -0.49 a +0.50) viaja
+  // con el envio: tampoco es un producto. Sin productos no hay donde ponerlo.
+  const ajusteDelTotal =
+    renglones.length > 0 ? totalFacturado(pedido.total).sub(pedido.total) : new Decimal(0);
+  const envios = repartirEnvio(renglones.length, pedido.envio.add(ajusteDelTotal));
   const netos = brutos.map((b, i) => b.importe.sub(descuentos[i]).add(envios[i]));
   // Absorbe el ultimo al 0 %, que es tambien el ultimo en cuadrarse.
   const ceros = renglones.map((r, i) => (r.tasaIva === TasaIva.DIECISEIS ? -1 : i));
@@ -385,9 +383,6 @@ export function armarComprobante(
   });
   if (pedido.envio.greaterThan(0) && renglones.length === 0) {
     pendientes.push(servicio('Envío a domicilio', pedido.envio, pendientes.length));
-  }
-  if (pedido.redondeo.greaterThan(0) && renglones.length === 0) {
-    pendientes.push(servicio('Redondeo del pago en efectivo', pedido.redondeo, pendientes.length));
   }
   if (pedido.recargoFuera.greaterThan(0)) {
     pendientes.push(

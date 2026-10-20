@@ -74,8 +74,6 @@ export interface PedidoDto {
   envio: number;
   recargoFuera: number;
   descuento: number;
-  /** Lo que se sumo para cobrar el efectivo en pesos enteros. Ya va en `total`. */
-  redondeo: number;
   total: number;
   cashbackGenerado: number;
   /** false mientras el pago no quede PAGADO: el cashback aun no esta en la billetera. */
@@ -88,7 +86,7 @@ export interface PedidoDto {
    */
   cancelable: boolean;
   /**
-   * Si el cliente puede pedir ya su factura: entregado, pagado y todavia sin
+   * Si el cliente puede pedir ya su factura: pagado y todavia sin
    * CFDI (`bloqueoDeFacturacion`). Lo decide la API, como `cancelable`.
    */
   facturable: boolean;
@@ -360,9 +358,8 @@ export class PedidosService {
         descuento,
         billetera.monto,
         metodoEntrega,
-        dto.metodoPago,
       );
-      const { envio, recargoFuera, redondeo, total, aPagar } = desglose;
+      const { envio, recargoFuera, total, aPagar } = desglose;
 
       const pago = CarritoService.evaluarPago(dto.metodoPago, dto.pagoCon, aPagar);
       if (pago.error) {
@@ -416,7 +413,6 @@ export class PedidosService {
           envio,
           recargoFuera,
           descuento,
-          redondeo,
           total,
           // Sin metodo solo se llega aqui con el pedido cubierto por la
           // billetera (`evaluarPago` rechaza lo demas): no hay nada que cobrar
@@ -935,7 +931,6 @@ export class PedidosService {
       envio: pedido.envio.toNumber(),
       recargoFuera: pedido.recargoFuera.toNumber(),
       descuento: pedido.descuento.toNumber(),
-      redondeo: pedido.redondeo.toNumber(),
       total: pedido.total.toNumber(),
       cashbackGenerado: pedido.cashbackGenerado.toNumber(),
       cashbackAcreditado: pedido.cashbackAcreditadoEn !== null,

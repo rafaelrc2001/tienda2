@@ -19,7 +19,7 @@
  * de sección encima dejaban la pantalla con dos tiras y tres enlaces.
  */
 import { computed, nextTick, onMounted, ref } from 'vue'
-import { ErrorApi, http } from '@/api/http'
+import { descargarArchivo, ErrorApi, http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
 import {
   dinero,
@@ -30,6 +30,7 @@ import {
 } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
 import BitacoraPedido from '@/components/BitacoraPedido.vue'
+import FacturarPedidoModal from '@/components/FacturarPedidoModal.vue'
 import PestanasFinanzas from './finanzas/PestanasFinanzas.vue'
 import { buscarPedidos } from './finanzas/busqueda'
 import { montoCapturado } from './rutas/liquidacion'
@@ -62,6 +63,38 @@ const cargando = ref(true)
 const abierto = ref<string | null>(null)
 const cambiando = ref<string | null>(null)
 const bitacoraDe = ref<PedidoEnFinanzas | null>(null)
+
+// ------------------------------------------------------------------
+// Factura: Finanzas timbra a nombre del cliente, con la misma hoja que él
+// ------------------------------------------------------------------
+
+/**
+ * El pedido que se está facturando. Si se puede lo dice la API
+ * (`facturable`: pagado y sin CFDI), igual que en Mis pedidos.
+ */
+const facturando = ref<PedidoEnFinanzas | null>(null)
+const descargando = ref<string | null>(null)
+
+async function alFacturar(): Promise<void> {
+  facturando.value = null
+  // La fila tiene que enseñar ya su PDF y su XML en vez del botón.
+  await cargar(false)
+}
+
+async function descargar(pedido: PedidoEnFinanzas, formato: 'pdf' | 'xml'): Promise<void> {
+  if (descargando.value) return
+  descargando.value = `${pedido.id}-${formato}`
+  try {
+    await descargarArchivo(
+      `/admin/finanzas/pedidos/${pedido.id}/factura/${formato}`,
+      `factura-${pedido.folio}.${formato}`,
+    )
+  } catch (fallo) {
+    ui.errorDeApi(fallo)
+  } finally {
+    descargando.value = null
+  }
+}
 
 /** El cambio que espera confirmación, con la nota que se está escribiendo. */
 const confirmando = ref<{ pedido: PedidoEnFinanzas; boton: BotonPago } | null>(null)
@@ -280,6 +313,7 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
             <th>Estatus de pago</th>
             <th>Método de pago</th>
             <th class="num">Total</th>
+            <th>Factura</th>
           </tr>
         </thead>
         <tbody>
@@ -340,10 +374,45 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
                 {{ iconoMetodo(pedido.pago.metodo) }} {{ nombreMetodoPago(pedido.pago.metodo) }}
               </td>
               <td class="num importe">{{ dinero(pedido.total) }}</td>
+              <!-- Facturado: sus archivos. Si no, el botón, apagado con su motivo
+                   mientras no esté pagado. Cancelado no se factura. -->
+              <td class="factura">
+                <span v-if="pedido.factura" class="en-linea">
+                  <button
+                    type="button"
+                    class="enlace"
+                    :disabled="descargando !== null"
+                    @click="descargar(pedido, 'pdf')"
+                  >
+                    {{ descargando === `${pedido.id}-pdf` ? 'Descargando…' : 'PDF' }}
+                  </button>
+                  <button
+                    type="button"
+                    class="enlace"
+                    :disabled="descargando !== null"
+                    @click="descargar(pedido, 'xml')"
+                  >
+                    {{ descargando === `${pedido.id}-xml` ? 'Descargando…' : 'XML' }}
+                  </button>
+                </span>
+                <button
+                  v-else-if="pedido.pago.estado !== 'CANCELADO'"
+                  type="button"
+                  class="btn-primary"
+                  :disabled="!pedido.facturable"
+                  :title="
+                    pedido.facturable ? undefined : 'Se puede facturar cuando esté pagado.'
+                  "
+                  @click="facturando = pedido"
+                >
+                  Facturar
+                </button>
+                <span v-else class="sin-factura">—</span>
+              </td>
             </tr>
 
             <tr v-if="abierto === pedido.id" class="fila-detalle">
-              <td colspan="8">
+              <td colspan="9">
                 <div class="detalle-pedido">
                   <!-- Cada producto con su precio; el pactado a mano lleva tachado el
                        de la venta. Cambiarlo solo se ofrece mientras la API lo deja. -->
@@ -379,10 +448,6 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
                     <div v-if="pedido.recargoFuera > 0">
                       <dt>Recargo fuera de horario</dt>
                       <dd>{{ dinero(pedido.recargoFuera) }}</dd>
-                    </div>
-                    <div v-if="pedido.redondeo > 0">
-                      <dt>Redondeo del efectivo</dt>
-                      <dd>{{ dinero(pedido.redondeo) }}</dd>
                     </div>
                     <div v-if="pedido.descuento > 0">
                       <dt>{{ pedido.cupon ? `Cupón ${pedido.cupon.code}` : 'Descuento' }}</dt>
@@ -554,6 +619,14 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
       </div>
     </div>
 
+    <FacturarPedidoModal
+      v-if="facturando"
+      :pedido="facturando"
+      por-finanzas
+      @cerrar="facturando = null"
+      @facturado="alFacturar"
+    />
+
     <BitacoraPedido
       v-if="bitacoraDe"
       :pedido-id="bitacoraDe.id"
@@ -614,7 +687,7 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
 }
 
 .tabla {
-  min-width: 1160px;
+  min-width: 1260px;
 }
 
 /* Los estatus uno al costado del otro, como una sola tira. */
@@ -694,6 +767,14 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
+}
+
+.tabla .factura .en-linea {
+  gap: 12px;
+}
+
+.sin-factura {
+  color: var(--muted);
 }
 
 .precio-original {

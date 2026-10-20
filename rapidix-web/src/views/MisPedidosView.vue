@@ -175,10 +175,6 @@ async function descargar(pedido: Pedido, formato: 'pdf' | 'xml'): Promise<void> 
                       <td colspan="2">Recargo fuera de horario</td>
                       <td class="num">{{ dinero(pedido.recargoFuera) }}</td>
                     </tr>
-                    <tr v-if="pedido.redondeo > 0">
-                      <td colspan="2">Redondeo del efectivo</td>
-                      <td class="num">{{ dinero(pedido.redondeo) }}</td>
-                    </tr>
                     <tr v-if="pedido.descuento > 0" class="descuento">
                       <td colspan="2">
                         {{ pedido.cupon ? `Cupón ${pedido.cupon.code}` : 'Descuento' }}
@@ -229,7 +225,7 @@ async function descargar(pedido: Pedido, formato: 'pdf' | 'xml'): Promise<void> 
                 >
                   Cashback por acreditar: {{ dinero(pedido.cashbackGenerado) }} al quedar pagado
                 </p>
-                <!-- Facturar lo decide la API (`facturable`): entregado, pagado y sin CFDI. -->
+                <!-- Facturar lo decide la API (`facturable`): pagado y sin CFDI. -->
                 <div v-if="pedido.factura" class="factura">
                   <p class="factura-estado">
                     ✓ Facturado
@@ -261,7 +257,7 @@ async function descargar(pedido: Pedido, formato: 'pdf' | 'xml'): Promise<void> 
                   </button>
                 </div>
                 <p v-else-if="pedido.pago.estado !== 'CANCELADO'" class="factura-pendiente">
-                  Podrás facturarlo cuando esté entregado y pagado.
+                  Podrás facturarlo cuando esté pagado.
                 </p>
                 <!-- Solo mientras la API lo permite: sigue en bodega y no hay dinero
                      que reembolsar. -->

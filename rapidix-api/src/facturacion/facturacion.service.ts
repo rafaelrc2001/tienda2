@@ -17,6 +17,7 @@ import {
   bloqueoDeFacturacion,
   ClavesSat,
   ConceptoGuardado,
+  totalFacturado,
 } from './comprobante';
 import {
   incompatibilidad,
@@ -192,7 +193,7 @@ export class FacturacionService implements OnModuleInit {
    *
    *  1. El pedido es de quien pregunta (404 si no: no se confirma que exista).
    *  2. No tiene ya un CFDI (409 YA_FACTURADO) ni uno timbrandose (409).
-   *  3. Esta cerrado: entregado y pagado (409 con el `code` del bloqueo).
+   *  3. Esta pagado (409 con el `code` del bloqueo).
    *  4. Los datos fiscales no se contradicen y la forma de pago esta en el
    *     catalogo (400).
    *  5. Los conceptos cuadran con el total cobrado (409 FACTURA_NO_CUADRA).
@@ -263,14 +264,15 @@ export class FacturacionService implements OnModuleInit {
       await this.categoriasDelCupon(pedido.cupon),
       this.claves,
     );
-    // Sin ningun producto al 0 % el desglose puede quedar a un centavo del
-    // ticket (`armarComprobante`): eso se acepta. Mas que eso es que el pedido
-    // tiene columnas que no suman, y timbrar un CFDI que no coincide con lo
-    // cobrado no se puede deshacer.
-    if (comprobante.total.sub(pedido.total).abs().greaterThan(new Decimal('0.01'))) {
+    // La factura va por el total redondeado al peso (`totalFacturado`). Sin
+    // ningun producto al 0 % el desglose puede quedar a un centavo de el
+    // (`armarComprobante`): eso se acepta. Mas que eso es que el pedido tiene
+    // columnas que no suman, y un CFDI timbrado no se puede deshacer.
+    const esperado = totalFacturado(pedido.total);
+    if (comprobante.total.sub(esperado).abs().greaterThan(new Decimal('0.01'))) {
       this.logger.error(
-        `El pedido ${pedido.folio} no cuadra para facturar: total ${pedido.total.toFixed(2)}, ` +
-          `conceptos ${comprobante.total.toFixed(2)}`,
+        `El pedido ${pedido.folio} no cuadra para facturar: se esperaba ${esperado.toFixed(2)} ` +
+          `(total ${pedido.total.toFixed(2)}), conceptos ${comprobante.total.toFixed(2)}`,
       );
       throw new ConflictException({
         statusCode: 409,
@@ -454,6 +456,19 @@ export class FacturacionService implements OnModuleInit {
     } catch (fallo) {
       throw this.traducirFallo(fallo, factura.pedido.folio);
     }
+  }
+
+  /**
+   * El cliente de un pedido, para que Finanzas facture a su nombre: los datos
+   * fiscales, el CFDI y sus archivos son del cliente, no de quien pulsa.
+   */
+  async clienteDelPedido(pedidoId: string): Promise<string> {
+    const pedido = await this.prisma.pedido.findUnique({
+      where: { id: pedidoId },
+      select: { clienteId: true },
+    });
+    if (!pedido) throw new NotFoundException('Pedido no encontrado');
+    return pedido.clienteId;
   }
 
   // ----------------------------------------------------------------

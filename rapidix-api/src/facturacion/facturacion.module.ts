@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { FacturacionController } from './facturacion.controller';
 import { FacturacionService } from './facturacion.service';
 import { AdminCatalogoSatController } from './admin-catalogo-sat.controller';
+import { AdminFacturacionController } from './admin-facturacion.controller';
 import { CatalogoSatService } from './catalogo-sat.service';
 
 /**
@@ -12,7 +13,7 @@ import { CatalogoSatService } from './catalogo-sat.service';
  * las claves que se le asignan a cada producto.
  */
 @Module({
-  controllers: [FacturacionController, AdminCatalogoSatController],
+  controllers: [FacturacionController, AdminCatalogoSatController, AdminFacturacionController],
   providers: [FacturacionService, CatalogoSatService],
   exports: [CatalogoSatService],
 })
