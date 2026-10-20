@@ -8,7 +8,6 @@ import {
   PedidoFacturable,
   RenglonFacturable,
   repartirDescuento,
-  redondearAPesos,
   repartirEnvio,
   totalFacturado,
 } from './comprobante';
@@ -147,28 +146,6 @@ describe('repartirEnvio', () => {
   });
 });
 
-describe('redondearAPesos', () => {
-  const ajustes = (montos: (number | string)[], absorbe: number) =>
-    redondearAPesos(montos.map(D), absorbe).map((a) => a.toFixed(2));
-
-  it('cada uno al peso mas cercano y el que absorbe se lleva la diferencia', () => {
-    expect(ajustes(['12.50', '14.50'], 1)).toEqual(['0.50', '-0.50']);
-    expect(ajustes(['12.50', '14.50'], 0)).toEqual(['-0.50', '0.50']);
-    expect(ajustes(['10.40', '12.30', '5.25'], 2)).toEqual(['-0.40', '-0.30', '0.70']);
-  });
-
-  it('el que absorbe se queda con los centavos del pedido', () => {
-    // 10.40 + 12.35 = 22.75: el primero baja a 10 y el segundo sube a 12.75.
-    expect(ajustes(['10.40', '12.35'], 1)).toEqual(['-0.40', '0.40']);
-  });
-
-  it('no deja conceptos en cero', () => {
-    expect(ajustes(['0.30', '5'], 1)).toEqual(['0.00', '0.00']);
-    // 5.70 sube a 6 y dejaria al que absorbe en 0.00.
-    expect(ajustes(['5.70', '0.30'], 1)).toEqual(['0.00', '0.00']);
-  });
-});
-
 describe('formaDePago', () => {
   it('la del metodo del pedido, nunca el monedero', () => {
     expect(formaDePago({ metodoPago: MetodoPago.EFECTIVO })).toBe('01');
@@ -257,7 +234,7 @@ describe('armarComprobante', () => {
     expect(dos.total.toFixed(2)).toBe('28.00');
   });
 
-  it('cada producto queda en pesos enteros y el total no se mueve', () => {
+  it('los productos no se redondean: solo el total va en pesos enteros', () => {
     const c = armarComprobante(
       pedido({
         items: [renglon({ precio: 10, cantidad: 1 }), renglon({ precio: 12, cantidad: 1 })],
@@ -268,8 +245,8 @@ describe('armarComprobante', () => {
       CLAVES,
     );
     exigirConceptosValidos(c);
-    // 12.50 y 14.50 con el envio: el primero sube a 13 y el ultimo baja a 14.
-    expect(c.conceptos.map((k) => k.importe.toFixed(2))).toEqual(['13.00', '14.00']);
+    // 2.50 de envio a cada uno: 12.50 y 14.50, que ya suman 27.
+    expect(c.conceptos.map((k) => k.importe.toFixed(2))).toEqual(['12.50', '14.50']);
     expect(c.descuento.toFixed(2)).toBe('0.00');
     expect(c.total.toFixed(2)).toBe('27.00');
   });
@@ -307,7 +284,7 @@ describe('armarComprobante', () => {
     }
   });
 
-  it('los centavos que no se reparten parejo van al ultimo al 0 %', () => {
+  it('el redondeo del total se reparte parejo, con tasas mezcladas', () => {
     const c = armarComprobante(
       pedido({
         items: [
@@ -321,10 +298,10 @@ describe('armarComprobante', () => {
       CLAVES,
     );
     exigirConceptosValidos(c);
-    // $23.70 se factura en $24: con el envio y los 30 centavos quedan 13.55 y
-    // 10.45. El del 16 % baja a 10 y el del 0 % absorbe: 14.
+    // $23.70 se factura en $24: el envio y los 30 centavos son 3.15 para
+    // cada uno, y quedan en 13.55 y 10.45.
     const conIva = c.conceptos.map((k) => k.base.add(k.iva).toFixed(2));
-    expect(conIva).toEqual(['14.00', '10.00']);
+    expect(conIva).toEqual(['13.55', '10.45']);
     expect(c.total.toFixed(2)).toBe('24.00');
   });
 
@@ -425,7 +402,7 @@ describe('armarComprobante', () => {
     expect(c.formaPago).toBe('03');
   });
 
-  it('como ORD000160: $3 y $2.50 al 16 % con $2 de monedero se facturan en $3 y $3', () => {
+  it('como ORD000160: $3 y $2.50 al 16 % con $2 de monedero se facturan en $6', () => {
     const c = armarComprobante(
       pedido({
         items: [
@@ -440,7 +417,12 @@ describe('armarComprobante', () => {
       CLAVES,
     );
     exigirConceptosValidos(c);
-    expect(c.conceptos.map((k) => k.base.add(k.iva).toFixed(2))).toEqual(['3.00', '3.00']);
+    // Los 50 centavos del redondeo, 25 a cada uno.
+    expect(c.conceptos.map((k) => k.base.add(k.iva).toFixed(2))).toEqual(['3.25', '2.75']);
+    expect(c.conceptos.map((k) => [k.base.toFixed(2), k.iva.toFixed(2)])).toEqual([
+      ['2.80', '0.45'],
+      ['2.37', '0.38'],
+    ]);
     expect(c.total.toFixed(2)).toBe('6.00');
     expect(c.formaPago).toBe('03');
   });

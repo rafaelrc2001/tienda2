@@ -224,29 +224,6 @@ export function repartirEnvio(renglones: number, envio: Decimal): Decimal[] {
 }
 
 /**
- * Lo que hay que mover en cada renglon para que quede en pesos enteros, sin
- * mover el total: cada uno se redondea al peso mas cercano y el renglon
- * `absorbe` se lleva la diferencia, con los centavos que traiga el pedido.
- * 12.50 y 14.50 quedan en 13 y 14 (ajustes +0.50 y -0.50).
- *
- * Uno que redondeado quedaria en cero no se toca: un concepto en cero no es
- * una venta. Y si el que absorbe quedaria en cero o menos, no se redondea
- * nada.
- */
-export function redondearAPesos(montos: Decimal[], absorbe: number): Decimal[] {
-  if (absorbe < 0 || absorbe >= montos.length) return montos.map(() => new Decimal(0));
-  const ajustes = montos.map((m, i) => {
-    if (i === absorbe) return new Decimal(0);
-    const entero = m.toDecimalPlaces(0, Decimal.ROUND_HALF_UP);
-    return entero.greaterThan(0) ? entero.sub(m) : new Decimal(0);
-  });
-  const movido = ajustes.reduce((s, a) => s.add(a), new Decimal(0));
-  if (!montos[absorbe].sub(movido).greaterThan(0)) return montos.map(() => new Decimal(0));
-  ajustes[absorbe] = movido.neg();
-  return ajustes;
-}
-
-/**
  * c_FormaPago: la del metodo del pedido. El monedero (05) nunca: lo pagado con
  * el va dentro del precio de los productos, sin salir aparte en la factura.
  */
@@ -310,10 +287,9 @@ function concepto(
  * productos: nunca toco el envio (el envio gratis se mide antes del
  * descuento). Lo pagado con el monedero no se resta ni sale aparte: la
  * factura es por el total del pedido, al peso mas cercano (`totalFacturado`),
- * y la diferencia del redondeo se reparte con el envio. Ya con todo eso, cada
- * producto se redondea a pesos
- * enteros (`redondearAPesos`) y lo que sobre va a uno solo, el ultimo en
- * cuadrarse, donde cae tambien el centavo del IVA. Primero van los conceptos
+ * y la diferencia del redondeo se reparte con el envio en partes iguales. Solo
+ * el total queda en pesos enteros: los productos llevan sus centavos ($3 y
+ * $2.50 facturados en $6 son $3.25 y $2.75). Primero van los conceptos
  * al 16 % y despues los de tasa 0, que absorben sin perdida el centavo que
  * aquellos no alcanzan. Si no hay ninguno al 0 %, el centavo se le pasa a otro
  * al 16 % que si lo alcance; con uno solo al 16 % puede quedar a un centavo:
@@ -336,10 +312,6 @@ export function armarComprobante(
     renglones.length > 0 ? totalFacturado(pedido.total).sub(pedido.total) : new Decimal(0);
   const envios = repartirEnvio(renglones.length, pedido.envio.add(ajusteDelTotal));
   const netos = brutos.map((b, i) => b.importe.sub(descuentos[i]).add(envios[i]));
-  // Absorbe el ultimo al 0 %, que es tambien el ultimo en cuadrarse.
-  const ceros = renglones.map((r, i) => (r.tasaIva === TasaIva.DIECISEIS ? -1 : i));
-  const absorbe = Math.max(...ceros) >= 0 ? Math.max(...ceros) : renglones.length - 1;
-  const ajustes = redondearAPesos(netos, absorbe);
 
   type Pendiente = {
     datos: Parameters<typeof concepto>[0];
@@ -358,10 +330,10 @@ export function armarComprobante(
         cantidad: r.cantidad,
         tasa: r.tasaIva,
       },
-      // El envio y el redondeo entran en los dos: no son descuento, el
-      // producto vale eso mas (o menos).
-      bruto: brutos[i].importe.add(envios[i]).add(ajustes[i]),
-      neto: netos[i].add(ajustes[i]),
+      // El envio y el redondeo del total entran en los dos: no son
+      // descuento, el producto vale eso mas (o menos).
+      bruto: brutos[i].importe.add(envios[i]),
+      neto: netos[i],
       orden: i,
     };
   });
