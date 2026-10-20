@@ -10,6 +10,7 @@ import {
   repartirDescuento,
   redondearAPesos,
   repartirEnvio,
+  totalAFacturar,
   totalFacturado,
 } from './comprobante';
 
@@ -58,11 +59,20 @@ function exigirConceptosValidos(c: ReturnType<typeof armarComprobante>): void {
 }
 
 describe('bloqueoDeFacturacion', () => {
-  const bloqueo = (estadoPago: EstadoPago) =>
-    bloqueoDeFacturacion({ estadoPago })?.codigo ?? null;
+  const bloqueo = (estadoPago: EstadoPago, pagadoConBilletera = 0) =>
+    bloqueoDeFacturacion({
+      estadoPago,
+      total: D(100),
+      pagadoConBilletera: D(pagadoConBilletera),
+    })?.codigo ?? null;
 
   it('solo deja facturar lo pagado, se haya entregado o no', () => {
     expect(bloqueo(EstadoPago.PAGADO)).toBeNull();
+  });
+
+  it('lo pagado completo con monedero no tiene que facturar', () => {
+    expect(bloqueo(EstadoPago.PAGADO, 99)).toBeNull();
+    expect(bloqueo(EstadoPago.PAGADO, 100)).toBe('PAGADO_CON_MONEDERO');
   });
 
   it('nada que no este pagado, ni el efectivo cobrado en la puerta', () => {
@@ -171,20 +181,18 @@ describe('redondearAPesos', () => {
 });
 
 describe('formaDePago', () => {
-  it('la que cubrio la mayor parte', () => {
-    expect(
-      formaDePago({ total: D(100), pagadoConBilletera: D(0), metodoPago: MetodoPago.EFECTIVO }),
-    ).toBe('01');
-    expect(
-      formaDePago({
-        total: D(100),
-        pagadoConBilletera: D(10),
-        metodoPago: MetodoPago.TRANSFERENCIA,
-      }),
-    ).toBe('03');
-    expect(
-      formaDePago({ total: D(100), pagadoConBilletera: D(60), metodoPago: MetodoPago.EFECTIVO }),
-    ).toBe('05');
+  it('la del metodo del pedido, nunca el monedero', () => {
+    expect(formaDePago({ metodoPago: MetodoPago.EFECTIVO })).toBe('01');
+    expect(formaDePago({ metodoPago: MetodoPago.TRANSFERENCIA })).toBe('03');
+  });
+});
+
+describe('totalAFacturar', () => {
+  it('lo cobrado sin el monedero, al peso', () => {
+    expect(totalAFacturar({ total: D(100), pagadoConBilletera: D(10) }).toFixed(2)).toBe('90.00');
+    expect(totalAFacturar({ total: D('100.70'), pagadoConBilletera: D('10.20') }).toFixed(2)).toBe(
+      '91.00',
+    );
   });
 });
 
@@ -304,7 +312,11 @@ describe('armarComprobante', () => {
   it('producto de 67.80 con envio de 3: la factura dice un solo producto de 71', () => {
     for (const tasaIva of [TasaIva.CERO, TasaIva.DIECISEIS]) {
       const c = armarComprobante(
-        pedido({ items: [renglon({ precio: '67.80', cantidad: 1, tasaIva })], envio: D(3), total: 70.8 }),
+        pedido({
+          items: [renglon({ precio: '67.80', cantidad: 1, tasaIva })],
+          envio: D(3),
+          total: 70.8,
+        }),
         [],
         CLAVES,
       );
@@ -395,8 +407,8 @@ describe('armarComprobante', () => {
     expect(c.descuento.greaterThan(0)).toBe(true);
   });
 
-  it('sin ningun producto al 0 % queda a lo mas a un centavo', () => {
-    for (let centavos = 101; centavos <= 400; centavos += 7) {
+  it('con dos o mas al 16 % y ninguno al 0 % el total es el redondeado exacto', () => {
+    for (let centavos = 101; centavos <= 2000; centavos += 1) {
       const precio = centavos / 100;
       const c = armarComprobante(
         pedido({
@@ -411,8 +423,64 @@ describe('armarComprobante', () => {
       );
       exigirConceptosValidos(c);
       const esperado = totalFacturado(D(precio + (precio + 1) * 2).toDecimalPlaces(2));
-      expect(c.total.sub(esperado).abs().lessThanOrEqualTo(D('0.01'))).toBe(true);
+      expect(c.total.toFixed(2)).toBe(esperado.toFixed(2));
     }
+  });
+
+  it('el monedero se diluye en los productos: $50 y $50 con $10 son $45 y $45', () => {
+    const c = armarComprobante(
+      pedido({
+        items: [renglon({ precio: 50, cantidad: 1 }), renglon({ precio: 50, cantidad: 1 })],
+        pagadoConBilletera: D(10),
+        total: 100,
+      }),
+      [],
+      CLAVES,
+    );
+    exigirConceptosValidos(c);
+    expect(c.conceptos.map((k) => k.importe.toFixed(2))).toEqual(['45.00', '45.00']);
+    expect(c.descuento.toFixed(2)).toBe('0.00');
+    expect(c.total.toFixed(2)).toBe('90.00');
+    expect(c.formaPago).toBe('01');
+  });
+
+  it('el monedero va en proporcion, con envio, cupon e IVA mezclados', () => {
+    for (const billetera of ['0.37', '10', '33.33', '150.99']) {
+      const total = D(91 + 84 + 10 + 35 - 17.37);
+      const c = armarComprobante(
+        pedido({
+          items: [
+            renglon({ precio: 13, cantidad: 7, tasaIva: TasaIva.DIECISEIS, categoria: 'Bebidas' }),
+            renglon({ precio: 28, cantidad: 3, categoria: 'Abarrotes' }),
+            renglon({ precio: '3.333333333333333', cantidad: 3, tasaIva: TasaIva.DIECISEIS }),
+          ],
+          envio: D(35),
+          descuento: D('17.37'),
+          pagadoConBilletera: D(billetera),
+          total: total.toNumber(),
+        }),
+        [],
+        CLAVES,
+      );
+      exigirConceptosValidos(c);
+      expect(c.total.toFixed(2)).toBe(
+        totalAFacturar({ total, pagadoConBilletera: D(billetera) }).toFixed(2),
+      );
+    }
+  });
+
+  it('el monedero que cubre mas que los productos sale del recargo', () => {
+    const c = armarComprobante(
+      pedido({
+        items: [renglon({ precio: 20, cantidad: 1 })],
+        recargoFuera: D(10),
+        pagadoConBilletera: D(25),
+        total: 30,
+      }),
+      [],
+      CLAVES,
+    );
+    expect(c.total.toFixed(2)).toBe('5.00');
   });
 
   it('con un producto al 0 % absorbe el centavo y el total es el redondeado exacto', () => {
