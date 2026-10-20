@@ -211,7 +211,10 @@ export class RutasController {
     return this.rutas.recolectar(id, dto.entregaId, usuario, dto.nota);
   }
 
-  /** Lo baja del camion antes de salir: vuelve a bodega. 409 `YA_SALIO` si ya va en ruta. */
+  /**
+   * Lo baja del camion antes de salir: vuelve a bodega. 409 `ENTREGA_INICIADA`
+   * si su entrega ya se inicio y `YA_SALIO` si ya va en ruta.
+   */
   @Post('pedidos/:id/quitar-de-entrega')
   quitarDeEntrega(
     @Param('id', ParseUUIDPipe) id: string,
