@@ -481,7 +481,7 @@ export interface Pedido {
    * decide la API, igual que `cancelable`.
    */
   facturable: boolean
-  /** Forma de pago con la que «Facturar» llega elegida: la que más cubrió el pedido. */
+  /** Forma de pago con la que «Facturar» llega elegida: la del método del pedido. */
   formaPagoFactura: string
   /** Su CFDI, si ya se timbró. */
   factura: FacturaDePedido | null

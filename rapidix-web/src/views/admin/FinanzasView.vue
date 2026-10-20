@@ -31,6 +31,7 @@ import {
 import SkeletonList from '@/components/SkeletonList.vue'
 import BitacoraPedido from '@/components/BitacoraPedido.vue'
 import FacturarPedidoModal from '@/components/FacturarPedidoModal.vue'
+import VisorPdfFactura from '@/components/VisorPdfFactura.vue'
 import PestanasFinanzas from './finanzas/PestanasFinanzas.vue'
 import { buscarPedidos } from './finanzas/busqueda'
 import { montoCapturado } from './rutas/liquidacion'
@@ -74,6 +75,8 @@ const bitacoraDe = ref<PedidoEnFinanzas | null>(null)
  */
 const facturando = ref<PedidoEnFinanzas | null>(null)
 const descargando = ref<string | null>(null)
+/** El PDF se abre en el visor; desde ahí se comparte o se descarga. */
+const viendoPdf = ref<PedidoEnFinanzas | null>(null)
 
 async function alFacturar(): Promise<void> {
   facturando.value = null
@@ -81,13 +84,13 @@ async function alFacturar(): Promise<void> {
   await cargar(false)
 }
 
-async function descargar(pedido: PedidoEnFinanzas, formato: 'pdf' | 'xml'): Promise<void> {
+async function descargarXml(pedido: PedidoEnFinanzas): Promise<void> {
   if (descargando.value) return
-  descargando.value = `${pedido.id}-${formato}`
+  descargando.value = pedido.id
   try {
     await descargarArchivo(
-      `/admin/finanzas/pedidos/${pedido.id}/factura/${formato}`,
-      `factura-${pedido.folio}.${formato}`,
+      `/admin/finanzas/pedidos/${pedido.id}/factura/xml`,
+      `factura-${pedido.folio}.xml`,
     )
   } catch (fallo) {
     ui.errorDeApi(fallo)
@@ -378,21 +381,14 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
                    mientras no esté pagado. Cancelado no se factura. -->
               <td class="factura">
                 <span v-if="pedido.factura" class="en-linea">
+                  <button type="button" class="enlace" @click="viendoPdf = pedido">PDF</button>
                   <button
                     type="button"
                     class="enlace"
                     :disabled="descargando !== null"
-                    @click="descargar(pedido, 'pdf')"
+                    @click="descargarXml(pedido)"
                   >
-                    {{ descargando === `${pedido.id}-pdf` ? 'Descargando…' : 'PDF' }}
-                  </button>
-                  <button
-                    type="button"
-                    class="enlace"
-                    :disabled="descargando !== null"
-                    @click="descargar(pedido, 'xml')"
-                  >
-                    {{ descargando === `${pedido.id}-xml` ? 'Descargando…' : 'XML' }}
+                    {{ descargando === pedido.id ? 'Descargando…' : 'XML' }}
                   </button>
                 </span>
                 <button
@@ -622,6 +618,14 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
       por-finanzas
       @cerrar="facturando = null"
       @facturado="alFacturar"
+    />
+
+    <VisorPdfFactura
+      v-if="viendoPdf"
+      :ruta="`/admin/finanzas/pedidos/${viendoPdf.id}/factura/pdf`"
+      :nombre="`factura-${viendoPdf.folio}.pdf`"
+      :titulo="`🧾 Factura ${viendoPdf.folio}`"
+      @cerrar="viendoPdf = null"
     />
 
     <BitacoraPedido
