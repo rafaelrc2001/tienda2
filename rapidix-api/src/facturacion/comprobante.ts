@@ -94,9 +94,14 @@ export interface Comprobante {
  *
  * Pago pendiente no, ni siquiera el efectivo ya cobrado en la puerta: se
  * factura cuando Finanzas acepta el corte y el pedido pasa a PAGADO.
+ *
+ * Lo pagado con el monedero no se factura (`totalAFacturar`): un pedido que
+ * el monedero cubrio completo no tiene importe.
  */
 export function bloqueoDeFacturacion(pedido: {
   estadoPago: EstadoPago;
+  total: Decimal;
+  pagadoConBilletera: Decimal;
 }): { codigo: string; mensaje: string } | null {
   if (pedido.estadoPago === EstadoPago.CANCELADO) {
     return { codigo: 'PEDIDO_CANCELADO', mensaje: 'Un pedido cancelado no se factura.' };
@@ -105,6 +110,12 @@ export function bloqueoDeFacturacion(pedido: {
     return {
       codigo: 'PEDIDO_SIN_PAGAR',
       mensaje: 'Podrás facturar este pedido cuando quede pagado.',
+    };
+  }
+  if (!pedido.total.greaterThan(pedido.pagadoConBilletera)) {
+    return {
+      codigo: 'PAGADO_CON_MONEDERO',
+      mensaje: 'Este pedido se pagó completo con tu monedero: no hay importe que facturar.',
     };
   }
   return null;
@@ -211,6 +222,18 @@ export function totalFacturado(total: Decimal): Decimal {
 }
 
 /**
+ * Por cuanto sale la factura de un pedido: lo que se cobro aparte del
+ * monedero, al peso (`totalFacturado`). Con $100 y $10 de monedero son $90;
+ * los $10 no salen como pago ni como descuento, se diluyen en los productos
+ * (`armarComprobante`).
+ */
+export function totalAFacturar(
+  pedido: Pick<PedidoFacturable, 'total' | 'pagadoConBilletera'>,
+): Decimal {
+  return totalFacturado(Decimal.max(pedido.total.sub(pedido.pagadoConBilletera), 0));
+}
+
+/**
  * Parte el envio en partes iguales entre los renglones, sin importar lo que
  * valga cada uno: 6 de envio con dos productos son 3 y 3. El ultimo se lleva
  * el centavo que no se reparte parejo (10 entre 3 son 3.33, 3.33 y 3.34).
@@ -247,14 +270,11 @@ export function redondearAPesos(montos: Decimal[], absorbe: number): Decimal[] {
 }
 
 /**
- * c_FormaPago: la que cubrio la mayor parte del pedido. La billetera de
- * cashback es un monedero electronico (05).
+ * c_FormaPago: la del metodo del pedido. El monedero (05) nunca: lo pagado con
+ * el no entra en la factura (`totalAFacturar`), asi que todo lo facturado se
+ * cobro en efectivo o por transferencia.
  */
-export function formaDePago(
-  pedido: Pick<PedidoFacturable, 'total' | 'pagadoConBilletera' | 'metodoPago'>,
-): string {
-  const resto = pedido.total.sub(pedido.pagadoConBilletera);
-  if (pedido.pagadoConBilletera.greaterThan(resto)) return '05';
+export function formaDePago(pedido: Pick<PedidoFacturable, 'metodoPago'>): string {
   return pedido.metodoPago === MetodoPago.TRANSFERENCIA ? '03' : '01';
 }
 
@@ -312,13 +332,15 @@ function concepto(
  * el ticket lo siguen mostrando aparte. Sin productos que lo reciban vuelve a
  * ir como servicio. El cupon se reparte antes, solo sobre lo que valian los
  * productos: nunca toco el envio (el envio gratis se mide antes del
- * descuento). El total se redondea al peso mas cercano (`totalFacturado`) y
- * la diferencia se reparte con el envio. Ya con su envio y su descuento, cada
- * producto se redondea a pesos enteros (`redondearAPesos`) y lo que sobre va a
- * uno solo, el ultimo en cuadrarse, donde cae tambien el centavo del IVA.
- * Primero van los conceptos al 16 % y despues
- * los de tasa 0, que absorben sin perdida el centavo que aquellos no alcanzan.
- * Si no hay ninguno al 0 %, el total puede quedar a un centavo del pedido:
+ * descuento). Lo pagado con el monedero se resta de los productos en
+ * proporcion, sin salir como descuento: la factura es solo lo cobrado aparte,
+ * al peso mas cercano (`totalAFacturar`), y la diferencia del redondeo se
+ * reparte con el envio. Ya con todo eso, cada producto se redondea a pesos
+ * enteros (`redondearAPesos`) y lo que sobre va a uno solo, el ultimo en
+ * cuadrarse, donde cae tambien el centavo del IVA. Primero van los conceptos
+ * al 16 % y despues los de tasa 0, que absorben sin perdida el centavo que
+ * aquellos no alcanzan. Si no hay ninguno al 0 %, el centavo se le pasa a otro
+ * al 16 % que si lo alcance; con uno solo al 16 % puede quedar a un centavo:
  * quien llama decide si eso cuadra.
  */
 export function armarComprobante(
@@ -332,12 +354,25 @@ export function armarComprobante(
     categoria: r.categoria,
   }));
   const descuentos = repartirDescuento(brutos, pedido.descuento, categoriasDelCupon);
-  // Lo que separa el total del pedido del facturado (de -0.49 a +0.50) viaja
-  // con el envio: tampoco es un producto. Sin productos no hay donde ponerlo.
+  // Lo que separa lo cobrado del facturado (de -0.49 a +0.50) viaja con el
+  // envio: tampoco es un producto. Sin productos no hay donde ponerlo.
+  const cobrado = pedido.total.sub(pedido.pagadoConBilletera);
   const ajusteDelTotal =
-    renglones.length > 0 ? totalFacturado(pedido.total).sub(pedido.total) : new Decimal(0);
+    renglones.length > 0 ? totalAFacturar(pedido).sub(cobrado) : new Decimal(0);
   const envios = repartirEnvio(renglones.length, pedido.envio.add(ajusteDelTotal));
-  const netos = brutos.map((b, i) => b.importe.sub(descuentos[i]).add(envios[i]));
+  const antesDelMonedero = brutos.map((b, i) => b.importe.sub(descuentos[i]).add(envios[i]));
+  // Lo pagado con el monedero sale de los productos, en proporcion a lo que
+  // vale cada uno ya con su envio: $50 y $50 con $10 de monedero son $45 y $45.
+  const monedero = repartirDescuento(
+    antesDelMonedero.map((importe) => ({ importe, categoria: '' })),
+    pedido.pagadoConBilletera,
+    [],
+  );
+  // Si cubrio mas que los productos, lo que falta sale de los servicios.
+  let monederoSobrante = pedido.pagadoConBilletera.sub(
+    monedero.reduce((s, m) => s.add(m), new Decimal(0)),
+  );
+  const netos = antesDelMonedero.map((n, i) => n.sub(monedero[i]));
   // Absorbe el ultimo al 0 %, que es tambien el ultimo en cuadrarse.
   const ceros = renglones.map((r, i) => (r.tasaIva === TasaIva.DIECISEIS ? -1 : i));
   const absorbe = Math.max(...ceros) >= 0 ? Math.max(...ceros) : renglones.length - 1;
@@ -360,27 +395,32 @@ export function armarComprobante(
         cantidad: r.cantidad,
         tasa: r.tasaIva,
       },
-      // El envio y el redondeo entran en los dos: no son descuento, el
-      // producto vale eso mas (o menos).
-      bruto: brutos[i].importe.add(envios[i]).add(ajustes[i]),
+      // El envio, el redondeo y el monedero entran en los dos: no son
+      // descuento, el producto vale eso mas (o menos).
+      bruto: brutos[i].importe.add(envios[i]).add(ajustes[i]).sub(monedero[i]),
       neto: netos[i].add(ajustes[i]),
       orden: i,
     };
   });
 
-  const servicio = (descripcion: string, monto: Decimal, orden: number): Pendiente => ({
-    datos: {
-      descripcion,
-      claveProdServ: claves.servicio,
-      claveUnidad: 'E48',
-      unidad: 'Unidad de servicio',
-      cantidad: 1,
-      tasa: TasaIva.DIECISEIS,
-    },
-    bruto: monto,
-    neto: monto,
-    orden,
-  });
+  const servicio = (descripcion: string, cobrado: Decimal, orden: number): Pendiente => {
+    const delMonedero = Decimal.min(monederoSobrante, cobrado);
+    monederoSobrante = monederoSobrante.sub(delMonedero);
+    const monto = cobrado.sub(delMonedero);
+    return {
+      datos: {
+        descripcion,
+        claveProdServ: claves.servicio,
+        claveUnidad: 'E48',
+        unidad: 'Unidad de servicio',
+        cantidad: 1,
+        tasa: TasaIva.DIECISEIS,
+      },
+      bruto: monto,
+      neto: monto,
+      orden,
+    };
+  };
   if (pedido.envio.greaterThan(0) && renglones.length === 0) {
     pendientes.push(servicio('Envío a domicilio', pedido.envio, pendientes.length));
   }
@@ -396,16 +436,41 @@ export function armarComprobante(
     ...pendientes.filter((p) => p.datos.tasa !== TasaIva.DIECISEIS),
   ];
   const cuadrados = new Map<number, Concepto>();
+  const cuadrar = (p: Pendiente, objetivo: Decimal) =>
+    concepto(p.datos, p.bruto, objetivo, p.neto.lessThan(p.bruto));
   let arrastre = new Decimal(0);
+  let objetivoDelUltimo = new Decimal(0);
   for (const p of enOrdenDeCuadre) {
-    const { concepto: c, resto } = concepto(
-      p.datos,
-      p.bruto,
-      p.neto.add(arrastre),
-      p.neto.lessThan(p.bruto),
-    );
+    objetivoDelUltimo = p.neto.add(arrastre);
+    const { concepto: c, resto } = cuadrar(p, objetivoDelUltimo);
     cuadrados.set(p.orden, c);
     arrastre = resto;
+  }
+  // Sin ninguno al 0 % el ultimo puede quedar a un centavo (un total de .99).
+  // Se le pasan unos centavos a otro al 16 % (o se le quitan) hasta que los
+  // dos tengan base exacta: el total no se mueve y los conceptos casi tampoco.
+  if (!arrastre.isZero() && enOrdenDeCuadre.length > 1) {
+    const ultimo = enOrdenDeCuadre[enOrdenDeCuadre.length - 1];
+    const otros = enOrdenDeCuadre
+      .slice(0, -1)
+      .filter((p) => p.datos.tasa === TasaIva.DIECISEIS)
+      .reverse();
+    buscar: for (let centavos = 1; centavos <= 5; centavos++) {
+      for (const signo of [1, -1]) {
+        const paso = CENTAVO.mul(centavos * signo);
+        const delUltimo = cuadrar(ultimo, objetivoDelUltimo.sub(paso));
+        if (!delUltimo.resto.isZero()) continue;
+        for (const p of otros) {
+          const antes = cuadrados.get(p.orden)!;
+          const delOtro = cuadrar(p, antes.base.add(antes.iva).add(paso));
+          if (delOtro.resto.isZero()) {
+            cuadrados.set(ultimo.orden, delUltimo.concepto);
+            cuadrados.set(p.orden, delOtro.concepto);
+            break buscar;
+          }
+        }
+      }
+    }
   }
 
   // En la factura se leen en el orden del pedido, con los servicios al final.
