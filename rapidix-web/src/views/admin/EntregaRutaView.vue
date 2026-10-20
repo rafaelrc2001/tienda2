@@ -9,7 +9,7 @@
  * entrega finalizada pasa a la pestaña Liquidación, que es donde se liquida.
  *
  * Arriba, los pedidos de esta entrega con el paso que les toca: «En ruta» (o
- * quitarlo mientras no haya salido), «Entregar» y «No entregado». Abajo, lo
+ * quitarlo mientras la entrega no se inicie), «Entregar» y «No entregado». Abajo, lo
  * que espera en bodega, con «Recolectado» para subirlo a esta entrega.
  *
  * Que un pedido no quede en dos entregas lo garantiza la API: un pedido que ya
@@ -136,6 +136,9 @@ const puedeCargar = computed(
 
 /** Salir a ruta, entregar y «No entregado» piden además la entrega iniciada. */
 const puedeMover = computed(() => puedeCargar.value && detalle.value!.entrega.iniciadaEn !== null)
+
+/** Quitar solo antes de iniciar: iniciada, el camión ya salió con su carga. */
+const puedeQuitar = computed(() => puedeCargar.value && sinIniciar.value)
 
 const avisoBloqueo = computed(() => {
   if (!detalle.value || puedeMover.value) return ''
@@ -479,9 +482,10 @@ function colonia(pedido: PedidoEnRuta): string {
                         {{ moviendo === pedido.id ? '…' : TITULO_PASO.EN_RUTA }}
                       </button>
                       <button
+                        v-if="puedeQuitar"
                         type="button"
                         class="btn-cancel"
-                        :disabled="!puedeCargar || moviendo !== null"
+                        :disabled="moviendo !== null"
                         title="Lo baja del camión: vuelve a bodega"
                         @click="quitar(pedido)"
                       >

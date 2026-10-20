@@ -582,7 +582,7 @@ export class RutasService {
 
   /**
    * Baja el pedido del camion antes de salir: vuelve a bodega y queda libre
-   * para otra entrega.
+   * para otra entrega. Solo con la entrega sin iniciar: iniciada, ya salio.
    *
    * Solo en RECOLECTADO: ya en ruta la mercancia esta en la calle, y lo que no
    * se entregue regresa por el corte, que es quien la cuenta. Las filas de
@@ -604,6 +604,23 @@ export class RutasService {
       const pedido = await this.bloquearParaRutas(tx, id);
       RutasService.exigirPropio(pedido, usuario);
       await RutasService.exigirSuEntregaViva(tx, pedido.entregaRutaId, { paraCargar: true });
+      // Iniciada la entrega el camion ya salio con su carga: bajar un pedido
+      // por error lo devolveria a bodega sin que haya vuelto. Lo que no se
+      // entregue regresa por el corte.
+      if (pedido.entregaRutaId !== null) {
+        const entrega = await tx.entregaRuta.findUniqueOrThrow({
+          where: { id: pedido.entregaRutaId },
+          select: { iniciadaEn: true },
+        });
+        if (entrega.iniciadaEn !== null) {
+          throw new ConflictException({
+            statusCode: 409,
+            code: 'ENTREGA_INICIADA',
+            message:
+              'La entrega ya se inició: sus pedidos ya no se quitan. Si no se entrega, márcalo «No entregado».',
+          });
+        }
+      }
 
       if (pedido.estado !== EstadoPedido.RECOLECTADO) {
         throw new ConflictException({
@@ -872,7 +889,8 @@ export class RutasService {
    *
    * Sin iniciar solo se **carga**: el repartidor sube y baja pedidos del camion
    * y, ya cargado, pulsa "Iniciar entrega" para salir. Por eso `paraCargar`
-   * (recolectar y quitar) no pide inicio; salir a ruta y entregar si.
+   * (recolectar y quitar) no pide inicio; salir a ruta y entregar si. Quitar,
+   * ademas, solo se permite sin iniciar (lo comprueba `quitarDeEntrega`).
    */
   private static exigirEntregaViva(
     entrega: {
