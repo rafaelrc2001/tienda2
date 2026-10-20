@@ -414,15 +414,12 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
             <tr v-if="abierto === pedido.id" class="fila-detalle">
               <td colspan="9">
                 <div class="detalle-pedido">
-                  <!-- Cada producto con su precio; el pactado a mano lleva tachado el
-                       de la venta. Cambiarlo solo se ofrece mientras la API lo deja. -->
+                  <!-- Cada producto con el precio que se cobra, sin el de antes aunque
+                       se haya cambiado. Cambiarlo solo se ofrece mientras la API lo deja. -->
                   <ul class="renglones">
                     <li v-for="item in pedido.items" :key="item.id" class="renglon-precio">
                       <span>
                         <strong>{{ item.cantidad }}-</strong>{{ item.nombre }} ·
-                        <s v-if="item.precioOriginal !== null" class="precio-original">
-                          {{ dinero(item.precioOriginal) }}
-                        </s>
                         {{ dinero(item.precioUnitario) }} c/u
                       </span>
                       <button
@@ -774,10 +771,6 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
 }
 
 .sin-factura {
-  color: var(--muted);
-}
-
-.precio-original {
   color: var(--muted);
 }
 
