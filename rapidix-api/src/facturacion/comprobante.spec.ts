@@ -266,6 +266,26 @@ describe('armarComprobante', () => {
     expect(facturado('22.50', TasaIva.DIECISEIS)).toBe('23.00');
   });
 
+  it('un solo producto al 16 % que no alcanza el entero se pasa un centavo arriba', () => {
+    // $7 y $17 no se alcanzan: base 6.03 da 6.99 y 6.04 da 7.01.
+    for (const [precio, esperado] of [
+      ['7', '7.01'],
+      ['17', '17.01'],
+      ['6', '6.00'],
+    ]) {
+      const c = armarComprobante(
+        pedido({
+          items: [renglon({ precio, cantidad: 1, tasaIva: TasaIva.DIECISEIS })],
+          total: Number(precio),
+        }),
+        [],
+        CLAVES,
+      );
+      exigirConceptosValidos(c);
+      expect(c.total.toFixed(2)).toBe(esperado);
+    }
+  });
+
   it('producto de 67.80 con envio de 3: la factura dice un solo producto de 71', () => {
     for (const tasaIva of [TasaIva.CERO, TasaIva.DIECISEIS]) {
       const c = armarComprobante(

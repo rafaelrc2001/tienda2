@@ -142,7 +142,8 @@ function ivaDe(base: Decimal, tasa: TasaIva): Decimal {
  *
  * No siempre existe: al subir la base un centavo el total sube uno o dos, asi
  * que hay montos que no se alcanzan. Entonces se toma la mas cercana y se
- * devuelve lo que falto (`resto`) para que lo absorba otro concepto.
+ * devuelve lo que falto (`resto`) para que lo absorba otro concepto. Entre
+ * quedarse un centavo abajo o arriba, arriba: $7 sale en 7.01, no en 6.99.
  */
 export function baseAl16(objetivo: Decimal): { base: Decimal; resto: Decimal } {
   const estimada = objetivo.div(new Decimal('1.16')).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
@@ -154,7 +155,9 @@ export function baseAl16(objetivo: Decimal): { base: Decimal; resto: Decimal } {
     const base = estimada.add(CENTAVO.mul(paso));
     if (base.lessThan(0)) continue;
     const resto = objetivo.sub(base.add(ivaDe(base, TasaIva.DIECISEIS)));
-    if (resto.abs().lessThan(mejor.resto.abs())) mejor = { base, resto };
+    const masCerca = resto.abs().lessThan(mejor.resto.abs());
+    const igualPeroArriba = resto.abs().equals(mejor.resto.abs()) && resto.lessThan(mejor.resto);
+    if (masCerca || igualPeroArriba) mejor = { base, resto };
     if (resto.isZero()) break;
   }
   return mejor;
