@@ -279,22 +279,47 @@ export async function subirArchivo<T>(ruta: string, campo: string, archivo: File
 }
 
 /**
- * Descarga un fichero que la API sirve tras el Bearer.
+ * Pide un fichero que la API sirve tras el Bearer y lo devuelve como blob.
  *
- * Un `<a href>` normal no lleva la cabecera de autorización, así que se pide
- * con `fetch` y se entrega al navegador como blob.
+ * Un `<a href>` o un `<iframe>` no llevan la cabecera de autorización, así que
+ * se pide con `fetch`. Lo usan la descarga y el visor del PDF de la factura,
+ * que baja los bytes una vez y los reutiliza para pintar, compartir y guardar.
  */
-export async function descargarArchivo(ruta: string, nombreSugerido: string): Promise<void> {
+export async function obtenerArchivo(ruta: string, signal?: AbortSignal): Promise<Blob> {
   const cabeceras: Record<string, string> = {}
   const token = leerToken()
   if (token) cabeceras.Authorization = `Bearer ${token}`
 
-  const respuesta = await fetch(construirUrl(ruta, undefined), { headers: cabeceras })
-  if (!respuesta.ok) {
-    throw new ErrorApi(respuesta.status, mensajePorEstado(respuesta.status))
+  let respuesta: Response
+  try {
+    respuesta = await fetch(construirUrl(ruta, undefined), { headers: cabeceras, signal })
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') throw error
+    throw new ErrorApi(0, mensajePorEstado(0))
   }
 
-  const blob = await respuesta.blob()
+  if (!respuesta.ok) {
+    if (respuesta.status === 401) alExpirarSesion()
+    // El error sí viene en JSON de Nest: se traduce como cualquier otro.
+    let cuerpo: unknown = null
+    try {
+      cuerpo = await respuesta.json()
+    } catch {
+      // Sin cuerpo legible: basta el mensaje por estado.
+    }
+    const { mensaje, codigo } = traducirError(respuesta.status, cuerpo)
+    throw new ErrorApi(respuesta.status, mensaje, codigo)
+  }
+  return respuesta.blob()
+}
+
+/** Descarga un fichero que la API sirve tras el Bearer. */
+export async function descargarArchivo(ruta: string, nombreSugerido: string): Promise<void> {
+  guardarBlob(await obtenerArchivo(ruta), nombreSugerido)
+}
+
+/** Entrega al navegador un blob ya bajado para que lo guarde con ese nombre. */
+export function guardarBlob(blob: Blob, nombreSugerido: string): void {
   const url = URL.createObjectURL(blob)
   const enlace = document.createElement('a')
   enlace.href = url

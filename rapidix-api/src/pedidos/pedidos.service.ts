@@ -92,7 +92,8 @@ export interface PedidoDto {
   facturable: boolean;
   /**
    * c_FormaPago con la que «Facturar» llega elegida: la del metodo del pedido
-   * (efectivo 01, transferencia 03). Lo pagado con monedero no se factura. El
+   * (efectivo 01, transferencia 03). Lo pagado con monedero va dentro de los
+   * productos, sin forma de pago propia. El
    * cliente la puede cambiar por otra del catalogo del SAT.
    */
   formaPagoFactura: string;

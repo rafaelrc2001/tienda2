@@ -8,7 +8,8 @@
       "Read(//c/proyectos/rapidix-web/src/api/**)",
       "Read(//c/proyectos/rapidix-web/**)",
       "Bash(git push *)",
-      "Bash(git fetch *)"
+      "Bash(git fetch *)",
+      "Bash(timeout 300 git push)"
     ]
   }
 }

@@ -18,6 +18,7 @@ import {
 } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
 import FacturarPedidoModal from '@/components/FacturarPedidoModal.vue'
+import VisorPdfFactura from '@/components/VisorPdfFactura.vue'
 import type { Pedido } from '@/api/tipos'
 
 const ui = useUiStore()
@@ -28,6 +29,8 @@ const abierto = ref<string | null>(null)
 const cancelando = ref<string | null>(null)
 const facturando = ref<Pedido | null>(null)
 const descargando = ref<string | null>(null)
+/** El PDF se abre en el visor; desde ahí se comparte o se descarga. */
+const viendoPdf = ref<Pedido | null>(null)
 
 async function cargar(): Promise<void> {
   try {
@@ -80,14 +83,11 @@ async function alFacturar(): Promise<void> {
   await cargar()
 }
 
-async function descargar(pedido: Pedido, formato: 'pdf' | 'xml'): Promise<void> {
+async function descargarXml(pedido: Pedido): Promise<void> {
   if (descargando.value) return
-  descargando.value = `${pedido.id}-${formato}`
+  descargando.value = pedido.id
   try {
-    await descargarArchivo(
-      `/pedidos/${pedido.id}/factura/${formato}`,
-      `factura-${pedido.folio}.${formato}`,
-    )
+    await descargarArchivo(`/pedidos/${pedido.id}/factura/xml`, `factura-${pedido.folio}.xml`)
   } catch (fallo) {
     ui.errorDeApi(fallo)
   } finally {
@@ -233,21 +233,16 @@ async function descargar(pedido: Pedido, formato: 'pdf' | 'xml'): Promise<void> 
                   </p>
                   <p class="factura-uuid">Folio fiscal {{ pedido.factura.uuid }}</p>
                   <div class="factura-acciones">
-                    <button
-                      type="button"
-                      class="btn-secondary"
-                      :disabled="descargando !== null"
-                      @click="descargar(pedido, 'pdf')"
-                    >
-                      {{ descargando === `${pedido.id}-pdf` ? 'Descargando…' : 'PDF' }}
+                    <button type="button" class="btn-secondary" @click="viendoPdf = pedido">
+                      Ver PDF
                     </button>
                     <button
                       type="button"
                       class="btn-secondary"
                       :disabled="descargando !== null"
-                      @click="descargar(pedido, 'xml')"
+                      @click="descargarXml(pedido)"
                     >
-                      {{ descargando === `${pedido.id}-xml` ? 'Descargando…' : 'XML' }}
+                      {{ descargando === pedido.id ? 'Descargando…' : 'XML' }}
                     </button>
                   </div>
                 </div>
@@ -285,6 +280,14 @@ async function descargar(pedido: Pedido, formato: 'pdf' | 'xml'): Promise<void> 
       :pedido="facturando"
       @cerrar="facturando = null"
       @facturado="alFacturar"
+    />
+
+    <VisorPdfFactura
+      v-if="viendoPdf"
+      :ruta="`/pedidos/${viendoPdf.id}/factura/pdf`"
+      :nombre="`factura-${viendoPdf.folio}.pdf`"
+      :titulo="`🧾 Factura ${viendoPdf.folio}`"
+      @cerrar="viendoPdf = null"
     />
   </div>
 </template>
