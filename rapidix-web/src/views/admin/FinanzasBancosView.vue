@@ -1,0 +1,800 @@
+<script setup lang="ts">
+/**
+ * Administración → Finanzas → Bancos: el estado de cuenta de cada cuenta
+ * bancaria del negocio, mes por mes.
+ *
+ * Primero se elige la cuenta (las que se dieron de alta en Configuración →
+ * Datos bancarios) y luego el periodo. «Abrir periodo» abre un mes nuevo: el
+ * primero de la cuenta pide su saldo inicial; los demás lo toman del saldo
+ * final del anterior, y eso lo decide la API. Dentro del periodo, «+ Agregar
+ * movimiento» abre un renglón debajo del último para escribir el siguiente.
+ *
+ * La cantidad lleva signo: lo que sale del banco va en negativo. El saldo lo
+ * suma la API; aquí no se suma nada.
+ */
+import { computed, nextTick, onMounted, ref } from 'vue'
+import { ErrorApi, http } from '@/api/http'
+import { useUiStore } from '@/stores/ui'
+import { dinero, nombreMetodoPago } from '@/utils/formato'
+import SkeletonList from '@/components/SkeletonList.vue'
+import PestanasFinanzas from './finanzas/PestanasFinanzas.vue'
+import { montoCapturado } from './rutas/liquidacion'
+import type { CuentaBanco, EstadoCuentaBanco, MetodoPago, PeriodoBancario } from '@/api/tipos'
+
+const ui = useUiStore()
+
+const MESES = [
+  'Enero',
+  'Febrero',
+  'Marzo',
+  'Abril',
+  'Mayo',
+  'Junio',
+  'Julio',
+  'Agosto',
+  'Septiembre',
+  'Octubre',
+  'Noviembre',
+  'Diciembre',
+]
+
+const METODOS: MetodoPago[] = ['TRANSFERENCIA', 'EFECTIVO']
+
+/** La última cuenta elegida se recuerda en este navegador: casi siempre es la misma. */
+const CLAVE_CUENTA = 'rapidix.bancos.cuenta'
+
+function nombrePeriodo(p: { anio: number; mes: number }): string {
+  return `${MESES[p.mes - 1]} ${p.anio}`
+}
+
+/** `2026-09-01` → `01-sep`, como en el estado de cuenta del banco. */
+function fechaCorta(dia: string): string {
+  const [, mes, d] = dia.split('-').map(Number)
+  return `${String(d).padStart(2, '0')}-${MESES[mes - 1].slice(0, 3).toLowerCase()}`
+}
+
+const cuentas = ref<CuentaBanco[]>([])
+const cuentaId = ref('')
+const estado = ref<EstadoCuentaBanco | null>(null)
+const periodoId = ref('')
+const periodo = ref<PeriodoBancario | null>(null)
+const cargando = ref(true)
+const cargandoPeriodo = ref(false)
+
+onMounted(async () => {
+  try {
+    cuentas.value = await http.get<CuentaBanco[]>('/admin/finanzas/bancos/cuentas')
+    let recordada = ''
+    try {
+      recordada = localStorage.getItem(CLAVE_CUENTA) ?? ''
+    } catch {
+      // Almacenamiento bloqueado: se empieza por la primera.
+    }
+    const inicial = cuentas.value.find((c) => c.id === recordada) ?? cuentas.value[0]
+    if (inicial) {
+      cuentaId.value = inicial.id
+      await cargarCuenta()
+    }
+  } catch (fallo) {
+    ui.errorDeApi(fallo)
+  } finally {
+    cargando.value = false
+  }
+})
+
+/** Cambiar de cuenta y de periodo deprisa deja respuestas viejas en el aire: gana la última. */
+let peticion = 0
+
+/** Lee la cuenta y abre su periodo más reciente, o el que se pida. */
+async function cargarCuenta(abrir?: string): Promise<void> {
+  const numero = ++peticion
+  try {
+    localStorage.setItem(CLAVE_CUENTA, cuentaId.value)
+  } catch {
+    // Sin almacenamiento solo se pierde el recuerdo.
+  }
+  capturando.value = false
+  try {
+    const respuesta = await http.get<EstadoCuentaBanco>(
+      `/admin/finanzas/bancos/cuentas/${cuentaId.value}`,
+    )
+    if (numero !== peticion) return
+    estado.value = respuesta
+    periodoId.value = abrir ?? respuesta.periodos[0]?.id ?? ''
+    periodo.value = null
+    if (periodoId.value) await cargarPeriodo()
+  } catch (fallo) {
+    if (numero === peticion) ui.errorDeApi(fallo)
+  }
+}
+
+async function cargarPeriodo(): Promise<void> {
+  const numero = ++peticion
+  capturando.value = false
+  cargandoPeriodo.value = true
+  try {
+    const respuesta = await http.get<PeriodoBancario>(
+      `/admin/finanzas/bancos/periodos/${periodoId.value}`,
+    )
+    if (numero === peticion) periodo.value = respuesta
+  } catch (fallo) {
+    if (numero === peticion) ui.errorDeApi(fallo)
+  } finally {
+    if (numero === peticion) cargandoPeriodo.value = false
+  }
+}
+
+const cuenta = computed(() => estado.value?.cuenta ?? null)
+
+// ------------------------------------------------------------------
+// Abrir periodo
+// ------------------------------------------------------------------
+
+const abriendo = ref(false)
+const nuevoMes = ref(1)
+const nuevoAnio = ref('')
+/** Texto y no número: el campo vacío no es cero. Solo en el primer periodo. */
+const saldoInicial = ref('')
+const errorAbrir = ref('')
+const guardandoPeriodo = ref(false)
+
+/** El saldo heredado del anterior; null si es el primero y hay que escribirlo. */
+const saldoHeredado = computed(() => estado.value?.siguiente.saldoInicial ?? null)
+
+function abrirModal(): void {
+  if (!estado.value) return
+  nuevoMes.value = estado.value.siguiente.mes
+  nuevoAnio.value = String(estado.value.siguiente.anio)
+  saldoInicial.value = ''
+  errorAbrir.value = ''
+  abriendo.value = true
+}
+
+async function abrirPeriodo(): Promise<void> {
+  errorAbrir.value = ''
+  const anio = Number(nuevoAnio.value)
+  if (!Number.isInteger(anio) || anio < 2000 || anio > 2100) {
+    errorAbrir.value = 'Escribe un año válido.'
+    return
+  }
+  let saldo: number | undefined
+  if (saldoHeredado.value === null) {
+    const capturado = montoCapturado(saldoInicial.value)
+    if (capturado === null) {
+      errorAbrir.value = 'Escribe el saldo inicial de la cuenta.'
+      return
+    }
+    saldo = capturado
+  }
+
+  guardandoPeriodo.value = true
+  try {
+    const abierto = await http.post<PeriodoBancario>(
+      `/admin/finanzas/bancos/cuentas/${cuentaId.value}/periodos`,
+      { anio, mes: nuevoMes.value, ...(saldo !== undefined && { saldoInicial: saldo }) },
+    )
+    abriendo.value = false
+    ui.exito(`${nombrePeriodo(abierto)} abierto`)
+    await cargarCuenta(abierto.id)
+  } catch (fallo) {
+    errorAbrir.value = fallo instanceof ErrorApi ? fallo.message : 'No se pudo abrir el periodo.'
+  } finally {
+    guardandoPeriodo.value = false
+  }
+}
+
+// ------------------------------------------------------------------
+// Agregar movimiento: un renglón debajo del último
+// ------------------------------------------------------------------
+
+const capturando = ref(false)
+const nuevo = ref({
+  fecha: '',
+  factura: '',
+  cantidad: '',
+  metodo: 'TRANSFERENCIA' as MetodoPago,
+  referencia: '',
+})
+const errorMovimiento = ref('')
+const guardandoMovimiento = ref(false)
+const campoFecha = ref<HTMLInputElement | null>(null)
+
+/** Los límites del campo de fecha: el primer y el último día del mes del periodo. */
+const limites = computed(() => {
+  if (!periodo.value) return { min: '', max: '' }
+  const { anio, mes } = periodo.value
+  const ultimo = new Date(Date.UTC(anio, mes, 0)).getUTCDate()
+  const base = `${anio}-${String(mes).padStart(2, '0')}`
+  return { min: `${base}-01`, max: `${base}-${ultimo}` }
+})
+
+async function empezarCaptura(): Promise<void> {
+  if (!periodo.value) return
+  // La fecha del último renglón: los movimientos se capturan en orden.
+  const anterior = periodo.value.movimientos.at(-1)
+  nuevo.value = {
+    fecha: anterior?.fecha ?? limites.value.min,
+    factura: '',
+    cantidad: '',
+    metodo: anterior?.metodo ?? 'TRANSFERENCIA',
+    referencia: '',
+  }
+  errorMovimiento.value = ''
+  capturando.value = true
+  await nextTick()
+  campoFecha.value?.focus()
+}
+
+/** El teclado decimal del iPhone no trae el signo menos: este botón lo pone y lo quita. */
+function cambiarSigno(): void {
+  const valor = nuevo.value.cantidad.trim()
+  nuevo.value.cantidad = valor.startsWith('-') ? valor.slice(1) : `-${valor}`
+}
+
+async function guardarMovimiento(): Promise<void> {
+  if (!periodo.value || guardandoMovimiento.value) return
+  errorMovimiento.value = ''
+  const cantidad = montoCapturado(nuevo.value.cantidad)
+  if (!nuevo.value.fecha) {
+    errorMovimiento.value = 'Escribe la fecha.'
+    return
+  }
+  if (cantidad === null || cantidad === 0) {
+    errorMovimiento.value = 'Escribe la cantidad; si sale del banco, en negativo.'
+    return
+  }
+
+  guardandoMovimiento.value = true
+  try {
+    periodo.value = await http.post<PeriodoBancario>(
+      `/admin/finanzas/bancos/periodos/${periodo.value.id}/movimientos`,
+      {
+        fecha: nuevo.value.fecha,
+        cantidad,
+        metodo: nuevo.value.metodo,
+        ...(nuevo.value.factura.trim() && { factura: nuevo.value.factura.trim() }),
+        ...(nuevo.value.referencia.trim() && { referencia: nuevo.value.referencia.trim() }),
+      },
+    )
+    capturando.value = false
+    void refrescarResumen()
+  } catch (fallo) {
+    errorMovimiento.value =
+      fallo instanceof ErrorApi ? fallo.message : 'No se pudo guardar el movimiento.'
+  } finally {
+    guardandoMovimiento.value = false
+  }
+}
+
+async function eliminarMovimiento(id: string): Promise<void> {
+  if (!confirm('¿Eliminar este movimiento?')) return
+  try {
+    periodo.value = await http.delete<PeriodoBancario>(`/admin/finanzas/bancos/movimientos/${id}`)
+    void refrescarResumen()
+  } catch (fallo) {
+    ui.errorDeApi(fallo)
+  }
+}
+
+/**
+ * Un movimiento cambia el saldo de este mes y el inicial de los siguientes:
+ * se relee la cuenta para que el próximo «Abrir periodo» herede lo vigente.
+ */
+async function refrescarResumen(): Promise<void> {
+  try {
+    estado.value = await http.get<EstadoCuentaBanco>(
+      `/admin/finanzas/bancos/cuentas/${cuentaId.value}`,
+    )
+  } catch {
+    // No estorba: se vuelve a leer al abrir el siguiente periodo.
+  }
+}
+</script>
+
+<template>
+  <div class="pantalla">
+    <RouterLink to="/admin" class="admin-back-inline">← Volver al menú</RouterLink>
+
+    <PestanasFinanzas activa="bancos" />
+
+    <SkeletonList v-if="cargando" :cantidad="3" />
+
+    <p v-else-if="cuentas.length === 0" class="empty-block">
+      No hay cuentas bancarias. Dalas de alta en Configuración → Datos bancarios.
+    </p>
+
+    <template v-else>
+      <!-- Bloque crema y campos blancos: se ve dónde se elige. -->
+      <div class="filtros">
+        <div class="campo">
+          <label class="form-label" for="bancos-cuenta">Cuenta bancaria</label>
+          <select id="bancos-cuenta" v-model="cuentaId" class="form-input" @change="cargarCuenta()">
+            <option v-for="c in cuentas" :key="c.id" :value="c.id">
+              {{ c.banco }} · {{ c.numeroCuenta }} · {{ c.titular }}
+            </option>
+          </select>
+        </div>
+        <div class="campo">
+          <label class="form-label" for="bancos-periodo">Periodo</label>
+          <select
+            id="bancos-periodo"
+            v-model="periodoId"
+            class="form-input"
+            :disabled="!estado || estado.periodos.length === 0"
+            @change="cargarPeriodo"
+          >
+            <option v-if="!estado || estado.periodos.length === 0" value="">Sin periodos</option>
+            <option v-for="p in estado?.periodos ?? []" :key="p.id" :value="p.id">
+              {{ nombrePeriodo(p) }}
+            </option>
+          </select>
+        </div>
+        <button type="button" class="btn-secondary abrir" :disabled="!estado" @click="abrirModal">
+          Abrir periodo
+        </button>
+      </div>
+
+      <p v-if="estado && estado.periodos.length === 0" class="empty-block">
+        {{ cuenta?.banco }} todavía no tiene periodos. Ábrelo con su saldo inicial.
+      </p>
+
+      <SkeletonList v-else-if="cargandoPeriodo && !periodo" :cantidad="3" />
+
+      <template v-else-if="periodo">
+        <div class="cabecera">
+          <div>
+            <span class="titulo-dato">Mes</span>
+            <strong>{{ nombrePeriodo(periodo) }}</strong>
+          </div>
+          <div class="derecha">
+            <span class="titulo-dato">Saldo inicial</span>
+            <strong>{{ dinero(periodo.saldoInicial) }}</strong>
+          </div>
+        </div>
+
+        <div class="tabla-envoltorio">
+          <table class="tabla lineal">
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th>Factura</th>
+                <th class="num">Cantidad</th>
+                <th>Método de pago</th>
+                <th>Referencia</th>
+                <th aria-label="Acciones" />
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="m in periodo.movimientos" :key="m.id">
+                <td class="fecha">{{ fechaCorta(m.fecha) }}</td>
+                <td>{{ m.factura ?? '—' }}</td>
+                <td class="num importe" :class="{ negativo: m.cantidad < 0 }">
+                  {{ dinero(m.cantidad) }}
+                </td>
+                <td>{{ nombreMetodoPago(m.metodo) }}</td>
+                <td>{{ m.referencia ?? '' }}</td>
+                <td class="acciones">
+                  <button
+                    type="button"
+                    class="quitar"
+                    :aria-label="`Eliminar el movimiento del ${fechaCorta(m.fecha)}`"
+                    title="Eliminar"
+                    @click="eliminarMovimiento(m.id)"
+                  >
+                    ✕
+                  </button>
+                </td>
+              </tr>
+
+              <!-- El renglón que se está escribiendo, debajo del último. -->
+              <tr v-if="capturando" class="captura">
+                <td>
+                  <input
+                    ref="campoFecha"
+                    v-model="nuevo.fecha"
+                    class="form-input"
+                    type="date"
+                    :min="limites.min"
+                    :max="limites.max"
+                    aria-label="Fecha"
+                  />
+                </td>
+                <td>
+                  <input
+                    v-model="nuevo.factura"
+                    class="form-input"
+                    type="text"
+                    maxlength="40"
+                    placeholder="A1127"
+                    aria-label="Factura"
+                  />
+                </td>
+                <td>
+                  <span class="cantidad">
+                    <button
+                      type="button"
+                      class="signo"
+                      title="Cambiar el signo"
+                      aria-label="Cambiar el signo"
+                      @click="cambiarSigno"
+                    >
+                      ±
+                    </button>
+                    <input
+                      v-model="nuevo.cantidad"
+                      class="form-input monto"
+                      type="text"
+                      inputmode="decimal"
+                      autocomplete="off"
+                      placeholder="0.00"
+                      aria-label="Cantidad"
+                      @keyup.enter="guardarMovimiento"
+                    />
+                  </span>
+                </td>
+                <td>
+                  <select v-model="nuevo.metodo" class="form-input" aria-label="Método de pago">
+                    <option v-for="metodo in METODOS" :key="metodo" :value="metodo">
+                      {{ nombreMetodoPago(metodo) }}
+                    </option>
+                  </select>
+                </td>
+                <td>
+                  <input
+                    v-model="nuevo.referencia"
+                    class="form-input"
+                    type="text"
+                    maxlength="200"
+                    placeholder="Texto libre"
+                    aria-label="Referencia"
+                    @keyup.enter="guardarMovimiento"
+                  />
+                </td>
+                <td />
+              </tr>
+
+              <tr v-if="periodo.movimientos.length === 0 && !capturando">
+                <td colspan="6" class="vacio">Sin movimientos en {{ nombrePeriodo(periodo) }}.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p v-if="errorMovimiento" class="form-error">{{ errorMovimiento }}</p>
+
+        <div class="botones">
+          <template v-if="capturando">
+            <button
+              type="button"
+              class="btn-cancel"
+              :disabled="guardandoMovimiento"
+              @click="capturando = false"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              class="btn-primary"
+              :disabled="guardandoMovimiento"
+              @click="guardarMovimiento"
+            >
+              {{ guardandoMovimiento ? 'Guardando…' : 'Guardar movimiento' }}
+            </button>
+          </template>
+          <button v-else type="button" class="btn-secondary" @click="empezarCaptura">
+            + Agregar movimiento
+          </button>
+        </div>
+
+        <!-- El saldo que sumó la API: el inicial más todo lo del mes. -->
+        <div class="total" :class="{ negativo: periodo.saldo < 0 }">
+          <span class="total-titulo">Saldo:</span>
+          <strong class="total-monto">{{ dinero(periodo.saldo) }}</strong>
+        </div>
+      </template>
+    </template>
+
+    <!-- Abrir periodo: mes, año y el saldo con el que empieza. -->
+    <div v-if="abriendo" class="modal-overlay" @click.self="abriendo = false">
+      <div class="modal-sheet" role="dialog" aria-label="Abrir periodo">
+        <div class="modal-handle" />
+        <p class="modal-title">Abrir periodo · {{ cuenta?.banco }}</p>
+
+        <div class="zona-captura">
+          <div class="mes-anio">
+            <div>
+              <label class="form-label" for="periodo-mes">Mes</label>
+              <select id="periodo-mes" v-model="nuevoMes" class="form-input">
+                <option v-for="(nombre, i) in MESES" :key="nombre" :value="i + 1">
+                  {{ nombre }}
+                </option>
+              </select>
+            </div>
+            <div>
+              <label class="form-label" for="periodo-anio">Año</label>
+              <input
+                id="periodo-anio"
+                v-model="nuevoAnio"
+                class="form-input"
+                type="text"
+                inputmode="numeric"
+                maxlength="4"
+              />
+            </div>
+          </div>
+
+          <template v-if="saldoHeredado === null">
+            <label class="form-label" for="periodo-saldo">Saldo inicial</label>
+            <input
+              id="periodo-saldo"
+              v-model="saldoInicial"
+              class="form-input monto"
+              type="text"
+              inputmode="decimal"
+              autocomplete="off"
+              placeholder="0.00"
+              @keyup.enter="abrirPeriodo"
+            />
+          </template>
+          <p v-else class="heredado">
+            Saldo inicial, del periodo anterior: <strong>{{ dinero(saldoHeredado) }}</strong>
+          </p>
+        </div>
+
+        <p v-if="errorAbrir" class="form-error">{{ errorAbrir }}</p>
+
+        <div class="modal-actions">
+          <button
+            type="button"
+            class="btn-cancel"
+            :disabled="guardandoPeriodo"
+            @click="abriendo = false"
+          >
+            Volver
+          </button>
+          <button
+            type="button"
+            class="btn-primary"
+            :disabled="guardandoPeriodo"
+            @click="abrirPeriodo"
+          >
+            {{ guardandoPeriodo ? 'Abriendo…' : 'Abrir periodo' }}
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.pantalla {
+  padding: 12px 18px 0;
+}
+
+.admin-back-inline {
+  display: inline-block;
+  color: var(--terracotta-dark);
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 12.5px;
+  padding: 0 0 8px;
+  text-decoration: none;
+}
+
+/* Igual que los filtros de Ingresos: la cuenta a todo lo ancho, el periodo y
+   «Abrir periodo» debajo. `minmax(0, 1fr)` para que nada empuje la rejilla. */
+.filtros {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: end;
+  gap: 10px 12px;
+  background: var(--cream-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+
+.filtros .campo:first-child {
+  grid-column: 1 / -1;
+}
+
+.campo {
+  min-width: 0;
+}
+
+.campo .form-label {
+  margin-top: 0;
+}
+
+.campo .form-input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  margin: 0;
+  background: var(--white);
+}
+
+.abrir {
+  width: 100%;
+}
+
+.cabecera {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.cabecera .derecha {
+  text-align: right;
+}
+
+.titulo-dato {
+  display: block;
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.tabla {
+  min-width: 760px;
+}
+
+.tabla .fecha {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Lo que sale del banco salta a la vista, como el renglón amarillo del Excel. */
+.tabla .negativo {
+  color: var(--rojo);
+}
+
+.tabla .acciones {
+  width: 1%;
+  text-align: right;
+}
+
+.quitar {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 2px 6px;
+}
+
+.quitar:hover {
+  color: var(--rojo);
+}
+
+/* El renglón que se escribe: crema, con los campos blancos. */
+.tabla .captura td {
+  background: var(--cream-2);
+  vertical-align: middle;
+}
+
+.captura .form-input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 6px 8px;
+  /* 16px reales: con menos, Safari en iPhone amplía la página al enfocar. */
+  font-size: 16px;
+  background: var(--white);
+}
+
+.cantidad {
+  display: flex;
+  gap: 4px;
+}
+
+.signo {
+  flex-shrink: 0;
+  width: 32px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--white);
+  color: var(--ink);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.monto {
+  text-align: right;
+  font-weight: 700;
+}
+
+.vacio {
+  color: var(--muted);
+  text-align: center;
+}
+
+.botones {
+  display: flex;
+  justify-content: flex-start;
+  gap: 8px;
+  margin: 10px 0 12px;
+}
+
+.botones .btn-cancel {
+  flex: 0 0 auto;
+  padding: 9px 14px;
+}
+
+.form-error {
+  margin: 8px 0 0;
+}
+
+/* La misma tarjeta verde del total de Ingresos; en rojo si la cuenta quedó en negativo. */
+.total {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--verde-dark);
+  color: var(--white);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+}
+
+.total.negativo {
+  background: var(--rojo);
+}
+
+.total-titulo {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+
+.total-monto {
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 22px;
+  white-space: nowrap;
+}
+
+/* Donde se escribe: bloque crema y campos blancos. */
+.zona-captura {
+  background: var(--cream-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+
+.zona-captura .form-input {
+  background: var(--white);
+  font-size: 16px;
+}
+
+.mes-anio {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 10px;
+}
+
+.mes-anio .form-input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.heredado {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--ink);
+}
+</style>

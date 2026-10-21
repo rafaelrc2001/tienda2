@@ -9,7 +9,12 @@
       "Read(//c/proyectos/rapidix-web/**)",
       "Bash(git push *)",
       "Bash(git fetch *)",
-      "Bash(timeout 300 git push)"
+      "Bash(timeout 300 git push)",
+      "Bash(timeout 300 git push -u origin factura-total-con-monedero)",
+      "Bash(npx prisma *)",
+      "Bash(npx prettier *)",
+      "Bash(npx tsc *)",
+      "Bash(npx jest *)"
     ]
   }
 }

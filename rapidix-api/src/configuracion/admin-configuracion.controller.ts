@@ -1,12 +1,32 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Post, Put } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Post,
+  Put,
+} from '@nestjs/common';
+import { CuentaBancaria } from '@prisma/client';
 import {
   BancariosResponse,
   ConfiguracionService,
+  FiscalResponse,
   HorarioResponse,
   ParametrosResponse,
 } from './configuracion.service';
 import { DestacadosService } from './destacados.service';
-import { AvisoDto, BancariosDto, HorarioDto, NoticiaDto, ParametrosDto } from './dto/configuracion.dto';
+import {
+  AvisoDto,
+  BancariosDto,
+  CuentaBancariaDto,
+  FiscalDto,
+  HorarioDto,
+  NoticiaDto,
+  ParametrosDto,
+} from './dto/configuracion.dto';
 import { RequiereSeccion } from '../auth/seccion.decorator';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 
@@ -54,6 +74,37 @@ export class AdminConfiguracionController {
   @Put('bancarios')
   guardarBancarios(@Body() dto: BancariosDto): Promise<BancariosResponse> {
     return this.configuracion.guardarBancarios(dto);
+  }
+
+  // ---- Cuentas bancarias (dentro de Datos bancarios) ----
+
+  @Get('cuentas-bancarias')
+  listarCuentasBancarias(): Promise<CuentaBancaria[]> {
+    return this.configuracion.listarCuentasBancarias();
+  }
+
+  @Post('cuentas-bancarias')
+  @HttpCode(HttpStatus.CREATED)
+  crearCuentaBancaria(@Body() dto: CuentaBancariaDto): Promise<CuentaBancaria> {
+    return this.configuracion.crearCuentaBancaria(dto);
+  }
+
+  @Delete('cuentas-bancarias/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  eliminarCuentaBancaria(@Param('id') id: string): Promise<void> {
+    return this.configuracion.eliminarCuentaBancaria(id);
+  }
+
+  // ---- Datos fiscales del negocio ----
+
+  @Get('fiscal')
+  verFiscal(): Promise<FiscalResponse> {
+    return this.configuracion.verFiscal();
+  }
+
+  @Put('fiscal')
+  guardarFiscal(@Body() dto: FiscalDto): Promise<FiscalResponse> {
+    return this.configuracion.guardarFiscal(dto);
   }
 
   // ---- Noticias y avisos (HU-A07) ----

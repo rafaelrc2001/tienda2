@@ -17,7 +17,7 @@ import {
   bloqueoDeFacturacion,
   ClavesSat,
   ConceptoGuardado,
-  totalFacturado,
+  totalAFacturar,
 } from './comprobante';
 import {
   incompatibilidad,
@@ -264,12 +264,12 @@ export class FacturacionService implements OnModuleInit {
       await this.categoriasDelCupon(pedido.cupon),
       this.claves,
     );
-    // La factura va por el total del pedido, monedero incluido, redondeado al
-    // peso (`totalFacturado`). Sin ningun producto al 0 % el desglose puede
-    // quedar a un centavo de el (`armarComprobante`): eso se acepta. Mas que
-    // eso es que el pedido tiene columnas que no suman, y un CFDI timbrado no
-    // se puede deshacer.
-    const esperado = totalFacturado(pedido.total);
+    // La factura va por lo pagado aparte del monedero, redondeado al peso
+    // (`totalAFacturar`). Sin ningun producto al 0 % el desglose puede quedar
+    // a un centavo de el (`armarComprobante`): eso se acepta. Mas que eso es
+    // que el pedido tiene columnas que no suman, y un CFDI timbrado no se
+    // puede deshacer.
+    const esperado = totalAFacturar(pedido);
     if (comprobante.total.sub(esperado).abs().greaterThan(new Decimal('0.01'))) {
       this.logger.error(
         `El pedido ${pedido.folio} no cuadra para facturar: se esperaba ${esperado.toFixed(2)} ` +

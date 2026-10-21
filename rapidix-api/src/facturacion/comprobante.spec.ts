@@ -9,6 +9,8 @@ import {
   RenglonFacturable,
   repartirDescuento,
   repartirEnvio,
+  repartirMonedero,
+  totalAFacturar,
   totalFacturado,
 } from './comprobante';
 
@@ -57,10 +59,22 @@ function exigirConceptosValidos(c: ReturnType<typeof armarComprobante>): void {
 }
 
 describe('bloqueoDeFacturacion', () => {
-  const bloqueo = (estadoPago: EstadoPago) => bloqueoDeFacturacion({ estadoPago })?.codigo ?? null;
+  const bloqueo = (estadoPago: EstadoPago, pagadoConBilletera: number | string = 0) =>
+    bloqueoDeFacturacion({
+      estadoPago,
+      total: D(100),
+      pagadoConBilletera: D(pagadoConBilletera),
+    })?.codigo ?? null;
 
   it('solo deja facturar lo pagado, se haya entregado o no', () => {
     expect(bloqueo(EstadoPago.PAGADO)).toBeNull();
+  });
+
+  it('sin importe aparte del monedero no hay que facturar', () => {
+    expect(bloqueo(EstadoPago.PAGADO, 99)).toBeNull();
+    expect(bloqueo(EstadoPago.PAGADO, 100)).toBe('PAGADO_CON_MONEDERO');
+    // Quedan 30 centavos, que al peso son cero.
+    expect(bloqueo(EstadoPago.PAGADO, '99.70')).toBe('PAGADO_CON_MONEDERO');
   });
 
   it('nada que no este pagado, ni el efectivo cobrado en la puerta', () => {
@@ -143,6 +157,35 @@ describe('repartirEnvio', () => {
     expect(repartirEnvio(2, D(6)).map((p) => p.toFixed(2))).toEqual(['3.00', '3.00']);
     expect(repartirEnvio(3, D(10)).map((p) => p.toFixed(2))).toEqual(['3.33', '3.33', '3.34']);
     expect(repartirEnvio(0, D(6))).toEqual([]);
+  });
+});
+
+describe('repartirMonedero', () => {
+  const repartir = (topes: (number | string)[], monedero: number | string) => {
+    const { partes, sobrante } = repartirMonedero(topes.map(D), D(monedero));
+    return { partes: partes.map((p) => p.toFixed(2)), sobrante: sobrante.toFixed(2) };
+  };
+
+  it('partes iguales sin importar lo que valga cada uno', () => {
+    expect(repartir(['3.25', '2.75'], 2)).toEqual({ partes: ['1.00', '1.00'], sobrante: '0.00' });
+    expect(repartir([10, 10, 10], 1).partes).toEqual(['0.33', '0.33', '0.34']);
+  });
+
+  it('lo que no le cabe a uno se reparte entre los demas', () => {
+    expect(repartir(['0.50', 10, 10], 6).partes).toEqual(['0.50', '2.75', '2.75']);
+  });
+
+  it('lo que no cabe en ninguno queda de sobrante', () => {
+    expect(repartir([2, 3], 7)).toEqual({ partes: ['2.00', '3.00'], sobrante: '2.00' });
+  });
+});
+
+describe('totalAFacturar', () => {
+  it('lo pagado aparte del monedero, al peso', () => {
+    expect(totalAFacturar({ total: D('5.50'), pagadoConBilletera: D(2) }).toFixed(2)).toBe('4.00');
+    expect(totalAFacturar({ total: D(100), pagadoConBilletera: D('10.60') }).toFixed(2)).toBe(
+      '89.00',
+    );
   });
 });
 
@@ -404,7 +447,7 @@ describe('armarComprobante', () => {
     }
   });
 
-  it('lo pagado con monedero se queda en los productos: $50 y $50 con $10 siguen en $50', () => {
+  it('el monedero es descuento parejo: $50 y $50 con $10 llevan $5 de descuento cada uno', () => {
     const c = armarComprobante(
       pedido({
         items: [renglon({ precio: 50, cantidad: 1 }), renglon({ precio: 50, cantidad: 1 })],
@@ -417,12 +460,54 @@ describe('armarComprobante', () => {
     );
     exigirConceptosValidos(c);
     expect(c.conceptos.map((k) => k.importe.toFixed(2))).toEqual(['50.00', '50.00']);
-    expect(c.descuento.toFixed(2)).toBe('0.00');
-    expect(c.total.toFixed(2)).toBe('100.00');
+    expect(c.conceptos.map((k) => k.descuento.toFixed(2))).toEqual(['5.00', '5.00']);
+    expect(c.descuento.toFixed(2)).toBe('10.00');
+    expect(c.total.toFixed(2)).toBe('90.00');
     expect(c.formaPago).toBe('03');
   });
 
-  it('como ORD000160: $3 y $2.50 al 16 % con $2 de monedero se facturan en $6', () => {
+  it('el monedero que no cabe en los productos sale del recargo', () => {
+    const c = armarComprobante(
+      pedido({
+        items: [renglon({ precio: 20, cantidad: 1 })],
+        recargoFuera: D(10),
+        pagadoConBilletera: D(25),
+        total: 30,
+      }),
+      [],
+      CLAVES,
+    );
+    exigirConceptosValidos(c);
+    expect(c.conceptos.map((k) => k.base.add(k.iva).toFixed(2))).toEqual(['0.00', '5.00']);
+    expect(c.total.toFixed(2)).toBe('5.00');
+  });
+
+  it('con monedero, envio, cupon e IVA mezclados cuadra con lo pagado aparte', () => {
+    for (const billetera of ['0.37', '10', '33.33', '150.99']) {
+      const total = D(91 + 84 + 10 + 35 - 17.37);
+      const c = armarComprobante(
+        pedido({
+          items: [
+            renglon({ precio: 13, cantidad: 7, tasaIva: TasaIva.DIECISEIS, categoria: 'Bebidas' }),
+            renglon({ precio: 28, cantidad: 3, categoria: 'Abarrotes' }),
+            renglon({ precio: '3.333333333333333', cantidad: 3, tasaIva: TasaIva.DIECISEIS }),
+          ],
+          envio: D(35),
+          descuento: D('17.37'),
+          pagadoConBilletera: D(billetera),
+          total: total.toNumber(),
+        }),
+        [],
+        CLAVES,
+      );
+      exigirConceptosValidos(c);
+      expect(c.total.toFixed(2)).toBe(
+        totalAFacturar({ total, pagadoConBilletera: D(billetera) }).toFixed(2),
+      );
+    }
+  });
+
+  it('como ORD000162: $3 y $2.50 al 16 % con $2 de monedero se facturan en $4', () => {
     const c = armarComprobante(
       pedido({
         items: [
@@ -437,13 +522,15 @@ describe('armarComprobante', () => {
       CLAVES,
     );
     exigirConceptosValidos(c);
-    // Los 50 centavos del redondeo, 25 a cada uno.
-    expect(c.conceptos.map((k) => k.base.add(k.iva).toFixed(2))).toEqual(['3.25', '2.75']);
-    expect(c.conceptos.map((k) => [k.base.toFixed(2), k.iva.toFixed(2)])).toEqual([
-      ['2.80', '0.45'],
-      ['2.37', '0.38'],
+    // $3.50 pagados aparte se facturan en $4: los 50 centavos suben 25 a cada
+    // uno (3.25 y 2.75) y el monedero resta $1 a cada uno como descuento.
+    expect(c.conceptos.map((k) => k.base.add(k.iva).toFixed(2))).toEqual(['2.25', '1.75']);
+    expect(c.conceptos.map((k) => [k.importe.toFixed(2), k.base.toFixed(2)])).toEqual([
+      ['2.80', '1.94'],
+      ['2.37', '1.51'],
     ]);
-    expect(c.total.toFixed(2)).toBe('6.00');
+    expect(c.descuento.toFixed(2)).toBe('1.72');
+    expect(c.total.toFixed(2)).toBe('4.00');
     expect(c.formaPago).toBe('03');
   });
 

@@ -21,6 +21,7 @@ import { IngresosModule } from './ingresos/ingresos.module';
 import { CashbackModule } from './cashback/cashback.module';
 import { ClientesModule } from './clientes/clientes.module';
 import { FacturacionModule } from './facturacion/facturacion.module';
+import { BancosModule } from './bancos/bancos.module';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { RolesGuard } from './auth/roles.guard';
 
@@ -49,6 +50,7 @@ import { RolesGuard } from './auth/roles.guard';
     PdvModule,
     IngresosModule,
     FacturacionModule,
+    BancosModule,
     HealthModule,
   ],
   providers: [

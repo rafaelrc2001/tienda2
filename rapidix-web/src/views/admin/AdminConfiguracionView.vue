@@ -19,7 +19,13 @@ const PANTALLAS = [
     ruta: '/admin/configuracion/bancarios',
     ico: '🏦',
     titulo: 'Datos bancarios',
-    desc: 'Banco, beneficiario y número de cuenta',
+    desc: 'Datos de pago y cuentas bancarias',
+  },
+  {
+    ruta: '/admin/configuracion/fiscal',
+    ico: '🧾',
+    titulo: 'Fiscal',
+    desc: 'RFC, nombre, régimen y CP',
   },
   {
     ruta: '/admin/configuracion/noticias',

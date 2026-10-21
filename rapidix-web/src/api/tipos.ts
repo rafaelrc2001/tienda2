@@ -999,6 +999,57 @@ export interface ListadoIngresos {
   cuantos: number
 }
 
+/** `GET /admin/finanzas/bancos/cuentas`: las cuentas dadas de alta en Configuración. */
+export interface CuentaBanco {
+  id: string
+  banco: string
+  numeroCuenta: string
+  titular: string
+}
+
+/** Un mes de una cuenta en Finanzas → Bancos, sin sus movimientos. */
+export interface ResumenPeriodoBancario {
+  id: string
+  anio: number
+  /** 1 a 12. */
+  mes: number
+  saldoInicial: number
+  saldoFinal: number
+  movimientos: number
+}
+
+/** `GET /admin/finanzas/bancos/cuentas/:id`: los periodos y el mes que toca abrir. */
+export interface EstadoCuentaBanco {
+  cuenta: CuentaBanco
+  /** Del más reciente al más viejo. */
+  periodos: ResumenPeriodoBancario[]
+  /** `saldoInicial` en null: es el primer periodo y hay que escribirlo. */
+  siguiente: { anio: number; mes: number; saldoInicial: number | null }
+}
+
+export interface MovimientoBancario {
+  id: string
+  /** `AAAA-MM-DD`. */
+  fecha: string
+  factura: string | null
+  /** Con signo: lo que sale va en negativo. */
+  cantidad: number
+  metodo: MetodoPago
+  referencia: string | null
+}
+
+/** `GET /admin/finanzas/bancos/periodos/:id`: el mes con sus movimientos y su saldo. */
+export interface PeriodoBancario {
+  id: string
+  cuentaId: string
+  anio: number
+  mes: number
+  saldoInicial: number
+  /** El inicial más todos los movimientos, ya sumado por la API. */
+  saldo: number
+  movimientos: MovimientoBancario[]
+}
+
 /** Una cuenta por cobrar: un pedido entregado a crédito, con sus pagos y su saldo. */
 export interface PedidoCxc {
   id: string
@@ -1238,6 +1289,24 @@ export interface Bancarios {
   numeroTarjeta: string | null
   /** 18 dígitos (SPEI). */
   clabe: string | null
+}
+
+/** `GET /admin/configuracion/cuentas-bancarias`: el directorio de cuentas del negocio. */
+export interface CuentaBancaria {
+  id: string
+  banco: string
+  numeroCuenta: string
+  titular: string
+  creadoEn: string
+}
+
+/** `GET/PUT /admin/configuracion/fiscal`: datos fiscales del negocio y el catálogo de regímenes. */
+export interface FiscalNegocio {
+  rfc: string | null
+  nombre: string | null
+  regimen: string | null
+  cp: string | null
+  regimenes: RegimenFiscal[]
 }
 
 /**
