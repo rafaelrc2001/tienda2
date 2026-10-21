@@ -171,6 +171,12 @@ const routes: RouteRecordRaw[] = [
     meta: { seccion: 'configuracion', titulo: 'Datos bancarios' },
   },
   {
+    path: '/admin/configuracion/fiscal',
+    name: 'config-fiscal',
+    component: () => import('@/views/admin/ConfigFiscalView.vue'),
+    meta: { seccion: 'configuracion', titulo: 'Fiscal' },
+  },
+  {
     path: '/admin/configuracion/noticias',
     name: 'config-noticias',
     component: () => import('@/views/admin/ConfigNoticiasView.vue'),
@@ -277,6 +283,12 @@ const routes: RouteRecordRaw[] = [
     name: 'finanzas-cxc',
     component: () => import('@/views/admin/FinanzasCxcView.vue'),
     meta: { seccion: 'finanzas', titulo: 'Finanzas · CXC' },
+  },
+  {
+    path: '/admin/finanzas/bancos',
+    name: 'finanzas-bancos',
+    component: () => import('@/views/admin/FinanzasBancosView.vue'),
+    meta: { seccion: 'finanzas', titulo: 'Finanzas · Bancos' },
   },
   {
     path: '/admin/rutas',

@@ -1,7 +1,19 @@
-import { Injectable, InternalServerErrorException } from '@nestjs/common';
-import { ConfiguracionNegocio } from '@prisma/client';
+import {
+  ConflictException,
+  Injectable,
+  InternalServerErrorException,
+  NotFoundException,
+} from '@nestjs/common';
+import { ConfiguracionNegocio, CuentaBancaria, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { BancariosDto, HorarioDto, ParametrosDto } from './dto/configuracion.dto';
+import { REGIMENES_FISCALES, RegimenFiscal } from '../facturacion/catalogos-sat';
+import {
+  BancariosDto,
+  CuentaBancariaDto,
+  FiscalDto,
+  HorarioDto,
+  ParametrosDto,
+} from './dto/configuracion.dto';
 
 export interface HorarioResponse {
   diasServicio: Record<string, boolean>;
@@ -26,6 +38,15 @@ export interface BancariosResponse {
   numeroCuenta: string | null;
   numeroTarjeta: string | null;
   clabe: string | null;
+}
+
+export interface FiscalResponse {
+  rfc: string | null;
+  nombre: string | null;
+  regimen: string | null;
+  cp: string | null;
+  /** El catalogo viaja con los datos: la interfaz no lleva su propia copia. */
+  regimenes: RegimenFiscal[];
 }
 
 /** Lo que necesita la app del cliente: horario, envio y datos de pago. */
@@ -129,6 +150,59 @@ export class ConfiguracionService {
       },
     });
     return this.verBancarios();
+  }
+
+  listarCuentasBancarias(): Promise<CuentaBancaria[]> {
+    return this.prisma.cuentaBancaria.findMany({ orderBy: { creadoEn: 'asc' } });
+  }
+
+  crearCuentaBancaria(dto: CuentaBancariaDto): Promise<CuentaBancaria> {
+    return this.prisma.cuentaBancaria.create({ data: { ...dto } });
+  }
+
+  /**
+   * Una cuenta con periodos en Finanzas -> Bancos no se borra: se perderia su
+   * estado de cuenta. Lo impide la llave foranea (`onDelete: Restrict`).
+   */
+  async eliminarCuentaBancaria(id: string): Promise<void> {
+    try {
+      const { count } = await this.prisma.cuentaBancaria.deleteMany({ where: { id } });
+      if (count === 0) throw new NotFoundException('La cuenta bancaria no existe');
+    } catch (fallo) {
+      if (fallo instanceof Prisma.PrismaClientKnownRequestError && fallo.code === 'P2003') {
+        throw new ConflictException({
+          statusCode: 409,
+          code: 'CUENTA_CON_PERIODOS',
+          message: 'La cuenta ya tiene periodos en Finanzas → Bancos y no se puede eliminar.',
+        });
+      }
+      throw fallo;
+    }
+  }
+
+  async verFiscal(): Promise<FiscalResponse> {
+    const c = await this.obtener();
+    return {
+      rfc: c.fiscalRfc,
+      nombre: c.fiscalNombre,
+      regimen: c.fiscalRegimen,
+      cp: c.fiscalCp,
+      regimenes: REGIMENES_FISCALES,
+    };
+  }
+
+  async guardarFiscal(dto: FiscalDto): Promise<FiscalResponse> {
+    await this.obtener();
+    await this.prisma.configuracionNegocio.update({
+      where: { id: 1 },
+      data: {
+        fiscalRfc: dto.rfc,
+        fiscalNombre: dto.nombre,
+        fiscalRegimen: dto.regimen,
+        fiscalCp: dto.cp,
+      },
+    });
+    return this.verFiscal();
   }
 
   async verPublica(): Promise<ConfiguracionPublica> {

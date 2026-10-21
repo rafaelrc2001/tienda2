@@ -1,0 +1,301 @@
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { MetodoPago, Prisma } from '@prisma/client';
+import { PrismaService } from '../prisma/prisma.service';
+import { diaEn, zonaDelNegocio } from '../ingresos/rango-de-fechas';
+import { AbrirPeriodoDto, NuevoMovimientoDto } from './dto/bancos.dto';
+import {
+  claveMes,
+  diaDentroDelMes,
+  encadenarSaldos,
+  Mes,
+  mesDelDia,
+  mesSiguiente,
+  Saldos,
+} from './saldos';
+
+const Decimal = Prisma.Decimal;
+
+export interface CuentaBancoDto {
+  id: string;
+  banco: string;
+  numeroCuenta: string;
+  titular: string;
+}
+
+export interface ResumenPeriodoDto extends Mes {
+  id: string;
+  saldoInicial: number;
+  saldoFinal: number;
+  movimientos: number;
+}
+
+/** Una cuenta con sus periodos y lo que tocaria abrir despues. */
+export interface EstadoCuentaDto {
+  cuenta: CuentaBancoDto;
+  /** Del mas reciente al mas viejo. */
+  periodos: ResumenPeriodoDto[];
+  /**
+   * El mes que se propone abrir y con que saldo. `saldoInicial` en null es
+   * que la cuenta no tiene periodos y hay que escribirlo.
+   */
+  siguiente: Mes & { saldoInicial: number | null };
+}
+
+export interface MovimientoBancarioDto {
+  id: string;
+  /** `AAAA-MM-DD`. */
+  fecha: string;
+  factura: string | null;
+  cantidad: number;
+  metodo: MetodoPago;
+  referencia: string | null;
+}
+
+export interface PeriodoBancarioDto extends Mes {
+  id: string;
+  cuentaId: string;
+  saldoInicial: number;
+  /** El inicial mas todos los movimientos del mes. */
+  saldo: number;
+  /** Por fecha y, el mismo dia, en el orden en que se capturaron. */
+  movimientos: MovimientoBancarioDto[];
+}
+
+/**
+ * Finanzas -> Bancos: el estado de cuenta de cada cuenta bancaria, por meses.
+ *
+ * Los saldos no se guardan (salvo la apertura del primer periodo): se
+ * encadenan en vivo con `encadenarSaldos`, asi corregir un mes viejo corrige
+ * todos los que le siguen. Toda la aritmetica la hace la API; la interfaz
+ * solo pinta.
+ */
+@Injectable()
+export class BancosService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  /** Las cuentas dadas de alta en Configuracion, para elegir una. */
+  async listarCuentas(): Promise<CuentaBancoDto[]> {
+    const cuentas = await this.prisma.cuentaBancaria.findMany({ orderBy: { creadoEn: 'asc' } });
+    return cuentas.map(aCuentaDto);
+  }
+
+  async estadoDeCuenta(cuentaId: string): Promise<EstadoCuentaDto> {
+    const cuenta = await this.prisma.cuentaBancaria.findUnique({ where: { id: cuentaId } });
+    if (!cuenta) throw new NotFoundException('La cuenta bancaria no existe');
+
+    const { periodos, saldos } = await this.saldosDeLaCuenta(this.prisma, cuentaId);
+    const conteos = await this.prisma.movimientoBancario.groupBy({
+      by: ['periodoId'],
+      where: { periodo: { cuentaId } },
+      _count: { _all: true },
+    });
+    const cuantos = new Map(conteos.map((c) => [c.periodoId, c._count._all]));
+
+    const ultimo = periodos.at(-1);
+    const siguiente = ultimo
+      ? { ...mesSiguiente(ultimo), saldoInicial: saldos.get(ultimo.id)!.final.toNumber() }
+      : { ...mesDelDia(diaEn(new Date(), zonaDelNegocio())), saldoInicial: null };
+
+    return {
+      cuenta: aCuentaDto(cuenta),
+      periodos: [...periodos].reverse().map((p) => ({
+        id: p.id,
+        anio: p.anio,
+        mes: p.mes,
+        saldoInicial: saldos.get(p.id)!.inicial.toNumber(),
+        saldoFinal: saldos.get(p.id)!.final.toNumber(),
+        movimientos: cuantos.get(p.id) ?? 0,
+      })),
+      siguiente,
+    };
+  }
+
+  /**
+   * Abre un mes de una cuenta. El primero pide el saldo inicial; los demas
+   * lo toman del final del anterior y no aceptan otro, y van siempre despues
+   * del ultimo abierto: abrir uno en medio cambiaria el saldo heredado de los
+   * que ya se trabajaron.
+   */
+  async abrirPeriodo(
+    cuentaId: string,
+    dto: AbrirPeriodoDto,
+    usuarioId: string,
+  ): Promise<PeriodoBancarioDto> {
+    const id = await this.prisma.$transaction(async (tx) => {
+      const cuenta = await tx.cuentaBancaria.findUnique({ where: { id: cuentaId } });
+      if (!cuenta) throw new NotFoundException('La cuenta bancaria no existe');
+
+      const ultimo = await tx.periodoBancario.findFirst({
+        where: { cuentaId },
+        orderBy: [{ anio: 'desc' }, { mes: 'desc' }],
+      });
+
+      if (!ultimo && dto.saldoInicial === undefined) {
+        throw new BadRequestException({
+          statusCode: 400,
+          code: 'SALDO_INICIAL_REQUERIDO',
+          message: 'Es el primer periodo de la cuenta: escribe su saldo inicial.',
+        });
+      }
+      if (ultimo && dto.saldoInicial !== undefined) {
+        throw new BadRequestException({
+          statusCode: 400,
+          code: 'SALDO_INICIAL_HEREDADO',
+          message: 'El saldo inicial se toma del periodo anterior.',
+        });
+      }
+      if (ultimo && claveMes(dto) <= claveMes(ultimo)) {
+        throw new ConflictException({
+          statusCode: 409,
+          code: 'PERIODO_ANTERIOR',
+          message: `El periodo tiene que ir después de ${nombreMes(ultimo)}, el último abierto.`,
+        });
+      }
+
+      try {
+        const periodo = await tx.periodoBancario.create({
+          data: {
+            cuentaId,
+            anio: dto.anio,
+            mes: dto.mes,
+            saldoApertura: ultimo ? null : new Decimal(dto.saldoInicial!),
+            abiertoPorId: usuarioId,
+          },
+        });
+        return periodo.id;
+      } catch (fallo) {
+        // Dos personas abriendo el mismo mes a la vez: gana la primera.
+        if (fallo instanceof Prisma.PrismaClientKnownRequestError && fallo.code === 'P2002') {
+          throw new ConflictException({
+            statusCode: 409,
+            code: 'PERIODO_YA_ABIERTO',
+            message: `${nombreMes(dto)} ya está abierto en esta cuenta.`,
+          });
+        }
+        throw fallo;
+      }
+    });
+    return this.verPeriodo(id);
+  }
+
+  async verPeriodo(periodoId: string): Promise<PeriodoBancarioDto> {
+    const periodo = await this.prisma.periodoBancario.findUnique({
+      where: { id: periodoId },
+      include: { movimientos: { orderBy: [{ fecha: 'asc' }, { creadoEn: 'asc' }] } },
+    });
+    if (!periodo) throw new NotFoundException('El periodo no existe');
+
+    const { saldos } = await this.saldosDeLaCuenta(this.prisma, periodo.cuentaId);
+    const { inicial, final }: Saldos = saldos.get(periodo.id)!;
+
+    return {
+      id: periodo.id,
+      cuentaId: periodo.cuentaId,
+      anio: periodo.anio,
+      mes: periodo.mes,
+      saldoInicial: inicial.toNumber(),
+      saldo: final.toNumber(),
+      movimientos: periodo.movimientos.map((m) => ({
+        id: m.id,
+        fecha: m.fecha.toISOString().slice(0, 10),
+        factura: m.factura,
+        cantidad: m.cantidad.toNumber(),
+        metodo: m.metodo,
+        referencia: m.referencia,
+      })),
+    };
+  }
+
+  async agregarMovimiento(
+    periodoId: string,
+    dto: NuevoMovimientoDto,
+    usuarioId: string,
+  ): Promise<PeriodoBancarioDto> {
+    const periodo = await this.prisma.periodoBancario.findUnique({ where: { id: periodoId } });
+    if (!periodo) throw new NotFoundException('El periodo no existe');
+
+    if (!diaDentroDelMes(dto.fecha, periodo)) {
+      throw new BadRequestException({
+        statusCode: 400,
+        code: 'FECHA_FUERA_DEL_PERIODO',
+        message: `La fecha tiene que ser un día de ${nombreMes(periodo)}.`,
+      });
+    }
+
+    await this.prisma.movimientoBancario.create({
+      data: {
+        periodoId,
+        // Un `@db.Date`: la medianoche UTC del dia, sin zona que lo mueva.
+        fecha: new Date(`${dto.fecha}T00:00:00Z`),
+        factura: dto.factura ?? null,
+        cantidad: new Decimal(dto.cantidad),
+        metodo: dto.metodo,
+        referencia: dto.referencia ?? null,
+        registradoPorId: usuarioId,
+      },
+    });
+    return this.verPeriodo(periodoId);
+  }
+
+  /** Quitar un renglon capturado por error. Devuelve el periodo como queda. */
+  async eliminarMovimiento(movimientoId: string): Promise<PeriodoBancarioDto> {
+    const movimiento = await this.prisma.movimientoBancario.findUnique({
+      where: { id: movimientoId },
+    });
+    if (!movimiento) throw new NotFoundException('El movimiento no existe');
+    await this.prisma.movimientoBancario.delete({ where: { id: movimientoId } });
+    return this.verPeriodo(movimiento.periodoId);
+  }
+
+  /** Los periodos de una cuenta, del mas viejo al mas nuevo, con sus saldos. */
+  private async saldosDeLaCuenta(
+    db: Prisma.TransactionClient,
+    cuentaId: string,
+  ): Promise<{
+    periodos: { id: string; anio: number; mes: number; saldoApertura: Prisma.Decimal | null }[];
+    saldos: Map<string, Saldos>;
+  }> {
+    const [periodos, sumas] = await Promise.all([
+      db.periodoBancario.findMany({
+        where: { cuentaId },
+        orderBy: [{ anio: 'asc' }, { mes: 'asc' }],
+        select: { id: true, anio: true, mes: true, saldoApertura: true },
+      }),
+      db.movimientoBancario.groupBy({
+        by: ['periodoId'],
+        where: { periodo: { cuentaId } },
+        _sum: { cantidad: true },
+      }),
+    ]);
+    const porPeriodo = new Map(sumas.map((s) => [s.periodoId, s._sum.cantidad ?? new Decimal(0)]));
+    return { periodos, saldos: encadenarSaldos(periodos, porPeriodo) };
+  }
+}
+
+const MESES = [
+  'enero',
+  'febrero',
+  'marzo',
+  'abril',
+  'mayo',
+  'junio',
+  'julio',
+  'agosto',
+  'septiembre',
+  'octubre',
+  'noviembre',
+  'diciembre',
+];
+
+function nombreMes({ anio, mes }: Mes): string {
+  return `${MESES[mes - 1]} de ${anio}`;
+}
+
+function aCuentaDto(c: CuentaBancoDto): CuentaBancoDto {
+  return { id: c.id, banco: c.banco, numeroCuenta: c.numeroCuenta, titular: c.titular };
+}
