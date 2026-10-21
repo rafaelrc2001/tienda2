@@ -94,9 +94,14 @@ export interface Comprobante {
  *
  * Pago pendiente no, ni siquiera el efectivo ya cobrado en la puerta: se
  * factura cuando Finanzas acepta el corte y el pedido pasa a PAGADO.
+ *
+ * Lo pagado con el monedero no se factura (`totalAFacturar`): un pedido que
+ * el monedero cubrio completo no tiene importe.
  */
 export function bloqueoDeFacturacion(pedido: {
   estadoPago: EstadoPago;
+  total: Decimal;
+  pagadoConBilletera: Decimal;
 }): { codigo: string; mensaje: string } | null {
   if (pedido.estadoPago === EstadoPago.CANCELADO) {
     return { codigo: 'PEDIDO_CANCELADO', mensaje: 'Un pedido cancelado no se factura.' };
@@ -105,6 +110,12 @@ export function bloqueoDeFacturacion(pedido: {
     return {
       codigo: 'PEDIDO_SIN_PAGAR',
       mensaje: 'Podrás facturar este pedido cuando quede pagado.',
+    };
+  }
+  if (!totalAFacturar(pedido).greaterThan(0)) {
+    return {
+      codigo: 'PAGADO_CON_MONEDERO',
+      mensaje: 'Este pedido se pagó con tu monedero: no hay importe que facturar.',
     };
   }
   return null;
@@ -214,6 +225,43 @@ export function totalFacturado(total: Decimal): Decimal {
 }
 
 /**
+ * Por cuanto sale la factura de un pedido: lo que se pago aparte del
+ * monedero, al peso (`totalFacturado`). $5.50 con $2 de monedero son $3.50,
+ * que se facturan en $4.
+ */
+export function totalAFacturar(
+  pedido: Pick<PedidoFacturable, 'total' | 'pagadoConBilletera'>,
+): Decimal {
+  return totalFacturado(Decimal.max(pedido.total.sub(pedido.pagadoConBilletera), 0));
+}
+
+/**
+ * Reparte lo pagado con el monedero en partes iguales entre los renglones,
+ * como el envio pero restando: $2 entre dos productos son $1 y $1. Ninguno
+ * pierde mas de lo que vale (`topes`); lo que no le cabe a uno se reparte
+ * parejo entre los demas. Devuelve tambien lo que no cupo en ninguno.
+ */
+export function repartirMonedero(
+  topes: Decimal[],
+  monedero: Decimal,
+): { partes: Decimal[]; sobrante: Decimal } {
+  const partes = topes.map(() => new Decimal(0));
+  let resto = Decimal.max(monedero, 0);
+  // Del que menos vale al que mas: si el chico no alcanza su parte, lo que le
+  // falta se reparte entre los que siguen. El ultimo se lleva el centavo.
+  const orden = topes.map((t, i) => ({ tope: Decimal.max(t, 0), i }));
+  orden.sort((a, b) => a.tope.comparedTo(b.tope) || a.i - b.i);
+  orden.forEach(({ tope, i }, n) => {
+    const quedan = orden.length - n;
+    const parejo =
+      quedan === 1 ? resto : resto.div(quedan).toDecimalPlaces(2, Decimal.ROUND_DOWN);
+    partes[i] = Decimal.min(parejo, tope);
+    resto = resto.sub(partes[i]);
+  });
+  return { partes, sobrante: resto };
+}
+
+/**
  * Parte el envio en partes iguales entre los renglones, sin importar lo que
  * valga cada uno: 6 de envio con dos productos son 3 y 3. El ultimo se lleva
  * el centavo que no se reparte parejo (10 entre 3 son 3.33, 3.33 y 3.34).
@@ -228,7 +276,7 @@ export function repartirEnvio(renglones: number, envio: Decimal): Decimal[] {
 
 /**
  * c_FormaPago: la del metodo del pedido. El monedero (05) nunca: lo pagado con
- * el va dentro del precio de los productos, sin salir aparte en la factura.
+ * el sale como descuento de los productos, no como pago.
  */
 export function formaDePago(pedido: Pick<PedidoFacturable, 'metodoPago'>): string {
   return pedido.metodoPago === MetodoPago.TRANSFERENCIA ? '03' : '01';
@@ -288,11 +336,12 @@ function concepto(
  * el ticket lo siguen mostrando aparte. Sin productos que lo reciban vuelve a
  * ir como servicio. El cupon se reparte antes, solo sobre lo que valian los
  * productos: nunca toco el envio (el envio gratis se mide antes del
- * descuento). Lo pagado con el monedero no se resta ni sale aparte: la
- * factura es por el total del pedido, al peso mas cercano (`totalFacturado`),
- * y la diferencia del redondeo se reparte con el envio en partes iguales. Solo
- * el total queda en pesos enteros: los productos llevan sus centavos ($3 y
- * $2.50 facturados en $6 son $3.25 y $2.75). Primero van los conceptos
+ * descuento). La factura es por lo pagado aparte del monedero, al peso mas
+ * cercano (`totalAFacturar`): la diferencia del redondeo se suma con el envio
+ * en partes iguales y el monedero se resta en partes iguales como descuento
+ * (`repartirMonedero`). Solo el total queda en pesos enteros: $3 y $2.50 con
+ * $2 de monedero son $3.25 y $2.75 con $1 de descuento cada uno, $4 en
+ * total. Lo que no quepa en los productos sale del recargo. Primero van los conceptos
  * al 16 % y despues los de tasa 0, que absorben sin perdida el centavo que
  * aquellos no alcanzan. Si no hay ninguno al 0 %, el centavo se le pasa a otro
  * al 16 % que si lo alcance; con uno solo al 16 % puede quedar a un centavo:
@@ -309,12 +358,19 @@ export function armarComprobante(
     categoria: r.categoria,
   }));
   const descuentos = repartirDescuento(brutos, pedido.descuento, categoriasDelCupon);
-  // Lo que separa el total del pedido del facturado (de -0.49 a +0.50) viaja
-  // con el envio: tampoco es un producto. Sin productos no hay donde ponerlo.
+  // Lo que separa lo pagado aparte del monedero del facturado (de -0.49 a
+  // +0.50) viaja con el envio: tampoco es un producto. Sin productos no hay
+  // donde ponerlo.
+  const pagadoAparte = pedido.total.sub(pedido.pagadoConBilletera);
   const ajusteDelTotal =
-    renglones.length > 0 ? totalFacturado(pedido.total).sub(pedido.total) : new Decimal(0);
+    renglones.length > 0 ? totalAFacturar(pedido).sub(pagadoAparte) : new Decimal(0);
   const envios = repartirEnvio(renglones.length, pedido.envio.add(ajusteDelTotal));
-  const netos = brutos.map((b, i) => b.importe.sub(descuentos[i]).add(envios[i]));
+  const antesDelMonedero = brutos.map((b, i) => b.importe.sub(descuentos[i]).add(envios[i]));
+  const monedero = repartirMonedero(antesDelMonedero, pedido.pagadoConBilletera);
+  const netos = antesDelMonedero.map((n, i) => n.sub(monedero.partes[i]));
+  // Si el monedero cubrio mas que los productos, lo que falta sale de los
+  // servicios.
+  let monederoSobrante = monedero.sobrante;
 
   type Pendiente = {
     datos: Parameters<typeof concepto>[0];
@@ -334,26 +390,31 @@ export function armarComprobante(
         tasa: r.tasaIva,
       },
       // El envio y el redondeo del total entran en los dos: no son
-      // descuento, el producto vale eso mas (o menos).
+      // descuento, el producto vale eso mas (o menos). El cupon y el monedero
+      // solo en el neto: son el descuento.
       bruto: brutos[i].importe.add(envios[i]),
       neto: netos[i],
       orden: i,
     };
   });
 
-  const servicio = (descripcion: string, monto: Decimal, orden: number): Pendiente => ({
-    datos: {
-      descripcion,
-      claveProdServ: claves.servicio,
-      claveUnidad: 'E48',
-      unidad: 'Unidad de servicio',
-      cantidad: 1,
-      tasa: TasaIva.DIECISEIS,
-    },
-    bruto: monto,
-    neto: monto,
-    orden,
-  });
+  const servicio = (descripcion: string, monto: Decimal, orden: number): Pendiente => {
+    const delMonedero = Decimal.min(monederoSobrante, monto);
+    monederoSobrante = monederoSobrante.sub(delMonedero);
+    return {
+      datos: {
+        descripcion,
+        claveProdServ: claves.servicio,
+        claveUnidad: 'E48',
+        unidad: 'Unidad de servicio',
+        cantidad: 1,
+        tasa: TasaIva.DIECISEIS,
+      },
+      bruto: monto,
+      neto: monto.sub(delMonedero),
+      orden,
+    };
+  };
   if (pedido.envio.greaterThan(0) && renglones.length === 0) {
     pendientes.push(servicio('Envío a domicilio', pedido.envio, pendientes.length));
   }
