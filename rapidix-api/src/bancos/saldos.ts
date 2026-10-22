@@ -49,9 +49,10 @@ export interface Saldos {
 
 /**
  * Encadena los saldos de los periodos de una cuenta: el inicial de cada uno es
- * el final del anterior, y el primero empieza en su apertura. Se calcula en
- * vivo para que un movimiento capturado tarde en un mes viejo arrastre a los
- * siguientes.
+ * su apertura si se escribio una y, si no, el final del anterior. Se calcula
+ * en vivo para que un movimiento capturado tarde en un mes viejo arrastre a
+ * los siguientes, hasta el proximo mes con apertura propia, que empieza de
+ * nuevo en ella.
  *
  * `sumas` trae lo movido en cada periodo; el que no aparece no movio nada.
  * El orden de entrada no importa: se ordenan por mes.
@@ -63,10 +64,10 @@ export function encadenarSaldos(
   const ordenados = [...periodos].sort((a, b) => claveMes(a) - claveMes(b));
   const saldos = new Map<string, Saldos>();
   let arrastre = new Decimal(0);
-  ordenados.forEach((periodo, i) => {
-    // Solo el primero trae apertura; si otro la trajera se ignora, para que
-    // la cadena no dependa de un dato que nadie ve.
-    const inicial = i === 0 ? (periodo.saldoApertura ?? new Decimal(0)) : arrastre;
+  ordenados.forEach((periodo) => {
+    // El primero siempre trae apertura (lo exige `abrirPeriodo`); sin ella
+    // empezaria en cero.
+    const inicial = periodo.saldoApertura ?? arrastre;
     const final = inicial.add(sumas.get(periodo.id) ?? 0);
     saldos.set(periodo.id, { inicial, final });
     arrastre = final;

@@ -1023,7 +1023,10 @@ export interface EstadoCuentaBanco {
   cuenta: CuentaBanco
   /** Del más reciente al más viejo. */
   periodos: ResumenPeriodoBancario[]
-  /** `saldoInicial` en null: es el primer periodo y hay que escribirlo. */
+  /**
+   * El mes que se propone abrir, el que sigue al último. `saldoInicial` en
+   * null: es el primer periodo y hay que escribirlo.
+   */
   siguiente: { anio: number; mes: number; saldoInicial: number | null }
 }
 
@@ -1045,6 +1048,8 @@ export interface PeriodoBancario {
   anio: number
   mes: number
   saldoInicial: number
+  /** Si el inicial se escribió al abrir el mes; si no, viene del periodo anterior. */
+  saldoInicialEscrito: boolean
   /** El inicial más todos los movimientos, ya sumado por la API. */
   saldo: number
   movimientos: MovimientoBancario[]

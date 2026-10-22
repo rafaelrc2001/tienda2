@@ -8,15 +8,7 @@ import { MetodoPago, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { diaEn, zonaDelNegocio } from '../ingresos/rango-de-fechas';
 import { AbrirPeriodoDto, NuevoMovimientoDto } from './dto/bancos.dto';
-import {
-  claveMes,
-  diaDentroDelMes,
-  encadenarSaldos,
-  Mes,
-  mesDelDia,
-  mesSiguiente,
-  Saldos,
-} from './saldos';
+import { diaDentroDelMes, encadenarSaldos, Mes, mesDelDia, mesSiguiente, Saldos } from './saldos';
 
 const Decimal = Prisma.Decimal;
 
@@ -40,8 +32,9 @@ export interface EstadoCuentaDto {
   /** Del mas reciente al mas viejo. */
   periodos: ResumenPeriodoDto[];
   /**
-   * El mes que se propone abrir y con que saldo. `saldoInicial` en null es
-   * que la cuenta no tiene periodos y hay que escribirlo.
+   * El mes que se propone abrir (el que sigue al ultimo) y con que saldo.
+   * `saldoInicial` en null es que la cuenta no tiene periodos y hay que
+   * escribirlo. Solo es la propuesta: se puede abrir cualquier otro mes.
    */
   siguiente: Mes & { saldoInicial: number | null };
 }
@@ -60,6 +53,8 @@ export interface PeriodoBancarioDto extends Mes {
   id: string;
   cuentaId: string;
   saldoInicial: number;
+  /** Si el inicial se escribio al abrir el mes; si no, es el final del anterior. */
+  saldoInicialEscrito: boolean;
   /** El inicial mas todos los movimientos del mes. */
   saldo: number;
   /** Por fecha y, el mismo dia, en el orden en que se capturaron. */
@@ -69,9 +64,9 @@ export interface PeriodoBancarioDto extends Mes {
 /**
  * Finanzas -> Bancos: el estado de cuenta de cada cuenta bancaria, por meses.
  *
- * Los saldos no se guardan (salvo la apertura del primer periodo): se
+ * Los saldos no se guardan (salvo el inicial escrito al abrir un mes): se
  * encadenan en vivo con `encadenarSaldos`, asi corregir un mes viejo corrige
- * todos los que le siguen. Toda la aritmetica la hace la API; la interfaz
+ * los que le siguen. Toda la aritmetica la hace la API; la interfaz
  * solo pinta.
  */
 @Injectable()
@@ -116,10 +111,11 @@ export class BancosService {
   }
 
   /**
-   * Abre un mes de una cuenta. El primero pide el saldo inicial; los demas
-   * lo toman del final del anterior y no aceptan otro, y van siempre despues
-   * del ultimo abierto: abrir uno en medio cambiaria el saldo heredado de los
-   * que ya se trabajaron.
+   * Abre cualquier mes de una cuenta, antes, en medio o despues de los que ya
+   * hay. Con saldo inicial escrito, el mes empieza en el; sin el, hereda el
+   * final del periodo anterior, y si no hay ninguno antes se exige. Un mes
+   * abierto antes del primero no mueve a los demas: el que era primero
+   * conserva su saldo escrito.
    */
   async abrirPeriodo(
     cuentaId: string,
@@ -130,31 +126,21 @@ export class BancosService {
       const cuenta = await tx.cuentaBancaria.findUnique({ where: { id: cuentaId } });
       if (!cuenta) throw new NotFoundException('La cuenta bancaria no existe');
 
-      const ultimo = await tx.periodoBancario.findFirst({
-        where: { cuentaId },
-        orderBy: [{ anio: 'desc' }, { mes: 'desc' }],
-      });
-
-      if (!ultimo && dto.saldoInicial === undefined) {
-        throw new BadRequestException({
-          statusCode: 400,
-          code: 'SALDO_INICIAL_REQUERIDO',
-          message: 'Es el primer periodo de la cuenta: escribe su saldo inicial.',
+      if (dto.saldoInicial === undefined) {
+        const anterior = await tx.periodoBancario.findFirst({
+          where: {
+            cuentaId,
+            OR: [{ anio: { lt: dto.anio } }, { anio: dto.anio, mes: { lt: dto.mes } }],
+          },
+          select: { id: true },
         });
-      }
-      if (ultimo && dto.saldoInicial !== undefined) {
-        throw new BadRequestException({
-          statusCode: 400,
-          code: 'SALDO_INICIAL_HEREDADO',
-          message: 'El saldo inicial se toma del periodo anterior.',
-        });
-      }
-      if (ultimo && claveMes(dto) <= claveMes(ultimo)) {
-        throw new ConflictException({
-          statusCode: 409,
-          code: 'PERIODO_ANTERIOR',
-          message: `El periodo tiene que ir después de ${nombreMes(ultimo)}, el último abierto.`,
-        });
+        if (!anterior) {
+          throw new BadRequestException({
+            statusCode: 400,
+            code: 'SALDO_INICIAL_REQUERIDO',
+            message: `No hay un periodo antes de ${nombreMes(dto)}: escribe su saldo inicial.`,
+          });
+        }
       }
 
       try {
@@ -163,7 +149,7 @@ export class BancosService {
             cuentaId,
             anio: dto.anio,
             mes: dto.mes,
-            saldoApertura: ultimo ? null : new Decimal(dto.saldoInicial!),
+            saldoApertura: dto.saldoInicial === undefined ? null : new Decimal(dto.saldoInicial),
             abiertoPorId: usuarioId,
           },
         });
@@ -199,6 +185,7 @@ export class BancosService {
       anio: periodo.anio,
       mes: periodo.mes,
       saldoInicial: inicial.toNumber(),
+      saldoInicialEscrito: periodo.saldoApertura !== null,
       saldo: final.toNumber(),
       movimientos: periodo.movimientos.map((m) => ({
         id: m.id,
