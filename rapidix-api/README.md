@@ -278,4 +278,6 @@ Conectar el mockup HTML a la API · WhatsApp Business API real · pasarela de
 pagos en línea · notificaciones push · generación de QR · programa de
 referidos · CAC por canal · auditoría de cambios administrativos. Rutas ya está
 entera (`admin/rutas` y `admin/finanzas/cortes`): jornada, camión, entrega con
-evidencia y corte de caja.
+evidencia y corte de caja. Finanzas → Bancos (`admin/finanzas/bancos`) lleva
+el estado de cuenta de cada cuenta bancaria por meses: el primer periodo pide
+saldo inicial y los siguientes heredan el saldo final del anterior.
