@@ -433,10 +433,10 @@ async function refrescarResumen(cuenta: string): Promise<void> {
           <table class="tabla lineal">
             <thead>
               <tr>
-                <th>Fecha</th>
-                <th>Factura</th>
+                <th class="fecha">Fecha</th>
+                <th class="factura">Factura</th>
                 <th class="num">Cantidad</th>
-                <th>Método de pago</th>
+                <th class="metodo">Método de pago</th>
                 <th>Referencia</th>
                 <th aria-label="Acciones" />
               </tr>
@@ -444,11 +444,11 @@ async function refrescarResumen(cuenta: string): Promise<void> {
             <tbody>
               <tr v-for="m in periodo.movimientos" :key="m.id">
                 <td class="fecha">{{ fechaCorta(m.fecha) }}</td>
-                <td>{{ m.factura ?? '—' }}</td>
+                <td class="factura">{{ m.factura ?? '—' }}</td>
                 <td class="num importe" :class="{ negativo: m.cantidad < 0 }">
                   {{ dinero(m.cantidad) }}
                 </td>
-                <td>{{ nombreMetodoPago(m.metodo) }}</td>
+                <td class="metodo">{{ nombreMetodoPago(m.metodo) }}</td>
                 <td>{{ m.referencia ?? '' }}</td>
                 <td class="acciones">
                   <button
@@ -465,7 +465,7 @@ async function refrescarResumen(cuenta: string): Promise<void> {
 
               <!-- El renglón que se está escribiendo, debajo del último. -->
               <tr v-if="capturando" class="captura">
-                <td>
+                <td class="fecha">
                   <input
                     ref="campoFecha"
                     v-model="nuevo.fecha"
@@ -476,12 +476,12 @@ async function refrescarResumen(cuenta: string): Promise<void> {
                     aria-label="Fecha"
                   />
                 </td>
-                <td>
+                <td class="factura">
                   <input
                     v-model="nuevo.factura"
                     class="form-input"
                     type="text"
-                    maxlength="40"
+                    maxlength="8"
                     placeholder="A1127"
                     aria-label="Factura"
                   />
@@ -509,7 +509,7 @@ async function refrescarResumen(cuenta: string): Promise<void> {
                     />
                   </span>
                 </td>
-                <td>
+                <td class="metodo">
                   <select v-model="nuevo.metodo" class="form-input" aria-label="Método de pago">
                     <option v-for="metodo in METODOS" :key="metodo" :value="metodo">
                       {{ nombreMetodoPago(metodo) }}
@@ -737,9 +737,25 @@ async function refrescarResumen(cuenta: string): Promise<void> {
   min-width: 760px;
 }
 
+/* Ancho fijo: lo justo para el selector de fecha del renglón que se captura. Sin él, la
+   columna se lleva parte del espacio sobrante y el «01-dic» queda lejos de la factura. */
 .tabla .fecha {
+  width: 130px;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+}
+
+/* El folio es corto (8 caracteres como máximo): la columna no se lleva el espacio sobrante. */
+.tabla .factura {
+  width: 11ch;
+  white-space: nowrap;
+}
+
+/* El método más largo es «Transferencia»: lo justo para él y su flecha en el select; el resto
+   del ancho queda para la referencia. */
+.tabla .metodo {
+  width: 160px;
+  white-space: nowrap;
 }
 
 /* Lo que sale del banco salta a la vista, como el renglón amarillo del Excel. */
