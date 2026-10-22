@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   InternalServerErrorException,
@@ -6,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { ConfiguracionNegocio, CuentaBancaria, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { REGIMENES_FISCALES, RegimenFiscal } from '../facturacion/catalogos-sat';
+import { REGIMENES_FISCALES, RegimenFiscal, tipoPersona } from '../facturacion/catalogos-sat';
 import {
   BancariosDto,
   CuentaBancariaDto,
@@ -156,7 +157,22 @@ export class ConfiguracionService {
     return this.prisma.cuentaBancaria.findMany({ orderBy: { creadoEn: 'asc' } });
   }
 
-  crearCuentaBancaria(dto: CuentaBancariaDto): Promise<CuentaBancaria> {
+  /**
+   * La misma cuenta dos veces (mismo numero en el mismo banco, sin importar
+   * mayusculas) no se da de alta: en Bancos saldria repetida y sus periodos
+   * quedarian repartidos entre las dos.
+   */
+  async crearCuentaBancaria(dto: CuentaBancariaDto): Promise<CuentaBancaria> {
+    const repetida = await this.prisma.cuentaBancaria.findFirst({
+      where: { numeroCuenta: dto.numeroCuenta, banco: { equals: dto.banco, mode: 'insensitive' } },
+    });
+    if (repetida) {
+      throw new ConflictException({
+        statusCode: 409,
+        code: 'CUENTA_DUPLICADA',
+        message: `La cuenta ${dto.numeroCuenta} de ${repetida.banco} ya está dada de alta.`,
+      });
+    }
     return this.prisma.cuentaBancaria.create({ data: { ...dto } });
   }
 
@@ -192,6 +208,20 @@ export class ConfiguracionService {
   }
 
   async guardarFiscal(dto: FiscalDto): Promise<FiscalResponse> {
+    // El SAT rechaza el CFDI si el regimen no es del tipo de persona del RFC:
+    // se dice al guardar y no al timbrar la primera factura.
+    const persona = tipoPersona(dto.rfc);
+    const regimen = REGIMENES_FISCALES.find((r) => r.clave === dto.regimen);
+    if (regimen && !regimen.personas.includes(persona)) {
+      throw new BadRequestException({
+        statusCode: 400,
+        code: 'REGIMEN_NO_CORRESPONDE',
+        message:
+          persona === 'MORAL'
+            ? 'Ese régimen es de personas físicas y el RFC es de persona moral (12 caracteres).'
+            : 'Ese régimen es de personas morales y el RFC es de persona física (13 caracteres).',
+      });
+    }
     await this.obtener();
     await this.prisma.configuracionNegocio.update({
       where: { id: 1 },

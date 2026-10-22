@@ -194,6 +194,7 @@ async function guardar(): Promise<void> {
           v-model="nuevaCuenta.banco"
           class="form-input"
           :class="{ 'is-invalid': erroresCuenta.banco }"
+          maxlength="80"
           placeholder="Ej. BBVA"
         />
         <p v-if="erroresCuenta.banco" class="form-error">{{ erroresCuenta.banco }}</p>
@@ -217,6 +218,7 @@ async function guardar(): Promise<void> {
           v-model="nuevaCuenta.titular"
           class="form-input"
           :class="{ 'is-invalid': erroresCuenta.titular }"
+          maxlength="120"
           placeholder="Nombre de quien es la cuenta"
         />
         <p v-if="erroresCuenta.titular" class="form-error">{{ erroresCuenta.titular }}</p>

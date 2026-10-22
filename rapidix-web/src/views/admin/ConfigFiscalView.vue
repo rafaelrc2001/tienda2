@@ -5,7 +5,7 @@
  * El catálogo de regímenes llega con los datos (`GET /admin/configuracion/fiscal`):
  * la interfaz no lleva su propia copia.
  */
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { ErrorApi, http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
 import type { FiscalNegocio } from '@/api/tipos'
@@ -21,13 +21,26 @@ const guardando = ref(false)
 const errores = ref<Record<string, string>>({})
 const erroresGenerales = ref<string[]>([])
 
+/** El RFC sin espacios ni guiones, que es como lo guarda la API. */
+const rfcLimpio = computed(() => formulario.value.rfc.replace(/[\s-]/g, '').toUpperCase())
+
 /** Con el RFC ya escrito, solo se ofrecen los regímenes de ese tipo de persona. */
 const regimenes = computed(() => {
   const todos = fiscal.value?.regimenes ?? []
-  const largo = formulario.value.rfc.trim().length
+  const largo = rfcLimpio.value.length
   if (largo !== 12 && largo !== 13) return todos
   const persona = largo === 12 ? 'MORAL' : 'FISICA'
-  return todos.filter((r) => r.personas.includes(persona) || r.clave === formulario.value.regimen)
+  return todos.filter((r) => r.personas.includes(persona))
+})
+
+/**
+ * Si el RFC cambia de persona física a moral (o al revés), el régimen elegido
+ * deja de valer: se vacía para que no se guarde uno que el SAT rechaza.
+ */
+watch(regimenes, (lista) => {
+  if (formulario.value.regimen && !lista.some((r) => r.clave === formulario.value.regimen)) {
+    formulario.value.regimen = ''
+  }
 })
 
 function rellenar(datos: FiscalNegocio): void {
@@ -57,7 +70,7 @@ async function guardar(): Promise<void> {
   try {
     rellenar(
       await http.put<FiscalNegocio>('/admin/configuracion/fiscal', {
-        rfc: formulario.value.rfc.trim(),
+        rfc: rfcLimpio.value,
         nombre: formulario.value.nombre.trim(),
         regimen: formulario.value.regimen,
         cp: formulario.value.cp.trim(),
@@ -96,7 +109,7 @@ async function guardar(): Promise<void> {
           v-model="formulario.rfc"
           class="form-input mayusculas"
           :class="{ 'is-invalid': errores.rfc }"
-          maxlength="13"
+          maxlength="16"
           autocomplete="off"
         />
         <p v-if="errores.rfc" class="form-error">{{ errores.rfc }}</p>
@@ -107,6 +120,7 @@ async function guardar(): Promise<void> {
           v-model="formulario.nombre"
           class="form-input mayusculas"
           :class="{ 'is-invalid': errores.nombre }"
+          maxlength="254"
           placeholder="Tal cual la constancia, sin «S.A. de C.V.»"
         />
         <p v-if="errores.nombre" class="form-error">{{ errores.nombre }}</p>
