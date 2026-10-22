@@ -67,6 +67,10 @@ Lo que ve cada rol sale de `GET /admin/menu`. **La interfaz no lleva su propia
 copia de la matriz de permisos**: la pregunta, y el guard del router comprueba
 que la sección de `meta.seccion` esté en el menú que devolvió la API.
 
+Finanzas tiene cinco pestañas (`PestanasFinanzas.vue`): Pedidos, Cortes,
+Ingresos, CXC y Bancos. Bancos es el estado de cuenta mensual de las cuentas
+dadas de alta en Configuración → Datos bancarios.
+
 ---
 
 ## Estructura
