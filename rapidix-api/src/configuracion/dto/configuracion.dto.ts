@@ -122,7 +122,10 @@ export class BancariosDto {
 const recortado = ({ value }: { value: unknown }) =>
   typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : value;
 const mayusculas = ({ value }: { value: unknown }) =>
-  typeof value === 'string' ? value.trim().toUpperCase() : value;
+  typeof value === 'string' ? value.trim().replace(/\s+/g, ' ').toUpperCase() : value;
+/** El RFC se pega a veces con espacios o guiones (`ABC-010101-XY1`): se quitan. */
+const rfcLimpio = ({ value }: { value: unknown }) =>
+  typeof value === 'string' ? value.replace(/[\s-]/g, '').toUpperCase() : value;
 
 /** Alta de una cuenta en Datos bancarios -> Cuentas bancarias. Los tres obligatorios. */
 export class CuentaBancariaDto {
@@ -152,7 +155,7 @@ export class CuentaBancariaDto {
  * regimen no sirve para nada. La forma del RFC es la misma que la del receptor.
  */
 export class FiscalDto {
-  @Transform(mayusculas)
+  @Transform(rfcLimpio)
   @IsString()
   @Matches(/^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/, {
     message: 'El RFC no es válido: son 12 caracteres (empresa) o 13 (persona física)',

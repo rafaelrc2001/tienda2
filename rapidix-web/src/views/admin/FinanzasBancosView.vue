@@ -18,7 +18,7 @@ import { useUiStore } from '@/stores/ui'
 import { dinero, nombreMetodoPago } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
 import PestanasFinanzas from './finanzas/PestanasFinanzas.vue'
-import { montoCapturado } from './rutas/liquidacion'
+import { cantidadBancaria, errorDeCantidad } from './finanzas/bancos'
 import type { CuentaBanco, EstadoCuentaBanco, MetodoPago, PeriodoBancario } from '@/api/tipos'
 
 const ui = useUiStore()
@@ -59,6 +59,7 @@ const estado = ref<EstadoCuentaBanco | null>(null)
 const periodoId = ref('')
 const periodo = ref<PeriodoBancario | null>(null)
 const cargando = ref(true)
+const cargandoCuenta = ref(false)
 const cargandoPeriodo = ref(false)
 
 onMounted(async () => {
@@ -94,17 +95,28 @@ async function cargarCuenta(abrir?: string): Promise<void> {
     // Sin almacenamiento solo se pierde el recuerdo.
   }
   capturando.value = false
+  // Otra cuenta: lo de la anterior se quita ya. Si se quedara mientras llega
+  // la respuesta, «Abrir periodo» propondría el saldo heredado de la otra.
+  if (estado.value?.cuenta.id !== cuentaId.value) {
+    estado.value = null
+    periodo.value = null
+  }
+  cargandoCuenta.value = true
   try {
     const respuesta = await http.get<EstadoCuentaBanco>(
       `/admin/finanzas/bancos/cuentas/${cuentaId.value}`,
     )
     if (numero !== peticion) return
     estado.value = respuesta
+    cargandoCuenta.value = false
     periodoId.value = abrir ?? respuesta.periodos[0]?.id ?? ''
     periodo.value = null
     if (periodoId.value) await cargarPeriodo()
   } catch (fallo) {
-    if (numero === peticion) ui.errorDeApi(fallo)
+    if (numero === peticion) {
+      cargandoCuenta.value = false
+      ui.errorDeApi(fallo)
+    }
   }
 }
 
@@ -159,12 +171,12 @@ async function abrirPeriodo(): Promise<void> {
   }
   let saldo: number | undefined
   if (saldoHeredado.value === null) {
-    const capturado = montoCapturado(saldoInicial.value)
-    if (capturado === null) {
-      errorAbrir.value = 'Escribe el saldo inicial de la cuenta.'
+    const error = errorDeCantidad(saldoInicial.value, 'el saldo inicial de la cuenta')
+    if (error) {
+      errorAbrir.value = error
       return
     }
-    saldo = capturado
+    saldo = cantidadBancaria(saldoInicial.value)!
   }
 
   guardandoPeriodo.value = true
@@ -227,27 +239,43 @@ async function empezarCaptura(): Promise<void> {
 
 /** El teclado decimal del iPhone no trae el signo menos: este botón lo pone y lo quita. */
 function cambiarSigno(): void {
+  // El menos puede venir después del `$` («$-6,750»): se quita donde esté.
   const valor = nuevo.value.cantidad.trim()
-  nuevo.value.cantidad = valor.startsWith('-') ? valor.slice(1) : `-${valor}`
+  const sinSigno = valor.replace(/-/g, '')
+  nuevo.value.cantidad = valor.includes('-') ? sinSigno : `-${sinSigno}`
+}
+
+/**
+ * La respuesta de un guardado o un borrado es del periodo en el que se hizo:
+ * si mientras tanto se eligió otro periodo u otra cuenta, no se pinta encima.
+ */
+function sigueEnPantalla(id: string): boolean {
+  return periodoId.value === id && periodo.value?.id === id
 }
 
 async function guardarMovimiento(): Promise<void> {
   if (!periodo.value || guardandoMovimiento.value) return
   errorMovimiento.value = ''
-  const cantidad = montoCapturado(nuevo.value.cantidad)
   if (!nuevo.value.fecha) {
     errorMovimiento.value = 'Escribe la fecha.'
     return
   }
-  if (cantidad === null || cantidad === 0) {
-    errorMovimiento.value = 'Escribe la cantidad; si sale del banco, en negativo.'
+  const error = errorDeCantidad(nuevo.value.cantidad, 'la cantidad; si sale del banco, en negativo')
+  if (error) {
+    errorMovimiento.value = error
+    return
+  }
+  const cantidad = cantidadBancaria(nuevo.value.cantidad)!
+  if (cantidad === 0) {
+    errorMovimiento.value = 'La cantidad no puede ser cero.'
     return
   }
 
+  const id = periodo.value.id
   guardandoMovimiento.value = true
   try {
-    periodo.value = await http.post<PeriodoBancario>(
-      `/admin/finanzas/bancos/periodos/${periodo.value.id}/movimientos`,
+    const respuesta = await http.post<PeriodoBancario>(
+      `/admin/finanzas/bancos/periodos/${id}/movimientos`,
       {
         fecha: nuevo.value.fecha,
         cantidad,
@@ -256,21 +284,32 @@ async function guardarMovimiento(): Promise<void> {
         ...(nuevo.value.referencia.trim() && { referencia: nuevo.value.referencia.trim() }),
       },
     )
-    capturando.value = false
-    void refrescarResumen()
+    if (sigueEnPantalla(id)) {
+      periodo.value = respuesta
+      capturando.value = false
+    }
+    void refrescarResumen(respuesta.cuentaId)
   } catch (fallo) {
-    errorMovimiento.value =
-      fallo instanceof ErrorApi ? fallo.message : 'No se pudo guardar el movimiento.'
+    // Se cambió de periodo: el renglón ya no está a la vista para corregirlo.
+    if (!sigueEnPantalla(id)) ui.errorDeApi(fallo)
+    else {
+      errorMovimiento.value =
+        fallo instanceof ErrorApi ? fallo.message : 'No se pudo guardar el movimiento.'
+    }
   } finally {
     guardandoMovimiento.value = false
   }
 }
 
-async function eliminarMovimiento(id: string): Promise<void> {
-  if (!confirm('¿Eliminar este movimiento?')) return
+async function eliminarMovimiento(movimientoId: string): Promise<void> {
+  if (!periodo.value || !confirm('¿Eliminar este movimiento?')) return
+  const id = periodo.value.id
   try {
-    periodo.value = await http.delete<PeriodoBancario>(`/admin/finanzas/bancos/movimientos/${id}`)
-    void refrescarResumen()
+    const respuesta = await http.delete<PeriodoBancario>(
+      `/admin/finanzas/bancos/movimientos/${movimientoId}`,
+    )
+    if (sigueEnPantalla(id)) periodo.value = respuesta
+    void refrescarResumen(respuesta.cuentaId)
   } catch (fallo) {
     ui.errorDeApi(fallo)
   }
@@ -279,12 +318,13 @@ async function eliminarMovimiento(id: string): Promise<void> {
 /**
  * Un movimiento cambia el saldo de este mes y el inicial de los siguientes:
  * se relee la cuenta para que el próximo «Abrir periodo» herede lo vigente.
+ * Solo si sigue siendo la cuenta elegida: si no, el modal propondría el saldo
+ * de otra.
  */
-async function refrescarResumen(): Promise<void> {
+async function refrescarResumen(cuenta: string): Promise<void> {
   try {
-    estado.value = await http.get<EstadoCuentaBanco>(
-      `/admin/finanzas/bancos/cuentas/${cuentaId.value}`,
-    )
+    const respuesta = await http.get<EstadoCuentaBanco>(`/admin/finanzas/bancos/cuentas/${cuenta}`)
+    if (cuentaId.value === cuenta && !cargandoCuenta.value) estado.value = respuesta
   } catch {
     // No estorba: se vuelve a leer al abrir el siguiente periodo.
   }
@@ -338,7 +378,7 @@ async function refrescarResumen(): Promise<void> {
         {{ cuenta?.banco }} todavía no tiene periodos. Ábrelo con su saldo inicial.
       </p>
 
-      <SkeletonList v-else-if="cargandoPeriodo && !periodo" :cantidad="3" />
+      <SkeletonList v-else-if="(cargandoCuenta || cargandoPeriodo) && !periodo" :cantidad="3" />
 
       <template v-else-if="periodo">
         <div class="cabecera">
