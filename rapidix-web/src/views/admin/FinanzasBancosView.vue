@@ -4,9 +4,10 @@
  * bancaria del negocio, mes por mes.
  *
  * Primero se elige la cuenta (las que se dieron de alta en Configuración →
- * Datos bancarios) y luego el periodo. «Abrir periodo» abre un mes nuevo: el
- * primero de la cuenta pide su saldo inicial; los demás lo toman del saldo
- * final del anterior, y eso lo decide la API. Dentro del periodo, «+ Agregar
+ * Datos bancarios) y luego el periodo. «Abrir periodo» abre cualquier mes de
+ * cualquier año: con un mes antes puede heredar su saldo final o empezar en
+ * uno escrito; sin ninguno antes, el saldo inicial se escribe. Los saldos los
+ * encadena la API. Dentro del periodo, «+ Agregar
  * movimiento» abre un renglón debajo del último para escribir el siguiente.
  *
  * La cantidad lleva signo: lo que sale del banco va en negativo. El saldo lo
@@ -145,32 +146,66 @@ const cuenta = computed(() => estado.value?.cuenta ?? null)
 const abriendo = ref(false)
 const nuevoMes = ref(1)
 const nuevoAnio = ref('')
-/** Texto y no número: el campo vacío no es cero. Solo en el primer periodo. */
+/** Texto y no número: el campo vacío no es cero. */
 const saldoInicial = ref('')
+/** Con un mes antes, si se escribe otro saldo en vez de heredar el suyo. */
+const escribirSaldo = ref(false)
 const errorAbrir = ref('')
 const guardandoPeriodo = ref(false)
 
-/** El saldo heredado del anterior; null si es el primero y hay que escribirlo. */
-const saldoHeredado = computed(() => estado.value?.siguiente.saldoInicial ?? null)
+/** El año del modal como número, o null mientras no sea uno válido. */
+const anioElegido = computed(() => {
+  const anio = Number(nuevoAnio.value)
+  return Number.isInteger(anio) && anio >= 2000 && anio <= 2100 ? anio : null
+})
+
+/**
+ * El periodo abierto más cercano antes del mes elegido: de él se hereda. No
+ * se suma nada aquí; su saldo final lo trae la API en el resumen.
+ */
+const periodoAnterior = computed(() => {
+  const anio = anioElegido.value
+  if (anio === null) return null
+  // `periodos` llega del más reciente al más viejo: el primero que cae antes.
+  return (
+    estado.value?.periodos.find(
+      (p) => p.anio < anio || (p.anio === anio && p.mes < nuevoMes.value),
+    ) ?? null
+  )
+})
+
+/** El mes elegido ya está abierto: se avisa antes de mandarlo. */
+const yaAbierto = computed(() =>
+  (estado.value?.periodos ?? []).some(
+    (p) => p.anio === anioElegido.value && p.mes === nuevoMes.value,
+  ),
+)
+
+const pideSaldo = computed(() => !periodoAnterior.value || escribirSaldo.value)
 
 function abrirModal(): void {
   if (!estado.value) return
   nuevoMes.value = estado.value.siguiente.mes
   nuevoAnio.value = String(estado.value.siguiente.anio)
   saldoInicial.value = ''
+  escribirSaldo.value = false
   errorAbrir.value = ''
   abriendo.value = true
 }
 
 async function abrirPeriodo(): Promise<void> {
   errorAbrir.value = ''
-  const anio = Number(nuevoAnio.value)
-  if (!Number.isInteger(anio) || anio < 2000 || anio > 2100) {
+  const anio = anioElegido.value
+  if (anio === null) {
     errorAbrir.value = 'Escribe un año válido.'
     return
   }
+  if (yaAbierto.value) {
+    errorAbrir.value = `${nombrePeriodo({ anio, mes: nuevoMes.value })} ya está abierto.`
+    return
+  }
   let saldo: number | undefined
-  if (saldoHeredado.value === null) {
+  if (pideSaldo.value) {
     const error = errorDeCantidad(saldoInicial.value, 'el saldo inicial de la cuenta')
     if (error) {
       errorAbrir.value = error
@@ -387,7 +422,9 @@ async function refrescarResumen(cuenta: string): Promise<void> {
             <strong>{{ nombrePeriodo(periodo) }}</strong>
           </div>
           <div class="derecha">
-            <span class="titulo-dato">Saldo inicial</span>
+            <span class="titulo-dato">
+              Saldo inicial · {{ periodo.saldoInicialEscrito ? 'escrito' : 'del mes anterior' }}
+            </span>
             <strong>{{ dinero(periodo.saldoInicial) }}</strong>
           </div>
         </div>
@@ -563,7 +600,23 @@ async function refrescarResumen(cuenta: string): Promise<void> {
             </div>
           </div>
 
-          <template v-if="saldoHeredado === null">
+          <p v-if="yaAbierto" class="form-error">
+            {{ nombrePeriodo({ anio: anioElegido!, mes: nuevoMes }) }} ya está abierto en esta
+            cuenta.
+          </p>
+
+          <template v-else-if="periodoAnterior">
+            <p class="heredado">
+              Saldo final de {{ nombrePeriodo(periodoAnterior) }}:
+              <strong>{{ dinero(periodoAnterior.saldoFinal) }}</strong>
+            </p>
+            <label class="opcion">
+              <input v-model="escribirSaldo" type="checkbox" />
+              Empezar con otro saldo inicial
+            </label>
+          </template>
+
+          <template v-if="pideSaldo && !yaAbierto">
             <label class="form-label" for="periodo-saldo">Saldo inicial</label>
             <input
               id="periodo-saldo"
@@ -576,9 +629,6 @@ async function refrescarResumen(cuenta: string): Promise<void> {
               @keyup.enter="abrirPeriodo"
             />
           </template>
-          <p v-else class="heredado">
-            Saldo inicial, del periodo anterior: <strong>{{ dinero(saldoHeredado) }}</strong>
-          </p>
         </div>
 
         <p v-if="errorAbrir" class="form-error">{{ errorAbrir }}</p>
@@ -595,7 +645,7 @@ async function refrescarResumen(cuenta: string): Promise<void> {
           <button
             type="button"
             class="btn-primary"
-            :disabled="guardandoPeriodo"
+            :disabled="guardandoPeriodo || yaAbierto"
             @click="abrirPeriodo"
           >
             {{ guardandoPeriodo ? 'Abriendo…' : 'Abrir periodo' }}
@@ -836,5 +886,15 @@ async function refrescarResumen(cuenta: string): Promise<void> {
   margin: 4px 0 0;
   font-size: 13px;
   color: var(--ink);
+}
+
+.opcion {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 4px;
+  font-size: 13px;
+  color: var(--ink);
+  cursor: pointer;
 }
 </style>

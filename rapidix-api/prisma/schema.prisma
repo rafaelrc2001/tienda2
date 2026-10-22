@@ -1685,10 +1685,11 @@ model CuentaBancaria {
 
 /// Finanzas -> Bancos: un mes de movimientos de una cuenta.
 ///
-/// El saldo inicial no se guarda salvo en el primer periodo de la cuenta: los
-/// demas lo heredan en vivo del saldo final del anterior (apertura del primero
-/// mas todo lo movido antes). Asi un movimiento capturado tarde en un mes
-/// viejo arrastra el saldo de los siguientes sin tener que copiar nada.
+/// Se puede abrir cualquier mes. El saldo inicial solo se guarda si se escribio
+/// al abrirlo (obligatorio en el primero de la cuenta); los demas lo heredan en
+/// vivo del saldo final del anterior. Asi un movimiento capturado tarde en un
+/// mes viejo arrastra el saldo de los siguientes sin tener que copiar nada,
+/// hasta el proximo mes con saldo escrito.
 model PeriodoBancario {
   id            String         @id @default(uuid())
   cuentaId      String
@@ -1696,7 +1697,7 @@ model PeriodoBancario {
   anio          Int
   /// 1 a 12.
   mes           Int
-  /// Solo el primer periodo de la cuenta: el saldo con el que se empezo a llevar.
+  /// El saldo inicial escrito al abrir el mes. Null: hereda el final del anterior.
   saldoApertura Decimal?       @db.Decimal(12, 2)
 
   movimientos MovimientoBancario[]

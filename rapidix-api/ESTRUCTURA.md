@@ -500,12 +500,12 @@ El módulo más grande. Es `@Global` porque el login y el checkout disparan emis
 
 ## `src/bancos/` — Finanzas → Bancos
 
-El estado de cuenta de cada cuenta bancaria del negocio (las de Configuración), por meses. Un periodo es un mes de una cuenta; sus movimientos llevan signo. **Solo el primer periodo guarda saldo** (`saldoApertura`): los demás heredan en vivo el final del anterior, así un movimiento capturado tarde en un mes viejo arrastra a los siguientes. Una cuenta con periodos ya no se borra (409 `CUENTA_CON_PERIODOS` en Configuración).
+El estado de cuenta de cada cuenta bancaria del negocio (las de Configuración), por meses. Un periodo es un mes de una cuenta; sus movimientos llevan signo. Se puede abrir **cualquier mes de cualquier año**, antes, en medio o después de los que ya hay. **Solo guarda saldo el periodo al que se le escribió** (`saldoApertura`, obligatorio si no hay un mes antes): los demás heredan en vivo el final del anterior, así un movimiento capturado tarde en un mes viejo arrastra a los siguientes hasta el próximo mes con saldo escrito. Una cuenta con periodos ya no se borra (409 `CUENTA_CON_PERIODOS` en Configuración).
 
 | Archivo | Qué contiene |
 | --- | --- |
-| [admin-bancos.controller.ts](src/bancos/admin-bancos.controller.ts) | Bajo la sección `finanzas`, prefijo `admin/finanzas/bancos`: `GET cuentas`, `GET cuentas/:id` (periodos con saldos y el mes que toca abrir), `POST cuentas/:id/periodos` (400 `SALDO_INICIAL_REQUERIDO`, `SALDO_INICIAL_HEREDADO`; 409 `PERIODO_ANTERIOR`, `PERIODO_YA_ABIERTO`), `GET periodos/:id`, `POST periodos/:id/movimientos` (400 `FECHA_FUERA_DEL_PERIODO`) y `DELETE movimientos/:id`. Lee las cuentas él mismo porque el rol FINANZAS no ve Configuración. |
-| [bancos.service.ts](src/bancos/bancos.service.ts) | Abre periodos (siempre después del último), agrega y quita movimientos y devuelve el periodo con su saldo ya sumado. |
+| [admin-bancos.controller.ts](src/bancos/admin-bancos.controller.ts) | Bajo la sección `finanzas`, prefijo `admin/finanzas/bancos`: `GET cuentas`, `GET cuentas/:id` (periodos con saldos y el mes que toca abrir), `POST cuentas/:id/periodos` (400 `SALDO_INICIAL_REQUERIDO`; 409 `PERIODO_YA_ABIERTO`), `GET periodos/:id`, `POST periodos/:id/movimientos` (400 `FECHA_FUERA_DEL_PERIODO`) y `DELETE movimientos/:id`. Lee las cuentas él mismo porque el rol FINANZAS no ve Configuración. |
+| [bancos.service.ts](src/bancos/bancos.service.ts) | Abre periodos de cualquier mes (con saldo escrito o heredado del anterior), agrega y quita movimientos y devuelve el periodo con su saldo ya sumado. |
 | [saldos.ts](src/bancos/saldos.ts) | Funciones puras (probadas en `saldos.spec.ts`): `encadenarSaldos()`, `mesSiguiente()`, `diaDentroDelMes()`. |
 | [dto/bancos.dto.ts](src/bancos/dto/bancos.dto.ts) | `AbrirPeriodoDto` y `NuevoMovimientoDto` (cantidad con signo, nunca cero; método `TRANSFERENCIA` o `EFECTIVO`). |
 

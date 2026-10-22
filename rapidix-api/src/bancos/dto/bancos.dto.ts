@@ -38,8 +38,8 @@ export class AbrirPeriodoDto {
   mes: number;
 
   /**
-   * Solo en el primer periodo de la cuenta: los siguientes toman el saldo
-   * final del anterior y aqui no se acepta otro. Puede ser negativo.
+   * Con que saldo empieza el mes. Sin el, se hereda el final del periodo
+   * anterior; si no hay ninguno antes, es obligatorio. Puede ser negativo.
    */
   @IsOptional()
   @IsNumber({ maxDecimalPlaces: 2 }, { message: 'El saldo inicial lleva a lo más dos decimales' })

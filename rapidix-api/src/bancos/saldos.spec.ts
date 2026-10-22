@@ -61,6 +61,39 @@ describe('encadenarSaldos', () => {
     expect(saldos.get('nov')?.final.toFixed(2)).toBe('58274.00');
   });
 
+  it('un mes con apertura propia empieza en ella y los siguientes siguen de ahí', () => {
+    const periodos = [
+      { id: 'dic', anio: 2026, mes: 12, saldoApertura: D(28) },
+      { id: 'feb', anio: 2027, mes: 2, saldoApertura: D(1) },
+      { id: 'mar', anio: 2027, mes: 3, saldoApertura: null },
+    ];
+    const sumas = new Map([
+      ['dic', D(-25)],
+      ['feb', D('10.50')],
+    ]);
+
+    const saldos = encadenarSaldos(periodos, sumas);
+
+    expect(saldos.get('dic')?.final.toFixed(2)).toBe('3.00');
+    // Febrero no hereda los $3 de diciembre: empieza en el $1 escrito.
+    expect(saldos.get('feb')?.inicial.toFixed(2)).toBe('1.00');
+    expect(saldos.get('feb')?.final.toFixed(2)).toBe('11.50');
+    expect(saldos.get('mar')?.inicial.toFixed(2)).toBe('11.50');
+  });
+
+  it('un mes abierto antes del primero no cambia los que ya estaban', () => {
+    const periodos = [
+      { id: 'mar', anio: 2026, mes: 3, saldoApertura: D(500) },
+      { id: 'sep', anio: 2026, mes: 9, saldoApertura: D(100) },
+      { id: 'oct', anio: 2026, mes: 10, saldoApertura: null },
+    ];
+    const saldos = encadenarSaldos(periodos, new Map([['mar', D(-50)]]));
+
+    expect(saldos.get('mar')?.final.toFixed(2)).toBe('450.00');
+    expect(saldos.get('sep')?.inicial.toFixed(2)).toBe('100.00');
+    expect(saldos.get('oct')?.inicial.toFixed(2)).toBe('100.00');
+  });
+
   it('el saldo puede quedar en negativo', () => {
     const saldos = encadenarSaldos(
       [{ id: 'a', anio: 2026, mes: 1, saldoApertura: D(100) }],
