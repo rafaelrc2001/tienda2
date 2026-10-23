@@ -177,6 +177,12 @@ const routes: RouteRecordRaw[] = [
     meta: { seccion: 'configuracion', titulo: 'Fiscal' },
   },
   {
+    path: '/admin/configuracion/fiscal/facturacion',
+    name: 'config-facturacion',
+    component: () => import('@/views/admin/ConfigFacturacionView.vue'),
+    meta: { seccion: 'configuracion', titulo: 'Fiscal' },
+  },
+  {
     path: '/admin/configuracion/noticias',
     name: 'config-noticias',
     component: () => import('@/views/admin/ConfigNoticiasView.vue'),

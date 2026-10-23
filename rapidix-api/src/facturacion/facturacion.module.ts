@@ -6,6 +6,8 @@ import { AdminFacturacionController } from './admin-facturacion.controller';
 import { CatalogoSatService } from './catalogo-sat.service';
 import { AdminFacturaGlobalController } from './admin-factura-global.controller';
 import { FacturaGlobalService } from './factura-global.service';
+import { AdminFacturasController } from './admin-facturas.controller';
+import { FacturasEmitidasService } from './facturas-emitidas.service';
 
 /**
  * CFDI 4.0 con factura.com, o simulado sin llaves. El proveedor se elige solo
@@ -20,8 +22,14 @@ import { FacturaGlobalService } from './factura-global.service';
     AdminCatalogoSatController,
     AdminFacturacionController,
     AdminFacturaGlobalController,
+    AdminFacturasController,
   ],
-  providers: [FacturacionService, CatalogoSatService, FacturaGlobalService],
+  providers: [
+    FacturacionService,
+    CatalogoSatService,
+    FacturaGlobalService,
+    FacturasEmitidasService,
+  ],
   exports: [CatalogoSatService],
 })
 export class FacturacionModule {}

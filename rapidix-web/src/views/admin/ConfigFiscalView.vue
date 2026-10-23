@@ -9,6 +9,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { ErrorApi, http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
 import type { FiscalNegocio } from '@/api/tipos'
+import PestanasFiscal from './fiscal/PestanasFiscal.vue'
 
 const ui = useUiStore()
 
@@ -96,6 +97,8 @@ async function guardar(): Promise<void> {
     <RouterLink to="/admin/configuracion" class="admin-back-inline">
       ← Volver a Configuración
     </RouterLink>
+
+    <PestanasFiscal activa="datos" />
 
     <p v-if="cargando" class="empty-block">Cargando…</p>
 

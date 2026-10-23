@@ -13,10 +13,11 @@
  * La cantidad lleva signo: lo que sale del banco va en negativo. El saldo lo
  * suma la API; aquí no se suma nada.
  *
- * Los depósitos sin factura llevan siempre su casilla: en cuanto se palomea
- * uno, la suma (hecha en la API) aparece debajo de la tabla y «Factura global»
- * lo timbra a PÚBLICO EN GENERAL. El folio queda en la columna Factura y la
- * factura, con su PDF y su XML, en la tabla de facturas globales del mes.
+ * El 🌐 de arriba de la tabla pone una casilla en los depósitos sin factura:
+ * en cuanto se palomea uno, la suma (hecha en la API) aparece debajo de la
+ * tabla y «Factura global» lo timbra a PÚBLICO EN GENERAL. El folio queda en
+ * la columna Factura y la factura, con su PDF y su XML, en la tabla de
+ * facturas globales del mes.
  */
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { descargarArchivo, ErrorApi, http } from '@/api/http'
@@ -384,6 +385,8 @@ async function refrescarResumen(cuenta: string): Promise<void> {
 // Facturación global: palomear depósitos y timbrarlos juntos
 // ------------------------------------------------------------------
 
+/** Las casillas solo salen con el 🌐 de arriba de la tabla encendido. */
+const seleccionando = ref(false)
 const seleccion = ref<string[]>([])
 /** La suma de lo palomeado, hecha por la API. */
 const sumaSeleccion = ref<number | null>(null)
@@ -399,6 +402,11 @@ const facturables = computed(() => (periodo.value?.movimientos ?? []).filter(fac
 const todosPalomeados = computed(
   () => facturables.value.length > 0 && seleccion.value.length === facturables.value.length,
 )
+
+function alternarSeleccion(): void {
+  seleccionando.value = !seleccionando.value
+  seleccion.value = []
+}
 
 function palomearTodos(marcar: boolean): void {
   seleccion.value = marcar ? facturables.value.map((m) => m.id) : []
@@ -438,6 +446,7 @@ watch(
 
 async function alFacturar(factura: FacturaGlobal | null): Promise<void> {
   facturandoGlobal.value = false
+  seleccionando.value = false
   seleccion.value = []
   if (factura) {
     ui.exito(`Factura global ${factura.folioMovimientos} generada`)
@@ -556,6 +565,18 @@ function fechaTimbrado(iso: string): string {
             <span class="titulo-dato">Mes</span>
             <strong>{{ nombrePeriodo(periodo) }}</strong>
           </div>
+          <!-- Enciende las casillas para palomear depósitos de la factura global. -->
+          <button
+            type="button"
+            class="mundo"
+            :class="{ activo: seleccionando }"
+            :aria-pressed="seleccionando"
+            :title="seleccionando ? 'Cancelar la selección' : 'Facturación global'"
+            :aria-label="seleccionando ? 'Cancelar la selección' : 'Facturación global'"
+            @click="alternarSeleccion"
+          >
+            🌐
+          </button>
           <div class="derecha">
             <span class="titulo-dato">
               Saldo inicial · {{ periodo.saldoInicialEscrito ? 'escrito' : 'del mes anterior' }}
@@ -568,7 +589,7 @@ function fechaTimbrado(iso: string): string {
           <table class="tabla lineal">
             <thead>
               <tr>
-                <th class="casilla">
+                <th v-if="seleccionando" class="casilla">
                   <input
                     type="checkbox"
                     :checked="todosPalomeados"
@@ -591,7 +612,7 @@ function fechaTimbrado(iso: string): string {
                 :key="m.id"
                 :class="{ palomeado: seleccion.includes(m.id) }"
               >
-                <td class="casilla">
+                <td v-if="seleccionando" class="casilla">
                   <input
                     v-if="facturable(m)"
                     v-model="seleccion"
@@ -610,7 +631,7 @@ function fechaTimbrado(iso: string): string {
                     :title="`Ver la factura global ${m.factura}`"
                     @click="visor = { id: m.facturaGlobalId, folio: m.factura ?? '' }"
                   >
-                    🌐 {{ m.factura }}
+                    {{ m.factura }}
                   </button>
                   <template v-else>{{ m.factura ?? '—' }}</template>
                 </td>
@@ -636,7 +657,7 @@ function fechaTimbrado(iso: string): string {
 
               <!-- El renglón que se está escribiendo, debajo del último. -->
               <tr v-if="capturando" class="captura">
-                <td class="casilla" />
+                <td v-if="seleccionando" class="casilla" />
                 <td class="fecha">
                   <input
                     ref="campoFecha"
@@ -703,7 +724,9 @@ function fechaTimbrado(iso: string): string {
               </tr>
 
               <tr v-if="periodo.movimientos.length === 0 && !capturando">
-                <td colspan="7" class="vacio">Sin movimientos en {{ nombrePeriodo(periodo) }}.</td>
+                <td :colspan="seleccionando ? 7 : 6" class="vacio">
+                  Sin movimientos en {{ nombrePeriodo(periodo) }}.
+                </td>
               </tr>
             </tbody>
           </table>
@@ -975,6 +998,25 @@ function fechaTimbrado(iso: string): string {
   text-align: right;
 }
 
+/* El 🌐 entre el mes y el saldo: encendido, en terracota, mientras se palomea. */
+.mundo {
+  flex-shrink: 0;
+  align-self: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--white);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.mundo.activo {
+  background: var(--terracotta);
+  border-color: var(--terracotta);
+}
+
 .titulo-dato {
   display: block;
   font-family: var(--font-heading);
@@ -985,29 +1027,25 @@ function fechaTimbrado(iso: string): string {
   color: var(--muted);
 }
 
-.tabla {
-  min-width: 760px;
+/* Menos aire entre columnas que en las tablas de pedidos: aquí los datos son cortos. */
+.tabla.lineal > thead > tr > th,
+.tabla.lineal > tbody > tr > td {
+  padding-left: 8px;
+  padding-right: 8px;
 }
 
-/* Ancho fijo: lo justo para el selector de fecha del renglón que se captura. Sin él, la
-   columna se lleva parte del espacio sobrante y el «01-dic» queda lejos de la factura. */
-.tabla .fecha {
-  width: 130px;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
-
-/* El folio es corto (8 caracteres como máximo): la columna no se lleva el espacio sobrante. */
-.tabla .factura {
-  width: 11ch;
-  white-space: nowrap;
-}
-
-/* El método más largo es «Transferencia»: lo justo para él y su flecha en el select; el resto
-   del ancho queda para la referencia. */
+/* Fecha, factura, cantidad y método miden lo que su contenido (`width: 1%` encoge la
+   columna al mínimo); el espacio que sobra se lo queda la referencia, que es texto libre. */
+.tabla .fecha,
+.tabla .factura,
+.tabla .num,
 .tabla .metodo {
-  width: 160px;
+  width: 1%;
   white-space: nowrap;
+}
+
+.tabla .fecha {
+  font-variant-numeric: tabular-nums;
 }
 
 /* Lo que sale del banco salta a la vista, como el renglón amarillo del Excel. */
@@ -1037,8 +1075,12 @@ function fechaTimbrado(iso: string): string {
   background: var(--cream-2);
 }
 
+/* El folio de la factura global se toca para ver su PDF, pero se lee igual que
+   los folios escritos a mano: misma letra, color y tamaño. */
 .tabla .factura .enlace {
   padding: 0;
+  font: inherit;
+  color: inherit;
 }
 
 .facturas-titulo {
@@ -1118,6 +1160,24 @@ function fechaTimbrado(iso: string): string {
   /* 16px reales: con menos, Safari en iPhone amplía la página al enfocar. */
   font-size: 16px;
   background: var(--white);
+}
+
+/* Las columnas miden su contenido: los campos de captura llevan su propio ancho, lo justo
+   para el selector de fecha, el folio de 8, el monto y «Transferencia» con su flecha. */
+.captura .fecha .form-input {
+  width: 140px;
+}
+
+.captura .factura .form-input {
+  width: calc(8ch + 26px);
+}
+
+.captura .monto {
+  width: 110px;
+}
+
+.captura .metodo .form-input {
+  width: 150px;
 }
 
 .cantidad {

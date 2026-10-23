@@ -431,7 +431,26 @@ export class FacturacionService implements OnModuleInit {
       include: { pedido: { select: { folio: true } } },
     });
     if (!factura) throw new NotFoundException('Este pedido no tiene factura');
+    return this.documentoDe(factura, formato);
+  }
 
+  /**
+   * PDF o XML de una factura por su id, sin pasar por el pedido: Configuracion
+   * -> Fiscal -> Facturacion lista todas las facturas del negocio.
+   */
+  async documentoPorId(facturaId: string, formato: 'pdf' | 'xml'): Promise<DocumentoFactura> {
+    const factura = await this.prisma.factura.findFirst({
+      where: { id: facturaId, estado: EstadoFactura.TIMBRADA },
+      include: { pedido: { select: { folio: true } } },
+    });
+    if (!factura) throw new NotFoundException('La factura no existe');
+    return this.documentoDe(factura, formato);
+  }
+
+  private async documentoDe(
+    factura: Prisma.FacturaGetPayload<{ include: { pedido: { select: { folio: true } } } }>,
+    formato: 'pdf' | 'xml',
+  ): Promise<DocumentoFactura> {
     const timbrador = this.timbradorDelModo(factura.modo);
 
     const timbrada: FacturaTimbrada = {
