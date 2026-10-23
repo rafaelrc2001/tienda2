@@ -253,7 +253,7 @@ export class FacturaGlobalService {
       }
       return creada;
     });
-    const folioPedido = `G${reserva.numero}`;
+    const folioPedido = numeroDeOrden(reserva);
 
     let timbrado;
     try {
@@ -517,6 +517,17 @@ export class FacturaGlobalService {
       formaPagoSugerida,
     };
   }
+}
+
+/**
+ * El numero de orden (`NumOrder`) con el que se timbra: el consecutivo y un
+ * pedazo del id. factura.com no deja timbrar dos veces el mismo numero de
+ * orden, y el consecutivo solo no basta: la API local y la de Railway (o una
+ * base recien reseteada) comparten la cuenta del sandbox y las dos empiezan
+ * en G1. El id es un uuid, asi que no se repite entre bases.
+ */
+function numeroDeOrden(factura: { id: string; numero: number }): string {
+  return `G${factura.numero}-${factura.id.slice(0, 8)}`;
 }
 
 /** Solo de una factura ya timbrada: la reserva no tiene UUID ni fecha. */
