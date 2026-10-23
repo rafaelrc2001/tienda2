@@ -1109,6 +1109,31 @@ export interface FacturaGlobal {
   timbradaEn: string
 }
 
+/** `GET /admin/configuracion/facturas/periodos`: un mes con facturas. */
+export interface PeriodoFacturas {
+  anio: number
+  mes: number
+  cantidad: number
+}
+
+/** `GET /admin/configuracion/facturas?anio&mes`: un CFDI de pedido o una factura global. */
+export interface FacturaEmitida {
+  id: string
+  tipo: 'PEDIDO' | 'GLOBAL'
+  /** «A-1127»; sin folio del proveedor, el del pedido o el consecutivo G12. */
+  serieFolio: string
+  uuid: string
+  rfc: string
+  /** Razón social del receptor. */
+  nombre: string
+  formaPago: { clave: string; nombre: string }
+  total: number
+  timbradaEn: string
+  modo: ModoTimbrado
+  /** Nombre de sus archivos, sin extensión. */
+  archivo: string
+}
+
 /** `GET /admin/finanzas/bancos/periodos/:id`: el mes con sus movimientos y su saldo. */
 export interface PeriodoBancario {
   id: string
