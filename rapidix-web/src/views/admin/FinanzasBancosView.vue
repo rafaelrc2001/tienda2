@@ -13,9 +13,9 @@
  * La cantidad lleva signo: lo que sale del banco va en negativo. El saldo lo
  * suma la API; aquí no se suma nada.
  *
- * «🌐 Facturación global» pone una casilla en los depósitos sin factura; lo
- * palomeado se suma (en la API) debajo de la tabla y «Factura global» lo
- * timbra a PÚBLICO EN GENERAL. El folio queda en la columna Factura.
+ * Los depósitos sin factura llevan siempre su casilla: en cuanto se palomea
+ * uno, la suma (hecha en la API) aparece debajo de la tabla y «Factura global»
+ * lo timbra a PÚBLICO EN GENERAL. El folio queda en la columna Factura.
  */
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { ErrorApi, http } from '@/api/http'
@@ -383,7 +383,6 @@ async function refrescarResumen(cuenta: string): Promise<void> {
 // Facturación global: palomear depósitos y timbrarlos juntos
 // ------------------------------------------------------------------
 
-const seleccionando = ref(false)
 const seleccion = ref<string[]>([])
 /** La suma de lo palomeado, hecha por la API. */
 const sumaSeleccion = ref<number | null>(null)
@@ -399,11 +398,6 @@ const facturables = computed(() => (periodo.value?.movimientos ?? []).filter(fac
 const todosPalomeados = computed(
   () => facturables.value.length > 0 && seleccion.value.length === facturables.value.length,
 )
-
-function alternarSeleccion(): void {
-  seleccionando.value = !seleccionando.value
-  seleccion.value = []
-}
 
 function palomearTodos(marcar: boolean): void {
   seleccion.value = marcar ? facturables.value.map((m) => m.id) : []
@@ -443,7 +437,6 @@ watch(
 
 async function alFacturar(factura: FacturaGlobal | null): Promise<void> {
   facturandoGlobal.value = false
-  seleccionando.value = false
   seleccion.value = []
   if (factura) {
     ui.exito(`Factura global ${factura.folioMovimientos} generada`)
@@ -522,7 +515,7 @@ async function alFacturar(factura: FacturaGlobal | null): Promise<void> {
           <table class="tabla lineal">
             <thead>
               <tr>
-                <th v-if="seleccionando" class="casilla">
+                <th class="casilla">
                   <input
                     type="checkbox"
                     :checked="todosPalomeados"
@@ -545,7 +538,7 @@ async function alFacturar(factura: FacturaGlobal | null): Promise<void> {
                 :key="m.id"
                 :class="{ palomeado: seleccion.includes(m.id) }"
               >
-                <td v-if="seleccionando" class="casilla">
+                <td class="casilla">
                   <input
                     v-if="facturable(m)"
                     v-model="seleccion"
@@ -590,7 +583,7 @@ async function alFacturar(factura: FacturaGlobal | null): Promise<void> {
 
               <!-- El renglón que se está escribiendo, debajo del último. -->
               <tr v-if="capturando" class="captura">
-                <td v-if="seleccionando" class="casilla" />
+                <td class="casilla" />
                 <td class="fecha">
                   <input
                     ref="campoFecha"
@@ -657,9 +650,7 @@ async function alFacturar(factura: FacturaGlobal | null): Promise<void> {
               </tr>
 
               <tr v-if="periodo.movimientos.length === 0 && !capturando">
-                <td :colspan="seleccionando ? 7 : 6" class="vacio">
-                  Sin movimientos en {{ nombrePeriodo(periodo) }}.
-                </td>
+                <td colspan="7" class="vacio">Sin movimientos en {{ nombrePeriodo(periodo) }}.</td>
               </tr>
             </tbody>
           </table>
@@ -686,31 +677,16 @@ async function alFacturar(factura: FacturaGlobal | null): Promise<void> {
               {{ guardandoMovimiento ? 'Guardando…' : 'Guardar movimiento' }}
             </button>
           </template>
-          <template v-else>
-            <button type="button" class="btn-secondary" @click="empezarCaptura">
-              + Agregar movimiento
-            </button>
-            <button
-              type="button"
-              class="btn-secondary"
-              :class="{ activo: seleccionando }"
-              :aria-pressed="seleccionando"
-              @click="alternarSeleccion"
-            >
-              {{ seleccionando ? 'Cancelar selección' : '🌐 Facturación global' }}
-            </button>
-          </template>
+          <button v-else type="button" class="btn-secondary" @click="empezarCaptura">
+            + Agregar movimiento
+          </button>
         </div>
 
         <!-- Lo palomeado, sumado por la API, y el botón que abre la factura. -->
-        <div v-if="seleccionando" class="seleccion">
+        <div v-if="seleccion.length > 0" class="seleccion">
           <div>
             <span class="titulo-dato">
-              {{
-                seleccion.length === 0
-                  ? 'Palomea los depósitos a facturar'
-                  : `${seleccion.length} ${seleccion.length === 1 ? 'depósito' : 'depósitos'}`
-              }}
+              {{ seleccion.length }} {{ seleccion.length === 1 ? 'depósito' : 'depósitos' }}
             </span>
             <strong>{{ sumaSeleccion !== null ? dinero(sumaSeleccion) : '—' }}</strong>
           </div>
@@ -723,9 +699,6 @@ async function alFacturar(factura: FacturaGlobal | null): Promise<void> {
             🌐 Factura global
           </button>
         </div>
-        <p v-if="seleccionando && facturables.length === 0" class="form-hint">
-          No hay depósitos sin factura en {{ nombrePeriodo(periodo) }}.
-        </p>
 
         <!-- El saldo que sumó la API: el inicial más todo lo del mes. -->
         <div class="total" :class="{ negativo: periodo.saldo < 0 }">
@@ -969,12 +942,6 @@ async function alFacturar(factura: FacturaGlobal | null): Promise<void> {
   padding: 0;
 }
 
-/* Con la selección encendida el botón se queda marcado: se ve que se está palomeando. */
-.botones .activo {
-  background: var(--terracotta);
-  color: var(--white);
-}
-
 /* La suma de lo palomeado y su botón, encima del saldo. */
 .seleccion {
   display: flex;
@@ -999,12 +966,6 @@ async function alFacturar(factura: FacturaGlobal | null): Promise<void> {
   flex: 0 0 auto;
   width: auto;
   padding: 10px 16px;
-}
-
-.form-hint {
-  margin: -6px 0 12px;
-  font-size: 12px;
-  color: var(--muted);
 }
 
 .quitar {
