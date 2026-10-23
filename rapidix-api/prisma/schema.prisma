@@ -52,6 +52,7 @@ model Usuario {
   // Finanzas -> Bancos
   periodosBancarios    PeriodoBancario[]    @relation("PeriodosBancariosAbiertos")
   movimientosBancarios MovimientoBancario[] @relation("MovimientosBancarios")
+  facturasGlobales     FacturaGlobal[]      @relation("FacturasGlobales")
 
   @@map("usuarios")
 }
@@ -1718,18 +1719,69 @@ model MovimientoBancario {
   /// Dia del movimiento; siempre dentro del mes del periodo.
   fecha      DateTime        @db.Date
   /// Folio de la factura que cubre, si lo hay. Texto libre: puede ser de fuera.
+  /// La factura global escribe aqui su folio al timbrarse.
   factura    String?
   /// Con signo: un cargo o un retiro van en negativo. Nunca cero.
   cantidad   Decimal         @db.Decimal(12, 2)
   metodo     MetodoPago
   referencia String?
 
+  /// La factura global que lo cubre. Se pone al reservar el timbre (asi dos
+  /// facturas no se llevan el mismo deposito) y se suelta sola si la reserva
+  /// se borra porque el SAT la rechazo.
+  facturaGlobalId String?
+  facturaGlobal   FacturaGlobal? @relation(fields: [facturaGlobalId], references: [id], onDelete: SetNull)
+
   registradoPorId String
   registradoPor   Usuario  @relation("MovimientosBancarios", fields: [registradoPorId], references: [id])
   creadoEn        DateTime @default(now())
 
   @@index([periodoId, fecha])
+  @@index([facturaGlobalId])
   @@map("movimientos_bancarios")
+}
+
+/// Finanzas -> Bancos -> Factura global: el CFDI a PUBLICO EN GENERAL de los
+/// depositos de quien no pidio factura.
+///
+/// El receptor es fijo (RFC generico XAXX010101000, regimen 616, uso S01) y no
+/// se guarda: sale de `facturacion/factura-global.ts`. Lo que si se guarda es
+/// lo que se eligio y lo que se timbro, congelado igual que en `Factura`.
+model FacturaGlobal {
+  id     String        @id @default(uuid())
+  /// Consecutivo propio: va como numero de orden en el proveedor.
+  numero Int           @unique @default(autoincrement())
+  estado EstadoFactura @default(TIMBRANDO)
+  modo   ModoTimbrado
+
+  /// c_Periodicidad, c_Meses y año del nodo InformacionGlobal del CFDI.
+  periodicidad String
+  meses        String
+  anio         Int
+  /// CP del lugar de expedicion: el receptor generico lleva el mismo.
+  cpFiscal     String
+  email        String?
+
+  uuid        String?   @unique
+  proveedorId String?
+  serie       String?
+  folio       String?
+  formaPago   String
+  subtotal    Decimal   @db.Decimal(12, 2)
+  iva         Decimal   @db.Decimal(12, 2)
+  total       Decimal   @db.Decimal(12, 2)
+  /// `Concepto[]` de `facturacion/comprobante.ts`, con importes como texto.
+  conceptos   Json
+  respuesta   Json?
+  timbradaEn  DateTime?
+
+  movimientos MovimientoBancario[]
+
+  creadoPorId String
+  creadoPor   Usuario  @relation("FacturasGlobales", fields: [creadoPorId], references: [id])
+  creadoEn    DateTime @default(now())
+
+  @@map("facturas_globales")
 }
 
 /// Niveles de fidelidad por gasto acumulado. Configurables desde Administracion:

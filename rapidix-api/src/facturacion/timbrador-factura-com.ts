@@ -73,6 +73,14 @@ export class TimbradorFacturaCom implements Timbrador {
       // factura.com le manda el PDF y el XML al correo del receptor.
       EnviarCorreo: Boolean(solicitud.receptor.email),
       NumOrder: solicitud.folioPedido,
+      // Factura global a PUBLICO EN GENERAL: el SAT exige el periodo que cubre.
+      ...(solicitud.informacionGlobal && {
+        InformacionGlobal: {
+          Periodicidad: solicitud.informacionGlobal.periodicidad,
+          Meses: solicitud.informacionGlobal.meses,
+          Año: String(solicitud.informacionGlobal.anio),
+        },
+      }),
       Conceptos: solicitud.conceptos.map((c) => ({
         ClaveProdServ: c.claveProdServ,
         Cantidad: c.cantidad,

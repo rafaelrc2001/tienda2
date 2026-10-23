@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { MetodoPago, Prisma } from '@prisma/client';
+import { EstadoFactura, MetodoPago, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { diaEn, zonaDelNegocio } from '../ingresos/rango-de-fechas';
 import { AbrirPeriodoDto, NuevoMovimientoDto } from './dto/bancos.dto';
@@ -47,6 +47,8 @@ export interface MovimientoBancarioDto {
   cantidad: number;
   metodo: MetodoPago;
   referencia: string | null;
+  /** La factura global timbrada que lo cubre, para abrir su PDF. */
+  facturaGlobalId: string | null;
 }
 
 export interface PeriodoBancarioDto extends Mes {
@@ -172,7 +174,12 @@ export class BancosService {
   async verPeriodo(periodoId: string): Promise<PeriodoBancarioDto> {
     const periodo = await this.prisma.periodoBancario.findUnique({
       where: { id: periodoId },
-      include: { movimientos: { orderBy: [{ fecha: 'asc' }, { creadoEn: 'asc' }] } },
+      include: {
+        movimientos: {
+          orderBy: [{ fecha: 'asc' }, { creadoEn: 'asc' }],
+          include: { facturaGlobal: { select: { estado: true } } },
+        },
+      },
     });
     if (!periodo) throw new NotFoundException('El periodo no existe');
 
@@ -194,6 +201,9 @@ export class BancosService {
         cantidad: m.cantidad.toNumber(),
         metodo: m.metodo,
         referencia: m.referencia,
+        // Mientras se timbra no hay PDF que abrir.
+        facturaGlobalId:
+          m.facturaGlobal?.estado === EstadoFactura.TIMBRADA ? m.facturaGlobalId : null,
       })),
     };
   }
@@ -235,6 +245,15 @@ export class BancosService {
       where: { id: movimientoId },
     });
     if (!movimiento) throw new NotFoundException('El movimiento no existe');
+    // Un deposito dentro de una factura global ya timbrada (o timbrandose) se
+    // queda: borrarlo dejaria un CFDI que no se sabe que cubre.
+    if (movimiento.facturaGlobalId) {
+      throw new ConflictException({
+        statusCode: 409,
+        code: 'MOVIMIENTO_FACTURADO',
+        message: 'Este movimiento está en una factura global: no se puede eliminar.',
+      });
+    }
     await this.prisma.movimientoBancario.delete({ where: { id: movimientoId } });
     return this.verPeriodo(movimiento.periodoId);
   }

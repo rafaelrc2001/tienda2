@@ -73,10 +73,14 @@ export class TimbradorSimulado implements Timbrador {
       })
       .join('\n');
     const descuento = f.descuento.greaterThan(0) ? ` Descuento="${f.descuento.toFixed(2)}"` : '';
+    const global = f.informacionGlobal
+      ? `\n  <cfdi:InformacionGlobal Periodicidad="${a(f.informacionGlobal.periodicidad)}" ` +
+        `Meses="${a(f.informacionGlobal.meses)}" Año="${f.informacionGlobal.anio}"/>`
+      : '';
 
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <!-- ${LEYENDA} -->
-<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital" Version="4.0" Serie="${a(f.serie ?? '')}" Folio="${a(f.folio ?? '')}" Fecha="${fechaCfdi(f.timbradaEn)}" FormaPago="${a(f.formaPago)}" MetodoPago="PUE" SubTotal="${f.subtotal.toFixed(2)}"${descuento} Moneda="MXN" Total="${f.total.toFixed(2)}" TipoDeComprobante="I" Exportacion="01" LugarExpedicion="${a(this.emisor.cp)}">
+<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital" Version="4.0" Serie="${a(f.serie ?? '')}" Folio="${a(f.folio ?? '')}" Fecha="${fechaCfdi(f.timbradaEn)}" FormaPago="${a(f.formaPago)}" MetodoPago="PUE" SubTotal="${f.subtotal.toFixed(2)}"${descuento} Moneda="MXN" Total="${f.total.toFixed(2)}" TipoDeComprobante="I" Exportacion="01" LugarExpedicion="${a(this.emisor.cp)}">${global}
   <cfdi:Emisor Rfc="${a(this.emisor.rfc)}" Nombre="${a(this.emisor.nombre)}" RegimenFiscal="${a(this.emisor.regimen)}"/>
   <cfdi:Receptor Rfc="${a(f.rfc)}" Nombre="${a(f.razonSocial)}" DomicilioFiscalReceptor="${a(f.cpFiscal)}" RegimenFiscalReceptor="${a(f.regimenFiscal)}" UsoCFDI="${a(f.usoCfdi)}"/>
   <cfdi:Conceptos>
@@ -100,7 +104,16 @@ ${conceptos}
     lienzo.texto(LEYENDA.toUpperCase(), { negrita: true, tamano: 11, color: ROJO });
     lienzo.salto(6);
     lienzo.texto('Factura', { negrita: true, tamano: 18 });
-    lienzo.texto(`Serie ${f.serie ?? ''}  ·  Folio ${f.folio ?? ''}  ·  Pedido ${f.folioPedido}`);
+    lienzo.texto(
+      f.informacionGlobal
+        ? `Serie ${f.serie ?? ''}  ·  Folio ${f.folio ?? ''}  ·  Factura global`
+        : `Serie ${f.serie ?? ''}  ·  Folio ${f.folio ?? ''}  ·  Pedido ${f.folioPedido}`,
+    );
+    if (f.informacionGlobal) {
+      lienzo.texto(
+        `Periodicidad ${f.informacionGlobal.periodicidad}  ·  Meses ${f.informacionGlobal.meses}  ·  Año ${f.informacionGlobal.anio}`,
+      );
+    }
     lienzo.texto(`Folio fiscal (UUID): ${f.uuid}`);
     lienzo.texto(`Fecha: ${fechaCfdi(f.timbradaEn)}`);
     lienzo.salto(10);

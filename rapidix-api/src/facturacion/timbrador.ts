@@ -18,12 +18,22 @@ export interface Receptor {
   email: string | null;
 }
 
+/** Nodo InformacionGlobal: solo lo lleva la factura a PUBLICO EN GENERAL. */
+export interface InformacionGlobal {
+  /** c_Periodicidad. */
+  periodicidad: string;
+  /** c_Meses. */
+  meses: string;
+  anio: number;
+}
+
 export interface SolicitudTimbrado {
   /** Folio del pedido: va como numero de orden para encontrarlo en el proveedor. */
   folioPedido: string;
   receptor: Receptor;
   conceptos: ConceptoGuardado[];
   formaPago: string;
+  informacionGlobal?: InformacionGlobal;
 }
 
 export interface Timbrado {
@@ -49,6 +59,7 @@ export interface FacturaTimbrada extends Receptor {
   conceptos: ConceptoGuardado[];
   timbradaEn: Date;
   folioPedido: string;
+  informacionGlobal?: InformacionGlobal;
 }
 
 export interface Timbrador {

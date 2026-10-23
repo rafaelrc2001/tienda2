@@ -1039,6 +1039,69 @@ export interface MovimientoBancario {
   cantidad: number
   metodo: MetodoPago
   referencia: string | null
+  /** La factura global timbrada que lo cubre: con ella se abre su PDF. */
+  facturaGlobalId: string | null
+}
+
+/** Una opción de un catálogo del SAT (periodicidad, meses, régimen…). */
+export interface OpcionSat {
+  clave: string
+  nombre: string
+}
+
+/** `GET /admin/finanzas/bancos/factura-global/datos`: lo que pinta el modal. */
+export interface DatosFacturaGlobal {
+  /** PÚBLICO EN GENERAL: fijo por regla del SAT, se enseña y no se edita. */
+  receptor: {
+    rfc: string
+    razonSocial: string
+    regimenFiscal: OpcionSat
+    usoCfdi: OpcionSat
+    cpFiscal: string
+    metodoPago: OpcionSat
+  }
+  formasPago: { clave: string; descripcion: string }[]
+  periodicidades: OpcionSat[]
+  meses: OpcionSat[]
+  productos: {
+    id: string
+    nombre: string
+    claveProdServ: string
+    /** La clave es la genérica 01010101 porque el producto no tiene una en Productos. */
+    claveGenerica: boolean
+    tasaIva: TasaIva
+  }[]
+  modo: ModoTimbrado
+}
+
+/** `POST .../factura-global/previsualizar`: los precios que repartió la API. */
+export interface VistaFacturaGlobal {
+  total: number
+  subtotal: number
+  iva: number
+  conceptos: {
+    productoId: string
+    claveProdServ: string
+    cantidad: number
+    /** Sin IVA, seis decimales. */
+    valorUnitario: string
+    importe: number
+    tasaIva: TasaIva
+    iva: number
+    total: number
+  }[]
+  formaPagoSugerida: string
+}
+
+export interface FacturaGlobal {
+  id: string
+  numero: number
+  uuid: string
+  modo: ModoTimbrado
+  /** Lo que quedó en la columna Factura de los movimientos. */
+  folioMovimientos: string
+  total: number
+  timbradaEn: string
 }
 
 /** `GET /admin/finanzas/bancos/periodos/:id`: el mes con sus movimientos y su saldo. */
