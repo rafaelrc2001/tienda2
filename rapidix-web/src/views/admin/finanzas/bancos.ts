@@ -38,15 +38,15 @@ export function cantidadBancaria(texto: string): number | null {
   return menosAntes || menosDespues ? -numero : numero
 }
 
-/** `6`, `1.5`, `0.250`: piezas o kilos, hasta tres decimales. */
-const CANTIDAD_PRODUCTO = /^\d+(\.\d{1,3})?$/
+/** `6`, `12`: piezas enteras, sin decimales. */
+const CANTIDAD_PRODUCTO = /^\d+$/
 
 /**
  * La cantidad de un producto de la factura global, o `null` si no sirve:
- * vacía, con letras, negativa, en cero o con más de tres decimales.
+ * vacía, con letras, negativa, en cero o con decimales.
  */
 export function cantidadDeProducto(texto: string): number | null {
-  const limpio = texto.trim().replace(',', '.')
+  const limpio = texto.trim()
   if (!CANTIDAD_PRODUCTO.test(limpio)) return null
   const numero = Number(limpio)
   return numero > 0 ? numero : null

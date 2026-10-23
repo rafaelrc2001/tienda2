@@ -69,18 +69,18 @@ describe('errorDeCantidad', () => {
 })
 
 describe('cantidadDeProducto', () => {
-  it('acepta enteros y hasta tres decimales, con punto o coma', () => {
+  it('acepta números enteros', () => {
     expect(cantidadDeProducto('6')).toBe(6)
-    expect(cantidadDeProducto(' 1.5 ')).toBe(1.5)
-    expect(cantidadDeProducto('0,250')).toBe(0.25)
+    expect(cantidadDeProducto(' 12 ')).toBe(12)
   })
 
-  it('rechaza cero, negativos, letras y más de tres decimales', () => {
+  it('rechaza decimales, cero, negativos y letras', () => {
+    expect(cantidadDeProducto('1.5')).toBeNull()
+    expect(cantidadDeProducto('0,250')).toBeNull()
+    expect(cantidadDeProducto('2.0')).toBeNull()
     expect(cantidadDeProducto('0')).toBeNull()
-    expect(cantidadDeProducto('0.000')).toBeNull()
     expect(cantidadDeProducto('-2')).toBeNull()
     expect(cantidadDeProducto('dos')).toBeNull()
-    expect(cantidadDeProducto('1.2345')).toBeNull()
     expect(cantidadDeProducto('')).toBeNull()
   })
 })

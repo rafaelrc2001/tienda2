@@ -6,7 +6,6 @@ import {
   IsEmail,
   IsIn,
   IsInt,
-  IsNumber,
   IsNotEmpty,
   IsOptional,
   IsString,
@@ -28,9 +27,9 @@ export class RenglonFacturaGlobalDto {
   @IsNotEmpty({ message: 'Elige un producto' })
   productoId: string;
 
-  /** Positiva; hasta tres decimales para lo que se vende a granel. */
-  @IsNumber({ maxDecimalPlaces: 3 }, { message: 'La cantidad lleva a lo más tres decimales' })
-  @Min(0.001, { message: 'La cantidad tiene que ser mayor que cero' })
+  /** Piezas enteras: la factura global no lleva cantidades a granel. */
+  @IsInt({ message: 'La cantidad tiene que ser un número entero' })
+  @Min(1, { message: 'La cantidad tiene que ser mayor que cero' })
   @Max(1_000_000, { message: 'La cantidad es demasiado grande' })
   cantidad: number;
 }

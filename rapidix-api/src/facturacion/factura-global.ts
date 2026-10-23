@@ -105,14 +105,24 @@ export interface RenglonGlobal {
 }
 
 export type FacturaGlobalArmada =
-  | { conceptos: Concepto[]; subtotal: Decimal; iva: Decimal; total: Decimal }
   | {
+      conceptos: Concepto[];
+      subtotal: Decimal;
+      iva: Decimal;
+      /** El de la factura: subtotal mas IVA. */
+      total: Decimal;
       /**
-       * MONTO_INSUFICIENTE: el total no alcanza un centavo para cada renglon.
-       * NO_CUADRA: con un solo producto al 16 % hay totales a los que no se
-       * llega (base 6.03 da 6.99 y 6.04 da 7.01: $7.00 no existe).
+       * Lo depositado menos el total de la factura. Casi siempre cero; con un
+       * solo producto al 16 % hay totales a los que no se llega (base 6.03 da
+       * 6.99 y 6.04 da 7.01: $7.00 no existe) y la factura queda un centavo
+       * arriba. Asi lo decidio Finanzas: se factura con esa diferencia en vez
+       * de obligar a meter otro producto.
        */
-      error: 'MONTO_INSUFICIENTE' | 'NO_CUADRA';
+      diferencia: Decimal;
+    }
+  | {
+      /** El total no alcanza un centavo para cada renglon. */
+      error: 'MONTO_INSUFICIENTE';
     };
 
 /**
@@ -170,6 +180,8 @@ function conceptoGlobal(
  *  3. Despues los del 0 %, que absorben ese centavo sin perdida.
  *  4. Si todos son del 16 % y el ultimo se quedo a un centavo, se le pasan
  *     unos centavos a otro del 16 % hasta que los dos tengan base exacta.
+ *  5. Si ni asi (un solo producto al 16 %), se queda la base mas cercana y la
+ *     diferencia se devuelve en `diferencia`.
  *
  * El precio unitario (sin IVA, seis decimales como admite el SAT) sale de la
  * base entre la cantidad.
@@ -204,7 +216,6 @@ export function armarFacturaGlobal(
   if (!arrastre.isZero()) {
     const ultimo = orden[orden.length - 1];
     const otros = orden.slice(0, -1).reverse();
-    let cuadro = false;
     buscar: for (let centavos = 1; centavos <= 20; centavos++) {
       for (const signo of [1, -1]) {
         const paso = new Decimal('0.01').mul(centavos * signo);
@@ -216,20 +227,16 @@ export function armarFacturaGlobal(
           if (delOtro.resto.isZero() && delOtro.concepto.base.greaterThan(0)) {
             conceptos[ultimo] = delUltimo.concepto;
             conceptos[o] = delOtro.concepto;
-            cuadro = true;
             break buscar;
           }
         }
       }
     }
-    if (!cuadro) return { error: 'NO_CUADRA' };
   }
 
   if (conceptos.some((c) => !c.base.greaterThan(0))) return { error: 'MONTO_INSUFICIENTE' };
   const subtotal = conceptos.reduce((s, c) => s.add(c.importe), new Decimal(0));
   const iva = conceptos.reduce((s, c) => s.add(c.iva), new Decimal(0));
-  // Defensa: un CFDI timbrado no se deshace. Si por lo que sea no da el total
-  // exacto, mejor no timbrar.
-  if (!subtotal.add(iva).equals(total)) return { error: 'NO_CUADRA' };
-  return { conceptos, subtotal, iva, total };
+  const deLaFactura = subtotal.add(iva);
+  return { conceptos, subtotal, iva, total: deLaFactura, diferencia: total.sub(deLaFactura) };
 }
