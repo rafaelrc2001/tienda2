@@ -7,6 +7,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
   Res,
 } from '@nestjs/common';
 import type { Response } from 'express';
@@ -43,6 +44,12 @@ export class AdminFacturaGlobalController {
   @Get('datos')
   datos(): Promise<DatosFacturaGlobalDto> {
     return this.facturaGlobal.datos();
+  }
+
+  /** Las facturas globales de los depositos de un periodo, con su PDF y XML. */
+  @Get()
+  delPeriodo(@Query('periodoId', ParseUUIDPipe) periodoId: string): Promise<FacturaGlobalDto[]> {
+    return this.facturaGlobal.delPeriodo(periodoId);
   }
 
   /** Reparte el total entre los productos sin timbrar nada. */

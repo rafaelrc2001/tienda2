@@ -9,7 +9,8 @@
  * productos con su cantidad.
  *
  * Los precios no se escriben: la API reparte el total entre los productos para
- * que, con el IVA redondeado, la factura dé exactamente lo depositado. Cada
+ * que, con el IVA redondeado, la factura dé exactamente lo depositado (con un
+ * solo producto al 16 % a veces no se puede y queda un centavo arriba). Cada
  * cambio en la tabla pide otra vista previa; aquí no se suma nada.
  *
  * Tocar fuera de la hoja no la cierra: con la tabla a medias se perdería lo
@@ -55,7 +56,6 @@ const formaPago = ref('')
 const periodicidad = ref('04')
 const meses = ref(String(props.periodo.mes).padStart(2, '0'))
 const anio = ref(String(props.periodo.anio))
-const email = ref('')
 
 const vista = ref<VistaFacturaGlobal | null>(null)
 /** La suma de los depósitos, de la primera respuesta: se ve aunque la tabla esté a medias. */
@@ -99,9 +99,7 @@ function disponibles(renglon: Renglon) {
 /** El error de la cantidad de un renglón, solo cuando ya se escribió algo. */
 function errorCantidad(renglon: Renglon): string {
   if (renglon.cantidad.trim() === '') return ''
-  return cantidadDeProducto(renglon.cantidad) === null
-    ? 'Mayor que cero, hasta tres decimales.'
-    : ''
+  return cantidadDeProducto(renglon.cantidad) === null ? 'Un número entero mayor que cero.' : ''
 }
 
 /** El concepto que repartió la API para el producto del renglón. */
@@ -232,7 +230,6 @@ async function timbrar(): Promise<void> {
       periodicidad: periodicidad.value,
       meses: meses.value,
       anio: anioNumero,
-      ...(email.value.trim() && { email: email.value.trim() }),
     })
     emit('facturado', factura)
   } catch (fallo) {
@@ -334,17 +331,6 @@ async function timbrar(): Promise<void> {
                 maxlength="4"
               />
             </div>
-            <div class="campo ancho">
-              <label class="form-label" for="fg-email">Correo (opcional)</label>
-              <input
-                id="fg-email"
-                v-model="email"
-                class="form-input"
-                type="email"
-                autocomplete="off"
-                placeholder="A dónde mandar el PDF y el XML"
-              />
-            </div>
           </div>
           <p class="form-hint">
             La forma de pago viene con la del depósito de mayor monto, como lo pide el SAT.
@@ -390,7 +376,7 @@ async function timbrar(): Promise<void> {
                     class="form-input monto"
                     :class="{ 'is-invalid': errorCantidad(r) }"
                     type="text"
-                    inputmode="decimal"
+                    inputmode="numeric"
                     autocomplete="off"
                     placeholder="0"
                     aria-label="Cantidad"
@@ -437,7 +423,7 @@ async function timbrar(): Promise<void> {
 
         <p v-if="errorVista" class="form-error">{{ errorVista }}</p>
 
-        <!-- Los totales que cuadró la API; el total es la suma de los depósitos. -->
+        <!-- Los totales que armó la API. Sin productos, el total es lo depositado. -->
         <dl class="totales">
           <div>
             <dt>Subtotal</dt>
@@ -449,14 +435,29 @@ async function timbrar(): Promise<void> {
           </div>
           <div class="fuerte">
             <dt>Total</dt>
-            <dd>{{ total !== null ? dinero(total) : '—' }}</dd>
+            <dd>
+              {{ vista ? dinero(vista.totalFactura) : total !== null ? dinero(total) : '—' }}
+            </dd>
           </div>
+          <!-- Con un solo producto al 16 % hay montos que no existen: se ve cuánto se aparta. -->
+          <template v-if="vista && vista.diferencia !== 0">
+            <div class="aparte">
+              <dt>Depositado</dt>
+              <dd>{{ dinero(vista.total) }}</dd>
+            </div>
+            <div class="aparte">
+              <dt>Diferencia</dt>
+              <dd>{{ dinero(-vista.diferencia) }}</dd>
+            </div>
+          </template>
         </dl>
         <p class="form-hint">
           {{
             calculando
               ? 'Calculando precios…'
-              : 'Los precios los calcula el sistema para que la factura dé exactamente el total.'
+              : vista && vista.diferencia !== 0
+                ? 'Con un solo producto al 16 % este total no se alcanza exacto: la factura queda un centavo arriba de lo depositado.'
+                : 'Los precios los calcula el sistema para que la factura dé exactamente el total.'
           }}
         </p>
 
@@ -665,6 +666,11 @@ async function timbrar(): Promise<void> {
   font-family: var(--font-heading);
   font-weight: 800;
   font-size: 16px;
+}
+
+.totales .aparte {
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .form-error {

@@ -24,6 +24,7 @@ function exigirCuadre(total: string, renglones: RenglonGlobal[]): void {
   const armada = armarFacturaGlobal(D(total), renglones);
   if ('error' in armada) throw new Error(`${total}: ${armada.error}`);
   expect(armada.subtotal.add(armada.iva).toFixed(2)).toBe(total);
+  expect(armada.diferencia.isZero()).toBe(true);
   for (const c of armada.conceptos) {
     expect(c.base.greaterThan(0)).toBe(true);
     expect(c.importe.equals(c.base)).toBe(true);
@@ -69,10 +70,13 @@ describe('armarFacturaGlobal', () => {
     exigirCuadre('7.00', [renglon({ cantidad: 1 }), renglon({ cantidad: 1, tasa: TasaIva.CERO })]);
   });
 
-  it('con un solo producto al 16 % hay totales a los que no se llega', () => {
-    expect(armarFacturaGlobal(D('7.00'), [renglon({ cantidad: 3 })])).toEqual({
-      error: 'NO_CUADRA',
-    });
+  it('con un solo producto al 16 % un total inalcanzable queda un centavo arriba', () => {
+    const armada = armarFacturaGlobal(D('7.00'), [renglon({ cantidad: 3 })]);
+    if ('error' in armada) throw new Error(armada.error);
+    expect(armada.subtotal.toFixed(2)).toBe('6.04');
+    expect(armada.iva.toFixed(2)).toBe('0.97');
+    expect(armada.total.toFixed(2)).toBe('7.01');
+    expect(armada.diferencia.toFixed(2)).toBe('-0.01');
     exigirCuadre('7.01', [renglon({ cantidad: 3 })]);
   });
 

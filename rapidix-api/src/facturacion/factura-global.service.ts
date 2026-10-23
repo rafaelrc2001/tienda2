@@ -88,6 +88,13 @@ export interface VistaFacturaGlobalDto {
   total: number;
   subtotal: number;
   iva: number;
+  /** Subtotal mas IVA; sin productos todavia, cero. */
+  totalFactura: number;
+  /**
+   * `total` menos `totalFactura`: casi siempre cero. Con un solo producto al
+   * 16 % hay montos que no se alcanzan y la factura queda un centavo arriba.
+   */
+  diferencia: number;
   conceptos: ConceptoGlobalDto[];
   /** La forma de pago del deposito de mayor monto, como lo pide el SAT. */
   formaPagoSugerida: string;
@@ -111,6 +118,8 @@ interface Armada {
   total: Prisma.Decimal;
   subtotal: Prisma.Decimal;
   iva: Prisma.Decimal;
+  totalFactura: Prisma.Decimal;
+  diferencia: Prisma.Decimal;
   conceptos: ConceptoGlobalDto[];
   guardados: ConceptoGuardado[];
   formaPagoSugerida: string;
@@ -163,6 +172,8 @@ export class FacturaGlobalService {
       total: armada.total.toNumber(),
       subtotal: armada.subtotal.toNumber(),
       iva: armada.iva.toNumber(),
+      totalFactura: armada.totalFactura.toNumber(),
+      diferencia: armada.diferencia.toNumber(),
       conceptos: armada.conceptos,
       formaPagoSugerida: armada.formaPagoSugerida,
     };
@@ -172,7 +183,7 @@ export class FacturaGlobalService {
    * Timbra la factura global. Los candados van en este orden:
    *
    *  1. Los depositos existen, son positivos y no tienen factura (`armar`).
-   *  2. Los productos existen, no se repiten y el total cuadra (`armar`).
+   *  2. Los productos existen, no se repiten y el total alcanza (`armar`).
    *  3. La forma de pago esta en el catalogo y el mes cabe con la periodicidad.
    *  4. En una transaccion se crea la reserva y se apartan los depositos; si
    *     otro ya se llevo alguno, no se aparta ninguno (409).
@@ -222,7 +233,8 @@ export class FacturaGlobalService {
           formaPago: dto.formaPago,
           subtotal: armada.subtotal,
           iva: armada.iva,
-          total: armada.total,
+          // El del CFDI: puede quedar un centavo arriba de lo depositado.
+          total: armada.totalFactura,
           conceptos: armada.guardados as unknown as Prisma.InputJsonValue,
           creadoPorId: usuarioId,
         },
@@ -282,17 +294,7 @@ export class FacturaGlobalService {
           data: { factura: folioMovimientos },
         }),
       ]);
-      return {
-        id: factura.id,
-        numero: factura.numero,
-        uuid: factura.uuid!,
-        modo: factura.modo,
-        serie: factura.serie,
-        folio: factura.folio,
-        folioMovimientos,
-        total: factura.total.toNumber(),
-        timbradaEn: factura.timbradaEn!.toISOString(),
-      };
+      return aDto(factura);
     } catch (fallo) {
       // El CFDI ya existe ante el SAT: se deja en el log para darlo de alta a
       // mano. La reserva queda y sigue apartando los depositos.
@@ -306,6 +308,19 @@ export class FacturaGlobalService {
         message: `La factura se timbró (folio fiscal ${timbrado.uuid}) pero no se pudo guardar. Anota este folio.`,
       });
     }
+  }
+
+  /**
+   * Las facturas globales que cubren depositos de un periodo, de la mas
+   * reciente a la mas vieja: la tabla debajo del estado de cuenta, desde donde
+   * se bajan el PDF y el XML.
+   */
+  async delPeriodo(periodoId: string): Promise<FacturaGlobalDto[]> {
+    const facturas = await this.prisma.facturaGlobal.findMany({
+      where: { estado: EstadoFactura.TIMBRADA, movimientos: { some: { periodoId } } },
+      orderBy: { timbradaEn: 'desc' },
+    });
+    return facturas.map(aDto);
   }
 
   async documento(id: string, formato: 'pdf' | 'xml'): Promise<DocumentoFactura> {
@@ -428,6 +443,8 @@ export class FacturaGlobalService {
         total,
         subtotal: new Decimal(0),
         iva: new Decimal(0),
+        totalFactura: new Decimal(0),
+        diferencia: new Decimal(0),
         conceptos: [],
         guardados: [],
         formaPagoSugerida,
@@ -472,11 +489,8 @@ export class FacturaGlobalService {
     if ('error' in armada) {
       throw new ConflictException({
         statusCode: 409,
-        code: armada.error === 'NO_CUADRA' ? 'FACTURA_NO_CUADRA' : 'MONTO_INSUFICIENTE',
-        message:
-          armada.error === 'NO_CUADRA'
-            ? `Con estos productos no se llega exactamente a $${total.toFixed(2)} con el IVA redondeado. Agrega otro producto.`
-            : `$${total.toFixed(2)} no alcanza para repartirse entre tantos productos.`,
+        code: 'MONTO_INSUFICIENTE',
+        message: `$${total.toFixed(2)} no alcanza para repartirse entre tantos productos.`,
       });
     }
 
@@ -485,6 +499,8 @@ export class FacturaGlobalService {
       total,
       subtotal: armada.subtotal,
       iva: armada.iva,
+      totalFactura: armada.total,
+      diferencia: armada.diferencia,
       conceptos: armada.conceptos.map((c, i) => ({
         productoId: dto.renglones[i].productoId,
         descripcion: c.descripcion,
@@ -501,6 +517,30 @@ export class FacturaGlobalService {
       formaPagoSugerida,
     };
   }
+}
+
+/** Solo de una factura ya timbrada: la reserva no tiene UUID ni fecha. */
+function aDto(factura: {
+  id: string;
+  numero: number;
+  uuid: string | null;
+  modo: ModoTimbrado;
+  serie: string | null;
+  folio: string | null;
+  total: Prisma.Decimal;
+  timbradaEn: Date | null;
+}): FacturaGlobalDto {
+  return {
+    id: factura.id,
+    numero: factura.numero,
+    uuid: factura.uuid!,
+    modo: factura.modo,
+    serie: factura.serie,
+    folio: factura.folio,
+    folioMovimientos: folioCorto(factura.serie, factura.folio, factura.numero),
+    total: factura.total.toNumber(),
+    timbradaEn: factura.timbradaEn!.toISOString(),
+  };
 }
 
 /**

@@ -1076,9 +1076,14 @@ export interface DatosFacturaGlobal {
 
 /** `POST .../factura-global/previsualizar`: los precios que repartió la API. */
 export interface VistaFacturaGlobal {
+  /** Lo depositado. */
   total: number
   subtotal: number
   iva: number
+  /** Subtotal más IVA: el total del CFDI. */
+  totalFactura: number
+  /** Lo depositado menos el total de la factura; casi siempre cero (-0.01 = un centavo arriba). */
+  diferencia: number
   conceptos: {
     productoId: string
     claveProdServ: string
