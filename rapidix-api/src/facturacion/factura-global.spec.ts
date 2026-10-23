@@ -2,6 +2,7 @@ import { MetodoPago, Prisma, TasaIva } from '@prisma/client';
 import {
   armarFacturaGlobal,
   formaDePagoGlobal,
+  margenIvaSat,
   mesesCompatibles,
   RenglonGlobal,
   repartirTotal,
@@ -70,14 +71,27 @@ describe('armarFacturaGlobal', () => {
     exigirCuadre('7.00', [renglon({ cantidad: 1 }), renglon({ cantidad: 1, tasa: TasaIva.CERO })]);
   });
 
-  it('con un solo producto al 16 % un total inalcanzable queda un centavo arriba', () => {
-    const armada = armarFacturaGlobal(D('7.00'), [renglon({ cantidad: 3 })]);
+  // 10.34 + 1.66 tambien seria valido; se parte de la base de arriba (10.35,
+  // que con el redondeo normal da 12.01) y se le baja el centavo al IVA.
+  it('el ejemplo de $12.00 con 3 piezas da exacto con el margen del SAT', () => {
+    const armada = armarFacturaGlobal(D('12.00'), [renglon({ cantidad: 3 })]);
     if ('error' in armada) throw new Error(armada.error);
-    expect(armada.subtotal.toFixed(2)).toBe('6.04');
-    expect(armada.iva.toFixed(2)).toBe('0.97');
-    expect(armada.total.toFixed(2)).toBe('7.01');
-    expect(armada.diferencia.toFixed(2)).toBe('-0.01');
-    exigirCuadre('7.01', [renglon({ cantidad: 3 })]);
+    expect(armada.subtotal.toFixed(2)).toBe('10.35');
+    expect(armada.iva.toFixed(2)).toBe('1.65');
+    expect(armada.total.toFixed(2)).toBe('12.00');
+    expect(armada.diferencia.isZero()).toBe(true);
+  });
+
+  it('con un solo producto al 16 % cuadra cualquier total dentro del margen del SAT', () => {
+    for (let centavos = 50; centavos <= 20_000; centavos += 7) {
+      const total = (centavos / 100).toFixed(2);
+      const armada = armarFacturaGlobal(D(total), [renglon({ cantidad: 3 })]);
+      if ('error' in armada) throw new Error(`${total}: ${armada.error}`);
+      expect(armada.total.toFixed(2)).toBe(total);
+      const [c] = armada.conceptos;
+      const { minimo, maximo } = margenIvaSat(c.base, c.tasa);
+      expect(c.iva.greaterThanOrEqualTo(minimo) && c.iva.lessThanOrEqualTo(maximo)).toBe(true);
+    }
   });
 
   it('un total que no alcanza un centavo por renglon no se arma', () => {
@@ -105,6 +119,18 @@ describe('armarFacturaGlobal', () => {
         renglon({ cantidad: 2, peso: D(25), tasa: TasaIva.CERO }),
       ]);
     }
+  });
+});
+
+describe('margenIvaSat', () => {
+  it('base 10.34 al 16 % acepta IVA de 1.65 a 1.66', () => {
+    const { minimo, maximo } = margenIvaSat(D('10.34'), TasaIva.DIECISEIS);
+    expect([minimo.toFixed(2), maximo.toFixed(2)]).toEqual(['1.65', '1.66']);
+  });
+
+  it('al 0 % el IVA es cero', () => {
+    const { minimo, maximo } = margenIvaSat(D('10.34'), TasaIva.CERO);
+    expect([minimo.toFixed(2), maximo.toFixed(2)]).toEqual(['0.00', '0.00']);
   });
 });
 

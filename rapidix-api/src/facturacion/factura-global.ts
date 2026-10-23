@@ -112,11 +112,10 @@ export type FacturaGlobalArmada =
       /** El de la factura: subtotal mas IVA. */
       total: Decimal;
       /**
-       * Lo depositado menos el total de la factura. Casi siempre cero; con un
-       * solo producto al 16 % hay totales a los que no se llega (base 6.03 da
-       * 6.99 y 6.04 da 7.01: $7.00 no existe) y la factura queda un centavo
-       * arriba. Asi lo decidio Finanzas: se factura con esa diferencia en vez
-       * de obligar a meter otro producto.
+       * Lo depositado menos el total de la factura. Con el margen de IVA del
+       * SAT siempre es cero; queda como red por si algun total no cabe, y
+       * entonces la factura sale un centavo arriba en vez de obligar a meter
+       * otro producto (decision de Finanzas).
        */
       diferencia: Decimal;
     }
@@ -171,6 +170,26 @@ function conceptoGlobal(
 }
 
 /**
+ * El rango de IVA que el SAT acepta para una base con dos decimales (Anexo 20,
+ * CFDI 4.0, Traslado.Importe):
+ *
+ *   minimo = (Base - 0.005) x Tasa, truncado a centavos
+ *   maximo = (Base + 0.005 - 10^-12) x Tasa, redondeado hacia arriba
+ *
+ * Base 10.34 al 16 % acepta de 1.65 a 1.66: 10.34 + 1.66 = $12.00 exacto, que
+ * con el redondeo normal (1.65) no se alcanza. Solo lo usa la factura global:
+ * las de pedidos siguen con el redondeo normal de `ivaDe`.
+ */
+export function margenIvaSat(base: Decimal, tasa: TasaIva): { minimo: Decimal; maximo: Decimal } {
+  if (tasa !== TasaIva.DIECISEIS) return { minimo: new Decimal(0), maximo: new Decimal(0) };
+  const tasa16 = new Decimal('0.16');
+  return {
+    minimo: base.sub('0.005').mul(tasa16).toDecimalPlaces(2, Decimal.ROUND_DOWN),
+    maximo: base.add('0.005').sub('1e-12').mul(tasa16).toDecimalPlaces(2, Decimal.ROUND_UP),
+  };
+}
+
+/**
  * Los conceptos de la factura global, cuyo total (subtotal + IVA) es
  * exactamente `total`, centavos incluidos.
  *
@@ -180,8 +199,9 @@ function conceptoGlobal(
  *  3. Despues los del 0 %, que absorben ese centavo sin perdida.
  *  4. Si todos son del 16 % y el ultimo se quedo a un centavo, se le pasan
  *     unos centavos a otro del 16 % hasta que los dos tengan base exacta.
- *  5. Si ni asi (un solo producto al 16 %), se queda la base mas cercana y la
- *     diferencia se devuelve en `diferencia`.
+ *  5. Si ni asi (un solo producto al 16 %), el centavo va al IVA del ultimo
+ *     dentro del margen del SAT (`margenIvaSat`). Si tampoco cabe, se queda la
+ *     base mas cercana y la diferencia se devuelve en `diferencia`.
  *
  * El precio unitario (sin IVA, seis decimales como admite el SAT) sale de la
  * base entre la cantidad.
@@ -227,10 +247,19 @@ export function armarFacturaGlobal(
           if (delOtro.resto.isZero() && delOtro.concepto.base.greaterThan(0)) {
             conceptos[ultimo] = delUltimo.concepto;
             conceptos[o] = delOtro.concepto;
+            arrastre = new Decimal(0);
             break buscar;
           }
         }
       }
+    }
+    // Un solo producto al 16 % (o ninguna pareja cuadro): el centavo se le
+    // pone al IVA del ultimo, si cabe en el margen que acepta el SAT.
+    if (!arrastre.isZero()) {
+      const c = conceptos[ultimo];
+      const iva = c.iva.add(arrastre);
+      const { minimo, maximo } = margenIvaSat(c.base, c.tasa);
+      if (!iva.lessThan(minimo) && !iva.greaterThan(maximo)) conceptos[ultimo] = { ...c, iva };
     }
   }
 
