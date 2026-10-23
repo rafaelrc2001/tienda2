@@ -54,10 +54,11 @@ export class NuevoMovimientoDto {
   @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'La fecha va como AAAA-MM-DD' })
   fecha: string;
 
+  /** Folio corto (A1127): la columna del estado de cuenta solo tiene sitio para 8. */
   @IsOptional()
   @Transform(opcional)
   @IsString()
-  @MaxLength(40)
+  @MaxLength(8, { message: 'La factura lleva como maximo 8 caracteres' })
   factura?: string;
 
   /** Con signo: lo que sale del banco va en negativo. */

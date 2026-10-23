@@ -4,6 +4,8 @@ import { FacturacionService } from './facturacion.service';
 import { AdminCatalogoSatController } from './admin-catalogo-sat.controller';
 import { AdminFacturacionController } from './admin-facturacion.controller';
 import { CatalogoSatService } from './catalogo-sat.service';
+import { AdminFacturaGlobalController } from './admin-factura-global.controller';
+import { FacturaGlobalService } from './factura-global.service';
 
 /**
  * CFDI 4.0 con factura.com, o simulado sin llaves. El proveedor se elige solo
@@ -13,8 +15,13 @@ import { CatalogoSatService } from './catalogo-sat.service';
  * las claves que se le asignan a cada producto.
  */
 @Module({
-  controllers: [FacturacionController, AdminCatalogoSatController, AdminFacturacionController],
-  providers: [FacturacionService, CatalogoSatService],
+  controllers: [
+    FacturacionController,
+    AdminCatalogoSatController,
+    AdminFacturacionController,
+    AdminFacturaGlobalController,
+  ],
+  providers: [FacturacionService, CatalogoSatService, FacturaGlobalService],
   exports: [CatalogoSatService],
 })
 export class FacturacionModule {}

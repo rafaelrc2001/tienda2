@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cantidadBancaria, errorDeCantidad } from './bancos'
+import { cantidadBancaria, cantidadDeProducto, errorDeCantidad } from './bancos'
 
 describe('cantidadBancaria', () => {
   it('lee la coma seguida de tres dígitos como separador de miles', () => {
@@ -65,5 +65,22 @@ describe('errorDeCantidad', () => {
   it('no estorba con una cantidad válida, aunque sea cero', () => {
     expect(errorDeCantidad('6,750.00', 'la cantidad')).toBeNull()
     expect(errorDeCantidad('0', 'el saldo inicial')).toBeNull()
+  })
+})
+
+describe('cantidadDeProducto', () => {
+  it('acepta enteros y hasta tres decimales, con punto o coma', () => {
+    expect(cantidadDeProducto('6')).toBe(6)
+    expect(cantidadDeProducto(' 1.5 ')).toBe(1.5)
+    expect(cantidadDeProducto('0,250')).toBe(0.25)
+  })
+
+  it('rechaza cero, negativos, letras y más de tres decimales', () => {
+    expect(cantidadDeProducto('0')).toBeNull()
+    expect(cantidadDeProducto('0.000')).toBeNull()
+    expect(cantidadDeProducto('-2')).toBeNull()
+    expect(cantidadDeProducto('dos')).toBeNull()
+    expect(cantidadDeProducto('1.2345')).toBeNull()
+    expect(cantidadDeProducto('')).toBeNull()
   })
 })

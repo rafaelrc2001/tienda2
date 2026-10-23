@@ -116,8 +116,24 @@ export class FacturacionService implements OnModuleInit {
   }
 
   /** Con lo que se timbra hoy. Una factura ya timbrada se sirve con el suyo. */
-  private get timbrador(): Timbrador {
+  get timbrador(): Timbrador {
     return this.facturaCom ?? this.simulado;
+  }
+
+  /**
+   * El timbrador con el que se timbro una factura, para servir sus archivos.
+   * Una simulada sigue siendo simulada aunque despues se pongan las llaves.
+   */
+  timbradorDelModo(modo: ModoTimbrado): Timbrador {
+    const timbrador = modo === ModoTimbrado.SIMULADO ? this.simulado : this.facturaCom;
+    if (!timbrador) {
+      throw new ServiceUnavailableException({
+        statusCode: 503,
+        code: 'PROVEEDOR_NO_CONFIGURADO',
+        message: 'La facturación no está disponible en este momento.',
+      });
+    }
+    return timbrador;
   }
 
   // ----------------------------------------------------------------
@@ -416,14 +432,7 @@ export class FacturacionService implements OnModuleInit {
     });
     if (!factura) throw new NotFoundException('Este pedido no tiene factura');
 
-    const timbrador = factura.modo === ModoTimbrado.SIMULADO ? this.simulado : this.facturaCom;
-    if (!timbrador) {
-      throw new ServiceUnavailableException({
-        statusCode: 503,
-        code: 'PROVEEDOR_NO_CONFIGURADO',
-        message: 'La facturación no está disponible en este momento.',
-      });
-    }
+    const timbrador = this.timbradorDelModo(factura.modo);
 
     const timbrada: FacturaTimbrada = {
       rfc: factura.rfc,
@@ -481,7 +490,7 @@ export class FacturacionService implements OnModuleInit {
    * que el catalogo ya no trae (el SAT la dio de baja) se ignora y la unidad
    * se deduce del texto, que es lo que pasaria sin clave.
    */
-  private unidadSat(clave: string | null): { clave: string; nombre: string } | null {
+  unidadSat(clave: string | null): { clave: string; nombre: string } | null {
     if (!clave) return null;
     const unidad = this.catalogoSat.unidad(clave);
     return unidad ? { clave: unidad.clave, nombre: unidad.nombre } : null;
@@ -525,7 +534,7 @@ export class FacturacionService implements OnModuleInit {
     return campania?.categorias ?? [];
   }
 
-  private traducirFallo(fallo: unknown, folio: string): Error {
+  traducirFallo(fallo: unknown, folio: string): Error {
     if (fallo instanceof TimbradoRechazado) {
       this.logger.warn(`Timbrado rechazado para ${folio}: ${fallo.message}`);
       return new UnprocessableEntityException({

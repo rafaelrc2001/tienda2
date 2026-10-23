@@ -12,15 +12,29 @@
  *
  * La cantidad lleva signo: lo que sale del banco va en negativo. El saldo lo
  * suma la API; aquí no se suma nada.
+ *
+ * «🌐 Facturación global» pone una casilla en los depósitos sin factura; lo
+ * palomeado se suma (en la API) debajo de la tabla y «Factura global» lo
+ * timbra a PÚBLICO EN GENERAL. El folio queda en la columna Factura.
  */
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { ErrorApi, http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
 import { dinero, nombreMetodoPago } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
+import VisorPdfFactura from '@/components/VisorPdfFactura.vue'
 import PestanasFinanzas from './finanzas/PestanasFinanzas.vue'
+import FacturaGlobalModal from './finanzas/FacturaGlobalModal.vue'
 import { cantidadBancaria, errorDeCantidad } from './finanzas/bancos'
-import type { CuentaBanco, EstadoCuentaBanco, MetodoPago, PeriodoBancario } from '@/api/tipos'
+import type {
+  CuentaBanco,
+  EstadoCuentaBanco,
+  FacturaGlobal,
+  MetodoPago,
+  MovimientoBancario,
+  PeriodoBancario,
+  VistaFacturaGlobal,
+} from '@/api/tipos'
 
 const ui = useUiStore()
 
@@ -364,6 +378,81 @@ async function refrescarResumen(cuenta: string): Promise<void> {
     // No estorba: se vuelve a leer al abrir el siguiente periodo.
   }
 }
+
+// ------------------------------------------------------------------
+// Facturación global: palomear depósitos y timbrarlos juntos
+// ------------------------------------------------------------------
+
+const seleccionando = ref(false)
+const seleccion = ref<string[]>([])
+/** La suma de lo palomeado, hecha por la API. */
+const sumaSeleccion = ref<number | null>(null)
+const facturandoGlobal = ref(false)
+const visor = ref<{ id: string; folio: string } | null>(null)
+
+/** Solo los depósitos sin factura: lo que sale del banco no se factura. */
+function facturable(m: MovimientoBancario): boolean {
+  return m.cantidad > 0 && !m.factura && !m.facturaGlobalId
+}
+
+const facturables = computed(() => (periodo.value?.movimientos ?? []).filter(facturable))
+const todosPalomeados = computed(
+  () => facturables.value.length > 0 && seleccion.value.length === facturables.value.length,
+)
+
+function alternarSeleccion(): void {
+  seleccionando.value = !seleccionando.value
+  seleccion.value = []
+}
+
+function palomearTodos(marcar: boolean): void {
+  seleccion.value = marcar ? facturables.value.map((m) => m.id) : []
+}
+
+// Otro periodo u otra cuenta: lo palomeado era de la tabla anterior.
+watch(periodoId, () => {
+  seleccion.value = []
+})
+
+/** Palomear deprisa deja sumas viejas en el aire: gana la última. */
+let peticionSuma = 0
+
+// `deep`: las casillas con v-model meten y sacan del mismo arreglo.
+watch(
+  seleccion,
+  async (ids) => {
+    const numero = ++peticionSuma
+    if (ids.length === 0) {
+      sumaSeleccion.value = null
+      return
+    }
+    try {
+      const vista = await http.post<VistaFacturaGlobal>(
+        '/admin/finanzas/bancos/factura-global/previsualizar',
+        { movimientoIds: [...ids], renglones: [] },
+      )
+      if (numero === peticionSuma) sumaSeleccion.value = vista.total
+    } catch (fallo) {
+      if (numero !== peticionSuma) return
+      sumaSeleccion.value = null
+      ui.errorDeApi(fallo)
+    }
+  },
+  { deep: true },
+)
+
+async function alFacturar(factura: FacturaGlobal | null): Promise<void> {
+  facturandoGlobal.value = false
+  seleccionando.value = false
+  seleccion.value = []
+  if (factura) {
+    ui.exito(`Factura global ${factura.folioMovimientos} generada`)
+    visor.value = { id: factura.id, folio: factura.folioMovimientos }
+  }
+  const cuenta = periodo.value?.cuentaId
+  await cargarPeriodo()
+  if (cuenta) void refrescarResumen(cuenta)
+}
 </script>
 
 <template>
@@ -433,25 +522,61 @@ async function refrescarResumen(cuenta: string): Promise<void> {
           <table class="tabla lineal">
             <thead>
               <tr>
-                <th>Fecha</th>
-                <th>Factura</th>
+                <th v-if="seleccionando" class="casilla">
+                  <input
+                    type="checkbox"
+                    :checked="todosPalomeados"
+                    :disabled="facturables.length === 0"
+                    aria-label="Palomear todos los depósitos sin factura"
+                    @change="palomearTodos(($event.target as HTMLInputElement).checked)"
+                  />
+                </th>
+                <th class="fecha">Fecha</th>
+                <th class="factura">Factura</th>
                 <th class="num">Cantidad</th>
-                <th>Método de pago</th>
+                <th class="metodo">Método de pago</th>
                 <th>Referencia</th>
                 <th aria-label="Acciones" />
               </tr>
             </thead>
             <tbody>
-              <tr v-for="m in periodo.movimientos" :key="m.id">
+              <tr
+                v-for="m in periodo.movimientos"
+                :key="m.id"
+                :class="{ palomeado: seleccion.includes(m.id) }"
+              >
+                <td v-if="seleccionando" class="casilla">
+                  <input
+                    v-if="facturable(m)"
+                    v-model="seleccion"
+                    type="checkbox"
+                    :value="m.id"
+                    :aria-label="`Facturar el depósito del ${fechaCorta(m.fecha)}`"
+                  />
+                </td>
                 <td class="fecha">{{ fechaCorta(m.fecha) }}</td>
-                <td>{{ m.factura ?? '—' }}</td>
+                <td class="factura">
+                  <!-- La factura global timbrada se abre desde su folio. -->
+                  <button
+                    v-if="m.facturaGlobalId"
+                    type="button"
+                    class="enlace"
+                    :title="`Ver la factura global ${m.factura}`"
+                    @click="visor = { id: m.facturaGlobalId, folio: m.factura ?? '' }"
+                  >
+                    🌐 {{ m.factura }}
+                  </button>
+                  <template v-else>{{ m.factura ?? '—' }}</template>
+                </td>
                 <td class="num importe" :class="{ negativo: m.cantidad < 0 }">
                   {{ dinero(m.cantidad) }}
                 </td>
-                <td>{{ nombreMetodoPago(m.metodo) }}</td>
+                <td class="metodo">{{ nombreMetodoPago(m.metodo) }}</td>
                 <td>{{ m.referencia ?? '' }}</td>
                 <td class="acciones">
+                  <!-- Un depósito dentro de una factura global ya no se borra. -->
                   <button
+                    v-if="!m.facturaGlobalId"
                     type="button"
                     class="quitar"
                     :aria-label="`Eliminar el movimiento del ${fechaCorta(m.fecha)}`"
@@ -465,7 +590,8 @@ async function refrescarResumen(cuenta: string): Promise<void> {
 
               <!-- El renglón que se está escribiendo, debajo del último. -->
               <tr v-if="capturando" class="captura">
-                <td>
+                <td v-if="seleccionando" class="casilla" />
+                <td class="fecha">
                   <input
                     ref="campoFecha"
                     v-model="nuevo.fecha"
@@ -476,12 +602,12 @@ async function refrescarResumen(cuenta: string): Promise<void> {
                     aria-label="Fecha"
                   />
                 </td>
-                <td>
+                <td class="factura">
                   <input
                     v-model="nuevo.factura"
                     class="form-input"
                     type="text"
-                    maxlength="40"
+                    maxlength="8"
                     placeholder="A1127"
                     aria-label="Factura"
                   />
@@ -509,7 +635,7 @@ async function refrescarResumen(cuenta: string): Promise<void> {
                     />
                   </span>
                 </td>
-                <td>
+                <td class="metodo">
                   <select v-model="nuevo.metodo" class="form-input" aria-label="Método de pago">
                     <option v-for="metodo in METODOS" :key="metodo" :value="metodo">
                       {{ nombreMetodoPago(metodo) }}
@@ -531,7 +657,9 @@ async function refrescarResumen(cuenta: string): Promise<void> {
               </tr>
 
               <tr v-if="periodo.movimientos.length === 0 && !capturando">
-                <td colspan="6" class="vacio">Sin movimientos en {{ nombrePeriodo(periodo) }}.</td>
+                <td :colspan="seleccionando ? 7 : 6" class="vacio">
+                  Sin movimientos en {{ nombrePeriodo(periodo) }}.
+                </td>
               </tr>
             </tbody>
           </table>
@@ -558,10 +686,46 @@ async function refrescarResumen(cuenta: string): Promise<void> {
               {{ guardandoMovimiento ? 'Guardando…' : 'Guardar movimiento' }}
             </button>
           </template>
-          <button v-else type="button" class="btn-secondary" @click="empezarCaptura">
-            + Agregar movimiento
+          <template v-else>
+            <button type="button" class="btn-secondary" @click="empezarCaptura">
+              + Agregar movimiento
+            </button>
+            <button
+              type="button"
+              class="btn-secondary"
+              :class="{ activo: seleccionando }"
+              :aria-pressed="seleccionando"
+              @click="alternarSeleccion"
+            >
+              {{ seleccionando ? 'Cancelar selección' : '🌐 Facturación global' }}
+            </button>
+          </template>
+        </div>
+
+        <!-- Lo palomeado, sumado por la API, y el botón que abre la factura. -->
+        <div v-if="seleccionando" class="seleccion">
+          <div>
+            <span class="titulo-dato">
+              {{
+                seleccion.length === 0
+                  ? 'Palomea los depósitos a facturar'
+                  : `${seleccion.length} ${seleccion.length === 1 ? 'depósito' : 'depósitos'}`
+              }}
+            </span>
+            <strong>{{ sumaSeleccion !== null ? dinero(sumaSeleccion) : '—' }}</strong>
+          </div>
+          <button
+            type="button"
+            class="btn-primary"
+            :disabled="seleccion.length === 0 || sumaSeleccion === null"
+            @click="facturandoGlobal = true"
+          >
+            🌐 Factura global
           </button>
         </div>
+        <p v-if="seleccionando && facturables.length === 0" class="form-hint">
+          No hay depósitos sin factura en {{ nombrePeriodo(periodo) }}.
+        </p>
 
         <!-- El saldo que sumó la API: el inicial más todo lo del mes. -->
         <div class="total" :class="{ negativo: periodo.saldo < 0 }">
@@ -570,6 +734,22 @@ async function refrescarResumen(cuenta: string): Promise<void> {
         </div>
       </template>
     </template>
+
+    <FacturaGlobalModal
+      v-if="facturandoGlobal && periodo"
+      :movimiento-ids="seleccion"
+      :periodo="periodo"
+      @cerrar="facturandoGlobal = false"
+      @facturado="alFacturar"
+    />
+
+    <VisorPdfFactura
+      v-if="visor"
+      :ruta="`/admin/finanzas/bancos/factura-global/${visor.id}/pdf`"
+      :nombre="`factura-global-${visor.folio}.pdf`"
+      :titulo="`🌐 Factura global ${visor.folio}`"
+      @cerrar="visor = null"
+    />
 
     <!-- Abrir periodo: mes, año y el saldo con el que empieza. -->
     <div v-if="abriendo" class="modal-overlay" @click.self="abriendo = false">
@@ -737,9 +917,25 @@ async function refrescarResumen(cuenta: string): Promise<void> {
   min-width: 760px;
 }
 
+/* Ancho fijo: lo justo para el selector de fecha del renglón que se captura. Sin él, la
+   columna se lleva parte del espacio sobrante y el «01-dic» queda lejos de la factura. */
 .tabla .fecha {
+  width: 130px;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+}
+
+/* El folio es corto (8 caracteres como máximo): la columna no se lleva el espacio sobrante. */
+.tabla .factura {
+  width: 11ch;
+  white-space: nowrap;
+}
+
+/* El método más largo es «Transferencia»: lo justo para él y su flecha en el select; el resto
+   del ancho queda para la referencia. */
+.tabla .metodo {
+  width: 160px;
+  white-space: nowrap;
 }
 
 /* Lo que sale del banco salta a la vista, como el renglón amarillo del Excel. */
@@ -750,6 +946,65 @@ async function refrescarResumen(cuenta: string): Promise<void> {
 .tabla .acciones {
   width: 1%;
   text-align: right;
+}
+
+.tabla .casilla {
+  width: 1%;
+  text-align: center;
+}
+
+.casilla input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--terracotta);
+  cursor: pointer;
+}
+
+.tabla .palomeado > td {
+  background: var(--cream-2);
+}
+
+.tabla .factura .enlace {
+  padding: 0;
+}
+
+/* Con la selección encendida el botón se queda marcado: se ve que se está palomeando. */
+.botones .activo {
+  background: var(--terracotta);
+  color: var(--white);
+}
+
+/* La suma de lo palomeado y su botón, encima del saldo. */
+.seleccion {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--cream-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  margin-bottom: 12px;
+}
+
+.seleccion strong {
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 20px;
+  color: var(--ink);
+}
+
+.seleccion .btn-primary {
+  flex: 0 0 auto;
+  width: auto;
+  padding: 10px 16px;
+}
+
+.form-hint {
+  margin: -6px 0 12px;
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .quitar {

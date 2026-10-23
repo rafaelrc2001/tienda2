@@ -142,7 +142,7 @@ export function claveUnidad(unidad: string): { clave: string; nombre: string } {
 }
 
 /** IVA de una base, redondeado a centavos como lo valida el SAT. */
-function ivaDe(base: Decimal, tasa: TasaIva): Decimal {
+export function ivaDe(base: Decimal, tasa: TasaIva): Decimal {
   return tasa === TasaIva.DIECISEIS
     ? base.mul(TASA_16).toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
     : new Decimal(0);
