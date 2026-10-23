@@ -586,7 +586,7 @@ function fechaTimbrado(iso: string): string {
         </div>
 
         <div class="tabla-envoltorio">
-          <table class="tabla lineal">
+          <table class="tabla lineal movimientos">
             <thead>
               <tr>
                 <th v-if="seleccionando" class="casilla">
@@ -603,7 +603,7 @@ function fechaTimbrado(iso: string): string {
                 <th class="num">Cantidad</th>
                 <th class="metodo">Método de pago</th>
                 <th>Referencia</th>
-                <th aria-label="Acciones" />
+                <th class="acciones" aria-label="Acciones" />
               </tr>
             </thead>
             <tbody>
@@ -1062,6 +1062,38 @@ function fechaTimbrado(iso: string): string {
 .tabla .casilla {
   width: 1%;
   text-align: center;
+}
+
+/* Columnas de ancho fijo: el renglón que se captura trae campos más anchos que
+   el texto (en el teléfono, el de fecha sobre todo) y, con el ancho automático,
+   al abrirlo ensanchaba las columnas y recorría los encabezados y las filas de
+   arriba. La referencia se queda con lo que sobra. */
+.movimientos {
+  min-width: 820px;
+  table-layout: fixed;
+}
+
+/* Con el ancho fijo, una referencia larga se corta en vez de pisar la columna de al lado. */
+.movimientos > tbody > tr:not(.captura) > td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.movimientos .casilla,
+.movimientos .acciones {
+  width: 40px;
+}
+
+.movimientos .fecha {
+  width: 150px;
+}
+
+.movimientos .factura {
+  width: 100px;
+}
+
+.movimientos th.num {
+  width: 160px;
 }
 
 .casilla input {
