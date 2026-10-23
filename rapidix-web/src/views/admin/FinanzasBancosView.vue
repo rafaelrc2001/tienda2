@@ -565,6 +565,12 @@ function fechaTimbrado(iso: string): string {
             <span class="titulo-dato">Mes</span>
             <strong>{{ nombrePeriodo(periodo) }}</strong>
           </div>
+          <div class="saldo-inicial">
+            <span class="titulo-dato">
+              Saldo inicial · {{ periodo.saldoInicialEscrito ? 'escrito' : 'del mes anterior' }}
+            </span>
+            <strong>{{ dinero(periodo.saldoInicial) }}</strong>
+          </div>
           <!-- Enciende las casillas para palomear depósitos de la factura global. -->
           <button
             type="button"
@@ -577,12 +583,6 @@ function fechaTimbrado(iso: string): string {
           >
             🌐
           </button>
-          <div class="derecha">
-            <span class="titulo-dato">
-              Saldo inicial · {{ periodo.saldoInicialEscrito ? 'escrito' : 'del mes anterior' }}
-            </span>
-            <strong>{{ dinero(periodo.saldoInicial) }}</strong>
-          </div>
         </div>
 
         <div class="tabla-envoltorio">
@@ -994,11 +994,12 @@ function fechaTimbrado(iso: string): string {
   color: var(--ink);
 }
 
-.cabecera .derecha {
-  text-align: right;
+/* El saldo inicial al centro, entre el mes y el 🌐. */
+.cabecera .saldo-inicial {
+  text-align: center;
 }
 
-/* El 🌐 entre el mes y el saldo: encendido, en terracota, mientras se palomea. */
+/* El 🌐 hasta la derecha: encendido, en terracota, mientras se palomea. */
 .mundo {
   flex-shrink: 0;
   align-self: center;
