@@ -9,7 +9,7 @@ import {
   ServiceUnavailableException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { EstadoFactura, ModoTimbrado, OrigenCupon, Prisma } from '@prisma/client';
+import { EstadoFactura, ModoTimbrado, OrigenCupon, Prisma, TasaIva } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   aGuardado,
@@ -17,6 +17,8 @@ import {
   bloqueoDeFacturacion,
   ClavesSat,
   ConceptoGuardado,
+  conRetencionResico,
+  retieneIsrResico,
   totalAFacturar,
 } from './comprobante';
 import {
@@ -32,6 +34,7 @@ import {
   FacturaTimbrada,
   ProveedorNoDisponible,
   Receptor,
+  SolicitudTimbrado,
   Timbrador,
   TimbradoRechazado,
 } from './timbrador';
@@ -74,6 +77,46 @@ export interface DatosFiscalesRespuesta {
   formasPago: FormaPagoSat[];
   /** SIMULADO mientras no haya llaves: la interfaz avisa que no tiene validez. */
   modo: ModoTimbrado;
+}
+
+/** El negocio, de Configuracion -> Fiscal. Lo que falte sale en null. */
+export interface EmisorVistaDto {
+  rfc: string | null;
+  nombre: string | null;
+  regimen: string | null;
+  cp: string | null;
+}
+
+export interface ConceptoVistaDto {
+  descripcion: string;
+  claveProdServ: string;
+  claveUnidad: string;
+  unidad: string;
+  cantidad: number;
+  /** Sin IVA, con los seis decimales que admite el SAT. */
+  valorUnitario: string;
+  importe: number;
+  descuento: number;
+  tasaIva: TasaIva;
+  iva: number;
+  retencionIsr: number;
+}
+
+/** `POST .../factura/vista-previa`: el CFDI tal como se mandaria a timbrar. */
+export interface VistaFacturaDto {
+  modo: ModoTimbrado;
+  emisor: EmisorVistaDto;
+  receptor: Receptor;
+  formaPago: string;
+  metodoPago: 'PUE';
+  conceptos: ConceptoVistaDto[];
+  subtotal: number;
+  descuento: number;
+  iva: number;
+  /** ISR retenido: RESICO que le factura a una persona moral. Si no, cero. */
+  retencionIsr: number;
+  /** subtotal - descuento + iva - retencionIsr. */
+  total: number;
 }
 
 export interface DocumentoFactura {
@@ -204,37 +247,60 @@ export class FacturacionService implements OnModuleInit {
   // ----------------------------------------------------------------
 
   /**
+   * Lo que se mandaria a timbrar, sin timbrar: la hoja «Facturar» lo ensena
+   * antes de confirmar. Pasa por los mismos candados que `facturar`.
+   */
+  async previsualizar(
+    clienteId: string,
+    pedidoId: string,
+    dto: FacturarPedidoDto,
+  ): Promise<VistaFacturaDto> {
+    const { comprobante, receptor, emisor } = await this.preparar(clienteId, pedidoId, dto);
+    return {
+      modo: this.timbrador.modo,
+      emisor,
+      receptor,
+      formaPago: comprobante.formaPago,
+      metodoPago: 'PUE',
+      conceptos: comprobante.conceptos.map((c) => ({
+        descripcion: c.descripcion,
+        claveProdServ: c.claveProdServ,
+        claveUnidad: c.claveUnidad,
+        unidad: c.unidad,
+        cantidad: c.cantidad,
+        valorUnitario: c.valorUnitario.toFixed(6),
+        importe: c.importe.toNumber(),
+        descuento: c.descuento.toNumber(),
+        tasaIva: c.tasa,
+        iva: c.iva.toNumber(),
+        retencionIsr: c.retencionIsr?.toNumber() ?? 0,
+      })),
+      subtotal: comprobante.subtotal.toNumber(),
+      descuento: comprobante.descuento.toNumber(),
+      iva: comprobante.iva.toNumber(),
+      retencionIsr: comprobante.retencionIsr.toNumber(),
+      total: comprobante.total.toNumber(),
+    };
+  }
+
+  /**
    * Boton «Facturar» de Mis pedidos. Los candados van en este orden y aqui,
    * no en el boton: un POST a mano se salta la interfaz.
    *
    *  1. El pedido es de quien pregunta (404 si no: no se confirma que exista).
-   *  2. No tiene ya un CFDI (409 YA_FACTURADO) ni uno timbrandose (409).
+   *  2. No tiene ya un CFDI (409 YA_FACTURADO).
    *  3. Esta pagado (409 con el `code` del bloqueo).
    *  4. Los datos fiscales no se contradicen y la forma de pago esta en el
    *     catalogo (400).
    *  5. Los conceptos cuadran con el total cobrado (409 FACTURA_NO_CUADRA).
-   *  6. Se reserva la fila y se timbra; si el proveedor rechaza, la reserva
+   *  6. No hay otro timbrandose (409 TIMBRADO_EN_CURSO).
+   *  7. Se reserva la fila y se timbra; si el proveedor rechaza, la reserva
    *     se borra y el cliente puede corregir y reintentar (422 / 502).
    */
   async facturar(clienteId: string, pedidoId: string, dto: FacturarPedidoDto): Promise<FacturaDto> {
-    const pedido = await this.prisma.pedido.findFirst({
-      where: { id: pedidoId, clienteId },
-      include: {
-        items: { include: { producto: { select: { claveProdServ: true, claveUnidad: true } } } },
-        cupon: { select: { sourceKind: true, sourceCode: true } },
-        factura: { select: { id: true, estado: true, uuid: true, creadoEn: true } },
-      },
-    });
-    if (!pedido) throw new NotFoundException('Pedido no encontrado');
+    const { pedido, comprobante, receptor } = await this.preparar(clienteId, pedidoId, dto);
 
     if (pedido.factura) {
-      if (pedido.factura.estado === EstadoFactura.TIMBRADA) {
-        throw new ConflictException({
-          statusCode: 409,
-          code: 'YA_FACTURADO',
-          message: `Este pedido ya está facturado (folio fiscal ${pedido.factura.uuid}).`,
-        });
-      }
       if (Date.now() - pedido.factura.creadoEn.getTime() < VIGENCIA_RESERVA_MS) {
         throw new ConflictException({
           statusCode: 409,
@@ -246,6 +312,70 @@ export class FacturacionService implements OnModuleInit {
       // acaba de completar, `count` sale en cero y el create de abajo choca.
       await this.prisma.factura.deleteMany({
         where: { id: pedido.factura.id, estado: EstadoFactura.TIMBRANDO },
+      });
+    }
+
+    const conceptos = comprobante.conceptos.map(aGuardado);
+    const timbrador = this.timbrador;
+
+    let reservaId: string;
+    try {
+      const reserva = await this.prisma.factura.create({
+        data: {
+          pedidoId,
+          clienteId,
+          modo: timbrador.modo,
+          ...receptor,
+          formaPago: comprobante.formaPago,
+          subtotal: comprobante.subtotal,
+          descuento: comprobante.descuento,
+          iva: comprobante.iva,
+          retencionIsr: comprobante.retencionIsr,
+          total: comprobante.total,
+          conceptos: conceptos as unknown as Prisma.InputJsonValue,
+        },
+        select: { id: true },
+      });
+      reservaId = reserva.id;
+    } catch (fallo) {
+      if (fallo instanceof Prisma.PrismaClientKnownRequestError && fallo.code === 'P2002') {
+        throw new ConflictException({
+          statusCode: 409,
+          code: 'TIMBRADO_EN_CURSO',
+          message: 'Ya estamos timbrando la factura de este pedido. Espera un momento.',
+        });
+      }
+      throw fallo;
+    }
+
+    return this.timbrarReserva(reservaId, pedido.folio, clienteId, dto, {
+      receptor,
+      conceptos,
+      formaPago: comprobante.formaPago,
+      timbrador,
+    });
+  }
+
+  /**
+   * Lo que comparten la vista previa y el timbre, para que lo que se ensena
+   * sea lo que se timbra: candados, conceptos cuadrados y retencion.
+   */
+  private async preparar(clienteId: string, pedidoId: string, dto: FacturarPedidoDto) {
+    const pedido = await this.prisma.pedido.findFirst({
+      where: { id: pedidoId, clienteId },
+      include: {
+        items: { include: { producto: { select: { claveProdServ: true, claveUnidad: true } } } },
+        cupon: { select: { sourceKind: true, sourceCode: true } },
+        factura: { select: { id: true, estado: true, uuid: true, creadoEn: true } },
+      },
+    });
+    if (!pedido) throw new NotFoundException('Pedido no encontrado');
+
+    if (pedido.factura?.estado === EstadoFactura.TIMBRADA) {
+      throw new ConflictException({
+        statusCode: 409,
+        code: 'YA_FACTURADO',
+        message: `Este pedido ya está facturado (folio fiscal ${pedido.factura.uuid}).`,
       });
     }
 
@@ -317,53 +447,45 @@ export class FacturacionService implements OnModuleInit {
       cpFiscal: dto.cpFiscal,
       email: dto.email,
     };
-    const conceptos = comprobante.conceptos.map(aGuardado);
-    const timbrador = this.timbrador;
 
-    let reservaId: string;
-    try {
-      const reserva = await this.prisma.factura.create({
-        data: {
-          pedidoId,
-          clienteId,
-          modo: timbrador.modo,
-          ...receptor,
-          formaPago: comprobante.formaPago,
-          subtotal: comprobante.subtotal,
-          descuento: comprobante.descuento,
-          iva: comprobante.iva,
-          total: comprobante.total,
-          conceptos: conceptos as unknown as Prisma.InputJsonValue,
-        },
-        select: { id: true },
-      });
-      reservaId = reserva.id;
-    } catch (fallo) {
-      if (fallo instanceof Prisma.PrismaClientKnownRequestError && fallo.code === 'P2002') {
-        throw new ConflictException({
-          statusCode: 409,
-          code: 'TIMBRADO_EN_CURSO',
-          message: 'Ya estamos timbrando la factura de este pedido. Espera un momento.',
-        });
-      }
-      throw fallo;
-    }
+    // La retencion va despues del cuadre: el cuadre es contra lo cobrado, y la
+    // retencion solo baja lo que el receptor paga en el CFDI.
+    const config = await this.prisma.configuracionNegocio.findUnique({
+      where: { id: 1 },
+      select: { fiscalRfc: true, fiscalNombre: true, fiscalRegimen: true, fiscalCp: true },
+    });
+    const emisor: EmisorVistaDto = {
+      rfc: config?.fiscalRfc ?? null,
+      nombre: config?.fiscalNombre ?? null,
+      regimen: config?.fiscalRegimen ?? null,
+      cp: config?.fiscalCp ?? null,
+    };
+    const final = retieneIsrResico(emisor, receptor.rfc)
+      ? conRetencionResico(comprobante)
+      : comprobante;
 
+    return { pedido, comprobante: final, receptor, emisor };
+  }
+
+  /** Timbra la reserva ya escrita y la deja TIMBRADA; si el proveedor rechaza, la suelta. */
+  private async timbrarReserva(
+    reservaId: string,
+    folioPedido: string,
+    clienteId: string,
+    dto: FacturarPedidoDto,
+    solicitud: Omit<SolicitudTimbrado, 'folioPedido'> & { timbrador: Timbrador },
+  ): Promise<FacturaDto> {
+    const { timbrador, ...datos } = solicitud;
     // Dos `try` separados a proposito: un timbre rechazado se deshace y se
     // reintenta; un timbre bueno que no se pudo guardar es otro problema.
     let timbrado;
     try {
-      timbrado = await timbrador.timbrar({
-        folioPedido: pedido.folio,
-        receptor,
-        conceptos,
-        formaPago: comprobante.formaPago,
-      });
+      timbrado = await timbrador.timbrar({ folioPedido, ...datos });
     } catch (fallo) {
       await this.prisma.factura.delete({ where: { id: reservaId } }).catch((e: unknown) => {
         this.logger.error(`No se pudo soltar la reserva de factura ${reservaId}`, String(e));
       });
-      throw this.traducirFallo(fallo, pedido.folio);
+      throw this.traducirFallo(fallo, folioPedido);
     }
 
     let factura;
@@ -384,7 +506,7 @@ export class FacturacionService implements OnModuleInit {
       // El CFDI ya existe ante el SAT. Se deja todo en el log para darlo de
       // alta a mano; la reserva queda y bloquea un segundo timbre.
       this.logger.error(
-        `CFDI ${timbrado.uuid} del pedido ${pedido.folio} timbrado pero NO guardado`,
+        `CFDI ${timbrado.uuid} del pedido ${folioPedido} timbrado pero NO guardado`,
         JSON.stringify({ timbrado, error: String(fallo) }),
       );
       throw new ServiceUnavailableException({
@@ -468,6 +590,7 @@ export class FacturacionService implements OnModuleInit {
       subtotal: factura.subtotal,
       descuento: factura.descuento,
       iva: factura.iva,
+      retencionIsr: factura.retencionIsr,
       total: factura.total,
       conceptos: factura.conceptos as unknown as ConceptoGuardado[],
       timbradaEn: factura.timbradaEn!,

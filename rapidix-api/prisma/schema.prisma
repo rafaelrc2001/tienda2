@@ -1077,6 +1077,9 @@ model Factura {
   subtotal    Decimal   @db.Decimal(12, 2)
   descuento   Decimal   @db.Decimal(12, 2)
   iva         Decimal   @db.Decimal(12, 2)
+  /// ISR retenido: solo cuando el negocio es RESICO y factura a persona moral.
+  retencionIsr Decimal  @default(0) @db.Decimal(12, 2)
+  /// Lo que el receptor paga: subtotal - descuento + IVA - retencion.
   total       Decimal   @db.Decimal(12, 2)
   /// Los conceptos tal como se mandaron a timbrar (`Concepto[]` de
   /// `facturacion/comprobante.ts`), con importes como texto.
