@@ -219,6 +219,31 @@ async function descargar(): Promise<void> {
   }
 }
 
+/**
+ * Chrome y Edge de computadora dicen con `canShare` que aceptan el XML y luego
+ * rechazan el envío. No hay forma de preguntarlo antes: el primer rechazo se
+ * recuerda en este navegador y de ahí en adelante se comparten solo los PDF.
+ */
+const CLAVE_SIN_XML = 'rapidix.compartirSinXml'
+let sinXml = leerSinXml()
+
+function leerSinXml(): boolean {
+  try {
+    return localStorage.getItem(CLAVE_SIN_XML) === '1'
+  } catch {
+    return false
+  }
+}
+
+function recordarSinXml(): void {
+  sinXml = true
+  try {
+    localStorage.setItem(CLAVE_SIN_XML, '1')
+  } catch {
+    // Sin almacenamiento se recuerda mientras siga abierta la pantalla.
+  }
+}
+
 async function compartir(): Promise<void> {
   if (trabajando.value || seleccion.value.length === 0) return
   // Nada de esperas antes de `navigator.share`: con una, el toque ya no cuenta.
@@ -230,7 +255,9 @@ async function compartir(): Promise<void> {
   trabajando.value = 'compartir'
 
   // Chrome en Android no comparte XML: se mandan los que acepte y se avisa.
-  const archivos = listos.value.filter((a) => navigator.canShare({ files: [a] }))
+  const archivos = listos.value.filter(
+    (a) => navigator.canShare({ files: [a] }) && !(sinXml && a.type === 'application/xml'),
+  )
   if (archivos.length === 0) {
     trabajando.value = null
     ui.error(
@@ -257,7 +284,14 @@ async function compartir(): Promise<void> {
     if (fallo instanceof DOMException && fallo.name === 'AbortError') return
     // El motivo real solo lo dice el navegador; sin esto no hay cómo saberlo.
     console.error('No se pudieron compartir las facturas', fallo)
-    ui.error('No se pudieron compartir. Descárgalos y compártelos desde tus archivos.')
+    if (!sinXml && archivos.some((a) => a.type === 'application/xml')) {
+      // El toque ya se gastó: reintentar aquí sin el XML también lo rechazaría.
+      recordarSinXml()
+      ui.info('Este navegador no acepta los XML: toca «Compartir» otra vez y van solo los PDF.')
+      return
+    }
+    const motivo = fallo instanceof Error ? ` (${fallo.name})` : ''
+    ui.error(`No se pudieron compartir${motivo}. Descárgalos y compártelos desde tus archivos.`)
   } finally {
     trabajando.value = null
   }
