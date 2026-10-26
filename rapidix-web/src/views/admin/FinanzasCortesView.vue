@@ -18,7 +18,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
-import { dinero } from '@/utils/formato'
+import { dinero, fechaNumerica } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
 import PestanasFinanzas from './finanzas/PestanasFinanzas.vue'
 import { centavos, esperaDelCorte, faltanteDe, type EsperaDelCorte } from './rutas/liquidacion'
@@ -187,6 +187,7 @@ const filas = computed<Fila[]>(() => {
         <thead>
           <tr>
             <th>Corte</th>
+            <th>Fecha</th>
             <th>Quién entrega</th>
             <th class="num">Pedidos</th>
             <th class="num">Dice el sistema</th>
@@ -204,6 +205,8 @@ const filas = computed<Fila[]>(() => {
                 <RouterLink :to="fila.enlace" class="enlace">Ver corte</RouterLink>
               </div>
             </td>
+            <!-- La misma fecha que ordena la tabla: cuándo se cerró la ruta o el turno. -->
+            <td class="fecha">{{ fechaNumerica(fila.cerradoEn) }}</td>
             <td class="nombre">{{ fila.quien }}</td>
             <td class="num">{{ fila.pedidos }}</td>
             <td class="num importe">{{ dinero(fila.calculado) }}</td>
@@ -245,7 +248,11 @@ const filas = computed<Fila[]>(() => {
 }
 
 .tabla {
-  min-width: 760px;
+  min-width: 860px;
+}
+
+.tabla > tbody > tr > td.fecha {
+  white-space: nowrap;
 }
 
 .tabla > tbody > tr > td.nombre {
