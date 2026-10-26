@@ -71,6 +71,8 @@ export interface Concepto {
   base: Decimal;
   tasa: TasaIva;
   iva: Decimal;
+  /** ISR retenido sobre `base`. Solo en la factura de RESICO a persona moral. */
+  retencionIsr?: Decimal;
 }
 
 export interface Comprobante {
@@ -79,6 +81,8 @@ export interface Comprobante {
   subtotal: Decimal;
   descuento: Decimal;
   iva: Decimal;
+  /** ISR retenido (TotalImpuestosRetenidos). Cero salvo RESICO a persona moral. */
+  retencionIsr: Decimal;
   total: Decimal;
   /** c_FormaPago. */
   formaPago: string;
@@ -253,8 +257,7 @@ export function repartirMonedero(
   orden.sort((a, b) => a.tope.comparedTo(b.tope) || a.i - b.i);
   orden.forEach(({ tope, i }, n) => {
     const quedan = orden.length - n;
-    const parejo =
-      quedan === 1 ? resto : resto.div(quedan).toDecimalPlaces(2, Decimal.ROUND_DOWN);
+    const parejo = quedan === 1 ? resto : resto.div(quedan).toDecimalPlaces(2, Decimal.ROUND_DOWN);
     partes[i] = Decimal.min(parejo, tope);
     resto = resto.sub(partes[i]);
   });
@@ -480,23 +483,73 @@ export function armarComprobante(
     subtotal,
     descuento,
     iva,
+    retencionIsr: new Decimal(0),
     total: subtotal.sub(descuento).add(iva),
     formaPago: formaDePago(pedido),
   };
 }
 
-/** Un concepto guardado en `facturas.conceptos`: los Decimal como texto. */
-export type ConceptoGuardado = {
-  [K in keyof Concepto]: Concepto[K] extends Decimal ? string : Concepto[K];
-};
+/** c_RegimenFiscal 626: Regimen Simplificado de Confianza. */
+export const REGIMEN_RESICO = '626';
+const TASA_RETENCION_RESICO = new Decimal('0.0125');
 
-export function aGuardado(c: Concepto): ConceptoGuardado {
+/**
+ * Si la factura lleva la retencion de ISR del RESICO: el negocio tributa en el
+ * 626 como persona fisica y le factura a una persona moral, que le retiene el
+ * 1.25 % (art. 113-J de la LISR). A una persona fisica o a PUBLICO EN GENERAL
+ * no se le retiene nada.
+ *
+ * El emisor se lee de Configuracion -> Fiscal. Sin RFC capturado basta el
+ * regimen; con RFC de persona moral no hay retencion aunque diga 626 (el RESICO
+ * de personas morales no la lleva).
+ */
+export function retieneIsrResico(
+  emisor: { regimen: string | null; rfc: string | null },
+  rfcReceptor: string,
+): boolean {
+  if (emisor.regimen !== REGIMEN_RESICO) return false;
+  if (emisor.rfc && emisor.rfc.trim().length === 12) return false;
+  return rfcReceptor.trim().length === 12;
+}
+
+/**
+ * El comprobante con la retencion del RESICO: 1.25 % de la base de cada
+ * concepto, redondeado por concepto como lo valida el SAT. Los conceptos y el
+ * IVA no se mueven; solo baja el total: subtotal - descuento + IVA - retencion.
+ */
+export function conRetencionResico(c: Comprobante): Comprobante {
+  const conceptos = c.conceptos.map((x) => ({
+    ...x,
+    retencionIsr: x.base.mul(TASA_RETENCION_RESICO).toDecimalPlaces(2, Decimal.ROUND_HALF_UP),
+  }));
+  const retencionIsr = conceptos.reduce((s, x) => s.add(x.retencionIsr), new Decimal(0));
   return {
     ...c,
+    conceptos,
+    retencionIsr,
+    total: c.subtotal.sub(c.descuento).add(c.iva).sub(retencionIsr),
+  };
+}
+
+/**
+ * Un concepto guardado en `facturas.conceptos`: los Decimal como texto. Los
+ * guardados antes de la retencion no traen `retencionIsr`: se leen como cero.
+ */
+export type ConceptoGuardado = {
+  [K in Exclude<keyof Concepto, 'retencionIsr'>]: Concepto[K] extends Decimal
+    ? string
+    : Concepto[K];
+} & { retencionIsr?: string };
+
+export function aGuardado(c: Concepto): ConceptoGuardado {
+  const { retencionIsr, ...resto } = c;
+  return {
+    ...resto,
     valorUnitario: c.valorUnitario.toFixed(6),
     importe: c.importe.toFixed(2),
     descuento: c.descuento.toFixed(2),
     base: c.base.toFixed(2),
     iva: c.iva.toFixed(2),
+    ...(retencionIsr?.greaterThan(0) && { retencionIsr: retencionIsr.toFixed(2) }),
   };
 }

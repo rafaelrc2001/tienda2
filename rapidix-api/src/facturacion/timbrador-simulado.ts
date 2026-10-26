@@ -62,17 +62,28 @@ export class TimbradorSimulado implements Timbrador {
       .map((c) => {
         const tasa = c.tasa === TasaIva.DIECISEIS ? '0.160000' : '0.000000';
         const descuento = Number(c.descuento) > 0 ? ` Descuento="${c.descuento}"` : '';
+        const retencion =
+          Number(c.retencionIsr ?? 0) > 0
+            ? `<cfdi:Retenciones><cfdi:Retencion Base="${c.base}" Impuesto="001" ` +
+              `TipoFactor="Tasa" TasaOCuota="0.012500" Importe="${c.retencionIsr}"/></cfdi:Retenciones>`
+            : '';
         return (
           `    <cfdi:Concepto ClaveProdServ="${a(c.claveProdServ)}" Cantidad="${c.cantidad}" ` +
           `ClaveUnidad="${a(c.claveUnidad)}" Unidad="${a(c.unidad)}" Descripcion="${a(c.descripcion)}" ` +
           `ValorUnitario="${c.valorUnitario}" Importe="${c.importe}"${descuento} ObjetoImp="02">\n` +
           `      <cfdi:Impuestos><cfdi:Traslados><cfdi:Traslado Base="${c.base}" Impuesto="002" ` +
-          `TipoFactor="Tasa" TasaOCuota="${tasa}" Importe="${c.iva}"/></cfdi:Traslados></cfdi:Impuestos>\n` +
+          `TipoFactor="Tasa" TasaOCuota="${tasa}" Importe="${c.iva}"/></cfdi:Traslados>${retencion}</cfdi:Impuestos>\n` +
           `    </cfdi:Concepto>`
         );
       })
       .join('\n');
     const descuento = f.descuento.greaterThan(0) ? ` Descuento="${f.descuento.toFixed(2)}"` : '';
+    const retenido = f.retencionIsr?.greaterThan(0) ? f.retencionIsr : null;
+    const impuestos = retenido
+      ? `<cfdi:Impuestos TotalImpuestosRetenidos="${retenido.toFixed(2)}" TotalImpuestosTrasladados="${f.iva.toFixed(2)}">` +
+        `<cfdi:Retenciones><cfdi:Retencion Impuesto="001" Importe="${retenido.toFixed(2)}"/></cfdi:Retenciones>` +
+        `</cfdi:Impuestos>`
+      : `<cfdi:Impuestos TotalImpuestosTrasladados="${f.iva.toFixed(2)}"/>`;
     const global = f.informacionGlobal
       ? `\n  <cfdi:InformacionGlobal Periodicidad="${a(f.informacionGlobal.periodicidad)}" ` +
         `Meses="${a(f.informacionGlobal.meses)}" Año="${f.informacionGlobal.anio}"/>`
@@ -86,7 +97,7 @@ export class TimbradorSimulado implements Timbrador {
   <cfdi:Conceptos>
 ${conceptos}
   </cfdi:Conceptos>
-  <cfdi:Impuestos TotalImpuestosTrasladados="${f.iva.toFixed(2)}"/>
+  ${impuestos}
   <cfdi:Complemento>
     <tfd:TimbreFiscalDigital Version="1.1" UUID="${a(f.uuid)}" FechaTimbrado="${fechaCfdi(f.timbradaEn)}" RfcProvCertif="SIMULADO" NoCertificadoSAT="00000000000000000000"/>
   </cfdi:Complemento>
@@ -166,6 +177,9 @@ ${conceptos}
       ['Subtotal', f.subtotal],
       ['Descuento', f.descuento],
       ['IVA trasladado', f.iva],
+      ...(f.retencionIsr?.greaterThan(0)
+        ? [['ISR retenido 1.25%', f.retencionIsr] as [string, Prisma.Decimal]]
+        : []),
       ['Total', f.total],
     ];
     for (const [etiqueta, monto] of totales) {

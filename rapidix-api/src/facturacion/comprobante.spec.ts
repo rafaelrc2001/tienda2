@@ -3,13 +3,16 @@ import {
   armarComprobante,
   baseAl16,
   bloqueoDeFacturacion,
+  aGuardado,
   claveUnidad,
+  conRetencionResico,
   formaDePago,
   PedidoFacturable,
   RenglonFacturable,
   repartirDescuento,
   repartirEnvio,
   repartirMonedero,
+  retieneIsrResico,
   totalAFacturar,
   totalFacturado,
 } from './comprobante';
@@ -564,5 +567,80 @@ describe('armarComprobante', () => {
       CLAVES,
     );
     expect(c.conceptos).toHaveLength(1);
+  });
+});
+
+describe('retieneIsrResico', () => {
+  const RESICO = { regimen: '626', rfc: 'PEPJ800101AB1' };
+
+  it('retiene cuando el negocio es RESICO y el receptor es persona moral', () => {
+    expect(retieneIsrResico(RESICO, 'ABC010101AB1')).toBe(true);
+  });
+
+  it('no retiene a una persona fisica', () => {
+    expect(retieneIsrResico(RESICO, 'PEPJ800101AB1')).toBe(false);
+  });
+
+  it('no retiene si el negocio no es RESICO', () => {
+    expect(retieneIsrResico({ regimen: '612', rfc: null }, 'ABC010101AB1')).toBe(false);
+    expect(retieneIsrResico({ regimen: null, rfc: null }, 'ABC010101AB1')).toBe(false);
+  });
+
+  it('sin RFC del negocio basta el regimen; con RFC de persona moral no retiene', () => {
+    expect(retieneIsrResico({ regimen: '626', rfc: null }, 'ABC010101AB1')).toBe(true);
+    expect(retieneIsrResico({ regimen: '626', rfc: 'XYZ010101AB1' }, 'ABC010101AB1')).toBe(false);
+  });
+});
+
+describe('conRetencionResico', () => {
+  it('retiene 1.25 % de la base de cada concepto y lo resta del total', () => {
+    // $116 al 16 %: base 100, IVA 16, retencion 1.25 -> total 114.75.
+    const c = conRetencionResico(
+      armarComprobante(
+        pedido({
+          items: [renglon({ precio: 116, cantidad: 1, tasaIva: TasaIva.DIECISEIS })],
+          total: 116,
+        }),
+        [],
+        CLAVES,
+      ),
+    );
+    expect(c.subtotal.toFixed(2)).toBe('100.00');
+    expect(c.iva.toFixed(2)).toBe('16.00');
+    expect(c.retencionIsr.toFixed(2)).toBe('1.25');
+    expect(c.total.toFixed(2)).toBe('114.75');
+    expect(c.conceptos[0].retencionIsr?.toFixed(2)).toBe('1.25');
+  });
+
+  it('redondea por concepto y el total retenido es la suma de los conceptos', () => {
+    const c = conRetencionResico(
+      armarComprobante(
+        pedido({
+          items: [
+            renglon({ precio: 33, cantidad: 1 }),
+            renglon({ precio: 58, cantidad: 1, tasaIva: TasaIva.DIECISEIS }),
+          ],
+          total: 91,
+        }),
+        [],
+        CLAVES,
+      ),
+    );
+    const suma = c.conceptos.reduce((s, k) => s.add(k.retencionIsr!), D(0));
+    expect(c.retencionIsr.toFixed(2)).toBe(suma.toFixed(2));
+    for (const k of c.conceptos) {
+      expect(k.retencionIsr!.toFixed(2)).toBe(k.base.mul('0.0125').toDecimalPlaces(2).toFixed(2));
+    }
+    expect(c.total.toFixed(2)).toBe(c.subtotal.sub(c.descuento).add(c.iva).sub(suma).toFixed(2));
+  });
+
+  it('el concepto guardado lleva la retencion solo si la hay', () => {
+    const sin = armarComprobante(
+      pedido({ items: [renglon({ precio: 10, cantidad: 1 })], total: 10 }),
+      [],
+      CLAVES,
+    );
+    expect(aGuardado(sin.conceptos[0]).retencionIsr).toBeUndefined();
+    expect(aGuardado(conRetencionResico(sin).conceptos[0]).retencionIsr).toBe('0.13');
   });
 });

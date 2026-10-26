@@ -100,6 +100,18 @@ export class TimbradorFacturaCom implements Timbrador {
               Importe: Number(c.iva),
             },
           ],
+          // ISR (001) que retiene la persona moral a un emisor RESICO.
+          ...(Number(c.retencionIsr ?? 0) > 0 && {
+            Retenidos: [
+              {
+                Base: Number(c.base),
+                Impuesto: '001',
+                TipoFactor: 'Tasa',
+                TasaOCuota: '0.0125',
+                Importe: Number(c.retencionIsr),
+              },
+            ],
+          }),
         },
       })),
     };

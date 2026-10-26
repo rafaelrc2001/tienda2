@@ -55,6 +55,8 @@ export interface FacturaTimbrada extends Receptor {
   subtotal: Prisma.Decimal;
   descuento: Prisma.Decimal;
   iva: Prisma.Decimal;
+  /** Solo la de un pedido de RESICO a persona moral; la global no lleva. */
+  retencionIsr?: Prisma.Decimal;
   total: Prisma.Decimal;
   conceptos: ConceptoGuardado[];
   timbradaEn: Date;

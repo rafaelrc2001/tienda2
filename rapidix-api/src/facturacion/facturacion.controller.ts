@@ -15,7 +15,12 @@ import type { Response } from 'express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { UsuarioActual } from '../auth/usuario-actual.decorator';
 import { ROL_CLIENTE, UsuarioAutenticado } from '../auth/jwt-payload';
-import { DatosFiscalesRespuesta, FacturacionService, FacturaDto } from './facturacion.service';
+import {
+  DatosFiscalesRespuesta,
+  FacturacionService,
+  FacturaDto,
+  VistaFacturaDto,
+} from './facturacion.service';
 import { DatosFiscalesDto, FacturarPedidoDto } from './dto/factura.dto';
 
 /**
@@ -61,6 +66,18 @@ export class FacturacionController {
   ): Promise<FacturaDto> {
     soloCliente(usuario);
     return this.facturacion.facturar(usuario.sub, id, dto);
+  }
+
+  /** El CFDI que se timbraria con estos datos, sin timbrar. Mismos candados que el POST. */
+  @Post('pedidos/:id/factura/vista-previa')
+  @HttpCode(HttpStatus.OK)
+  previsualizar(
+    @UsuarioActual() usuario: UsuarioAutenticado,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: FacturarPedidoDto,
+  ): Promise<VistaFacturaDto> {
+    soloCliente(usuario);
+    return this.facturacion.previsualizar(usuario.sub, id, dto);
   }
 
   @Get('pedidos/:id/factura/pdf')

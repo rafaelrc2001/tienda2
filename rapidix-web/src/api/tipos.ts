@@ -563,6 +563,39 @@ export interface DatosFiscalesRespuesta {
   modo: ModoTimbrado
 }
 
+/** Un concepto del CFDI tal como se mandaría a timbrar. */
+export interface ConceptoVistaFactura {
+  descripcion: string
+  claveProdServ: string
+  claveUnidad: string
+  unidad: string
+  cantidad: number
+  /** Sin IVA, con los seis decimales que admite el SAT. */
+  valorUnitario: string
+  importe: number
+  descuento: number
+  tasaIva: TasaIva
+  iva: number
+  retencionIsr: number
+}
+
+/** `POST /pedidos/:id/factura/vista-previa`: el CFDI armado, sin timbrar. */
+export interface VistaFactura {
+  modo: ModoTimbrado
+  /** El negocio, de Configuración → Fiscal; lo no capturado llega en null. */
+  emisor: { rfc: string | null; nombre: string | null; regimen: string | null; cp: string | null }
+  receptor: DatosFiscales
+  formaPago: string
+  metodoPago: 'PUE'
+  conceptos: ConceptoVistaFactura[]
+  subtotal: number
+  descuento: number
+  iva: number
+  /** ISR retenido (RESICO que factura a una persona moral); si no, cero. */
+  retencionIsr: number
+  total: number
+}
+
 /** Por qué no se puede dar el siguiente paso. El `codigo` es el mismo del 409. */
 export interface BloqueoPaso {
   codigo:

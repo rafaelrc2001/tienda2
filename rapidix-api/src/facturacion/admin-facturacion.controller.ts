@@ -13,7 +13,12 @@ import type { Response } from 'express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { RequiereSeccion } from '../auth/seccion.decorator';
 import { SoloPersonal } from '../auth/solo-personal.decorator';
-import { DatosFiscalesRespuesta, FacturacionService, FacturaDto } from './facturacion.service';
+import {
+  DatosFiscalesRespuesta,
+  FacturacionService,
+  FacturaDto,
+  VistaFacturaDto,
+} from './facturacion.service';
 import { FacturarPedidoDto } from './dto/factura.dto';
 
 /**
@@ -48,6 +53,16 @@ export class AdminFacturacionController {
     @Body() dto: FacturarPedidoDto,
   ): Promise<FacturaDto> {
     return this.facturacion.facturar(await this.facturacion.clienteDelPedido(id), id, dto);
+  }
+
+  /** El CFDI que se timbraria, sin timbrar. Mismos codigos que `POST /pedidos/:id/factura/vista-previa`. */
+  @Post(':id/factura/vista-previa')
+  @HttpCode(HttpStatus.OK)
+  async previsualizar(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: FacturarPedidoDto,
+  ): Promise<VistaFacturaDto> {
+    return this.facturacion.previsualizar(await this.facturacion.clienteDelPedido(id), id, dto);
   }
 
   @Get(':id/factura/pdf')
