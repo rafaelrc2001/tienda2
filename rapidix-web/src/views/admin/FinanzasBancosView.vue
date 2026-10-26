@@ -16,11 +16,11 @@
  * El 🌐 de arriba de la tabla pone una casilla en los depósitos sin factura:
  * en cuanto se palomea uno, la suma (hecha en la API) aparece debajo de la
  * tabla y «Factura global» lo timbra a PÚBLICO EN GENERAL. El folio queda en
- * la columna Factura y la factura, con su PDF y su XML, en la tabla de
- * facturas globales del mes.
+ * la columna Factura, que al tocarlo abre su PDF. Las facturas con su PDF y su
+ * XML se consultan en Configuración → Fiscal → Facturación.
  */
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { descargarArchivo, ErrorApi, http } from '@/api/http'
+import { ErrorApi, http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
 import { dinero, nombreMetodoPago } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
@@ -455,58 +455,6 @@ async function alFacturar(factura: FacturaGlobal | null): Promise<void> {
   const cuenta = periodo.value?.cuentaId
   await cargarPeriodo()
   if (cuenta) void refrescarResumen(cuenta)
-  void cargarFacturasGlobales()
-}
-
-// ------------------------------------------------------------------
-// Las facturas globales del periodo, con su PDF y su XML
-// ------------------------------------------------------------------
-
-const facturasGlobales = ref<FacturaGlobal[]>([])
-const descargando = ref<string | null>(null)
-/** Cambiar de periodo deprisa deja listas viejas en el aire: gana la última. */
-let peticionFacturas = 0
-
-async function cargarFacturasGlobales(): Promise<void> {
-  const numero = ++peticionFacturas
-  const id = periodo.value?.id
-  if (!id) {
-    facturasGlobales.value = []
-    return
-  }
-  try {
-    const respuesta = await http.get<FacturaGlobal[]>(
-      `/admin/finanzas/bancos/factura-global?periodoId=${id}`,
-    )
-    if (numero === peticionFacturas) facturasGlobales.value = respuesta
-  } catch (fallo) {
-    if (numero === peticionFacturas) ui.errorDeApi(fallo)
-  }
-}
-
-// Solo al cambiar de periodo: guardar o borrar un movimiento no cambia las facturas.
-watch(() => periodo.value?.id, cargarFacturasGlobales)
-
-async function descargarXml(factura: FacturaGlobal): Promise<void> {
-  if (descargando.value) return
-  descargando.value = factura.id
-  try {
-    await descargarArchivo(
-      `/admin/finanzas/bancos/factura-global/${factura.id}/xml`,
-      `factura-global-${factura.folioMovimientos}.xml`,
-    )
-  } catch (fallo) {
-    ui.errorDeApi(fallo)
-  } finally {
-    descargando.value = null
-  }
-}
-
-/** `2026-10-23T…` → `23-oct-2026`: el día en que se timbró, en la hora de México. */
-function fechaTimbrado(iso: string): string {
-  const fecha = new Date(iso)
-  const dia = fecha.toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' })
-  return `${fechaCorta(dia)}-${dia.slice(0, 4)}`
 }
 </script>
 
@@ -566,9 +514,7 @@ function fechaTimbrado(iso: string): string {
             <strong>{{ nombrePeriodo(periodo) }}</strong>
           </div>
           <div class="saldo-inicial">
-            <span class="titulo-dato">
-              Saldo inicial · {{ periodo.saldoInicialEscrito ? 'escrito' : 'del mes anterior' }}
-            </span>
+            <span class="titulo-dato">Saldo inicial</span>
             <strong>{{ dinero(periodo.saldoInicial) }}</strong>
           </div>
           <!-- Enciende las casillas para palomear depósitos de la factura global. -->
@@ -780,52 +726,6 @@ function fechaTimbrado(iso: string): string {
         <div class="total" :class="{ negativo: periodo.saldo < 0 }">
           <span class="total-titulo">Saldo:</span>
           <strong class="total-monto">{{ dinero(periodo.saldo) }}</strong>
-        </div>
-
-        <!-- Las facturas globales de los depósitos de este mes, con sus archivos. -->
-        <p class="titulo-dato facturas-titulo">🌐 Facturas globales</p>
-        <div class="tabla-envoltorio">
-          <table class="tabla lineal facturas">
-            <thead>
-              <tr>
-                <th class="factura">Factura</th>
-                <th class="fecha">Timbrada</th>
-                <th>Folio fiscal</th>
-                <th class="num">Total</th>
-                <th class="archivos">Archivos</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="f in facturasGlobales" :key="f.id">
-                <td class="factura">{{ f.folioMovimientos }}</td>
-                <td class="fecha">{{ fechaTimbrado(f.timbradaEn) }}</td>
-                <td class="uuid">{{ f.uuid }}</td>
-                <td class="num importe">{{ dinero(f.total) }}</td>
-                <td class="archivos">
-                  <button
-                    type="button"
-                    class="enlace"
-                    @click="visor = { id: f.id, folio: f.folioMovimientos }"
-                  >
-                    PDF
-                  </button>
-                  <button
-                    type="button"
-                    class="enlace"
-                    :disabled="descargando !== null"
-                    @click="descargarXml(f)"
-                  >
-                    {{ descargando === f.id ? 'Descargando…' : 'XML' }}
-                  </button>
-                </td>
-              </tr>
-              <tr v-if="facturasGlobales.length === 0">
-                <td colspan="5" class="vacio">
-                  Sin facturas globales en {{ nombrePeriodo(periodo) }}.
-                </td>
-              </tr>
-            </tbody>
-          </table>
         </div>
       </template>
     </template>
@@ -1114,28 +1014,6 @@ function fechaTimbrado(iso: string): string {
   padding: 0;
   font: inherit;
   color: inherit;
-}
-
-.facturas-titulo {
-  margin: 16px 0 6px;
-}
-
-/* El UUID son 36 caracteres: se parte antes que empujar la tabla. */
-.facturas .uuid {
-  font-size: 12px;
-  color: var(--muted);
-  word-break: break-all;
-}
-
-.facturas .archivos {
-  width: 1%;
-  white-space: nowrap;
-  text-align: right;
-}
-
-.facturas .archivos .enlace {
-  padding: 0;
-  margin-left: 12px;
 }
 
 /* La suma de lo palomeado y su botón, encima del saldo. */
