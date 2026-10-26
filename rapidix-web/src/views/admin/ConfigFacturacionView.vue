@@ -137,42 +137,76 @@ function palomearTodas(marcar: boolean): void {
 const puedeCompartir = typeof navigator !== 'undefined' && typeof navigator.canShare === 'function'
 
 /**
- * Los archivos ya bajados para compartir. Safari solo deja abrir la hoja de
- * compartir poco después del toque: si la bajada tardó, el primer intento se
- * rechaza y el segundo toque comparte estos sin volver a bajarlos.
+ * Los archivos se bajan al palomear y no al tocar «Compartir»: el navegador
+ * solo abre la hoja de compartir justo después del toque, y si antes se espera
+ * a la red (varias facturas, red lenta) la rechaza y nunca sale WhatsApp.
  */
 const listos = shallowRef<File[] | null>(null)
+const preparando = ref(false)
 
-// `deep`: las casillas con v-model meten y sacan del mismo arreglo.
-watch(
-  seleccion,
-  () => {
-    listos.value = null
-  },
-  { deep: true },
-)
+/** El PDF y el XML de cada factura, guardados mientras siga palomeada. */
+const porFactura = new Map<string, Promise<File[]>>()
 
-/** El PDF y el XML de cada palomeada, uno tras otro para no cargar la API. */
-async function bajar(): Promise<File[]> {
+async function bajarFactura(f: FacturaEmitida): Promise<File[]> {
   const archivos: File[] = []
-  for (const f of palomeadas.value) {
-    for (const formato of ['pdf', 'xml'] as const) {
-      const blob = await obtenerArchivo(ruta(f, formato))
-      archivos.push(
-        new File([blob], `${f.archivo}.${formato}`, {
-          type: formato === 'pdf' ? 'application/pdf' : 'application/xml',
-        }),
-      )
-    }
+  for (const formato of ['pdf', 'xml'] as const) {
+    const blob = await obtenerArchivo(ruta(f, formato))
+    archivos.push(
+      new File([blob], `${f.archivo}.${formato}`, {
+        type: formato === 'pdf' ? 'application/pdf' : 'application/xml',
+      }),
+    )
   }
   return archivos
 }
+
+function archivosDe(f: FacturaEmitida): Promise<File[]> {
+  let promesa = porFactura.get(f.id)
+  if (!promesa) {
+    promesa = bajarFactura(f)
+    porFactura.set(f.id, promesa)
+    // Una bajada fallida no se queda guardada: el siguiente intento la repite.
+    promesa.catch(() => porFactura.delete(f.id))
+  }
+  return promesa
+}
+
+/** Palomear rápido deja bajadas en el aire: gana la última selección. */
+let turnoPreparar = 0
+
+/** Una factura tras otra para no cargar la API; las ya bajadas no se repiten. */
+async function preparar(): Promise<void> {
+  const turno = ++turnoPreparar
+  const elegidas = palomeadas.value
+  for (const id of porFactura.keys()) {
+    if (!seleccion.value.includes(id)) porFactura.delete(id)
+  }
+  listos.value = null
+  if (elegidas.length === 0) {
+    preparando.value = false
+    return
+  }
+  preparando.value = true
+  try {
+    const archivos: File[] = []
+    for (const f of elegidas) archivos.push(...(await archivosDe(f)))
+    if (turno === turnoPreparar) listos.value = archivos
+  } catch (fallo) {
+    if (turno === turnoPreparar) ui.errorDeApi(fallo)
+  } finally {
+    if (turno === turnoPreparar) preparando.value = false
+  }
+}
+
+// `deep`: las casillas con v-model meten y sacan del mismo arreglo.
+watch(seleccion, preparar, { deep: true })
 
 async function descargar(): Promise<void> {
   if (trabajando.value || seleccion.value.length === 0) return
   trabajando.value = 'descargar'
   try {
-    const archivos = listos.value ?? (await bajar())
+    if (!listos.value) await preparar()
+    const archivos = listos.value ?? []
     for (const archivo of archivos) {
       guardarBlob(archivo, archivo.name)
       // Sin una pausa, Chrome se queda con la primera descarga y tira las demás.
@@ -187,14 +221,13 @@ async function descargar(): Promise<void> {
 
 async function compartir(): Promise<void> {
   if (trabajando.value || seleccion.value.length === 0) return
-  trabajando.value = 'compartir'
-  try {
-    listos.value ??= await bajar()
-  } catch (fallo) {
-    trabajando.value = null
-    ui.errorDeApi(fallo)
+  // Nada de esperas antes de `navigator.share`: con una, el toque ya no cuenta.
+  if (!listos.value) {
+    // Solo pasa si la bajada falló; se reintenta y se toca de nuevo.
+    if (!preparando.value) void preparar()
     return
   }
+  trabajando.value = 'compartir'
 
   // Chrome en Android no comparte XML: se mandan los que acepte y se avisa.
   const archivos = listos.value.filter((a) => navigator.canShare({ files: [a] }))
@@ -216,10 +249,6 @@ async function compartir(): Promise<void> {
     }
   } catch (fallo) {
     if (fallo instanceof DOMException && fallo.name === 'AbortError') return
-    if (fallo instanceof DOMException && fallo.name === 'NotAllowedError') {
-      ui.info('Los archivos están listos: toca «Compartir» otra vez.')
-      return
-    }
     ui.error('No se pudieron compartir. Descárgalos y compártelos desde tus archivos.')
   } finally {
     trabajando.value = null
@@ -271,10 +300,10 @@ async function compartir(): Promise<void> {
             v-if="puedeCompartir"
             type="button"
             class="btn-primary"
-            :disabled="trabajando !== null"
+            :disabled="trabajando !== null || preparando"
             @click="compartir"
           >
-            {{ trabajando === 'compartir' ? 'Preparando…' : 'Compartir' }}
+            {{ preparando ? 'Preparando…' : 'Compartir' }}
           </button>
         </div>
       </div>
