@@ -238,6 +238,12 @@ async function compartir(): Promise<void> {
     )
     return
   }
+  // Uno por uno pueden pasar y juntos no: Chrome topa cuántos y cuánto pesan.
+  if (!navigator.canShare({ files: archivos })) {
+    trabajando.value = null
+    ui.error('Son demasiados archivos para compartir de una vez: palomea menos facturas.')
+    return
+  }
   try {
     const cuantas = palomeadas.value.length
     await navigator.share({
@@ -249,6 +255,8 @@ async function compartir(): Promise<void> {
     }
   } catch (fallo) {
     if (fallo instanceof DOMException && fallo.name === 'AbortError') return
+    // El motivo real solo lo dice el navegador; sin esto no hay cómo saberlo.
+    console.error('No se pudieron compartir las facturas', fallo)
     ui.error('No se pudieron compartir. Descárgalos y compártelos desde tus archivos.')
   } finally {
     trabajando.value = null
