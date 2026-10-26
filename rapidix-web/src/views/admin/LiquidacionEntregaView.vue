@@ -115,24 +115,6 @@ const arqueo = computed(() => lineaDelArqueo(resumen.value?.montoCalculado ?? 0,
 /** Cada producto que regresa está contado y sin faltante. Sin nada que regrese, también. */
 const conteoListo = computed(() => conteoCompleto(resumen.value?.conteo ?? [], contados.value))
 
-/** Lo que regresa y todavía no tiene su «Devuelto». */
-const sinContar = computed(() =>
-  (resumen.value?.conteo ?? []).filter(
-    (p) => p.devolucion > 0 && piezasCapturadas(contados.value[p.productoId]) === null,
-  ),
-)
-
-/**
- * Por qué no se puede finalizar todavía, junto al botón apagado. Con faltante
- * no dice nada: la columna «Faltante» y su botón ya lo enseñan.
- */
-const avisoDelConteo = computed(() => {
-  if (conteoListo.value || faltantes.value.length > 0) return ''
-  if (sinContar.value.length > 0)
-    return `Falta contar lo que bajas de ${sinContar.value.map((p) => p.nombre).join(', ')}.`
-  return ''
-})
-
 /** Sin pedidos no hay arqueo que capturar: se cierra en cero. */
 const puedeCerrar = computed(
   () =>
@@ -540,7 +522,6 @@ async function finalizar(): Promise<void> {
 
       <!-- Pegada abajo: el degradado la despega de lo que se desplaza debajo. -->
       <div class="barra-cierre">
-        <p v-if="avisoDelConteo" class="aviso-cierre" aria-live="polite">{{ avisoDelConteo }}</p>
         <button
           type="button"
           class="btn-primary"
@@ -891,17 +872,6 @@ async function finalizar(): Promise<void> {
 
 .barra-cierre .btn-primary {
   width: 100%;
-}
-
-/* Por qué está apagado el botón, justo encima de él. Con fondo propio: cae en
-   la parte transparente del degradado y la tabla de debajo lo tapaba. */
-.aviso-cierre {
-  margin: 0;
-  padding: 6px 0 8px;
-  background: var(--cream);
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--orange-dark);
 }
 
 /* El resumen antes de finalizar: de qué entrega es y sus tablas. */
