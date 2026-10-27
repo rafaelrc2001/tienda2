@@ -1096,6 +1096,11 @@ export class RutasService {
         ),
       );
 
+      // A credito, desde que el cliente lo recibe ya debe: entra a CXC con la
+      // fecha de entrega, de la que corren sus dias de credito. Con el total ya
+      // ajustado a lo que acepto y descontado lo que abono en la puerta.
+      await FlujoPedidosService.abrirCxc(tx, id);
+
       resumen = {
         piezasEntregadas: entregadas,
         piezasDevueltas: devueltas,

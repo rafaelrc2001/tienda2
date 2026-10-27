@@ -175,15 +175,14 @@ export class FlujoPedidosService {
   }
 
   /**
-   * El pedido a credito que se entrega en tienda es cuenta por cobrar desde
-   * ese momento: el cliente ya se llevo la mercancia y debe.
+   * El pedido a credito es cuenta por cobrar desde que se entrega: el cliente
+   * ya se llevo la mercancia y debe, y de esa fecha corren sus dias de
+   * credito. Uno cubierto entero con la billetera o con lo abonado no debe nada.
    *
-   * El de ruta no pasa por aqui: entra a CXC cuando Finanzas acepta su entrega
-   * (`CortesService.aceptarEntrega`), que es cuando se sabe que se entrego de
-   * verdad y cuanto. Uno cubierto entero con la billetera no debe nada.
-   *
-   * Publico porque la tienda que entrega un pedido de la app desde su PDV
-   * aplica la misma regla.
+   * Publico porque lo aplican todos los que entregan: Operaciones, la tienda
+   * desde su PDV y el repartidor en la puerta. Aceptar la entrega del corte
+   * (`CortesService.aceptarEntrega`) lo repite para los que se entregaron
+   * antes de esta regla.
    */
   static async abrirCxc(tx: Prisma.TransactionClient, id: string): Promise<void> {
     const pedido = await tx.pedido.findUniqueOrThrow({

@@ -380,24 +380,26 @@ export class PedidosService {
       // El saldo queda en cero y por eso nace pagado. En efectivo tiene que
       // decir con cuanto paga: sin ese monto no hay constancia de que cubrio
       // el total (que alcance ya lo reviso `evaluarPago`).
+      //
+      // Un cliente con credito se salta las dos cosas: en la app y en el
+      // mostrador su pedido nace ya autorizado para entregarse sin cobrar, como
+      // si Finanzas lo hubiera pasado a CREDITO, y se le cobra desde CXC. Un
+      // prospecto todavia no puede tenerlo.
       const enEfectivo = dto.metodoPago === MetodoPago.EFECTIVO && aPagar.greaterThan(0);
       const deContado = mostrador !== undefined;
-      if (deContado && enEfectivo && dto.pagoCon === undefined) {
+      const aCredito = aPagar.greaterThan(0) && cliente?.credito === true;
+      if (deContado && enEfectivo && !aCredito && dto.pagoCon === undefined) {
         throw new BadRequestException({
           statusCode: 400,
           code: 'PAGO_CON_REQUERIDO',
           message: 'Escribe con cuánto paga: en el punto de venta el pedido se cobra completo.',
         });
       }
-      // Un cliente con credito se salta esa espera: su pedido de la app nace
-      // ya autorizado para entregarse sin cobrar, como si Finanzas lo hubiera
-      // pasado a CREDITO. Un prospecto todavia no puede tenerlo.
-      const estadoPago =
-        !aPagar.greaterThan(0) || deContado
+      const estadoPago = aCredito
+        ? EstadoPago.CREDITO
+        : !aPagar.greaterThan(0) || deContado
           ? EstadoPago.PAGADO
-          : cliente?.credito
-            ? EstadoPago.CREDITO
-            : EstadoPago.PAGO_PENDIENTE;
+          : EstadoPago.PAGO_PENDIENTE;
       // Lo que se lleva en mostrador y lo que se recoge en una tienda elegida
       // sale del inventario de esa tienda, no de bodega.
       const saleDeLaTienda =

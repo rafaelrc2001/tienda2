@@ -1808,6 +1808,8 @@ export interface ClientePdv {
   saldoBilletera: number
   /** La dirección de su perfil en una línea; `null` si no está completa. */
   direccion: string | null
+  /** Tiene crédito: su pedido nace a crédito y no se le cobra en caja. */
+  credito: boolean
 }
 
 /**
