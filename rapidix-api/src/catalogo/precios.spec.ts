@@ -77,15 +77,16 @@ describe('listas que no bajan de precio', () => {
     expect(precioUnitario(sube, 10).toNumber()).toBe(9);
   });
 
-  it('no tacha un precio que no era mas caro, ni ofrece subir a uno mas caro', () => {
+  it('no tacha un precio que no era mas caro, ni ahorra al ofrecerlo', () => {
     expect(precioListaAnterior(sube, 5)).toBeNull();
-    expect(upsell(sube, 4)).toBeNull();
     expect(ahorro(sube, 5).toNumber()).toBe(0);
+    // El aviso lo decide la cantidad: sale igual, pero sin ahorro que anunciar.
+    expect(upsell({ ...sube, piso2: 20, piso3: 40 }, 17)?.ahorro.toNumber()).toBe(0);
   });
 
   it('si la siguiente si es mas barata, la tacha y la ofrece', () => {
     expect(precioListaAnterior(sube, 10)?.toNumber()).toBe(12);
-    expect(upsell(sube, 8)?.precioSiguiente.toNumber()).toBe(9);
+    expect(upsell(sube, 9)?.precioSiguiente.toNumber()).toBe(9);
   });
 });
 
@@ -100,22 +101,45 @@ describe('ahorro', () => {
 });
 
 describe('upsell', () => {
-  it('no aparece antes del 80 % del piso siguiente', () => {
-    expect(upsell(escalonado, 3)).toBeNull();
+  /** El caso del negocio: 60 por $145 y 120 por $280. */
+  const botella: ListasDePrecio = {
+    precioVenta: D(3),
+    piso2: 60,
+    precio2: D(2.416666666666667),
+    piso3: 120,
+    precio3: D(2.333333333333333),
+  };
+
+  it('no aparece antes del 85 % del piso siguiente', () => {
+    expect(upsell(escalonado, 4)).toBeNull();
+    expect(upsell(botella, 50)).toBeNull();
+    expect(upsell(botella, 101)).toBeNull();
   });
 
-  it('con 4 piezas ofrece la lista 2', () => {
-    const oferta = upsell(escalonado, 4);
+  it('al 85 % ofrece la lista 2', () => {
+    const oferta = upsell(botella, 51);
+    expect(oferta?.faltan).toBe(9);
+    expect(oferta?.precioSiguiente.toNumber()).toBe(2.416666666666667);
+    expect(oferta?.ahorro.toNumber()).toBe(35);
+  });
+
+  it('al 85 % ofrece tambien la lista 3', () => {
+    const oferta = upsell(botella, 102);
+    expect(oferta?.faltan).toBe(18);
+    expect(oferta?.ahorro.toNumber()).toBe(10);
+    expect(upsell(botella, 119)?.faltan).toBe(1);
+  });
+
+  it('en pisos chicos el 85 % es la ultima pieza', () => {
+    expect(upsell(escalonado, 9)?.faltan).toBe(1);
+    expect(upsell(escalonado, 9)?.ahorro.toNumber()).toBe(15);
+  });
+
+  it('sale aunque la siguiente lista no sea mas barata, sin ahorro', () => {
+    const igual = { ...botella, precio3: D(2.42) };
+    const oferta = upsell(igual, 119);
     expect(oferta?.faltan).toBe(1);
-    expect(oferta?.precioSiguiente.toNumber()).toBe(18.5);
-    expect(oferta?.ahorro.toNumber()).toBe(7.25);
-  });
-
-  it('con 8 piezas ofrece la lista 3', () => {
-    const oferta = upsell(escalonado, 8);
-    expect(oferta?.faltan).toBe(2);
-    expect(oferta?.precioSiguiente.toNumber()).toBe(17);
-    expect(oferta?.ahorro.toNumber()).toBe(15);
+    expect(oferta?.ahorro.toNumber()).toBe(0);
   });
 
   it('no aparece en la mejor lista, sin piezas ni sin listas', () => {

@@ -18,7 +18,7 @@
  * pedido, y lo resuelve la API. Sustituye a las pestañas por estatus, que con las
  * de sección encima dejaban la pantalla con dos tiras y tres enlaces.
  */
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { descargarArchivo, ErrorApi, http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
 import {
@@ -29,6 +29,7 @@ import {
   nombreMetodoPago,
 } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
+import LupaBusqueda from '@/components/LupaBusqueda.vue'
 import BitacoraPedido from '@/components/BitacoraPedido.vue'
 import FacturarPedidoModal from '@/components/FacturarPedidoModal.vue'
 import VisorPdfFactura from '@/components/VisorPdfFactura.vue'
@@ -107,22 +108,14 @@ const nota = ref('')
 // La búsqueda
 // ------------------------------------------------------------------
 
-/** La lupa de la barra abre el campo; cerrarla lo deja en blanco. */
-const buscando = ref(false)
+/** Lo que se escribe tras la lupa de la barra (`LupaBusqueda`). */
 const consulta = ref('')
-const campoBusqueda = ref<HTMLInputElement | null>(null)
 
 /** Lo que pinta la tabla: lo escrito filtra mientras se escribe. */
 const visibles = computed(() => buscarPedidos(pedidos.value, consulta.value))
 
-async function alternarBusqueda(): Promise<void> {
-  buscando.value = !buscando.value
-  consulta.value = ''
-  abierto.value = null
-  if (!buscando.value) return
-  await nextTick()
-  campoBusqueda.value?.focus()
-}
+// El detalle abierto puede quedar fuera del filtro: se cierra al escribir.
+watch(consulta, () => (abierto.value = null))
 
 /** Una recarga puede cruzarse con otra: gana la última. */
 let peticion = 0
@@ -263,42 +256,15 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
 
 <template>
   <div class="pantalla-panel sin-colchon">
-    <!-- La lupa, en el extremo derecho de la barra, frente a la hamburguesa. -->
-    <Teleport defer to="#topbar-acciones">
-      <button
-        type="button"
-        class="lupa"
-        :class="{ activa: buscando }"
-        :aria-pressed="buscando"
-        :title="buscando ? 'Cerrar la búsqueda' : 'Buscar pedidos'"
-        aria-label="Buscar pedidos"
-        @click="alternarBusqueda"
-      >
-        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-          <circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2" />
-          <path d="M16 16l4.5 4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-        </svg>
-      </button>
-    </Teleport>
-
     <RouterLink to="/admin" class="admin-back-inline">← Volver al menú</RouterLink>
 
     <PestanasFinanzas activa="pedidos" />
 
-    <!-- Bloque crema y campo blanco: se ve dónde se escribe. -->
-    <div v-if="buscando" class="busqueda">
-      <input
-        ref="campoBusqueda"
-        v-model="consulta"
-        class="form-input"
-        type="search"
-        autocomplete="off"
-        enterkeyhint="search"
-        placeholder="Pedido, canal, cliente, estado o estatus de pago"
-        aria-label="Buscar pedidos"
-        @input="abierto = null"
-      />
-    </div>
+    <LupaBusqueda
+      v-model="consulta"
+      etiqueta="Buscar pedidos"
+      placeholder="Pedido, canal, cliente, estado o estatus de pago"
+    />
 
     <SkeletonList v-if="cargando" :cantidad="4" />
 
@@ -396,9 +362,7 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
                   type="button"
                   class="btn-primary"
                   :disabled="!pedido.facturable"
-                  :title="
-                    pedido.facturable ? undefined : 'Se puede facturar cuando esté pagado.'
-                  "
+                  :title="pedido.facturable ? undefined : 'Se puede facturar cuando esté pagado.'"
                   @click="facturando = pedido"
                 >
                   Facturar
@@ -650,41 +614,6 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
   font-size: 12.5px;
   padding: 0 0 8px;
   text-decoration: none;
-}
-
-/* La lupa va sobre la barra naranja: blanca, y rellena cuando está abierta. */
-.lupa {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border: 1.5px solid transparent;
-  border-radius: var(--radius-sm);
-  background: none;
-  color: var(--white);
-  cursor: pointer;
-}
-
-.lupa.activa {
-  background: var(--white);
-  color: var(--orange-dark);
-}
-
-.busqueda {
-  flex-shrink: 0;
-  margin: 0 0 12px;
-  padding: 8px 10px;
-  background: var(--cream-2);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-}
-
-/* 16px reales: con menos, Safari en iPhone amplía la página al enfocar el campo. */
-.busqueda .form-input {
-  margin: 0;
-  font-size: 16px;
-  background: var(--white);
 }
 
 .tabla {

@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  ActualizarCreditoDto,
   ActualizarPerfilDto,
   BuscarClientesDto,
   ClienteAdminDto,
@@ -22,6 +23,23 @@ const CAMPOS_BORRADOR = [
   'estado',
   'referencias',
 ] as const;
+
+/** Lo que lee una fila de Administracion -> Clientes. */
+const SELECT_CLIENTE_ADMIN = {
+  id: true,
+  nombre: true,
+  telefono: true,
+  ciudad: true,
+  estado: true,
+  pedidos: true,
+  totalGastado: true,
+  ultimoPedido: true,
+  creado: true,
+  fuenteCodigo: true,
+  nivel: { select: { nombre: true } },
+  credito: true,
+  diasCredito: true,
+} satisfies Prisma.ClienteSelect;
 
 /** Borrador de la entrega tal y como lo devuelve la API. */
 export interface BorradorEntregaGuardadoDto {
@@ -362,23 +380,39 @@ export class ClientesService {
         orderBy,
         skip: (pagina - 1) * porPagina,
         take: porPagina,
-        select: {
-          id: true,
-          nombre: true,
-          telefono: true,
-          ciudad: true,
-          estado: true,
-          pedidos: true,
-          totalGastado: true,
-          ultimoPedido: true,
-          creado: true,
-          fuenteCodigo: true,
-          nivel: { select: { nombre: true } },
-        },
+        select: SELECT_CLIENTE_ADMIN,
       }),
     ]);
 
-    const datos: ClienteAdminDto[] = filas.map((c) => ({
+    return { datos: filas.map(ClientesService.aClienteAdmin), total, pagina, porPagina };
+  }
+
+  /**
+   * Administracion -> Clientes: prende o apaga el credito y su plazo.
+   *
+   * Solo cambia lo que viene: no tocar un pedido ya hecho. El credito decide
+   * como nacen los pedidos siguientes; los que ya existen siguen con el
+   * estatus de pago que tenian.
+   */
+  async actualizarCredito(id: string, dto: ActualizarCreditoDto): Promise<ClienteAdminDto> {
+    const existe = await this.prisma.cliente.findUnique({ where: { id }, select: { id: true } });
+    if (!existe) throw new NotFoundException('Cliente no encontrado');
+
+    const cliente = await this.prisma.cliente.update({
+      where: { id },
+      data: {
+        ...(dto.credito !== undefined && { credito: dto.credito }),
+        ...(dto.diasCredito !== undefined && { diasCredito: dto.diasCredito }),
+      },
+      select: SELECT_CLIENTE_ADMIN,
+    });
+    return ClientesService.aClienteAdmin(cliente);
+  }
+
+  private static aClienteAdmin(
+    c: Prisma.ClienteGetPayload<{ select: typeof SELECT_CLIENTE_ADMIN }>,
+  ): ClienteAdminDto {
+    return {
       id: c.id,
       nombre: c.nombre,
       telefono: c.telefono,
@@ -390,9 +424,9 @@ export class ClientesService {
       creado: c.creado.toISOString(),
       fuenteCodigo: c.fuenteCodigo,
       nivel: c.nivel?.nombre ?? null,
-    }));
-
-    return { datos, total, pagina, porPagina };
+      credito: c.credito,
+      diasCredito: c.diasCredito,
+    };
   }
 
   private static aPerfil(c: ClientePerfil): PerfilDto {

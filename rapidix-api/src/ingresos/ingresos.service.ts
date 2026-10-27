@@ -1,10 +1,24 @@
 import { Injectable } from '@nestjs/common';
 import { ConceptoIngreso, MetodoPago, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { totalesDelTurno } from '../pdv/corte-de-caja';
 import { BuscarIngresosDto } from './dto/buscar-ingresos.dto';
 import { rangoDeFechas } from './rango-de-fechas';
 
 const Decimal = Prisma.Decimal;
+
+/**
+ * Lo que entro en todo el cierre de un turno, por forma de pago, como lo
+ * ensena la tabla de Turnos del PDV. El efectivo es el aceptado, no el que
+ * dice el sistema: un faltante no es dinero que entro.
+ */
+export interface CierreDto {
+  /** Pedidos cobrados en el turno. */
+  pedidos: number;
+  efectivo: number;
+  transferencia: number;
+  billetera: number;
+}
 
 /** Un renglon del libro, tal como lo pinta la pestana de Ingresos. */
 export interface IngresoDto {
@@ -13,11 +27,17 @@ export interface IngresoDto {
   concepto: ConceptoIngreso;
   /** Folio de reparto (ENTREGA), de pedido (CXC) o de turno (PDV). */
   referencia: string;
+  /** En el corte de caja de un turno, el cierre entero: efectivo, transferencia y billetera. */
   monto: number;
   metodo: MetodoPago;
   nota: string | null;
   /** Quien lo acepto. */
   registradoPorNombre: string;
+  /**
+   * Solo en el dinero con que se acepta un corte de caja (no en sus abonos):
+   * el desglose de todo el cierre. `null` en los demas.
+   */
+  cierre: CierreDto | null;
 }
 
 export interface ListadoIngresosDto {
@@ -92,6 +112,11 @@ export class IngresosService {
    * Los ingresos de un rango de dias, del mas reciente al mas viejo, con su
    * total. El total lo suma la base sobre el rango entero: la pantalla no
    * suma, y si sumara solo veria los renglones que le llegaron.
+   *
+   * El libro solo guarda el efectivo de un corte de caja, pero la pantalla
+   * ensena el cierre entero: a ese renglon se le suma lo que el turno cobro
+   * por transferencia y con billetera, y lo mismo al total. Los abonos son
+   * solo efectivo y se quedan como estan.
    */
   async listar(filtros: BuscarIngresosDto): Promise<ListadoIngresosDto> {
     const rango = rangoDeFechas(filtros.desde, filtros.hasta);
@@ -100,7 +125,7 @@ export class IngresosService {
       ...(filtros.concepto && { concepto: filtros.concepto }),
     };
 
-    const [ingresos, suma] = await Promise.all([
+    const [ingresos, suma, cierres] = await Promise.all([
       this.prisma.ingreso.findMany({
         where,
         orderBy: { creadoEn: 'desc' },
@@ -108,22 +133,65 @@ export class IngresosService {
         include: { registradoPor: { select: { nombre: true } } },
       }),
       this.prisma.ingreso.aggregate({ where, _sum: { monto: true }, _count: true }),
+      // Todos los del rango y no solo los que viajan: el total los necesita.
+      this.prisma.ingreso.findMany({
+        where: { ...where, turnoPdvId: { not: null }, turnoAbonoId: null },
+        select: {
+          id: true,
+          monto: true,
+          turnoPdv: {
+            select: {
+              pedidos: {
+                select: {
+                  estado: true,
+                  estadoPago: true,
+                  metodoPago: true,
+                  metodoEntrega: true,
+                  total: true,
+                  pagadoConBilletera: true,
+                },
+              },
+            },
+          },
+        },
+      }),
     ]);
+
+    const cierrePorIngreso = new Map<string, { cierre: CierreDto; resto: Prisma.Decimal }>();
+    let resto = new Decimal(0);
+    for (const ingreso of cierres) {
+      const totales = totalesDelTurno(ingreso.turnoPdv?.pedidos ?? []);
+      const sinEfectivo = totales.transferencia.add(totales.billetera);
+      resto = resto.add(sinEfectivo);
+      cierrePorIngreso.set(ingreso.id, {
+        resto: sinEfectivo,
+        cierre: {
+          pedidos: totales.cobrados,
+          efectivo: ingreso.monto.toNumber(),
+          transferencia: totales.transferencia.toNumber(),
+          billetera: totales.billetera.toNumber(),
+        },
+      });
+    }
 
     return {
       desde: rango.desde,
       hasta: rango.hasta,
-      ingresos: ingresos.map((i) => ({
-        id: i.id,
-        creadoEn: i.creadoEn.toISOString(),
-        concepto: i.concepto,
-        referencia: i.referencia,
-        monto: i.monto.toNumber(),
-        metodo: i.metodo,
-        nota: i.nota,
-        registradoPorNombre: i.registradoPor.nombre,
-      })),
-      total: (suma._sum.monto ?? new Decimal(0)).toNumber(),
+      ingresos: ingresos.map((i) => {
+        const delCierre = cierrePorIngreso.get(i.id);
+        return {
+          id: i.id,
+          creadoEn: i.creadoEn.toISOString(),
+          concepto: i.concepto,
+          referencia: i.referencia,
+          monto: (delCierre ? i.monto.add(delCierre.resto) : i.monto).toNumber(),
+          metodo: i.metodo,
+          nota: i.nota,
+          registradoPorNombre: i.registradoPor.nombre,
+          cierre: delCierre?.cierre ?? null,
+        };
+      }),
+      total: (suma._sum.monto ?? new Decimal(0)).add(resto).toNumber(),
       cuantos: suma._count,
     };
   }

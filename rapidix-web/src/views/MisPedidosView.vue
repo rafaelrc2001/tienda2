@@ -5,9 +5,10 @@
  * Es la única sección del panel que un cliente tiene en su menú, así que se
  * llega tanto desde el Perfil como desde el drawer.
  */
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { descargarArchivo, http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
+import { filtrarPorTexto } from '@/utils/busqueda'
 import {
   dinero,
   fechaHora,
@@ -17,6 +18,7 @@ import {
   nombreMetodoPago,
 } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
+import LupaBusqueda from '@/components/LupaBusqueda.vue'
 import FacturarPedidoModal from '@/components/FacturarPedidoModal.vue'
 import VisorPdfFactura from '@/components/VisorPdfFactura.vue'
 import type { Pedido } from '@/api/tipos'
@@ -74,6 +76,21 @@ function alternar(id: string): void {
   abierto.value = abierto.value === id ? null : id
 }
 
+/** La lupa de la barra, como en el panel: por folio, fecha o estado. */
+const consulta = ref('')
+
+const visibles = computed(() =>
+  filtrarPorTexto(pedidos.value, consulta.value, (pedido) => [
+    pedido.folio,
+    fechaHora(pedido.creadoEn),
+    nombreEstadoPedido(pedido.estado, pedido.pago.estado),
+    nombreEstadoPago(pedido.pago.estado),
+  ]),
+)
+
+// El detalle abierto puede quedar fuera del filtro: se cierra al escribir.
+watch(consulta, () => (abierto.value = null))
+
 /**
  * Al timbrar no se toca el pedido a mano: se relee la lista y la API ya lo
  * trae con su `factura`, así que el botón cambia solo por las descargas.
@@ -98,9 +115,15 @@ async function descargarXml(pedido: Pedido): Promise<void> {
 
 <template>
   <div class="pedidos">
+    <LupaBusqueda
+      v-model="consulta"
+      etiqueta="Buscar mis pedidos"
+      placeholder="Pedido, fecha o estado"
+    />
+
     <SkeletonList v-if="cargando" :cantidad="3" />
 
-    <div v-else-if="pedidos.length > 0" class="tabla-envoltorio">
+    <div v-else-if="visibles.length > 0" class="tabla-envoltorio">
       <table class="tabla">
         <thead>
           <tr>
@@ -111,7 +134,7 @@ async function descargarXml(pedido: Pedido): Promise<void> {
           </tr>
         </thead>
         <tbody>
-          <template v-for="pedido in pedidos" :key="pedido.id">
+          <template v-for="pedido in visibles" :key="pedido.id">
             <!-- Toda la fila abre el detalle; el teclado entra con Enter o espacio. -->
             <tr
               class="fila-pedido"
@@ -273,7 +296,13 @@ async function descargarXml(pedido: Pedido): Promise<void> {
       </table>
     </div>
 
-    <p v-else class="empty-block">Todavía no has hecho ningún pedido.</p>
+    <p v-else class="empty-block">
+      {{
+        consulta.trim()
+          ? `Ningún pedido coincide con «${consulta.trim()}».`
+          : 'Todavía no has hecho ningún pedido.'
+      }}
+    </p>
 
     <FacturarPedidoModal
       v-if="facturando"

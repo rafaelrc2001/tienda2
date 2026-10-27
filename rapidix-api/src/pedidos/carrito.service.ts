@@ -860,8 +860,8 @@ export class CarritoService {
     // Recogiendo en tienda el envio ya es gratis: no hay nada que perseguir.
     const aDomicilio = metodoEntrega === MetodoEntrega.DOMICILIO;
 
-    // Mismo 80 % que el upsell: el aviso sale cuando lo que falta, por cinco,
-    // no pasa del minimo. Con la base justo en el minimo todavia no hay
+    // Al 80 % del minimo: el aviso sale cuando lo que falta, por cinco, no
+    // pasa del minimo. Con la base justo en el minimo todavia no hay
     // cashback (`>` estricto): falta un centavo, y decir "te faltan $0.00"
     // seria mentir.
     const minimo = new Decimal(config.montoMinimoCashback);

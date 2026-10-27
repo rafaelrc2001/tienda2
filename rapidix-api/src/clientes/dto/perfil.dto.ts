@@ -143,6 +143,28 @@ export interface ClienteAdminDto {
   creado: string;
   fuenteCodigo: string | null;
   nivel: string | null;
+  /** Sus pedidos de la app nacen a credito. */
+  credito: boolean;
+  /** Plazo de pago en dias; null si no se ha capturado. */
+  diasCredito: number | null;
+}
+
+/**
+ * Cuerpo de PATCH /admin/clientes/:id/credito.
+ *
+ * Los dos campos son opcionales para poder prender el check sin tocar los
+ * dias, o corregir los dias sin tocar el check. `diasCredito: null` los borra.
+ */
+export class ActualizarCreditoDto {
+  @IsOptional()
+  @IsBoolean()
+  credito?: boolean;
+
+  @IsOptional()
+  @IsInt({ message: 'Los días de crédito deben ser un número entero' })
+  @Min(1, { message: 'Los días de crédito deben ser al menos 1' })
+  @Max(365, { message: 'Los días de crédito no pueden pasar de 365' })
+  diasCredito?: number | null;
 }
 
 /**

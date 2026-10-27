@@ -14,11 +14,13 @@
  * pantalla no suma: solo impide de antemano el pago que pasa del saldo, que la
  * API rechazaría igual (409 `PAGO_EXCEDE_SALDO`).
  */
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { ErrorApi, http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
+import { filtrarPorTexto } from '@/utils/busqueda'
 import { dinero, fechaDia, fechaNumerica, nombreMetodoPago } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
+import LupaBusqueda from '@/components/LupaBusqueda.vue'
 import PestanasFinanzas from './finanzas/PestanasFinanzas.vue'
 import { centavos, montoCapturado } from './rutas/liquidacion'
 import type { FiltroCxc, ListadoCxc, MetodoPago, PedidoCxc } from '@/api/tipos'
@@ -72,6 +74,23 @@ function elegir(nuevo: FiltroCxc): void {
 function alternar(id: string): void {
   abierto.value = abierto.value === id ? null : id
 }
+
+/**
+ * La lupa de la barra, como en Finanzas: filtra la pestaña que se ve. «Por
+ * cobrar» sigue siendo el total de todas, que es lo que suma la API.
+ */
+const consulta = ref('')
+
+const visibles = computed(() =>
+  filtrarPorTexto(pedidos.value, consulta.value, (pedido) => [
+    pedido.folio,
+    pedido.repartoFolio ?? 'Recogido en tienda',
+    pedido.clienteNombre,
+  ]),
+)
+
+// El detalle abierto puede quedar fuera del filtro: se cierra al escribir.
+watch(consulta, () => (abierto.value = null))
 
 // ------------------------------------------------------------------
 // Registrar pago
@@ -141,6 +160,12 @@ async function registrarPago(): Promise<void> {
 
     <PestanasFinanzas activa="cxc" />
 
+    <LupaBusqueda
+      v-model="consulta"
+      etiqueta="Buscar cuentas por cobrar"
+      placeholder="Pedido, entrega o cliente"
+    />
+
     <div class="subtab-row" role="tablist">
       <button
         v-for="p in PESTANAS"
@@ -165,7 +190,7 @@ async function registrarPago(): Promise<void> {
         <strong class="total-monto">{{ dinero(porCobrar) }}</strong>
       </div>
 
-      <div v-if="pedidos.length > 0" class="tabla-envoltorio">
+      <div v-if="visibles.length > 0" class="tabla-envoltorio">
         <!-- El pedido se queda fijo y lo demás se desplaza por debajo: por eso la
              entrega va en su columna, para que la fija no se coma el teléfono. -->
         <table class="tabla lineal una-fija">
@@ -182,7 +207,7 @@ async function registrarPago(): Promise<void> {
             </tr>
           </thead>
           <tbody>
-            <template v-for="pedido in pedidos" :key="pedido.id">
+            <template v-for="pedido in visibles" :key="pedido.id">
               <tr :class="{ 'con-detalle': abierto === pedido.id }">
                 <td>
                   <!-- La flecha va primero, como en Operaciones: abre el detalle. -->
@@ -276,9 +301,11 @@ async function registrarPago(): Promise<void> {
 
       <p v-else class="empty-block">
         {{
-          filtro === 'con-saldo'
-            ? 'Ningún cliente debe: no hay cuentas por cobrar con saldo. 🎉'
-            : 'Todavía no se ha cobrado ninguna cuenta.'
+          consulta.trim()
+            ? `Ninguna cuenta coincide con «${consulta.trim()}».`
+            : filtro === 'con-saldo'
+              ? 'Ningún cliente debe: no hay cuentas por cobrar con saldo. 🎉'
+              : 'Todavía no se ha cobrado ninguna cuenta.'
         }}
       </p>
     </template>

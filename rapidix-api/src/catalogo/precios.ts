@@ -120,9 +120,12 @@ export function ahorro(p: ListasDePrecio, cantidad: number): Decimal {
 /**
  * Oferta de subir a la siguiente lista (HU-10).
  *
- * Solo aparece cuando ya se lleva al menos el 80 % del piso siguiente
- * (`faltan x 5 <= piso`): ofrecer "te faltan 8" a quien lleva 2 no convence a
- * nadie y llena la tarjeta. El ahorro compara el mismo volumen —el piso de la
+ * Lo decide solo la cantidad: aparece cuando ya se lleva al menos el 85 % del
+ * piso siguiente (`faltan x 20 <= piso x 3`, en enteros para no arrastrar
+ * decimales), en cualquier lista. Ofrecer "te faltan 8" a quien lleva 2 no
+ * convence a nadie y llena la tarjeta. El precio no lo frena, por decision del
+ * negocio: si la siguiente lista no es mas barata el ahorro sale en cero y la
+ * tarjeta no lo anuncia. El ahorro compara el mismo volumen —el piso de la
  * siguiente lista— a los dos precios, para aislar el efecto del descuento.
  */
 export function upsell(p: ListasDePrecio, cantidad: number): Upsell | null {
@@ -133,9 +136,7 @@ export function upsell(p: ListasDePrecio, cantidad: number): Upsell | null {
   const actual = listas[indice];
   const siguiente = listas[indice + 1];
   const faltan = siguiente.piso - cantidad;
-  if (faltan <= 0 || faltan * 5 > siguiente.piso) return null;
-  // Solo se ofrece subir si la siguiente lista de verdad sale mas barata.
-  if (!siguiente.precio.lessThan(actual.precio)) return null;
+  if (faltan <= 0 || faltan * 20 > siguiente.piso * 3) return null;
 
   return {
     faltan,

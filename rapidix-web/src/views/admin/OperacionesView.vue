@@ -11,7 +11,7 @@
  * API (siguiente estado, a quién le toca y por qué está bloqueado). Aquí solo
  * se enciende el botón o se enseña el candado.
  */
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { ErrorApi, http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
 import {
@@ -22,8 +22,10 @@ import {
   nombreEstadoPedido,
   nombreMetodoPago,
 } from '@/utils/formato'
+import { filtrarPorTexto } from '@/utils/busqueda'
 import SkeletonList from '@/components/SkeletonList.vue'
 import BitacoraPedido from '@/components/BitacoraPedido.vue'
+import LupaBusqueda from '@/components/LupaBusqueda.vue'
 import { sumarProductos } from './operaciones/conteo'
 import { PASOS, bloqueoDe, esPasoSiguiente, pasoDado } from './operaciones/pasos'
 import type {
@@ -125,6 +127,26 @@ function iconoMetodo(metodo: string): string {
 }
 
 // ------------------------------------------------------------------
+// La búsqueda: la lupa de la barra, como en Finanzas
+// ------------------------------------------------------------------
+
+const consulta = ref('')
+
+/** Lo que pinta la tabla: se busca sobre lo que enseña cada fila. */
+const visibles = computed(() =>
+  filtrarPorTexto(pedidos.value, consulta.value, (pedido) => [
+    pedido.folio,
+    colonia(pedido),
+    pedido.clienteNombre,
+    etiquetaEstado(pedido),
+    nombreEstadoPago(pedido.pago.estado),
+  ]),
+)
+
+// El detalle abierto puede quedar fuera del filtro: se cierra al escribir.
+watch(consulta, () => (abierto.value = null))
+
+// ------------------------------------------------------------------
 // La libreta: contar productos de varios pedidos
 // ------------------------------------------------------------------
 
@@ -139,8 +161,9 @@ const seleccion = ref(new Set<string>())
  */
 const seleccionados = computed(() => pedidos.value.filter((p) => seleccion.value.has(p.id)))
 const productosContados = computed(() => sumarProductos(seleccionados.value))
+/** «Todos» son los que se ven: con la búsqueda puesta, los que coinciden. */
 const todosMarcados = computed(
-  () => pedidos.value.length > 0 && seleccionados.value.length === pedidos.value.length,
+  () => visibles.value.length > 0 && visibles.value.every((p) => seleccion.value.has(p.id)),
 )
 
 /** Cerrar la libreta la deja en blanco: la próxima cuenta empieza de cero. */
@@ -157,7 +180,13 @@ function marcar(id: string): void {
 }
 
 function marcarTodos(): void {
-  seleccion.value = todosMarcados.value ? new Set() : new Set(pedidos.value.map((p) => p.id))
+  const nueva = new Set(seleccion.value)
+  const quitar = todosMarcados.value
+  for (const pedido of visibles.value) {
+    if (quitar) nueva.delete(pedido.id)
+    else nueva.add(pedido.id)
+  }
+  seleccion.value = nueva
 }
 </script>
 
@@ -189,6 +218,12 @@ function marcarTodos(): void {
 
     <RouterLink to="/admin" class="admin-back-inline">← Volver al menú</RouterLink>
 
+    <LupaBusqueda
+      v-model="consulta"
+      etiqueta="Buscar pedidos"
+      placeholder="Pedido, colonia, cliente, estado o estado de pago"
+    />
+
     <!-- La cuenta de lo palomeado: cuántas piezas de cada producto hay que surtir. -->
     <section v-if="contando" class="conteo" aria-live="polite">
       <p class="conteo-titulo">
@@ -212,7 +247,7 @@ function marcarTodos(): void {
     <SkeletonList v-if="cargando" :cantidad="4" />
 
     <!-- «Pedido» se queda fija: al desplazar a la derecha se sigue viendo de cuál es la fila. -->
-    <div v-else-if="pedidos.length > 0" class="tabla-envoltorio panel">
+    <div v-else-if="visibles.length > 0" class="tabla-envoltorio panel">
       <table class="tabla lineal panel una-fija">
         <thead>
           <tr>
@@ -237,7 +272,7 @@ function marcarTodos(): void {
           </tr>
         </thead>
         <tbody>
-          <template v-for="pedido in pedidos" :key="pedido.id">
+          <template v-for="pedido in visibles" :key="pedido.id">
             <tr
               :class="{
                 'con-detalle': abierto === pedido.id,
@@ -418,7 +453,13 @@ function marcarTodos(): void {
       </table>
     </div>
 
-    <p v-else class="empty-block">No hay pedidos por surtir. 🎉</p>
+    <p v-else class="empty-block">
+      {{
+        consulta.trim()
+          ? `Ningún pedido coincide con «${consulta.trim()}».`
+          : 'No hay pedidos por surtir. 🎉'
+      }}
+    </p>
 
     <BitacoraPedido
       v-if="bitacoraDe"

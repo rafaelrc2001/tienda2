@@ -93,6 +93,15 @@ model Cliente {
   /// Lo edita el dueno directo en la base; el codigo lo lee y nunca lo pisa.
   pctExtra      Decimal         @default(0) @db.Decimal(5, 2)
 
+  /// Cliente con credito: sus pedidos de la app nacen en `EstadoPago.CREDITO`,
+  /// ya autorizados para entregarse sin cobrar, en vez de esperar a que
+  /// Finanzas lo decida pedido por pedido. Lo marcan Administracion o Finanzas
+  /// desde Clientes. No toca el mostrador, que sigue siendo de contado.
+  credito     Boolean @default(false)
+  /// Plazo de pago en dias. Se captura junto al credito; todavia no lo usa
+  /// ninguna regla. Se conserva aunque se apague el credito.
+  diasCredito Int?
+
   /// Carrito a medias, sincronizado desde la Tienda (HU-13).
   ///
   /// `[{ productoId, cantidad }]`, nunca precios: es el mismo contenido que
