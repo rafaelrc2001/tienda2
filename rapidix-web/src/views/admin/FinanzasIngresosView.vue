@@ -8,6 +8,10 @@
  * El **total lo da la API**, sumado sobre el rango entero. Aquí no se suma:
  * la lista viaja con tope y la suma de lo que se ve saldría corta sin avisar.
  *
+ * Un corte de caja vale su cierre entero —efectivo, transferencia y
+ * monedero—, y la flecha despliega cuánto fue de cada uno, como la tabla de
+ * Turnos del PDV. Ese desglose también lo manda la API.
+ *
  * Las fechas son días del negocio (`AAAA-MM-DD`), no instantes: dónde empieza
  * el día lo decide la API con su zona horaria. Sin fechas contesta el día de
  * hoy y dice cuál fue, y con eso se rellenan los campos.
@@ -15,7 +19,7 @@
 import { onMounted, ref } from 'vue'
 import { http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
-import { dinero, fecha, nombreMetodoPago } from '@/utils/formato'
+import { dinero, fechaNumerica, nombreMetodoPago } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
 import PestanasFinanzas from './finanzas/PestanasFinanzas.vue'
 import type { ConceptoIngreso, Ingreso, ListadoIngresos } from '@/api/tipos'
@@ -44,6 +48,20 @@ const ingresos = ref<Ingreso[]>([])
 const total = ref(0)
 const cuantos = ref(0)
 const cargando = ref(true)
+
+/** El corte con el desglose abierto: uno a la vez, como en el PDV. */
+const detalleDe = ref<string | null>(null)
+
+function alternar(id: string): void {
+  detalleDe.value = detalleDe.value === id ? null : id
+}
+
+/** Un cierre que no fue todo en efectivo no tiene un solo método. */
+function metodoDe(ingreso: Ingreso): string {
+  const cierre = ingreso.cierre
+  if (cierre && (cierre.transferencia > 0 || cierre.billetera > 0)) return 'Varios'
+  return nombreMetodoPago(ingreso.metodo)
+}
 
 /** Cambiar un filtro tras otro deja respuestas viejas en el aire: gana la última. */
 let peticion = 0
@@ -143,8 +161,9 @@ function verHoy(): void {
         <strong class="total-monto">{{ dinero(total) }}</strong>
       </div>
 
+      <!-- La tabla de Turnos del PDV: encabezados en mayúsculas y renglones con aire. -->
       <div v-if="ingresos.length > 0" class="tabla-envoltorio">
-        <table class="tabla lineal">
+        <table class="tabla">
           <thead>
             <tr>
               <th>Fecha</th>
@@ -156,19 +175,71 @@ function verHoy(): void {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="ingreso in ingresos" :key="ingreso.id">
-              <td class="fecha">{{ fecha(ingreso.creadoEn) }}</td>
-              <td>
-                {{ NOMBRE_CONCEPTO[ingreso.concepto] ?? ingreso.concepto }}
-                <span v-if="ingreso.nota" class="sub">{{ ingreso.nota }}</span>
-              </td>
-              <td>
-                <span class="folio">{{ ingreso.referencia }}</span>
-              </td>
-              <td>{{ nombreMetodoPago(ingreso.metodo) }}</td>
-              <td>{{ ingreso.registradoPorNombre }}</td>
-              <td class="num importe">{{ dinero(ingreso.monto) }}</td>
-            </tr>
+            <template v-for="ingreso in ingresos" :key="ingreso.id">
+              <tr :class="{ 'con-detalle': detalleDe === ingreso.id }">
+                <td class="fecha">{{ fechaNumerica(ingreso.creadoEn) }}</td>
+                <td>
+                  {{ NOMBRE_CONCEPTO[ingreso.concepto] ?? ingreso.concepto }}
+                  <span v-if="ingreso.nota" class="sub">{{ ingreso.nota }}</span>
+                </td>
+                <td class="sin-salto">
+                  <!-- La misma flecha del PDV: abre el desglose del cierre debajo. -->
+                  <button
+                    v-if="ingreso.cierre"
+                    type="button"
+                    class="chevron"
+                    :class="{ abierto: detalleDe === ingreso.id }"
+                    :aria-expanded="detalleDe === ingreso.id"
+                    :aria-label="`Desglose de ${ingreso.referencia}`"
+                    @click="alternar(ingreso.id)"
+                  >
+                    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                      <path
+                        d="M4 6l4 4 4-4"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      />
+                    </svg>
+                  </button>
+                  <span class="folio">{{ ingreso.referencia }}</span>
+                </td>
+                <td>{{ metodoDe(ingreso) }}</td>
+                <td>{{ ingreso.registradoPorNombre }}</td>
+                <td class="num importe">{{ dinero(ingreso.monto) }}</td>
+              </tr>
+
+              <tr v-if="ingreso.cierre && detalleDe === ingreso.id" class="fila-detalle">
+                <td colspan="6">
+                  <!-- Los ingresos del turno como en el PDV, pero de lado: cada forma de
+                       pago es una columna y la última, separada, el total cobrado. -->
+                  <div class="detalle-pedido">
+                    <table class="tabla-lineas cierre">
+                      <thead>
+                        <tr>
+                          <th class="num">Efectivo</th>
+                          <th class="num">Transferencia</th>
+                          <th class="num">Billetera electrónica</th>
+                          <th class="num total-cierre">
+                            Ventas cobradas en mostrador ({{ ingreso.cierre.pedidos }})
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td class="num">{{ dinero(ingreso.cierre.efectivo) }}</td>
+                          <td class="num">{{ dinero(ingreso.cierre.transferencia) }}</td>
+                          <td class="num">{{ dinero(ingreso.cierre.billetera) }}</td>
+                          <td class="num total-cierre">{{ dinero(ingreso.monto) }}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </td>
+              </tr>
+            </template>
           </tbody>
         </table>
       </div>
@@ -279,9 +350,32 @@ function verHoy(): void {
   min-width: 640px;
 }
 
-.tabla .fecha {
+.tabla .fecha,
+.tabla .sin-salto {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+}
+
+/* El desglose de lado: los títulos no se parten y cada columna respira. */
+.tabla-lineas.cierre th,
+.tabla-lineas.cierre td {
+  white-space: nowrap;
+  padding-left: 16px;
+}
+
+/* El total en negritas y una línea marcada que lo separa del desglose. */
+.tabla-lineas.cierre .total-cierre {
+  font-family: var(--font-heading);
+  font-weight: 800;
+  color: var(--ink);
+  border-left: 2px solid var(--ink);
+}
+
+.sub {
+  display: block;
+  font-size: 10.5px;
+  color: var(--muted);
+  margin-top: 2px;
 }
 
 .tope {
