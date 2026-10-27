@@ -940,10 +940,14 @@ model Pedido {
   /// cashback si la entrega es parcial.
   porcentajeCashback   Decimal   @default(0) @db.Decimal(5, 2)
   cashbackAcreditadoEn DateTime?
-  /// Desde cuando es cuenta por cobrar: entregado a credito y con saldo. En
-  /// ruta se estampa al pulsar "Entrega aceptada"; en tienda, al entregarse.
+  /// Desde cuando es cuenta por cobrar: entregado a credito y con saldo. Se
+  /// estampa al entregarse, en ruta o en tienda.
   /// No se borra al cobrarse: una CXC cobrada sigue siendo historia.
   cxcDesde             DateTime?
+  /// Los dias de credito del cliente, congelados al entrar a CXC: vence el
+  /// dia de `cxcDesde` mas estos dias. Cambiarle el plazo al cliente no mueve
+  /// lo que ya debe. `null` si no tenia plazo: la cuenta no vence.
+  diasCredito          Int?
   estado           EstadoPedido @default(CONFIRMADO)
   /// Snapshot de la direccion de envio al momento del pedido.
   direccion        Json

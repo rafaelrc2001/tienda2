@@ -857,7 +857,7 @@ export class PdvService {
 
       if (pedido.estadoPago === EstadoPago.CREDITO) {
         if (pedido.cxcDesde === null) {
-          await tx.pedido.update({ where: { id: pedidoId }, data: { cxcDesde: new Date() } });
+          await FlujoPedidosService.entrarACxc(tx, pedidoId, new Date());
         }
       } else {
         await this.finanzas.marcarPagado(tx, pedidoId, quien, 'Cobrado en el punto de venta');

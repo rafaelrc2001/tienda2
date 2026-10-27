@@ -1202,8 +1202,17 @@ export interface PedidoCxc {
   folio: string
   clienteNombre: string
   clienteTelefono: string
-  /** Desde cuándo es cuenta por cobrar. */
+  /** Desde cuándo es cuenta por cobrar: el día de la entrega. */
   cxcDesde: string
+  /** El plazo con que entró a CXC. `null` sin plazo: no vence. */
+  diasCredito: number | null
+  /** Día en que vence (`AAAA-MM-DD`). `null` sin plazo. */
+  vence: string | null
+  /**
+   * Días de hoy al vencimiento: positivo lo que le queda, 0 el día que vence,
+   * negativo los que lleva vencida. `null` sin plazo o ya cobrada.
+   */
+  diasParaVencer: number | null
   /** El reparto en que se entregó. `null` si se recogió en tienda. */
   repartoFolio: string | null
   estadoPago: EstadoPago

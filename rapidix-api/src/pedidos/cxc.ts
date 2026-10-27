@@ -49,6 +49,42 @@ export function saldoDelPedido(pedido: PedidoPorCobrar): Decimal {
   return saldo.lte(TOLERANCIA) ? new Decimal(0) : saldo;
 }
 
+/** Cuando vence una cuenta por cobrar y cuantos dias le faltan. */
+export interface Vencimiento {
+  /** El dia en que vence, `AAAA-MM-DD`: el de entrega mas los dias de credito. */
+  vence: string;
+  /**
+   * Dias de hoy al vencimiento: positivo lo que le queda, 0 el dia que vence
+   * y negativo los que lleva vencida (-1, -2...).
+   */
+  dias: number;
+}
+
+/** `AAAA-MM-DD` como dia entero, para restar y sumar dias sin horas ni zonas. */
+function diaComoNumero(dia: string): number {
+  const [anio, mes, d] = dia.split('-').map(Number);
+  return Date.UTC(anio, mes - 1, d) / 86_400_000;
+}
+
+/**
+ * El vencimiento de una cuenta: el dia de entrega (`desde`, ya como dia del
+ * negocio) mas sus dias de credito, comparado con `hoy`. Entregada el 21 con
+ * 5 dias vence el 26: ese dia va en 0, el 27 en -1. Sin plazo no hay
+ * vencimiento.
+ */
+export function vencimiento(
+  desde: string,
+  diasCredito: number | null,
+  hoy: string,
+): Vencimiento | null {
+  if (diasCredito === null) return null;
+  const vence = diaComoNumero(desde) + diasCredito;
+  return {
+    vence: new Date(vence * 86_400_000).toISOString().slice(0, 10),
+    dias: vence - diaComoNumero(hoy),
+  };
+}
+
 /**
  * Si un pago cabe en lo que el pedido debe. Un pago salda la cuenta, no crea
  * saldo a favor: lo que sobre no tiene donde quedar escrito.
