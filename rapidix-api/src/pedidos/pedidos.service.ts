@@ -389,8 +389,15 @@ export class PedidosService {
           message: 'Escribe con cuánto paga: en el punto de venta el pedido se cobra completo.',
         });
       }
+      // Un cliente con credito se salta esa espera: su pedido de la app nace
+      // ya autorizado para entregarse sin cobrar, como si Finanzas lo hubiera
+      // pasado a CREDITO. Un prospecto todavia no puede tenerlo.
       const estadoPago =
-        aPagar.greaterThan(0) && !deContado ? EstadoPago.PAGO_PENDIENTE : EstadoPago.PAGADO;
+        !aPagar.greaterThan(0) || deContado
+          ? EstadoPago.PAGADO
+          : cliente?.credito
+            ? EstadoPago.CREDITO
+            : EstadoPago.PAGO_PENDIENTE;
       // Lo que se lleva en mostrador y lo que se recoge en una tienda elegida
       // sale del inventario de esa tienda, no de bodega.
       const saleDeLaTienda =

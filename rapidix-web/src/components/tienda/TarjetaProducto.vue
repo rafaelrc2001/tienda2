@@ -176,11 +176,17 @@ function alSalirDelCampo(): void {
         </button>
       </div>
 
-      <!-- HU-10: solo aparece cuando ya se lleva el 80 % del siguiente piso. -->
+      <!--
+        HU-10: aparece cuando ya se lleva el 85 % del siguiente piso, en
+        cualquier lista. Si esa lista no sale más barata no hay ahorro que
+        prometer y la frase se queda en el precio.
+      -->
       <div v-if="upsell" class="upsell">
         <p>
           Te faltan <strong>{{ upsell.faltan }} {{ producto.unidad }}</strong> para pagar
-          {{ dinero(upsell.precioSiguiente) }} c/u y ahorrar {{ dinero(upsell.ahorro) }}
+          {{ dinero(upsell.precioSiguiente) }} c/u<template v-if="upsell.ahorro > 0">
+            y ahorrar {{ dinero(upsell.ahorro) }}</template
+          >
         </p>
         <button
           type="button"
@@ -202,7 +208,9 @@ function alSalirDelCampo(): void {
           class="piso"
           :class="{ puesto: cantidad === atajo.piso, promesa: hayPrecioEscalonado }"
           :disabled="maximo !== null && atajo.piso > maximo"
-          :title="atajo.precio !== null ? `Desde ${atajo.piso}: ${dinero(atajo.precio)} c/u` : undefined"
+          :title="
+            atajo.precio !== null ? `Desde ${atajo.piso}: ${dinero(atajo.precio)} c/u` : undefined
+          "
           :aria-label="
             atajo.precio !== null
               ? `Llevar ${atajo.piso} a ${dinero(atajo.precio)} cada uno`

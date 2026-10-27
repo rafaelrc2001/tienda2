@@ -10,7 +10,13 @@ import { http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
 import { dinero, fecha } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
-import type { ClienteAdmin, PaginaClientes, PaginaProspectos, ProspectoAdmin } from '@/api/tipos'
+import type {
+  ActualizarCredito,
+  ClienteAdmin,
+  PaginaClientes,
+  PaginaProspectos,
+  ProspectoAdmin,
+} from '@/api/tipos'
 
 const ui = useUiStore()
 
@@ -93,6 +99,54 @@ async function cargar(): Promise<void> {
     ui.errorDeApi(fallo)
   } finally {
     cargando.value = false
+  }
+}
+
+/** Clientes con un cambio de crédito en vuelo: su fila no se toca mientras. */
+const guardandoCredito = ref(new Set<string>())
+
+/**
+ * Guarda el crédito de una fila y la reemplaza con lo que devolvió la API.
+ * Devuelve si se guardó: si no, quien llamó regresa su control a lo que hay
+ * en el servidor, para que el check no mienta sobre lo guardado.
+ */
+async function guardarCredito(cliente: ClienteAdmin, cambio: ActualizarCredito): Promise<boolean> {
+  guardandoCredito.value.add(cliente.id)
+  try {
+    const guardado = await http.patch<ClienteAdmin>(`/admin/clientes/${cliente.id}/credito`, cambio)
+    clientes.value = clientes.value.map((c) => (c.id === guardado.id ? guardado : c))
+    if (cambio.credito !== undefined) {
+      ui.exito(
+        cambio.credito
+          ? `${guardado.nombre}: sus pedidos nacerán a crédito.`
+          : `${guardado.nombre} ya no tiene crédito.`,
+      )
+    }
+    return true
+  } catch (fallo) {
+    ui.errorDeApi(fallo)
+    return false
+  } finally {
+    guardandoCredito.value.delete(cliente.id)
+  }
+}
+
+async function alCambiarCredito(cliente: ClienteAdmin, evento: Event): Promise<void> {
+  const check = evento.target as HTMLInputElement
+  if (!(await guardarCredito(cliente, { credito: check.checked }))) check.checked = cliente.credito
+}
+
+/**
+ * Los días se guardan al salir del campo. Vacío los borra; lo que no sea un
+ * entero lo rechaza la API con su mensaje.
+ */
+async function alCambiarDias(cliente: ClienteAdmin, evento: Event): Promise<void> {
+  const entrada = evento.target as HTMLInputElement
+  const texto = entrada.value.trim()
+  const dias = texto === '' ? null : Number(texto)
+  if (dias === cliente.diasCredito) return
+  if (!(await guardarCredito(cliente, { diasCredito: dias }))) {
+    entrada.value = cliente.diasCredito === null ? '' : String(cliente.diasCredito)
   }
 }
 </script>
@@ -198,6 +252,8 @@ async function cargar(): Promise<void> {
               <th>Último pedido</th>
               <th>Alta</th>
               <th>Fuente</th>
+              <th class="centro">Crédito</th>
+              <th class="num">Días</th>
             </tr>
           </thead>
           <tbody>
@@ -210,9 +266,37 @@ async function cargar(): Promise<void> {
               </td>
               <td class="num">{{ cliente.pedidos }}</td>
               <td class="num">{{ dinero(cliente.totalGastado) }}</td>
-              <td>{{ cliente.ultimoPedido ? fecha(cliente.ultimoPedido) : 'Nunca ha comprado' }}</td>
+              <td>
+                {{ cliente.ultimoPedido ? fecha(cliente.ultimoPedido) : 'Nunca ha comprado' }}
+              </td>
               <td>{{ fecha(cliente.creado) }}</td>
               <td>{{ cliente.fuenteCodigo ?? '—' }}</td>
+              <td class="centro">
+                <input
+                  type="checkbox"
+                  class="check-credito"
+                  :checked="cliente.credito"
+                  :disabled="guardandoCredito.has(cliente.id)"
+                  :aria-label="`${cliente.nombre} tiene crédito`"
+                  @change="alCambiarCredito(cliente, $event)"
+                />
+              </td>
+              <td class="num">
+                <!-- Se captura aunque el check esté apagado: es dato del cliente. -->
+                <input
+                  class="dias-credito"
+                  type="number"
+                  inputmode="numeric"
+                  min="1"
+                  max="365"
+                  step="1"
+                  placeholder="—"
+                  :value="cliente.diasCredito ?? ''"
+                  :disabled="guardandoCredito.has(cliente.id)"
+                  :aria-label="`Días de crédito de ${cliente.nombre}`"
+                  @change="alCambiarDias(cliente, $event)"
+                />
+              </td>
             </tr>
           </tbody>
         </table>
@@ -366,6 +450,34 @@ async function cargar(): Promise<void> {
 .num {
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+.centro {
+  text-align: center;
+}
+
+.check-credito {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--sage);
+  cursor: pointer;
+}
+
+/* Blanco sobre la fila: se ve dónde se escribe. */
+.dias-credito {
+  width: 58px;
+  padding: 4px 6px;
+  border: 1.5px solid var(--line);
+  border-radius: 8px;
+  background: var(--white);
+  font: inherit;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.check-credito:disabled,
+.dias-credito:disabled {
+  opacity: 0.5;
 }
 
 .paginacion {

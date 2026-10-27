@@ -1006,6 +1006,18 @@ export interface DetalleCorte extends DetalleHistorial {
  */
 export type ConceptoIngreso = 'ENTREGA' | 'CXC' | 'PDV'
 
+/**
+ * Lo que entró en todo el cierre de un turno, por forma de pago, como en la
+ * tabla de Turnos del PDV. El efectivo es el que Finanzas aceptó.
+ */
+export interface CierreIngreso {
+  /** Pedidos cobrados en el turno. */
+  pedidos: number
+  efectivo: number
+  transferencia: number
+  billetera: number
+}
+
 /** Un renglón del libro de lo que Finanzas aceptó. */
 export interface Ingreso {
   id: string
@@ -1013,11 +1025,14 @@ export interface Ingreso {
   concepto: ConceptoIngreso
   /** Folio de reparto (ENTREGA), de pedido (CXC) o de turno (PDV). */
   referencia: string
+  /** En el corte de caja de un turno, el cierre entero: efectivo, transferencia y billetera. */
   monto: number
   metodo: MetodoPago
   nota: string | null
   /** Quién lo aceptó. */
   registradoPorNombre: string
+  /** Solo en el corte de caja de un turno (no en sus abonos): su desglose. */
+  cierre: CierreIngreso | null
 }
 
 /** Respuesta de `GET /admin/finanzas/ingresos`. */
@@ -1604,6 +1619,16 @@ export interface ClienteAdmin {
   creado: string
   fuenteCodigo: string | null
   nivel: string | null
+  /** Sus pedidos de la app nacen a crédito. */
+  credito: boolean
+  /** Plazo de pago en días; null si no se ha capturado. */
+  diasCredito: number | null
+}
+
+/** Cuerpo de PATCH /admin/clientes/:id/credito: solo lo que cambia. */
+export interface ActualizarCredito {
+  credito?: boolean
+  diasCredito?: number | null
 }
 
 export interface PaginaClientes {

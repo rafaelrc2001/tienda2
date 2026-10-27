@@ -1,8 +1,10 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ClientesService } from './clientes.service';
 import {
+  ActualizarCreditoDto,
   BuscarClientesDto,
+  ClienteAdminDto,
   PaginaClientesDto,
   PaginaProspectosDto,
 } from './dto/perfil.dto';
@@ -36,5 +38,14 @@ export class AdminClientesController {
   @Get('prospectos')
   prospectos(@Query() filtros: BuscarClientesDto): Promise<PaginaProspectosDto> {
     return this.clientes.listarProspectosParaAdmin(filtros);
+  }
+
+  /** Credito del cliente: el check y su plazo en dias. */
+  @Patch(':id/credito')
+  actualizarCredito(
+    @Param('id') id: string,
+    @Body() dto: ActualizarCreditoDto,
+  ): Promise<ClienteAdminDto> {
+    return this.clientes.actualizarCredito(id, dto);
   }
 }
