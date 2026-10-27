@@ -68,6 +68,11 @@ export interface ClientePdvDto {
   saldoBilletera: number;
   /** La direccion de su perfil en una linea, o `null` si no esta completa. */
   direccion: string | null;
+  /**
+   * Tiene credito: su pedido nace a credito y no se le cobra en caja. Un
+   * prospecto nunca lo tiene.
+   */
+  credito: boolean;
 }
 
 export interface TurnoDto {
@@ -622,9 +627,11 @@ export class PdvService {
     const candidatos = PdvService.variantesDe(telefono);
     const cliente = await this.prisma.cliente.findFirst({
       where: { telefono: { in: candidatos } },
-      select: { ...CAMPOS_DIRECCION, saldoCashback: true },
+      select: { ...CAMPOS_DIRECCION, saldoCashback: true, credito: true },
     });
-    if (cliente) return PdvService.aCliente(cliente, false, cliente.saldoCashback.toNumber());
+    if (cliente) {
+      return PdvService.aCliente(cliente, false, cliente.saldoCashback.toNumber(), cliente.credito);
+    }
 
     const prospecto = await this.prisma.prospecto.findFirst({
       where: { telefono: { in: candidatos } },
@@ -646,7 +653,7 @@ export class PdvService {
     const [clientes, prospectos] = await Promise.all([
       this.prisma.cliente.findMany({
         where,
-        select: { ...CAMPOS_DIRECCION, saldoCashback: true },
+        select: { ...CAMPOS_DIRECCION, saldoCashback: true, credito: true },
         orderBy: { ultimoPedido: { sort: 'desc', nulls: 'last' } },
         take: LIMITE_SUGERENCIAS,
       }),
@@ -658,7 +665,7 @@ export class PdvService {
       }),
     ]);
     return [
-      ...clientes.map((c) => PdvService.aCliente(c, false, c.saldoCashback.toNumber())),
+      ...clientes.map((c) => PdvService.aCliente(c, false, c.saldoCashback.toNumber(), c.credito)),
       ...prospectos.map((p) => PdvService.aCliente(p, true, 0)),
     ].slice(0, LIMITE_SUGERENCIAS);
   }
@@ -743,7 +750,8 @@ export class PdvService {
    *
    * Solo se confirma lo que la tienda del turno tiene (409
    * `SIN_EXISTENCIA_EN_TIENDA`), se lo lleve o se le mande: el punto de venta
-   * vende desde su tienda. Y se cobra de contado: nace PAGADO.
+   * vende desde su tienda. Y se cobra de contado: nace PAGADO, salvo al
+   * cliente con credito, que nace a credito y se le cobra desde CXC.
    */
   async crearPedido(
     turnoId: string,
@@ -1173,6 +1181,7 @@ export class PdvService {
     perfil: PerfilConDireccion,
     esNuevo: boolean,
     saldoBilletera: number,
+    credito = false,
   ): ClientePdvDto {
     const { calle, colonia, cp, ciudad } = perfil;
     const completa = [calle, colonia, cp, ciudad].every((campo) => campo?.trim());
@@ -1183,6 +1192,7 @@ export class PdvService {
       esNuevo,
       saldoBilletera,
       direccion: completa ? `${calle}, ${colonia}, CP ${cp}, ${ciudad}` : null,
+      credito,
     };
   }
 

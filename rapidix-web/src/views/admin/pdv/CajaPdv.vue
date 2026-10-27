@@ -167,12 +167,22 @@ const puedeConfirmar = computed(
 const hayQueCobrar = computed(() => previa.value !== null && previa.value.aPagar > 0)
 
 /**
+ * Cliente con crédito: no se le cobra en caja. El pedido nace a crédito y se
+ * le cobra desde Finanzas → CXC; lo decide la API con el check de su ficha.
+ */
+const aCredito = computed(() => hayQueCobrar.value && cliente.value?.credito === true)
+
+/**
  * En el mostrador el efectivo se recibe en el momento: sin decir con cuánto
  * paga no se confirma. La API lo deja opcional porque en la app el cliente
  * todavía no tiene el billete en la mano.
  */
 const faltaPagoCon = computed(
-  () => hayQueCobrar.value && metodoPago.value === 'EFECTIVO' && pagoCon.value === '',
+  () =>
+    hayQueCobrar.value &&
+    !aCredito.value &&
+    metodoPago.value === 'EFECTIVO' &&
+    pagoCon.value === '',
 )
 
 /** El cajero tecleó un monto de billetera que la API no acepta tal cual. */
@@ -1209,11 +1219,15 @@ function limpiar(): void {
             <p v-if="previa && !hayQueCobrar" class="nota-pago">
               La billetera cubre el pedido completo: no hay nada más que cobrar.
             </p>
+            <p v-else-if="aCredito" class="nota-pago">
+              Cliente con crédito: no se cobra en caja. El pedido queda a crédito y se cobra desde
+              Finanzas → CXC.
+            </p>
             <label class="opcion">
               <input v-model="metodoPago" type="radio" value="EFECTIVO" :disabled="bloqueada" />
               Efectivo
             </label>
-            <div v-if="metodoPago === 'EFECTIVO' && hayQueCobrar" class="zona-captura">
+            <div v-if="metodoPago === 'EFECTIVO' && hayQueCobrar && !aCredito" class="zona-captura">
               <label class="form-label" for="pdv-pago-con">¿Con cuánto paga?</label>
               <input
                 id="pdv-pago-con"

@@ -96,7 +96,7 @@ model Cliente {
   /// Cliente con credito: sus pedidos de la app nacen en `EstadoPago.CREDITO`,
   /// ya autorizados para entregarse sin cobrar, en vez de esperar a que
   /// Finanzas lo decida pedido por pedido. Lo marcan Administracion o Finanzas
-  /// desde Clientes. No toca el mostrador, que sigue siendo de contado.
+  /// desde Clientes. Tambien los del mostrador: no se le cobra en caja.
   credito     Boolean @default(false)
   /// Plazo de pago en dias. Se captura junto al credito; todavia no lo usa
   /// ninguna regla. Se conserva aunque se apague el credito.
