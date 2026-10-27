@@ -198,7 +198,23 @@ export class FlujoPedidosService {
     if (pedido.estadoPago !== EstadoPago.CREDITO || pedido.cxcDesde !== null) return;
     if (saldoDelPedido(pedido).isZero()) return;
 
-    await tx.pedido.update({ where: { id }, data: { cxcDesde: new Date() } });
+    await FlujoPedidosService.entrarACxc(tx, id, new Date());
+  }
+
+  /**
+   * Estampa la entrada a CXC: la fecha y el plazo del cliente en ese momento,
+   * congelado en el pedido. Es el unico sitio que escribe `cxcDesde`; quien
+   * llama ya comprobo que es credito con saldo.
+   */
+  static async entrarACxc(tx: Prisma.TransactionClient, id: string, desde: Date): Promise<void> {
+    const { cliente } = await tx.pedido.findUniqueOrThrow({
+      where: { id },
+      select: { cliente: { select: { diasCredito: true } } },
+    });
+    await tx.pedido.update({
+      where: { id },
+      data: { cxcDesde: desde, diasCredito: cliente.diasCredito },
+    });
   }
 
   /**

@@ -1,5 +1,5 @@
 import { Prisma } from '@prisma/client';
-import { pagadoDelPedido, pagoCabe, PedidoPorCobrar, saldoDelPedido } from './cxc';
+import { pagadoDelPedido, pagoCabe, PedidoPorCobrar, saldoDelPedido, vencimiento } from './cxc';
 
 const D = (n: number | string) => new Prisma.Decimal(n);
 
@@ -61,5 +61,36 @@ describe('pagoCabe', () => {
 
   it('no cabe nada en un pedido ya saldado', () => {
     expect(pagoCabe(pedido({ pagos: [{ monto: D(250) }] }), D(1))).toBe(false);
+  });
+});
+
+describe('vencimiento', () => {
+  // Entregado el 21 con 5 dias: vence el 26.
+  const del21 = (hoy: string) => vencimiento('2026-10-21', 5, hoy);
+
+  it('vence el dia de entrega mas los dias de credito', () => {
+    expect(del21('2026-10-21')?.vence).toBe('2026-10-26');
+  });
+
+  it('antes de vencer cuenta los dias que le quedan', () => {
+    expect(del21('2026-10-21')?.dias).toBe(5);
+    expect(del21('2026-10-25')?.dias).toBe(1);
+  });
+
+  it('el dia que vence va en 0', () => {
+    expect(del21('2026-10-26')?.dias).toBe(0);
+  });
+
+  it('despues cuenta en negativo los dias vencida', () => {
+    expect(del21('2026-10-27')?.dias).toBe(-1);
+    expect(del21('2026-10-29')?.dias).toBe(-3);
+  });
+
+  it('cruza de mes', () => {
+    expect(vencimiento('2026-10-30', 5, '2026-11-04')).toEqual({ vence: '2026-11-04', dias: 0 });
+  });
+
+  it('sin plazo no vence', () => {
+    expect(vencimiento('2026-10-21', null, '2026-10-30')).toBeNull();
   });
 });

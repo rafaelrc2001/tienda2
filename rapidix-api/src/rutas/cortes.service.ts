@@ -49,6 +49,7 @@ import {
 import { abonoPendiente, adeudoDelCorte, estadoTrasAceptar, TOLERANCIA } from './estado-del-corte';
 import { IngresosService } from '../ingresos/ingresos.service';
 import { FinanzasService } from '../pedidos/finanzas.service';
+import { FlujoPedidosService } from '../pedidos/flujo-pedidos.service';
 import { pagadoDelPedido } from '../pedidos/cxc';
 import { destinoAlAceptar, DestinoDelPedido } from './dinero-del-corte';
 
@@ -1357,7 +1358,7 @@ export class CortesService {
         if (destino === DestinoDelPedido.PAGADO) {
           if (await this.finanzas.marcarPagado(tx, pedido.id, quien, nota)) pagados++;
         } else if (destino === DestinoDelPedido.CXC && pedido.cxcDesde === null) {
-          await tx.pedido.update({ where: { id: pedido.id }, data: { cxcDesde: ahora } });
+          await FlujoPedidosService.entrarACxc(tx, pedido.id, ahora);
           aCxc++;
         }
       }

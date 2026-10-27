@@ -5,7 +5,8 @@ import { UsuarioAutenticado } from '../auth/jwt-payload';
 import { IngresosService } from '../ingresos/ingresos.service';
 import { actorDe } from './bitacora';
 import { importeDeLinea } from '../catalogo/precios';
-import { pagadoDelPedido, pagoCabe, saldoDelPedido } from './cxc';
+import { diaEn, zonaDelNegocio } from '../ingresos/rango-de-fechas';
+import { pagadoDelPedido, pagoCabe, saldoDelPedido, vencimiento } from './cxc';
 import { RegistrarPagoDto } from './dto/registrar-pago.dto';
 import { FinanzasService } from './finanzas.service';
 import { FlujoPedidosService } from './flujo-pedidos.service';
@@ -18,8 +19,18 @@ export interface PedidoCxcDto {
   folio: string;
   clienteNombre: string;
   clienteTelefono: string;
-  /** Desde cuando es cuenta por cobrar. */
+  /** Desde cuando es cuenta por cobrar: el dia de la entrega. */
   cxcDesde: string;
+  /** El plazo con que entro a CXC. `null` sin plazo: no vence. */
+  diasCredito: number | null;
+  /** Dia en que vence (`AAAA-MM-DD`). `null` sin plazo. */
+  vence: string | null;
+  /**
+   * Dias de hoy al vencimiento, en el dia del negocio: positivo lo que le
+   * queda, 0 el dia que vence, negativo los que lleva vencida. `null` sin
+   * plazo o ya cobrada: una cuenta saldada ya no corre.
+   */
+  diasParaVencer: number | null;
   /** El reparto en que se entrego. `null` si se recogio en tienda. */
   repartoFolio: string | null;
   estadoPago: EstadoPago;
@@ -96,8 +107,8 @@ type PedidoConCuenta = Prisma.PedidoGetPayload<{ include: typeof INCLUIR_CXC }>;
  * Administracion -> Finanzas -> CXC: los pedidos que se entregaron a credito y
  * todavia deben, y los pagos con que se van cubriendo.
  *
- * Un pedido entra aqui cuando Finanzas acepta su entrega (o al entregarse, si
- * se recogio en tienda), con `cxcDesde`. De ahi solo sale pagando: cada pago
+ * Un pedido entra aqui al entregarse, con `cxcDesde` y el plazo del cliente
+ * congelado en `diasCredito`; de ahi sale su vencimiento. Solo sale pagando: cada pago
  * deja su renglon en el libro de ingresos, y el que salda la cuenta deja el
  * pedido pagado por el mismo camino que el boton "Pagado" de Finanzas.
  */
@@ -139,8 +150,9 @@ export class CxcService {
       .sub(valen._sum.pagadoConBilletera ?? cero)
       .sub(pagado._sum.monto ?? cero);
 
+    const hoy = diaEn(new Date(), zonaDelNegocio());
     return {
-      pedidos: pedidos.map((p) => CxcService.aDto(p)),
+      pedidos: pedidos.map((p) => CxcService.aDto(p, hoy)),
       conteos,
       porCobrar: Decimal.max(0, porCobrar).toNumber(),
     };
@@ -236,17 +248,23 @@ export class CxcService {
       where: { id: pedidoId },
       include: INCLUIR_CXC,
     });
-    return CxcService.aDto(pedido);
+    return CxcService.aDto(pedido, diaEn(new Date(), zonaDelNegocio()));
   }
 
-  private static aDto(pedido: PedidoConCuenta): PedidoCxcDto {
+  /** `hoy` es el dia del negocio, el mismo para toda la lista. */
+  private static aDto(pedido: PedidoConCuenta, hoy: string): PedidoCxcDto {
+    // Solo llegan pedidos con `cxcDesde`: lo dice el filtro de quien llama.
+    const desde = pedido.cxcDesde ?? pedido.creadoEn;
+    const plazo = vencimiento(diaEn(desde, zonaDelNegocio()), pedido.diasCredito, hoy);
     return {
       id: pedido.id,
       folio: pedido.folio,
       clienteNombre: pedido.cliente.nombre,
       clienteTelefono: pedido.cliente.telefono,
-      // Solo llegan pedidos con `cxcDesde`: lo dice el filtro de quien llama.
-      cxcDesde: (pedido.cxcDesde ?? pedido.creadoEn).toISOString(),
+      cxcDesde: desde.toISOString(),
+      diasCredito: pedido.diasCredito,
+      vence: plazo?.vence ?? null,
+      diasParaVencer: plazo && pedido.estadoPago === EstadoPago.CREDITO ? plazo.dias : null,
       repartoFolio: pedido.entregaRuta?.folio ?? null,
       estadoPago: pedido.estadoPago,
       total: pedido.total.toNumber(),

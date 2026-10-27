@@ -18,7 +18,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { ErrorApi, http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
 import { filtrarPorTexto } from '@/utils/busqueda'
-import { dinero, fechaDia, fechaNumerica, nombreMetodoPago } from '@/utils/formato'
+import { diaNumerico, dinero, fechaDia, fechaNumerica, nombreMetodoPago } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
 import LupaBusqueda from '@/components/LupaBusqueda.vue'
 import PestanasFinanzas from './finanzas/PestanasFinanzas.vue'
@@ -200,6 +200,9 @@ async function registrarPago(): Promise<void> {
               <th>Entrega</th>
               <th>Cliente</th>
               <th>En CXC desde</th>
+              <th class="num">Días de crédito</th>
+              <th>Vence</th>
+              <th v-if="filtro === 'con-saldo'" class="num">Días</th>
               <th class="num">Total</th>
               <th class="num">Pagos</th>
               <th class="num">Saldo</th>
@@ -235,6 +238,23 @@ async function registrarPago(): Promise<void> {
                 <td>{{ pedido.repartoFolio ?? 'Recogido en tienda' }}</td>
                 <td>{{ pedido.clienteNombre }}</td>
                 <td class="fecha">{{ fechaDia(pedido.cxcDesde) }}</td>
+                <td class="num">{{ pedido.diasCredito ?? '—' }}</td>
+                <td class="fecha">{{ pedido.vence ? diaNumerico(pedido.vence) : 'Sin plazo' }}</td>
+                <!-- Lo calcula la API con el día del negocio: positivo lo que le queda,
+                     0 el día que vence, negativo los que lleva vencida. -->
+                <td v-if="filtro === 'con-saldo'" class="num">
+                  <span
+                    v-if="pedido.diasParaVencer !== null"
+                    class="dias"
+                    :class="{
+                      vencida: pedido.diasParaVencer < 0,
+                      'vence-hoy': pedido.diasParaVencer === 0,
+                    }"
+                  >
+                    {{ pedido.diasParaVencer }}
+                  </span>
+                  <template v-else>—</template>
+                </td>
                 <td class="num">{{ dinero(pedido.total) }}</td>
                 <td class="num">{{ dinero(pedido.pagado) }}</td>
                 <td class="num importe" :class="{ debe: pedido.saldo > 0 }">
@@ -254,7 +274,7 @@ async function registrarPago(): Promise<void> {
 
               <!-- Qué se llevó, cómo se ha cubierto y cuándo pagó cada vez. -->
               <tr v-if="abierto === pedido.id" class="fila-detalle">
-                <td :colspan="filtro === 'con-saldo' ? 8 : 7">
+                <td :colspan="filtro === 'con-saldo' ? 11 : 9">
                   <!-- El mismo detalle que en Pedidos: renglones, cuentas y notas. -->
                   <div class="detalle-pedido">
                     <ul class="renglones">
@@ -412,7 +432,22 @@ async function registrarPago(): Promise<void> {
 }
 
 .tabla {
-  min-width: 760px;
+  min-width: 980px;
+}
+
+/* Los días al vencimiento: en negritas, oro el día que vence y rojo ya vencida. */
+.dias {
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.dias.vence-hoy {
+  color: var(--gold);
+}
+
+.dias.vencida {
+  color: var(--rojo);
 }
 
 .tabla .fecha {

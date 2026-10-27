@@ -107,6 +107,16 @@ export function fechaDia(iso: string | null | undefined): string {
   return fechaNumerica(iso).split(' ')[0]
 }
 
+/**
+ * Día del negocio `AAAA-MM-DD` → `26/10/26`, como `fechaDia`. Se parte el
+ * texto y no se pasa por `Date`: leído como medianoche UTC, en México
+ * saldría el día anterior.
+ */
+export function diaNumerico(dia: string | null | undefined): string {
+  const [anio, mes, d] = (dia ?? '').split('-')
+  return anio && mes && d ? `${d}/${mes}/${anio.slice(2)}` : ''
+}
+
 /** `TRANSFERENCIA` → `Transferencia`. Lo que llega del enum de la API, legible. */
 export function nombreMetodoPago(metodo: string): string {
   return metodo === 'TRANSFERENCIA' ? 'Transferencia' : 'Efectivo'
