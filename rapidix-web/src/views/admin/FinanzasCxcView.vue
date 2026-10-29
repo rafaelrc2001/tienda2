@@ -199,7 +199,7 @@ async function registrarPago(): Promise<void> {
               <th>Pedido</th>
               <th>Entrega</th>
               <th>Cliente</th>
-              <th>En CXC desde</th>
+              <th>Fecha de entrega</th>
               <th class="num">Días de crédito</th>
               <th>Vence</th>
               <th v-if="filtro === 'con-saldo'" class="num">Días</th>
