@@ -142,23 +142,23 @@ async function aceptar(): Promise<void> {
                 <td>Billetera electrónica</td>
                 <td class="num">{{ dinero(turno.totales.billetera) }}</td>
               </tr>
-              <!--
-                Junto a las formas de pago, pero fuera del total: se vendió y nadie pagó en caja;
-                se cobra desde CXC.
-              -->
-              <tr class="credito">
-                <td>
-                  Crédito{{ turno.totales.aCredito ? ` (${turno.totales.aCredito})` : '' }}
-                  <span class="aclaracion">(no entra a caja)</span>
-                </td>
-                <td class="num">{{ dinero(turno.totales.credito) }}</td>
-              </tr>
             </tbody>
             <!-- El total general va al final, separado: es la suma de las formas de pago. -->
             <tfoot>
               <tr class="total-general">
                 <td>Ventas cobradas en mostrador ({{ turno.totales.cobrados }})</td>
                 <td class="num">{{ dinero(turno.totales.ventas) }}</td>
+              </tr>
+              <!--
+                Debajo del total y aparte: se vendió pero nadie pagó en caja, así que no
+                se mezcla con las formas de pago. Se cobra desde CXC.
+              -->
+              <tr class="credito">
+                <td>
+                  Quedó a crédito ({{ turno.totales.aCredito }})
+                  <span class="aclaracion">(no entra a caja)</span>
+                </td>
+                <td class="num">{{ dinero(turno.totales.credito) }}</td>
               </tr>
             </tfoot>
           </table>
@@ -386,9 +386,12 @@ async function aceptar(): Promise<void> {
   padding-top: 8px;
 }
 
-/* Entre las formas de pago, pero en su color: no es dinero de la caja. */
+/* Separado del total con su propia línea y en su color: no es dinero de la caja. */
 .tabla-lineas tr.credito td {
   color: var(--terracotta-dark);
+  font-weight: 700;
+  border-top: 1px dashed var(--line);
+  padding-top: 8px;
 }
 
 .aclaracion {
