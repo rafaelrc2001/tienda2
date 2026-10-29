@@ -96,6 +96,9 @@ export interface TurnoDto {
     /** Los que salieron a credito y lo que valen: no son dinero de la caja. */
     aCredito: number;
     credito: number;
+    /** Cobrados mas a credito, y lo que suman todas las formas de pago. */
+    vendidos: number;
+    totalVendido: number;
   };
   /** Lo que el cajero conto en el corte. */
   efectivoDeclarado: number | null;
@@ -1228,6 +1231,8 @@ export class PdvService {
         billetera: totales.billetera.toNumber(),
         aCredito: totales.aCredito,
         credito: totales.credito.toNumber(),
+        vendidos: totales.vendidos,
+        totalVendido: totales.totalVendido.toNumber(),
       },
       efectivoDeclarado: turno.efectivoDeclarado?.toNumber() ?? null,
       diferencia:

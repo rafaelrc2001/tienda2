@@ -130,6 +130,21 @@ describe('totalesDelTurno', () => {
     expect(t.efectivo.toNumber()).toBe(50);
     expect(t.aCredito).toBe(2);
     expect(t.credito.toNumber()).toBe(120);
+    expect(t.vendidos).toBe(3);
+    expect(t.totalVendido.toNumber()).toBe(170);
+  });
+
+  it('las formas de pago, credito incluido, suman el total vendido', () => {
+    const t = totalesDelTurno([
+      pedido({ total: 50, pagadoConBilletera: new Decimal(10) }),
+      pedido({ total: 30, metodoPago: MetodoPago.TRANSFERENCIA }),
+      pedido({ total: 80, pagadoConBilletera: new Decimal(20), estadoPago: EstadoPago.CREDITO }),
+    ]);
+    expect(t.efectivo.toNumber()).toBe(40);
+    expect(t.transferencia.toNumber()).toBe(30);
+    expect(t.billetera.toNumber()).toBe(30);
+    expect(t.credito.toNumber()).toBe(60);
+    expect(t.totalVendido.toNumber()).toBe(160);
   });
 
   it('el credito sin entregar en mostrador sigue pendiente, no a credito', () => {

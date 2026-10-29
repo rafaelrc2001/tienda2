@@ -38,12 +38,16 @@ export interface TotalesDelTurno {
   billetera: Decimal;
   /**
    * Los que salieron a credito: ni suman a `ventas` ni a la caja, porque nadie
-   * pago nada aqui; se cobran desde CXC. Se ensenan aparte para que el corte
-   * explique esa venta.
+   * pago nada aqui; se cobran desde CXC. El corte los ensena como una forma de
+   * pago mas, junto al efectivo.
    */
   aCredito: number;
   /** Lo que quedo a credito: el total menos lo que se pago con billetera. */
   credito: Decimal;
+  /** Cobrados mas los que salieron a credito. */
+  vendidos: number;
+  /** Lo que valen los vendidos: efectivo + transferencia + billetera + credito. */
+  totalVendido: Decimal;
 }
 
 /**
@@ -153,6 +157,8 @@ export function totalesDelTurno(pedidos: PedidoDelTurno[]): TotalesDelTurno {
     billetera: new Decimal(0),
     aCredito: 0,
     credito: new Decimal(0),
+    vendidos: 0,
+    totalVendido: new Decimal(0),
   };
 
   for (const pedido of pedidos) {
@@ -167,8 +173,13 @@ export function totalesDelTurno(pedidos: PedidoDelTurno[]): TotalesDelTurno {
       continue;
     }
     if (aCreditoEnCaja(pedido)) {
+      // Lo que pago con billetera si se pago en el turno: va en su renglon para
+      // que las formas de pago sumen el total vendido.
       totales.aCredito++;
       totales.credito = totales.credito.add(pedido.total.sub(pedido.pagadoConBilletera));
+      totales.billetera = totales.billetera.add(pedido.pagadoConBilletera);
+      totales.vendidos++;
+      totales.totalVendido = totales.totalVendido.add(pedido.total);
       continue;
     }
     if (!cobradoEnCaja(pedido)) continue;
@@ -178,6 +189,8 @@ export function totalesDelTurno(pedidos: PedidoDelTurno[]): TotalesDelTurno {
     const cobrado = pedido.total.sub(pedido.pagadoConBilletera);
     totales.cobrados++;
     totales.ventas = totales.ventas.add(pedido.total);
+    totales.vendidos++;
+    totales.totalVendido = totales.totalVendido.add(pedido.total);
     totales.billetera = totales.billetera.add(pedido.pagadoConBilletera);
     if (pedido.metodoPago === MetodoPago.EFECTIVO) {
       totales.efectivo = totales.efectivo.add(cobrado);

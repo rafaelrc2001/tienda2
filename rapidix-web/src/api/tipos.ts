@@ -1019,6 +1019,9 @@ export interface CierreIngreso {
   /** Los que salieron a crédito y lo que quedó a deber: no suma al monto ni al total. */
   aCredito: number
   credito: number
+  /** Cobrados más a crédito, y lo que suman las cuatro formas de pago. */
+  vendidos: number
+  totalVendido: number
 }
 
 /** Un renglón del libro de lo que Finanzas aceptó. */
@@ -1852,6 +1855,9 @@ export interface TurnoPdv {
     /** Los que salieron a crédito y lo que quedó a deber: no es dinero de la caja. */
     aCredito: number
     credito: number
+    /** Cobrados más a crédito, y lo que suman todas las formas de pago. */
+    vendidos: number
+    totalVendido: number
   }
   /** Lo que el cajero contó en el corte. */
   efectivoDeclarado: number | null

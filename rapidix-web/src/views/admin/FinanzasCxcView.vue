@@ -197,8 +197,8 @@ async function registrarPago(): Promise<void> {
           <thead>
             <tr>
               <th>Pedido</th>
-              <th>Entrega</th>
               <th>Cliente</th>
+              <th>Entrega</th>
               <th>Fecha de entrega</th>
               <th class="num">Días de crédito</th>
               <th>Vence</th>
@@ -235,8 +235,8 @@ async function registrarPago(): Promise<void> {
                   </button>
                   <span class="folio">{{ pedido.folio }}</span>
                 </td>
-                <td>{{ pedido.repartoFolio ?? 'Recogido en tienda' }}</td>
                 <td>{{ pedido.clienteNombre }}</td>
+                <td>{{ pedido.repartoFolio ?? 'Recogido en tienda' }}</td>
                 <td class="fecha">{{ fechaDia(pedido.cxcDesde) }}</td>
                 <td class="num">{{ pedido.diasCredito ?? '—' }}</td>
                 <td class="fecha">{{ pedido.vence ? diaNumerico(pedido.vence) : 'Sin plazo' }}</td>
