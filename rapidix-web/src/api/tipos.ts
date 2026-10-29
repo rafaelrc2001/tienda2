@@ -1016,6 +1016,9 @@ export interface CierreIngreso {
   efectivo: number
   transferencia: number
   billetera: number
+  /** Los que salieron a crédito y lo que quedó a deber: no suma al monto ni al total. */
+  aCredito: number
+  credito: number
 }
 
 /** Un renglón del libro de lo que Finanzas aceptó. */
@@ -1846,6 +1849,9 @@ export interface TurnoPdv {
     efectivo: number
     transferencia: number
     billetera: number
+    /** Los que salieron a crédito y lo que quedó a deber: no es dinero de la caja. */
+    aCredito: number
+    credito: number
   }
   /** Lo que el cajero contó en el corte. */
   efectivoDeclarado: number | null

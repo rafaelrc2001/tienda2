@@ -166,21 +166,27 @@ const puedeConfirmar = computed(
 /** Queda algo por cobrar en efectivo o por transferencia: la billetera no lo cubrió todo. */
 const hayQueCobrar = computed(() => previa.value !== null && previa.value.aPagar > 0)
 
+/** Tiene crédito (el check de su ficha) y queda algo por cobrar: pagar le es opcional. */
+const conCredito = computed(() => hayQueCobrar.value && cliente.value?.credito === true)
+
 /**
- * Cliente con crédito: no se le cobra en caja. El pedido nace a crédito y se
- * le cobra desde Finanzas → CXC; lo decide la API con el check de su ficha.
+ * Sale a crédito: no se le cobra en caja y se le cobra desde Finanzas → CXC.
+ * Con la misma regla que la API: si dice con cuánto paga, o paga por
+ * transferencia, es una venta de contado como cualquiera.
  */
-const aCredito = computed(() => hayQueCobrar.value && cliente.value?.credito === true)
+const aCredito = computed(
+  () => conCredito.value && metodoPago.value === 'EFECTIVO' && pagoCon.value === '',
+)
 
 /**
  * En el mostrador el efectivo se recibe en el momento: sin decir con cuánto
  * paga no se confirma. La API lo deja opcional porque en la app el cliente
- * todavía no tiene el billete en la mano.
+ * todavía no tiene el billete en la mano, y al cliente con crédito también.
  */
 const faltaPagoCon = computed(
   () =>
     hayQueCobrar.value &&
-    !aCredito.value &&
+    !conCredito.value &&
     metodoPago.value === 'EFECTIVO' &&
     pagoCon.value === '',
 )
@@ -348,6 +354,20 @@ const topes = computed(() => {
   }
   return mapa
 })
+
+/**
+ * El piso cuyo rango contiene la cantidad: el más alto que ya se alcanzó. Con 100
+ * piezas y pisos 72 y 210 rige el de 72, aunque no se haya tecleado justo 72; por
+ * debajo del primero rige el precio de venta y no se marca ninguno.
+ */
+function pisoVigente(producto: ProductoPdv): number | null {
+  const cantidad = cantidades.value[producto.id] ?? 0
+  let vigente: number | null = null
+  for (const e of producto.escalones) {
+    if (e.piso <= cantidad && (vigente === null || e.piso > vigente)) vigente = e.piso
+  }
+  return vigente
+}
 
 function topeDe(productoId: string): number {
   return topes.value.get(productoId) ?? 0
@@ -935,7 +955,7 @@ function limpiar(): void {
                 v-for="e in p.escalones"
                 :key="e.piso"
                 type="button"
-                :class="{ activo: cantidades[p.id] === e.piso }"
+                :class="{ activo: pisoVigente(p) === e.piso }"
                 :disabled="bloqueada || e.piso > topeDe(p.id)"
                 :title="`Desde ${e.piso}: ${dinero(e.precio)} c/u`"
                 @click="fijar(p.id, e.piso)"
@@ -1220,15 +1240,20 @@ function limpiar(): void {
               La billetera cubre el pedido completo: no hay nada más que cobrar.
             </p>
             <p v-else-if="aCredito" class="nota-pago">
-              Cliente con crédito: no se cobra en caja. El pedido queda a crédito y se cobra desde
-              Finanzas → CXC.
+              Cliente con crédito: pagar es opcional. Si no dice con cuánto paga, el pedido queda a
+              crédito y se cobra desde Finanzas → CXC.
+            </p>
+            <p v-else-if="conCredito" class="nota-pago">
+              Cliente con crédito, pero paga ahora: es una venta de contado.
             </p>
             <label class="opcion">
               <input v-model="metodoPago" type="radio" value="EFECTIVO" :disabled="bloqueada" />
               Efectivo
             </label>
-            <div v-if="metodoPago === 'EFECTIVO' && hayQueCobrar && !aCredito" class="zona-captura">
-              <label class="form-label" for="pdv-pago-con">¿Con cuánto paga?</label>
+            <div v-if="metodoPago === 'EFECTIVO' && hayQueCobrar" class="zona-captura">
+              <label class="form-label" for="pdv-pago-con">
+                ¿Con cuánto paga?{{ conCredito ? ' (opcional)' : '' }}
+              </label>
               <input
                 id="pdv-pago-con"
                 class="form-input con-teclado"
@@ -1979,8 +2004,9 @@ function limpiar(): void {
   margin-top: 6px;
 }
 
+/* El amarillo del ahorro, como en la Tienda: `--gold` es el naranja de acción. */
 .lleva {
-  background: var(--gold);
+  background: var(--amarillo);
   color: var(--ink);
   border-radius: 5px;
   padding: 2px 4px;
@@ -1995,7 +2021,8 @@ function limpiar(): void {
 .escalones button {
   min-width: 34px;
   height: 30px;
-  border: 1px solid var(--line);
+  /* Los pisos son la otra mitad de la promesa: llevan su mismo amarillo. */
+  border: 1.5px solid var(--amarillo-dark);
   border-radius: 6px;
   background: var(--white);
   font-family: var(--font-heading);
@@ -2005,9 +2032,10 @@ function limpiar(): void {
   cursor: pointer;
 }
 
+/* El piso cuyo rango rige se rellena; texto oscuro, que el blanco sobre amarillo no se lee. */
 .escalones button.activo {
-  border-color: var(--sage);
-  background: color-mix(in srgb, var(--sage) 16%, var(--white));
+  background: var(--amarillo);
+  color: var(--ink);
 }
 
 /* ---- Resumen ---- */

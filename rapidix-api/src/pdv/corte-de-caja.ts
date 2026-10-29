@@ -36,6 +36,25 @@ export interface TotalesDelTurno {
   efectivo: Decimal;
   transferencia: Decimal;
   billetera: Decimal;
+  /**
+   * Los que salieron a credito: ni suman a `ventas` ni a la caja, porque nadie
+   * pago nada aqui; se cobran desde CXC. Se ensenan aparte para que el corte
+   * explique esa venta.
+   */
+  aCredito: number;
+  /** Lo que quedo a credito: el total menos lo que se pago con billetera. */
+  credito: Decimal;
+}
+
+/**
+ * Si el pedido salio a credito en este turno: con la misma regla de entrega
+ * que `cobradoEnCaja`, pero sin dinero en caja.
+ */
+export function aCreditoEnCaja(pedido: PedidoDelTurno): boolean {
+  if (pedido.estadoPago !== EstadoPago.CREDITO) return false;
+  return (
+    pedido.metodoEntrega === MetodoEntrega.DOMICILIO || pedido.estado === EstadoPedido.ENTREGADO
+  );
 }
 
 /**
@@ -132,6 +151,8 @@ export function totalesDelTurno(pedidos: PedidoDelTurno[]): TotalesDelTurno {
     efectivo: new Decimal(0),
     transferencia: new Decimal(0),
     billetera: new Decimal(0),
+    aCredito: 0,
+    credito: new Decimal(0),
   };
 
   for (const pedido of pedidos) {
@@ -143,6 +164,11 @@ export function totalesDelTurno(pedidos: PedidoDelTurno[]): TotalesDelTurno {
     if (pedido.metodoEntrega === MetodoEntrega.DOMICILIO) totales.aDomicilio++;
     if (porEntregarEnCaja(pedido)) {
       totales.porEntregar++;
+      continue;
+    }
+    if (aCreditoEnCaja(pedido)) {
+      totales.aCredito++;
+      totales.credito = totales.credito.add(pedido.total.sub(pedido.pagadoConBilletera));
       continue;
     }
     if (!cobradoEnCaja(pedido)) continue;

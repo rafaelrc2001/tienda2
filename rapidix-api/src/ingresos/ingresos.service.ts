@@ -18,6 +18,12 @@ export interface CierreDto {
   efectivo: number;
   transferencia: number;
   billetera: number;
+  /**
+   * Los que salieron a credito y lo que quedo a deber. No es dinero que entro:
+   * no suma al monto ni al total, se ensena para que el cierre explique esa venta.
+   */
+  aCredito: number;
+  credito: number;
 }
 
 /** Un renglon del libro, tal como lo pinta la pestana de Ingresos. */
@@ -170,6 +176,8 @@ export class IngresosService {
           efectivo: ingreso.monto.toNumber(),
           transferencia: totales.transferencia.toNumber(),
           billetera: totales.billetera.toNumber(),
+          aCredito: totales.aCredito,
+          credito: totales.credito.toNumber(),
         },
       });
     }

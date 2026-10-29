@@ -332,6 +332,15 @@ async function cancelarAbono(turno: TurnoPdv): Promise<void> {
                 <td />
                 <td class="num">{{ dinero(abierto.totales.billetera) }}</td>
               </tr>
+              <!--
+                Junto a las formas de pago, pero fuera del total: se vendió y nadie pagó en caja;
+                se cobra desde CXC.
+              -->
+              <tr class="credito">
+                <td>Crédito <span class="aclaracion">(no entra a caja)</span></td>
+                <td class="num">{{ abierto.totales.aCredito || '' }}</td>
+                <td class="num">{{ dinero(abierto.totales.credito) }}</td>
+              </tr>
               <tr v-if="abierto.totales.porEntregar > 0" class="pendiente">
                 <td>Sin entregar</td>
                 <td class="num">{{ abierto.totales.porEntregar }}</td>
@@ -726,6 +735,16 @@ h4:not(:first-child) {
   font-weight: 800;
   color: var(--ink);
   border-top: 2px solid var(--ink);
+}
+
+/* Entre las formas de pago, pero en su color: no es dinero de la caja. */
+.credito td {
+  color: var(--terracotta-dark);
+}
+
+.aclaracion {
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .pendiente td,
