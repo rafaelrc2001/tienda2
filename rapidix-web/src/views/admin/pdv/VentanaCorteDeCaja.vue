@@ -332,6 +332,11 @@ async function cancelarAbono(turno: TurnoPdv): Promise<void> {
                 <td />
                 <td class="num">{{ dinero(abierto.totales.billetera) }}</td>
               </tr>
+              <tr>
+                <td>Crédito</td>
+                <td />
+                <td class="num">{{ dinero(abierto.totales.credito) }}</td>
+              </tr>
               <tr v-if="abierto.totales.porEntregar > 0" class="pendiente">
                 <td>Sin entregar</td>
                 <td class="num">{{ abierto.totales.porEntregar }}</td>
@@ -351,18 +356,9 @@ async function cancelarAbono(turno: TurnoPdv): Promise<void> {
             <!-- El total general va al final, separado: es la suma de las formas de pago. -->
             <tfoot>
               <tr class="total-general">
-                <td>Ventas cobradas en mostrador</td>
-                <td class="num">{{ abierto.totales.cobrados }}</td>
-                <td class="num">{{ dinero(abierto.totales.ventas) }}</td>
-              </tr>
-              <!--
-                Debajo del total y aparte: se vendió pero nadie pagó en caja, así que no
-                se mezcla con el efectivo, la transferencia ni la billetera. Se cobra desde CXC.
-              -->
-              <tr class="credito">
-                <td>Quedó a crédito <span class="aclaracion">(no entra a caja)</span></td>
-                <td class="num">{{ abierto.totales.aCredito }}</td>
-                <td class="num">{{ dinero(abierto.totales.credito) }}</td>
+                <td>Total vendido</td>
+                <td class="num">{{ abierto.totales.vendidos }}</td>
+                <td class="num">{{ dinero(abierto.totales.totalVendido) }}</td>
               </tr>
             </tfoot>
           </table>
@@ -735,19 +731,6 @@ h4:not(:first-child) {
   font-weight: 800;
   color: var(--ink);
   border-top: 2px solid var(--ink);
-}
-
-/* Separado del total con su propia línea y en su color: no es dinero de la caja. */
-.credito td {
-  padding: 10px 12px;
-  color: var(--terracotta-dark);
-  font-weight: 700;
-  border-top: 1px dashed var(--line);
-}
-
-.aclaracion {
-  font-size: 12px;
-  color: var(--muted);
 }
 
 .pendiente td,

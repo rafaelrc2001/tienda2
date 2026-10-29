@@ -20,10 +20,15 @@ export interface CierreDto {
   billetera: number;
   /**
    * Los que salieron a credito y lo que quedo a deber. No es dinero que entro:
-   * no suma al monto ni al total, se ensena para que el cierre explique esa venta.
+   * no suma al monto del renglon ni al total del libro, pero en el desglose es
+   * una forma de pago mas.
    */
   aCredito: number;
   credito: number;
+  /** Cobrados mas a credito. */
+  vendidos: number;
+  /** La suma de las cuatro formas de pago: lo que se vendio y como se pago. */
+  totalVendido: number;
 }
 
 /** Un renglon del libro, tal como lo pinta la pestana de Ingresos. */
@@ -178,6 +183,9 @@ export class IngresosService {
           billetera: totales.billetera.toNumber(),
           aCredito: totales.aCredito,
           credito: totales.credito.toNumber(),
+          vendidos: totales.vendidos,
+          // Con el efectivo aceptado, no el del sistema, como el resto del cierre.
+          totalVendido: ingreso.monto.add(sinEfectivo).add(totales.credito).toNumber(),
         },
       });
     }

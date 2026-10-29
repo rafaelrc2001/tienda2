@@ -214,8 +214,8 @@ function verHoy(): void {
               <tr v-if="ingreso.cierre && detalleDe === ingreso.id" class="fila-detalle">
                 <td colspan="6">
                   <!-- Los ingresos del turno como en el PDV, pero de lado: cada forma de
-                       pago es una columna, luego, separado, el total cobrado y al
-                       final lo que quedó a crédito, que no es dinero que entró. -->
+                       pago es una columna, crédito incluido, y al final, separado, el
+                       total vendido que resulta de sumarlas. -->
                   <div class="detalle-pedido">
                     <table class="tabla-lineas cierre">
                       <thead>
@@ -223,10 +223,10 @@ function verHoy(): void {
                           <th class="num">Efectivo</th>
                           <th class="num">Transferencia</th>
                           <th class="num">Billetera electrónica</th>
+                          <th class="num">Crédito</th>
                           <th class="num total-cierre">
-                            Ventas cobradas en mostrador ({{ ingreso.cierre.pedidos }})
+                            Total vendido ({{ ingreso.cierre.vendidos }})
                           </th>
-                          <th class="num a-credito">A crédito ({{ ingreso.cierre.aCredito }})</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -234,8 +234,10 @@ function verHoy(): void {
                           <td class="num">{{ dinero(ingreso.cierre.efectivo) }}</td>
                           <td class="num">{{ dinero(ingreso.cierre.transferencia) }}</td>
                           <td class="num">{{ dinero(ingreso.cierre.billetera) }}</td>
-                          <td class="num total-cierre">{{ dinero(ingreso.monto) }}</td>
-                          <td class="num a-credito">{{ dinero(ingreso.cierre.credito) }}</td>
+                          <td class="num">{{ dinero(ingreso.cierre.credito) }}</td>
+                          <td class="num total-cierre">
+                            {{ dinero(ingreso.cierre.totalVendido) }}
+                          </td>
                         </tr>
                       </tbody>
                     </table>
@@ -387,11 +389,6 @@ function verHoy(): void {
   font-weight: 800;
   color: var(--ink);
   border-left: 2px solid var(--ink);
-}
-
-/* Lo que quedó a deber va aparte del total: no entró a la caja. */
-.tabla-lineas.cierre .a-credito {
-  border-left: 1px solid var(--line);
 }
 
 .sub {
