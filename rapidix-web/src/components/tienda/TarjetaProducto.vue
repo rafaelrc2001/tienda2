@@ -14,7 +14,7 @@
  * Ningún precio se calcula aquí. El de cada línea lo da la API; sin línea
  * calculada se enseña el precio de venta, que es el de la primera pieza.
  */
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useCarritoStore } from '@/stores/carrito'
 import { dinero, partesDinero } from '@/utils/formato'
 import type { ProductoRecomendado } from '@/api/tipos'
@@ -106,6 +106,23 @@ function alEscribir(evento: Event): void {
   escrito.value = soloDigitos
   entrada.value = soloDigitos
   if (soloDigitos) fijar(Number(soloDigitos))
+  // El tope de existencias puede reescribir el valor y Vue deja el cursor donde caiga.
+  void nextTick(() => cursorAlFinal(entrada))
+}
+
+/**
+ * La cantidad se escribe siempre por la derecha, como en una calculadora.
+ * Al tocar el campo iOS coloca el cursor donde cayó el dedo, y lo hace
+ * después del `focus`: por eso se mueve en el siguiente cuadro.
+ */
+function cursorAlFinal(entrada: HTMLInputElement): void {
+  const fin = entrada.value.length
+  entrada.setSelectionRange(fin, fin)
+}
+
+function alTocarCampo(evento: Event): void {
+  const entrada = evento.target as HTMLInputElement
+  requestAnimationFrame(() => cursorAlFinal(entrada))
 }
 
 function alSalirDelCampo(): void {
@@ -163,6 +180,8 @@ function alSalirDelCampo(): void {
           inputmode="numeric"
           :aria-label="`Cantidad de ${producto.nombre}`"
           :value="escrito"
+          @focus="alTocarCampo"
+          @click="alTocarCampo"
           @input="alEscribir"
           @blur="alSalirDelCampo"
         />

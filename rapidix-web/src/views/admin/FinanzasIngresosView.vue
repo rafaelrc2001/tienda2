@@ -19,7 +19,7 @@
 import { onMounted, ref } from 'vue'
 import { http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
-import { dinero, fechaNumerica, nombreMetodoPago } from '@/utils/formato'
+import { dinero, fechaDia, nombreMetodoPago } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
 import PestanasFinanzas from './finanzas/PestanasFinanzas.vue'
 import type { ConceptoIngreso, Ingreso, ListadoIngresos } from '@/api/tipos'
@@ -177,7 +177,7 @@ function verHoy(): void {
           <tbody>
             <template v-for="ingreso in ingresos" :key="ingreso.id">
               <tr :class="{ 'con-detalle': detalleDe === ingreso.id }">
-                <td class="fecha">{{ fechaNumerica(ingreso.creadoEn) }}</td>
+                <td class="fecha">{{ fechaDia(ingreso.creadoEn) }}</td>
                 <td>
                   {{ NOMBRE_CONCEPTO[ingreso.concepto] ?? ingreso.concepto }}
                   <span v-if="ingreso.nota" class="sub">{{ ingreso.nota }}</span>
@@ -214,7 +214,8 @@ function verHoy(): void {
               <tr v-if="ingreso.cierre && detalleDe === ingreso.id" class="fila-detalle">
                 <td colspan="6">
                   <!-- Los ingresos del turno como en el PDV, pero de lado: cada forma de
-                       pago es una columna y la última, separada, el total cobrado. -->
+                       pago es una columna, luego, separado, el total cobrado y al
+                       final lo que quedó a crédito, que no es dinero que entró. -->
                   <div class="detalle-pedido">
                     <table class="tabla-lineas cierre">
                       <thead>
@@ -225,6 +226,7 @@ function verHoy(): void {
                           <th class="num total-cierre">
                             Ventas cobradas en mostrador ({{ ingreso.cierre.pedidos }})
                           </th>
+                          <th class="num a-credito">A crédito ({{ ingreso.cierre.aCredito }})</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -233,6 +235,7 @@ function verHoy(): void {
                           <td class="num">{{ dinero(ingreso.cierre.transferencia) }}</td>
                           <td class="num">{{ dinero(ingreso.cierre.billetera) }}</td>
                           <td class="num total-cierre">{{ dinero(ingreso.monto) }}</td>
+                          <td class="num a-credito">{{ dinero(ingreso.cierre.credito) }}</td>
                         </tr>
                       </tbody>
                     </table>
@@ -356,11 +359,26 @@ function verHoy(): void {
   font-variant-numeric: tabular-nums;
 }
 
-/* El desglose de lado: los títulos no se parten y cada columna respira. */
+/* El desglose de lado. Los títulos sí se parten en renglones: en una línea no
+   cabían en el teléfono y el último salía cortado. Los importes no se parten,
+   y si aun así no cabe, el desglose se desplaza solo, no se corta. */
+.fila-detalle .detalle-pedido {
+  overflow-x: auto;
+}
+
 .tabla-lineas.cierre th,
 .tabla-lineas.cierre td {
+  padding-left: 12px;
+  vertical-align: bottom;
+}
+
+.tabla-lineas.cierre th {
+  white-space: normal;
+  line-height: 1.3;
+}
+
+.tabla-lineas.cierre td {
   white-space: nowrap;
-  padding-left: 16px;
 }
 
 /* El total en negritas y una línea marcada que lo separa del desglose. */
@@ -369,6 +387,11 @@ function verHoy(): void {
   font-weight: 800;
   color: var(--ink);
   border-left: 2px solid var(--ink);
+}
+
+/* Lo que quedó a deber va aparte del total: no entró a la caja. */
+.tabla-lineas.cierre .a-credito {
+  border-left: 1px solid var(--line);
 }
 
 .sub {

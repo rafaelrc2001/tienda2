@@ -381,13 +381,17 @@ export class PedidosService {
       // decir con cuanto paga: sin ese monto no hay constancia de que cubrio
       // el total (que alcance ya lo reviso `evaluarPago`).
       //
-      // Un cliente con credito se salta las dos cosas: en la app y en el
-      // mostrador su pedido nace ya autorizado para entregarse sin cobrar, como
-      // si Finanzas lo hubiera pasado a CREDITO, y se le cobra desde CXC. Un
-      // prospecto todavia no puede tenerlo.
+      // Un cliente con credito se salta las dos cosas: su pedido nace ya
+      // autorizado para entregarse sin cobrar, como si Finanzas lo hubiera
+      // pasado a CREDITO, y se le cobra desde CXC. Un prospecto todavia no
+      // puede tenerlo. En el mostrador pagar le queda opcional: si dice con
+      // cuanto paga, o paga por transferencia, es una venta de contado como
+      // cualquiera; si no, ya se sabe que es a credito.
       const enEfectivo = dto.metodoPago === MetodoPago.EFECTIVO && aPagar.greaterThan(0);
       const deContado = mostrador !== undefined;
-      const aCredito = aPagar.greaterThan(0) && cliente?.credito === true;
+      const pagaEnCaja =
+        deContado && (dto.metodoPago === MetodoPago.TRANSFERENCIA || dto.pagoCon !== undefined);
+      const aCredito = aPagar.greaterThan(0) && cliente?.credito === true && !pagaEnCaja;
       if (deContado && enEfectivo && !aCredito && dto.pagoCon === undefined) {
         throw new BadRequestException({
           statusCode: 400,

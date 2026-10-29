@@ -69,8 +69,8 @@ export interface ClientePdvDto {
   /** La direccion de su perfil en una linea, o `null` si no esta completa. */
   direccion: string | null;
   /**
-   * Tiene credito: su pedido nace a credito y no se le cobra en caja. Un
-   * prospecto nunca lo tiene.
+   * Tiene credito: pagar en caja le es opcional; si no paga, su pedido nace a
+   * credito. Un prospecto nunca lo tiene.
    */
   credito: boolean;
 }
@@ -93,6 +93,9 @@ export interface TurnoDto {
     efectivo: number;
     transferencia: number;
     billetera: number;
+    /** Los que salieron a credito y lo que valen: no son dinero de la caja. */
+    aCredito: number;
+    credito: number;
   };
   /** Lo que el cajero conto en el corte. */
   efectivoDeclarado: number | null;
@@ -751,7 +754,8 @@ export class PdvService {
    * Solo se confirma lo que la tienda del turno tiene (409
    * `SIN_EXISTENCIA_EN_TIENDA`), se lo lleve o se le mande: el punto de venta
    * vende desde su tienda. Y se cobra de contado: nace PAGADO, salvo al
-   * cliente con credito, que nace a credito y se le cobra desde CXC.
+   * cliente con credito que no paga en caja, que nace a credito y se le cobra
+   * desde CXC.
    */
   async crearPedido(
     turnoId: string,
@@ -1222,6 +1226,8 @@ export class PdvService {
         efectivo: (turno.efectivoCalculado ?? totales.efectivo).toNumber(),
         transferencia: totales.transferencia.toNumber(),
         billetera: totales.billetera.toNumber(),
+        aCredito: totales.aCredito,
+        credito: totales.credito.toNumber(),
       },
       efectivoDeclarado: turno.efectivoDeclarado?.toNumber() ?? null,
       diferencia:

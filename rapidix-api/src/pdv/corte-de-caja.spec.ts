@@ -113,4 +113,30 @@ describe('totalesDelTurno', () => {
     expect(t.cobrados).toBe(0);
     expect(t.efectivo.toNumber()).toBe(0);
   });
+
+  it('lo que salio a credito se cuenta aparte, sin tocar las ventas cobradas', () => {
+    const t = totalesDelTurno([
+      pedido({ total: 50 }),
+      pedido({ total: 80, estadoPago: EstadoPago.CREDITO }),
+      pedido({
+        total: 40,
+        estadoPago: EstadoPago.CREDITO,
+        metodoEntrega: MetodoEntrega.DOMICILIO,
+        estado: EstadoPedido.CONFIRMADO,
+      }),
+    ]);
+    expect(t.cobrados).toBe(1);
+    expect(t.ventas.toNumber()).toBe(50);
+    expect(t.efectivo.toNumber()).toBe(50);
+    expect(t.aCredito).toBe(2);
+    expect(t.credito.toNumber()).toBe(120);
+  });
+
+  it('el credito sin entregar en mostrador sigue pendiente, no a credito', () => {
+    const t = totalesDelTurno([
+      pedido({ estado: EstadoPedido.CONFIRMADO, estadoPago: EstadoPago.CREDITO }),
+    ]);
+    expect(t.porEntregar).toBe(1);
+    expect(t.aCredito).toBe(0);
+  });
 });
