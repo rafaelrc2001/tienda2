@@ -14,7 +14,7 @@
  * Ningún precio se calcula aquí. El de cada línea lo da la API; sin línea
  * calculada se enseña el precio de venta, que es el de la primera pieza.
  */
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useCarritoStore } from '@/stores/carrito'
 import { dinero, partesDinero } from '@/utils/formato'
 import type { ProductoRecomendado } from '@/api/tipos'
@@ -112,20 +112,45 @@ function alEscribir(evento: Event): void {
 
 /**
  * La cantidad se escribe siempre por la derecha, como en una calculadora.
- * Al tocar el campo iOS coloca el cursor donde cayó el dedo, y lo hace
- * después del `focus`: por eso se mueve en el siguiente cuadro.
+ * iOS coloca el cursor donde cayó el dedo (casi siempre a la izquierda de un
+ * número corto) y lo hace tarde, después del `focus`, del `click` y aun del
+ * siguiente cuadro; también lo mueve la lupa. Por eso, mientras el campo tiene
+ * el foco, cada cambio de selección lo regresa al final.
  */
 function cursorAlFinal(entrada: HTMLInputElement): void {
   const fin = entrada.value.length
+  if (entrada.selectionStart === fin && entrada.selectionEnd === fin) return
   entrada.setSelectionRange(fin, fin)
+}
+
+let campoConFoco: HTMLInputElement | null = null
+
+function alCambiarSeleccion(): void {
+  if (campoConFoco && document.activeElement === campoConFoco) cursorAlFinal(campoConFoco)
 }
 
 function alTocarCampo(evento: Event): void {
   const entrada = evento.target as HTMLInputElement
-  requestAnimationFrame(() => cursorAlFinal(entrada))
+  if (campoConFoco !== entrada) {
+    campoConFoco = entrada
+    document.addEventListener('selectionchange', alCambiarSeleccion)
+  }
+  cursorAlFinal(entrada)
+  // Respaldo para Safari viejos, que no avisan `selectionchange` dentro de un input.
+  setTimeout(() => cursorAlFinal(entrada), 0)
+  setTimeout(() => cursorAlFinal(entrada), 100)
 }
 
+function soltarCampo(): void {
+  if (!campoConFoco) return
+  campoConFoco = null
+  document.removeEventListener('selectionchange', alCambiarSeleccion)
+}
+
+onBeforeUnmount(soltarCampo)
+
 function alSalirDelCampo(): void {
+  soltarCampo()
   if (!escrito.value) fijar(0)
   escrito.value = String(cantidad.value)
 }
@@ -182,6 +207,7 @@ function alSalirDelCampo(): void {
           :value="escrito"
           @focus="alTocarCampo"
           @click="alTocarCampo"
+          @touchend="alTocarCampo"
           @input="alEscribir"
           @blur="alSalirDelCampo"
         />

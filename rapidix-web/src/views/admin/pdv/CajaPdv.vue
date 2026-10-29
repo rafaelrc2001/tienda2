@@ -203,12 +203,39 @@ const puedeEntregar = computed(
   () => pedido.value !== null && pedido.value.metodoEntrega === 'TIENDA' && !entregando.value,
 )
 
+/**
+ * La línea del producto tal como la valoró la API: precio que rige, el tachado
+ * de la lista anterior, cuánto ahorra y el «te faltan N». Es lo mismo que pinta
+ * la tarjeta de la Tienda, y sale del mismo cálculo del carrito.
+ */
+function lineaDe(producto: ProductoPdv) {
+  return previa.value?.items.find((i) => i.productoId === producto.id) ?? null
+}
+
 /** Precio por pieza de un producto: el de su línea ya valorada, o el de venta. */
 function precioDe(producto: ProductoPdv): number {
-  return (
-    previa.value?.items.find((i) => i.productoId === producto.id)?.precioUnitario ??
-    producto.precioVenta
-  )
+  return lineaDe(producto)?.precioUnitario ?? producto.precioVenta
+}
+
+/**
+ * Pisos de respaldo, como en la Tienda: sin listas de volumen los atajos son 5
+ * y 10, pero no se anuncian como descuento —el precio no baja— ni van en amarillo.
+ */
+const PISOS_RESPALDO = [5, 10]
+
+function atajosDe(producto: ProductoPdv): { piso: number; precio: number | null }[] {
+  return producto.escalones.length > 0
+    ? producto.escalones
+    : PISOS_RESPALDO.map((piso) => ({ piso, precio: null }))
+}
+
+/**
+ * «Lo quiero»: suma lo que falta para la siguiente lista, como en la Tienda.
+ * `fijar` sigue topando a lo que hay en la tienda.
+ */
+function aceptarUpsell(producto: ProductoPdv): void {
+  const oferta = lineaDe(producto)?.upsell
+  if (oferta) sumar(producto.id, oferta.faltan)
 }
 
 // ----------------------------------------------------------------
@@ -906,7 +933,13 @@ function limpiar(): void {
             </div>
             <p class="p-nombre">{{ p.nombre }}</p>
             <p class="p-precio">
+              <s v-if="(lineaDe(p)?.precioLista ?? null) !== null" class="tachado">{{
+                dinero(lineaDe(p)?.precioLista ?? 0)
+              }}</s>
               {{ dinero(precioDe(p)) }} <span>{{ p.unidad }}</span>
+            </p>
+            <p v-if="(lineaDe(p)?.ahorro ?? 0) > 0" class="p-ahorro">
+              Ahorras {{ dinero(lineaDe(p)?.ahorro ?? 0) }}
             </p>
             <!-- Lo que hay en esta tienda: es el tope de lo que se puede vender. -->
             <p class="p-existencia">
@@ -949,18 +982,46 @@ function limpiar(): void {
                 +
               </button>
             </div>
-            <div v-if="p.escalones.length > 0" class="escalones">
-              <span class="lleva">Lleva más, paga menos</span>
+            <!--
+              HU-10, como en la Tienda: aparece cuando ya se lleva el 85 % del
+              siguiente piso. Si esa lista no sale más barata no hay ahorro que
+              prometer y la frase se queda en el precio.
+            -->
+            <div v-if="lineaDe(p)?.upsell && !bloqueada" class="upsell">
+              <p>
+                Te faltan <strong>{{ lineaDe(p)?.upsell?.faltan }} {{ p.unidad }}</strong> para
+                pagar {{ dinero(lineaDe(p)?.upsell?.precioSiguiente ?? 0) }} c/u<template
+                  v-if="(lineaDe(p)?.upsell?.ahorro ?? 0) > 0"
+                >
+                  y ahorrar {{ dinero(lineaDe(p)?.upsell?.ahorro ?? 0) }}</template
+                >
+              </p>
               <button
-                v-for="e in p.escalones"
-                :key="e.piso"
                 type="button"
-                :class="{ activo: pisoVigente(p) === e.piso }"
-                :disabled="bloqueada || e.piso > topeDe(p.id)"
-                :title="`Desde ${e.piso}: ${dinero(e.precio)} c/u`"
-                @click="fijar(p.id, e.piso)"
+                :disabled="(cantidades[p.id] ?? 0) >= topeDe(p.id)"
+                @click="aceptarUpsell(p)"
               >
-                {{ e.piso }}
+                Lo quiero
+              </button>
+            </div>
+            <div class="escalones">
+              <span class="lleva" :class="{ promesa: p.escalones.length > 0 }">
+                {{ p.escalones.length > 0 ? 'Lleva más, paga menos' : 'Compra por' }}
+              </span>
+              <button
+                v-for="a in atajosDe(p)"
+                :key="a.piso"
+                type="button"
+                :class="{
+                  promesa: a.precio !== null,
+                  activo:
+                    a.precio !== null ? pisoVigente(p) === a.piso : cantidades[p.id] === a.piso,
+                }"
+                :disabled="bloqueada || a.piso > topeDe(p.id)"
+                :title="a.precio !== null ? `Desde ${a.piso}: ${dinero(a.precio)} c/u` : undefined"
+                @click="fijar(p.id, a.piso)"
+              >
+                {{ a.piso }}
               </button>
             </div>
           </article>
@@ -2004,10 +2065,9 @@ function limpiar(): void {
   margin-top: 6px;
 }
 
-/* El amarillo del ahorro, como en la Tienda: `--gold` es el naranja de acción. */
 .lleva {
-  background: var(--amarillo);
-  color: var(--ink);
+  background: var(--cream-2);
+  color: var(--muted);
   border-radius: 5px;
   padding: 2px 4px;
   font-family: var(--font-heading);
@@ -2018,11 +2078,20 @@ function limpiar(): void {
   max-width: 58px;
 }
 
+/*
+ * El amarillo del ahorro, como en la Tienda: `--gold` es el naranja de acción.
+ * Solo cuando el descuento por volumen es real; con los pisos de respaldo el
+ * precio no baja y no se promete nada.
+ */
+.lleva.promesa {
+  background: var(--amarillo);
+  color: var(--ink);
+}
+
 .escalones button {
   min-width: 34px;
   height: 30px;
-  /* Los pisos son la otra mitad de la promesa: llevan su mismo amarillo. */
-  border: 1.5px solid var(--amarillo-dark);
+  border: 1.5px solid var(--line);
   border-radius: 6px;
   background: var(--white);
   font-family: var(--font-heading);
@@ -2032,10 +2101,74 @@ function limpiar(): void {
   cursor: pointer;
 }
 
-/* El piso cuyo rango rige se rellena; texto oscuro, que el blanco sobre amarillo no se lee. */
+.escalones button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
 .escalones button.activo {
+  border-color: var(--gold-dark);
+  background: var(--gold);
+  color: var(--white);
+}
+
+/* Los pisos son la otra mitad de la promesa: llevan su mismo amarillo. */
+.escalones button.promesa {
+  border-color: var(--amarillo-dark);
+}
+
+/* El piso cuyo rango rige se rellena; texto oscuro, que el blanco sobre amarillo no se lee. */
+.escalones button.promesa.activo {
   background: var(--amarillo);
   color: var(--ink);
+}
+
+/* El precio de la lista anterior, pequeño y a la izquierda del que se cobra. */
+.p-precio .tachado {
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-right: 4px;
+}
+
+.p-ahorro {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 11px;
+  color: var(--sage);
+  margin: 2px 0 0;
+}
+
+/* Sin recuadro: es un aviso dentro de la tarjeta, no una segunda tarjeta. */
+.upsell {
+  margin-top: 6px;
+}
+
+.upsell p {
+  font-size: 10.5px;
+  line-height: 1.3;
+  color: var(--ink);
+  margin: 0 0 4px;
+}
+
+/* Verde: la acción de ahorrar, distinta del amarillo de los pisos. */
+.upsell button {
+  width: 100%;
+  border: none;
+  background: var(--sage);
+  color: var(--white);
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 11px;
+  border-radius: 7px;
+  padding: 5px 6px;
+  cursor: pointer;
+}
+
+.upsell button:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 /* ---- Resumen ---- */
