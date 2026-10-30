@@ -14,6 +14,7 @@ import { ErrorApi, http } from '@/api/http'
 import { useAuthStore } from '@/stores/auth'
 import { useUiStore } from '@/stores/ui'
 import { dinero } from '@/utils/formato'
+import { emojiDeNivel, imagenDeNivel } from '@/utils/medallas'
 import DatosFacturacionPerfil from '@/components/DatosFacturacionPerfil.vue'
 /*
  * Leaflet pesa más que todo el resto del perfil junto. Se carga aparte para
@@ -153,7 +154,7 @@ async function salir(): Promise<void> {
     <template v-else-if="perfil">
       <!-- Tarjeta de cashback -->
       <section v-if="cashback" class="cashback-card">
-        <p class="cb-title">Cashback</p>
+        <p class="cb-title">Monedero electrónico</p>
         <p class="cb-sub">Disponible para tu próxima compra</p>
 
         <div class="cb-top-row">
@@ -162,17 +163,33 @@ async function salir(): Promise<void> {
             <p class="amt">{{ dinero(cashback.saldo) }}</p>
           </div>
           <div class="cb-medal-col">
-            <span class="medal-emoji">🥉</span>
-            <span class="medal-lbl">{{ cashback.nivelActual ?? 'Sin nivel' }}</span>
+            <img
+              v-if="imagenDeNivel(cashback.nivelActual)"
+              class="medal-img"
+              :src="imagenDeNivel(cashback.nivelActual)!"
+              alt=""
+            />
+            <span v-else class="medal-emoji">{{ emojiDeNivel(cashback.nivelActual) }}</span>
+            <span class="medal-lbl">
+              {{ cashback.nivelActual ? `Nivel ${cashback.nivelActual}` : 'Sin nivel' }}
+            </span>
           </div>
         </div>
 
         <div v-if="cashback.proximoNivel" class="cb-next-level-box">
           <p class="lvl-t">Próximo nivel: {{ cashback.proximoNivel }}</p>
-          <div class="cb-progress">
-            <div class="cb-progress-fill" :style="{ width: `${cashback.progresoPct}%` }">
-              {{ Math.round(cashback.progresoPct) }}%
+          <div class="cb-progress-row">
+            <div class="cb-progress">
+              <div class="cb-progress-fill" :style="{ width: `${cashback.progresoPct}%` }">
+                {{ Math.round(cashback.progresoPct) }}%
+              </div>
             </div>
+            <img
+              v-if="imagenDeNivel(cashback.proximoNivel)"
+              class="medal-img-sig"
+              :src="imagenDeNivel(cashback.proximoNivel)!"
+              alt=""
+            />
           </div>
           <p class="lvl-s">Te faltan {{ dinero(cashback.montoFaltante) }} para alcanzarlo</p>
         </div>
@@ -188,93 +205,99 @@ async function salir(): Promise<void> {
       <section class="profile-section-card">
         <h2 class="profile-section-title">👤 Datos personales</h2>
 
-        <label class="form-label" for="p-nombre">Nombre</label>
-        <input
-          id="p-nombre"
-          v-model="formulario.nombre"
-          class="form-input"
-          :class="{ 'is-invalid': errores.nombre }"
-        />
-        <p v-if="errores.nombre" class="form-error">{{ errores.nombre }}</p>
+        <div class="zona-captura">
+          <label class="form-label" for="p-nombre">Nombre</label>
+          <input
+            id="p-nombre"
+            v-model="formulario.nombre"
+            class="form-input"
+            :class="{ 'is-invalid': errores.nombre }"
+          />
+          <p v-if="errores.nombre" class="form-error">{{ errores.nombre }}</p>
 
-        <label class="form-label" for="p-telefono">WhatsApp</label>
-        <input id="p-telefono" class="form-input" :value="perfil.telefono" disabled />
-        <p class="nota">Tu número identifica tu cuenta y no se puede cambiar desde aquí.</p>
+          <label class="form-label" for="p-telefono">WhatsApp</label>
+          <input id="p-telefono" class="form-input" :value="perfil.telefono" disabled />
+          <p class="nota">Tu número identifica tu cuenta y no se puede cambiar desde aquí.</p>
 
-        <label class="form-label" for="p-email">Correo</label>
-        <input
-          id="p-email"
-          v-model="formulario.email"
-          class="form-input"
-          :class="{ 'is-invalid': errores.email }"
-          type="email"
-        />
-        <p v-if="errores.email" class="form-error">{{ errores.email }}</p>
+          <label class="form-label" for="p-email">Correo</label>
+          <input
+            id="p-email"
+            v-model="formulario.email"
+            class="form-input"
+            :class="{ 'is-invalid': errores.email }"
+            type="email"
+          />
+          <p v-if="errores.email" class="form-error">{{ errores.email }}</p>
 
-        <label class="form-label" for="p-nacimiento">Fecha de nacimiento</label>
-        <input id="p-nacimiento" v-model="fechaNacimiento" class="form-input" type="date" />
+          <label class="form-label" for="p-nacimiento">Fecha de nacimiento</label>
+          <input id="p-nacimiento" v-model="fechaNacimiento" class="form-input" type="date" />
+        </div>
       </section>
 
       <!-- Quién recibe -->
       <section class="profile-section-card">
         <h2 class="profile-section-title">🙋 ¿Quién recibe?</h2>
-        <label class="form-label" for="p-recibe">Nombre de quien recibe el pedido</label>
-        <input
-          id="p-recibe"
-          v-model="formulario.quienRecibe"
-          class="form-input"
-          placeholder="Si no estás tú"
-        />
+        <div class="zona-captura">
+          <label class="form-label" for="p-recibe">Nombre de quien recibe el pedido</label>
+          <input
+            id="p-recibe"
+            v-model="formulario.quienRecibe"
+            class="form-input"
+            placeholder="Si no estás tú"
+          />
 
-        <!--
-          La sucursal no es parte de la dirección de entrega: la usa el panel
-          para segmentar campañas (Word 4.9.3).
-        -->
-        <label class="form-label" for="p-sucursal">Sucursal</label>
-        <input
-          id="p-sucursal"
-          v-model="formulario.sucursal"
-          class="form-input"
-          placeholder="La sucursal donde compras"
-        />
+          <!--
+            La sucursal no es parte de la dirección de entrega: la usa el panel
+            para segmentar campañas (Word 4.9.3).
+          -->
+          <label class="form-label" for="p-sucursal">Sucursal</label>
+          <input
+            id="p-sucursal"
+            v-model="formulario.sucursal"
+            class="form-input"
+            placeholder="La sucursal donde compras"
+          />
+        </div>
       </section>
 
       <!-- Dirección con mapa -->
       <section class="profile-section-card">
         <h2 class="profile-section-title">📍 Dirección de entrega</h2>
 
-        <label class="form-label" for="p-calle">Calle y número</label>
-        <input id="p-calle" v-model="formulario.calle" class="form-input" />
+        <div class="zona-captura con-mapa">
+          <label class="form-label" for="p-calle">Calle y número</label>
+          <input id="p-calle" v-model="formulario.calle" class="form-input" />
 
-        <div class="form-row-2">
-          <div>
-            <label class="form-label" for="p-colonia">Colonia</label>
-            <input id="p-colonia" v-model="formulario.colonia" class="form-input" />
+          <div class="form-row-2">
+            <div>
+              <label class="form-label" for="p-colonia">Colonia</label>
+              <input id="p-colonia" v-model="formulario.colonia" class="form-input" />
+            </div>
+            <div>
+              <label class="form-label" for="p-cp">Código postal</label>
+              <input id="p-cp" v-model="formulario.cp" class="form-input" inputmode="numeric" />
+            </div>
           </div>
-          <div>
-            <label class="form-label" for="p-cp">Código postal</label>
-            <input id="p-cp" v-model="formulario.cp" class="form-input" inputmode="numeric" />
+
+          <div class="form-row-2">
+            <div>
+              <label class="form-label" for="p-ciudad">Ciudad</label>
+              <input id="p-ciudad" v-model="formulario.ciudad" class="form-input" />
+            </div>
+            <div>
+              <label class="form-label" for="p-estado">Estado</label>
+              <input id="p-estado" v-model="formulario.estado" class="form-input" />
+            </div>
           </div>
+
+          <label class="form-label" for="p-referencias">Referencias</label>
+          <textarea
+            id="p-referencias"
+            v-model="formulario.referencias"
+            class="form-textarea"
+            placeholder="Portón verde, entre dos tiendas…"
+          />
         </div>
-
-        <div class="form-row-2">
-          <div>
-            <label class="form-label" for="p-ciudad">Ciudad</label>
-            <input id="p-ciudad" v-model="formulario.ciudad" class="form-input" />
-          </div>
-          <div>
-            <label class="form-label" for="p-estado">Estado</label>
-            <input id="p-estado" v-model="formulario.estado" class="form-input" />
-          </div>
-        </div>
-
-        <label class="form-label" for="p-referencias">Referencias</label>
-        <textarea
-          id="p-referencias"
-          v-model="formulario.referencias"
-          class="form-textarea"
-          placeholder="Portón verde, entre dos tiendas…"
-        />
 
         <MapaDireccion :lat="lat" :lng="lng" @mover="fijarCoordenadas" />
       </section>
@@ -352,6 +375,21 @@ async function salir(): Promise<void> {
   display: flex;
   align-items: center;
   gap: 7px;
+}
+
+/*
+ * Un campo blanco sobre la tarjeta blanca no se distingue: el bloque crema marca dónde
+ * se escribe. Abajo el colchón ya lo pone el margen del último campo.
+ */
+.zona-captura {
+  background: var(--cream);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 12px 2px;
+}
+
+.zona-captura.con-mapa {
+  margin-bottom: 12px;
 }
 
 .sin-margen {
@@ -459,14 +497,40 @@ async function salir(): Promise<void> {
   flex-shrink: 0;
 }
 
+.medal-img {
+  width: 96px;
+  height: 96px;
+  object-fit: contain;
+}
+
 .medal-emoji {
-  font-size: 26px;
+  font-size: 56px;
+  line-height: 1;
 }
 
 .medal-lbl {
   font-family: var(--font-heading);
   font-weight: 700;
-  font-size: 10.5px;
+  font-size: 13px;
+  text-align: center;
+}
+
+.cb-progress-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cb-progress-row .cb-progress {
+  flex: 1;
+  min-width: 0;
+}
+
+.medal-img-sig {
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
+  flex-shrink: 0;
 }
 
 .cb-next-level-box {
