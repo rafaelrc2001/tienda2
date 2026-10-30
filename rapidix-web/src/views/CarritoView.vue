@@ -10,6 +10,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useCarritoStore } from '@/stores/carrito'
 import { useUiStore } from '@/stores/ui'
 import { dinero } from '@/utils/formato'
+import { emojiDeNivel, imagenDeNivel } from '@/utils/medallas'
 import { ErrorApi, http } from '@/api/http'
 import type {
   Bancarios,
@@ -92,28 +93,10 @@ async function cargarCashback(): Promise<void> {
 }
 
 /**
- * La medalla del nivel. Los nombres los teclea el negocio en Config. Niveles,
- * asi que se buscan por su raiz y cualquier otro se lleva una medalla generica.
+ * Nivel de la frase «Monedero electrónico estimado por tu nivel [medalla] Bronce:».
+ * Sin nivel a la vista (o si falla su carga) la frase sigue teniendo sentido.
  */
-const MEDALLAS: { raiz: string; medalla: string }[] = [
-  { raiz: 'bronce', medalla: '🥉' },
-  { raiz: 'plata', medalla: '🥈' },
-  { raiz: 'oro', medalla: '🥇' },
-  { raiz: 'diamante', medalla: '💎' },
-  { raiz: 'platino', medalla: '💠' },
-]
-
-/**
- * «Cashback estimado por tu nivel 🥉 Bronce:». La frase se arma aquí y no en
- * la plantilla para que el nivel y los dos puntos queden pegados; sin nivel a
- * la vista (o si falla su carga) sigue teniendo sentido.
- */
-const etiquetaCashback = computed(() => {
-  const nivel = cashback.value?.nivelActual
-  if (!nivel) return 'Cashback estimado:'
-  const medalla = MEDALLAS.find((m) => nivel.toLowerCase().includes(m.raiz))?.medalla ?? '🏅'
-  return `Cashback estimado por tu nivel ${medalla} ${nivel}:`
-})
+const nivelCashback = computed(() => cashback.value?.nivelActual ?? null)
 
 // ---- Dirección de entrega (épica «Dirección de entrega») ----
 
@@ -433,7 +416,8 @@ async function confirmar(): Promise<void> {
       </div>
       <div v-if="pedidoHecho.pago.billetera > 0" class="res-filas">
         <div class="cart-summary-row descuento">
-          <span>Pagado con billetera</span><span>−{{ dinero(pedidoHecho.pago.billetera) }}</span>
+          <span>Pagado con Monedero electrónico</span
+          ><span>−{{ dinero(pedidoHecho.pago.billetera) }}</span>
         </div>
         <div class="cart-summary-row a-pagar">
           <span>Por pagar</span><span>{{ dinero(pedidoHecho.pago.aPagar) }}</span>
@@ -449,7 +433,7 @@ async function confirmar(): Promise<void> {
 
     <!-- Cómo se cobra lo que queda. -->
     <div v-if="pedidoHecho.pago.aPagar === 0" class="exito-pago">
-      <p class="exito-pago-titulo">Pagado con tu billetera ✓</p>
+      <p class="exito-pago-titulo">Pagado con tu Monedero electrónico ✓</p>
     </div>
     <div v-else-if="pedidoHecho.pago.metodo === 'EFECTIVO'" class="exito-pago">
       <p class="exito-pago-titulo">
@@ -556,14 +540,14 @@ async function confirmar(): Promise<void> {
       <p class="recompensas-titulo">Programa de recompensas</p>
       <p class="recompensas-linea">
         {{ pedidoHecho.cashbackAcreditado ? 'Ganaste' : 'Ganarás' }}
-        <strong>{{ dinero(pedidoHecho.cashbackGenerado) }}</strong> de cashback
+        <strong>{{ dinero(pedidoHecho.cashbackGenerado) }}</strong> para tu Monedero electrónico
       </p>
       <p v-if="cashbackBilleteraHecho" class="recompensas-nota">
-        Valen {{ dinero(cashbackBilleteraHecho) }} en tu billetera.
+        Valen {{ dinero(cashbackBilleteraHecho) }} en tu Monedero electrónico.
       </p>
       <!-- Entra a la billetera al pagarse: un pedido cancelado no deja saldo. -->
       <p v-if="!pedidoHecho.cashbackAcreditado" class="recompensas-nota">
-        Se abona a tu billetera cuando tu pedido quede pagado.
+        Se abona a tu Monedero electrónico cuando tu pedido quede pagado.
       </p>
     </div>
 
@@ -818,7 +802,7 @@ async function confirmar(): Promise<void> {
         <!-- La billetera no rebaja el pedido: paga parte de él. Por eso va tras el total. -->
         <div v-if="previsualizacion.billetera > 0" class="res-filas">
           <div class="cart-summary-row descuento">
-            <span>Billetera</span><span>−{{ dinero(previsualizacion.billetera) }}</span>
+            <span>Monedero electrónico</span><span>−{{ dinero(previsualizacion.billetera) }}</span>
           </div>
           <div class="cart-summary-row a-pagar">
             <span>Total a pagar</span><span>{{ dinero(previsualizacion.aPagar) }}</span>
@@ -832,7 +816,8 @@ async function confirmar(): Promise<void> {
         class="metas"
       >
         <p class="meta">
-          ¡Estás a solo {{ dinero(previsualizacion.metas.faltaCashback) }} de activar tu cashback!
+          ¡Estás a solo {{ dinero(previsualizacion.metas.faltaCashback) }} de activar tu Monedero
+          electrónico!
         </p>
       </div>
 
@@ -851,7 +836,7 @@ async function confirmar(): Promise<void> {
           <label class="opcion-check">
             <input v-model="usaBilletera" type="checkbox" @change="alternarBilletera" />
             <span>
-              Usar mi billetera electrónica
+              Usar mi Monedero electrónico
               <span class="saldo">Disponible: {{ dinero(pago.saldoBilletera) }}</span>
             </span>
           </label>
@@ -872,7 +857,7 @@ async function confirmar(): Promise<void> {
         </div>
 
         <p v-if="cubiertoConBilletera" class="nota-cubierto">
-          Tu billetera cubre el total del pedido: no tienes que pagar nada más.
+          Tu Monedero electrónico cubre el total del pedido: no tienes que pagar nada más.
         </p>
 
         <!-- Cómo se paga lo que queda. -->
@@ -946,12 +931,23 @@ async function confirmar(): Promise<void> {
         <div v-if="previsualizacion.cashbackEstimado > 0" class="recompensas">
           <p class="recompensas-titulo">Programa de recompensas</p>
           <p class="recompensas-linea">
-            {{ etiquetaCashback }}
+            <template v-if="nivelCashback">
+              Monedero electrónico estimado por tu nivel
+              <img
+                v-if="imagenDeNivel(nivelCashback)"
+                class="medalla-nivel"
+                :src="imagenDeNivel(nivelCashback)!"
+                alt=""
+              />
+              <template v-else>{{ emojiDeNivel(nivelCashback) }}</template>
+              {{ nivelCashback }}:
+            </template>
+            <template v-else>Monedero electrónico estimado:</template>
             <strong>{{ dinero(previsualizacion.cashbackEstimado) }}</strong>
           </p>
           <!-- El ×2 solo aplica al gastarlo desde la billetera (HU-12). -->
           <p class="recompensas-nota">
-            Valen {{ dinero(previsualizacion.cashbackBilletera) }} en tu billetera.
+            Valen {{ dinero(previsualizacion.cashbackBilletera) }} en tu Monedero electrónico.
           </p>
         </div>
       </section>
@@ -1320,7 +1316,7 @@ async function confirmar(): Promise<void> {
   flex-shrink: 0;
 }
 
-/* En la misma línea que «Usar mi billetera electrónica», no debajo. */
+/* En la misma línea que «Usar mi Monedero electrónico», no debajo. */
 .saldo {
   font-weight: 600;
   font-size: 11.5px;
@@ -1548,6 +1544,13 @@ async function confirmar(): Promise<void> {
 
 .recompensas-linea strong {
   font-weight: 800;
+}
+
+/* Del alto de la letra, para que la medalla no separe los renglones de la frase. */
+.medalla-nivel {
+  height: 18px;
+  width: auto;
+  vertical-align: -4px;
 }
 
 .recompensas-nota {
