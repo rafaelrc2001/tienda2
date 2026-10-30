@@ -378,11 +378,11 @@ async function salir(): Promise<void> {
 }
 
 /*
- * Un campo blanco sobre la tarjeta blanca no se distingue: el bloque crema marca dónde
+ * Un campo blanco sobre la tarjeta blanca no se distingue: el bloque blanco marca dónde
  * se escribe. Abajo el colchón ya lo pone el margen del último campo.
  */
 .zona-captura {
-  background: var(--cream);
+  background: var(--white);
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 12px 12px 2px;

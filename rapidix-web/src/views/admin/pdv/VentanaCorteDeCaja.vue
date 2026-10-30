@@ -740,7 +740,7 @@ h4:not(:first-child) {
 }
 
 .zona-captura {
-  background: var(--cream);
+  background: var(--white);
   border: 1px solid var(--line);
   border-radius: 14px;
   padding: 12px 14px 2px;

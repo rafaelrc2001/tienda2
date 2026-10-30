@@ -313,7 +313,7 @@ async function compartir(): Promise<void> {
     </p>
 
     <template v-else>
-      <!-- Bloque crema y campo blanco: se ve dónde se elige. -->
+      <!-- Bloque blanco y campo blanco: se ve dónde se elige. -->
       <div class="filtros">
         <label class="form-label" for="facturas-periodo">Periodo</label>
         <select id="facturas-periodo" v-model="periodo" class="form-input" @change="cargarMes">
@@ -456,7 +456,7 @@ async function compartir(): Promise<void> {
 }
 
 .filtros {
-  background: var(--cream-2);
+  background: var(--white);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   padding: 10px 12px;

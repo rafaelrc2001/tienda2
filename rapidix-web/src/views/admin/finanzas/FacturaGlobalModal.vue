@@ -293,7 +293,7 @@ async function timbrar(): Promise<void> {
           </dl>
         </section>
 
-        <!-- Lo que se elige: bloque crema, campos blancos. -->
+        <!-- Lo que se elige: bloque blanco, campos blancos. -->
         <section class="zona-captura" aria-label="Datos de la factura">
           <div class="rejilla">
             <div class="campo ancho">
@@ -537,7 +537,7 @@ async function timbrar(): Promise<void> {
 }
 
 .zona-captura {
-  background: var(--cream-2);
+  background: var(--white);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   padding: 10px 12px;
@@ -585,7 +585,7 @@ async function timbrar(): Promise<void> {
 }
 
 .tabla .captura td {
-  background: var(--cream-2);
+  background: var(--white);
   vertical-align: middle;
 }
 

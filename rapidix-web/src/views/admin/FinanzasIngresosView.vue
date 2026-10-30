@@ -119,7 +119,7 @@ function verHoy(): void {
 
     <PestanasFinanzas activa="ingresos" />
 
-    <!-- Bloque crema y campos blancos: se ve dónde se escribe. -->
+    <!-- Bloque blanco y campos blancos: se ve dónde se escribe. -->
     <div class="filtros">
       <div class="campo">
         <label class="form-label" for="ingresos-desde">Desde</label>
@@ -282,7 +282,7 @@ function verHoy(): void {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: end;
   gap: 10px 12px;
-  background: var(--cream-2);
+  background: var(--white);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   padding: 10px 12px;

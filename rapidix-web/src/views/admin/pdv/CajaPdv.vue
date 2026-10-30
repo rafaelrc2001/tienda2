@@ -1636,7 +1636,7 @@ function limpiar(): void {
 }
 
 .zona-captura {
-  background: var(--cream);
+  background: var(--white);
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 10px 12px 2px;

@@ -1188,11 +1188,11 @@ async function confirmar(): Promise<void> {
 
 /*
  * Los campos ya eran blancos, pero dentro de una tarjeta blanca no se veía
- * dónde se escribe. La zona de alrededor pasa a crema y así el blanco del
- * campo vuelve a leerse como «aquí se captura».
+ * dónde se escribe. La zona de alrededor lleva borde y así el campo
+ * vuelve a leerse como «aquí se captura».
  */
 .zona-captura {
-  background: var(--cream);
+  background: var(--white);
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 10px 12px;
