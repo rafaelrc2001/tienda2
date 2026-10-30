@@ -145,8 +145,8 @@ onMounted(async () => {
 }
 
 .medalla-img {
-  width: 72px;
-  height: 72px;
+  width: 96px;
+  height: 96px;
   object-fit: contain;
 }
 
