@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 244 350" role="img" aria-label="Medalla de bronce">
+  <defs>
+    <linearGradient id="aro" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#eeb07a"/>
+      <stop offset=".5" stop-color="#c47a3c"/>
+      <stop offset="1" stop-color="#8f5022"/>
+    </linearGradient>
+    <linearGradient id="disco" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#e3a06a"/>
+      <stop offset="1" stop-color="#b56c32"/>
+    </linearGradient>
+    <path id="estrella" d="M0 -6.5 1.5 -2 6.2 -2 2.4 .8 3.8 5.3 0 2.6 -3.8 5.3 -2.4 .8 -6.2 -2 -1.5 -2Z" fill="#8f5022"/>
+  </defs>
+
+  <!-- Listones -->
+  <path d="M62 205 8 318l44-8 26 40 58-125Z" fill="#c8201f"/>
+  <path d="M182 205l54 113-44-8-26 40-58-125Z" fill="#b01a1a"/>
+  <path d="M46 231 18 297l8-1 28-62Z M198 231l28 66-8-1-28-62Z" fill="#e8c35a"/>
+  <path d="M105 232 76 345l-6-9 27-105Z M139 232l29 113 6-9-27-105Z" fill="#e8c35a"/>
+
+  <!-- Moneda -->
+  <circle cx="122" cy="122" r="120" fill="url(#aro)"/>
+  <circle cx="122" cy="122" r="108" fill="none" stroke="#f4c79c" stroke-opacity=".75" stroke-width="20" stroke-dasharray="3 10"/>
+  <circle cx="122" cy="122" r="96" fill="#8f5022"/>
+  <circle cx="122" cy="122" r="93" fill="url(#disco)"/>
+
+  <!-- Corona de estrellas -->
+  <g transform="translate(122 122)">
+    <use xlink:href="#estrella" transform="rotate(0) translate(0 -80)"/>
+    <use xlink:href="#estrella" transform="rotate(30) translate(0 -80)"/>
+    <use xlink:href="#estrella" transform="rotate(60) translate(0 -80)"/>
+    <use xlink:href="#estrella" transform="rotate(90) translate(0 -80)"/>
+    <use xlink:href="#estrella" transform="rotate(120) translate(0 -80)"/>
+    <use xlink:href="#estrella" transform="rotate(150) translate(0 -80)"/>
+    <use xlink:href="#estrella" transform="rotate(180) translate(0 -80)"/>
+    <use xlink:href="#estrella" transform="rotate(210) translate(0 -80)"/>
+    <use xlink:href="#estrella" transform="rotate(240) translate(0 -80)"/>
+    <use xlink:href="#estrella" transform="rotate(270) translate(0 -80)"/>
+    <use xlink:href="#estrella" transform="rotate(300) translate(0 -80)"/>
+    <use xlink:href="#estrella" transform="rotate(330) translate(0 -80)"/>
+  </g>
+
+  <!-- El numero va como trazo para no depender de una fuente instalada -->
+  <path d="M90 88c8-14 20-20 34-20 18 0 31 11 31 27 0 11-7 20-18 24 13 3 21 13 21 26 0 19-15 32-35 32-16 0-29-7-36-21" fill="none" stroke="#8f5022" stroke-width="17" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M112 118h20" fill="none" stroke="#8f5022" stroke-width="15" stroke-linecap="round"/>
+</svg>
