@@ -8,7 +8,8 @@
 import { onMounted, ref } from 'vue'
 import { http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
-import { dinero, fechaHora } from '@/utils/formato'
+import { dinero, fechaNumerica } from '@/utils/formato'
+import { emojiDeNivel, imagenDeNivel } from '@/utils/medallas'
 import SkeletonList from '@/components/SkeletonList.vue'
 import type { EstadoCashback, MovimientoCashback } from '@/api/tipos'
 
@@ -42,43 +43,56 @@ onMounted(async () => {
 
     <template v-else>
       <div v-if="estado" class="resumen-saldo">
-        <p class="lbl">Saldo disponible</p>
-        <p class="amt">{{ dinero(estado.saldo) }}</p>
-        <p class="nivel">
-          Nivel {{ estado.nivelActual ?? 'sin asignar' }} · Total gastado
-          {{ dinero(estado.totalGastado) }}
-        </p>
+        <div>
+          <p class="lbl">Saldo disponible</p>
+          <p class="amt">{{ dinero(estado.saldo) }}</p>
+        </div>
+        <div class="medalla">
+          <img
+            v-if="imagenDeNivel(estado.nivelActual)"
+            class="medalla-img"
+            :src="imagenDeNivel(estado.nivelActual)!"
+            alt=""
+          />
+          <span v-else class="medalla-emoji">{{ emojiDeNivel(estado.nivelActual) }}</span>
+          <span class="nivel">
+            {{ estado.nivelActual ? `Nivel ${estado.nivelActual}` : 'Sin nivel' }}
+          </span>
+        </div>
       </div>
-
-      <p class="nota">
-        Por ahora el saldo es informativo: gastarlo en un pedido llegará en una versión posterior.
-      </p>
 
       <h2 class="section-title"><span class="accent-bar" />Movimientos</h2>
 
-      <ul v-if="movimientos.length > 0" class="movimientos">
-        <li v-for="movimiento in movimientos" :key="movimiento.id">
-          <div class="mov-info">
-            <p class="concepto">{{ movimiento.concepto }}</p>
-            <p class="meta">
-              {{ fechaHora(movimiento.creadoEn) }}
-              <span v-if="movimiento.pedidoFolio"> · {{ movimiento.pedidoFolio }}</span>
-            </p>
-          </div>
-          <span class="monto" :class="{ negativo: movimiento.monto < 0 }">
-            {{ movimiento.monto >= 0 ? '+' : '' }}{{ dinero(movimiento.monto) }}
-          </span>
-        </li>
-      </ul>
+      <div v-if="movimientos.length > 0" class="tabla-envoltorio">
+        <table class="tabla">
+          <thead>
+            <tr>
+              <th>Concepto</th>
+              <th>Fecha</th>
+              <th class="num">Monto</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="movimiento in movimientos" :key="movimiento.id">
+              <!-- El concepto ya trae el folio del pedido: no hace falta otra columna. -->
+              <td>{{ movimiento.concepto }}</td>
+              <td class="fecha">{{ fechaNumerica(movimiento.creadoEn) }}</td>
+              <td class="num importe" :class="movimiento.monto < 0 ? 'negativo' : 'positivo'">
+                {{ movimiento.monto >= 0 ? '+' : '' }}{{ dinero(movimiento.monto) }}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
 
-      <p v-else class="empty-block">Todavía no tienes movimientos de cashback.</p>
+      <p v-else class="empty-block">Todavía no tienes movimientos de Monedero electrónico.</p>
     </template>
   </div>
 </template>
 
 <style scoped>
 .cashback {
-  padding: 12px 18px 24px;
+  padding: 12px 18px 0;
 }
 
 .admin-back-inline {
@@ -94,6 +108,10 @@ onMounted(async () => {
 }
 
 .resumen-saldo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   background: linear-gradient(135deg, #4caf50, #388e3c);
   border-radius: 18px;
   padding: 18px;
@@ -118,10 +136,30 @@ onMounted(async () => {
   margin: 4px 0 0;
 }
 
-.resumen-saldo .nivel {
-  font-size: 11.5px;
-  opacity: 0.85;
-  margin: 6px 0 0;
+.medalla {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.medalla-img {
+  width: 72px;
+  height: 72px;
+  object-fit: contain;
+}
+
+.medalla-emoji {
+  font-size: 44px;
+  line-height: 1;
+}
+
+.nivel {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 12px;
+  text-align: center;
 }
 
 .nota {
@@ -136,51 +174,30 @@ onMounted(async () => {
   margin-right: 0;
 }
 
-.movimientos {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+/* Menos relleno que la tabla base: en un teléfono el movimiento cabe en un renglón. */
+.tabla > thead > tr > th,
+.tabla > tbody > tr > td {
+  padding-left: 8px;
+  padding-right: 8px;
 }
 
-.movimientos li {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  background: var(--white);
-  border-radius: 14px;
-  padding: 12px 14px;
-  margin-bottom: 10px;
-  box-shadow: var(--shadow);
+.tabla > tbody > tr > td {
+  font-size: 11.5px;
+  vertical-align: middle;
 }
 
-.mov-info {
-  flex: 1;
-  min-width: 0;
-}
-
-.concepto {
-  font-family: var(--font-heading);
-  font-weight: 700;
-  font-size: 12.5px;
-  color: var(--ink);
-  margin: 0;
-}
-
-.meta {
-  font-size: 11px;
+/* Fecha y monto no se parten: si un concepto es largo, solo él baja de renglón. */
+.tabla > tbody > tr > td.fecha {
+  font-size: 10.5px;
   color: var(--muted);
-  margin: 3px 0 0;
+  white-space: nowrap;
 }
 
-.monto {
-  font-family: var(--font-heading);
-  font-weight: 800;
-  font-size: 14px;
+.tabla > tbody > tr > td.positivo {
   color: var(--sage);
-  flex-shrink: 0;
 }
 
-.monto.negativo {
+.tabla > tbody > tr > td.negativo {
   color: var(--terracotta);
 }
 </style>
