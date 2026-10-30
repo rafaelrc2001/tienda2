@@ -1141,7 +1141,7 @@ async function entregar(): Promise<void> {
 }
 
 .cobro {
-  background: var(--cream);
+  background: var(--white);
 }
 
 .renglon-cuenta {
@@ -1184,7 +1184,7 @@ async function entregar(): Promise<void> {
   color: var(--ink);
 }
 
-/* Campo de captura en blanco sobre el bloque crema. */
+/* Campo de captura en blanco sobre el bloque blanco. */
 .pago {
   margin: 0;
   background: var(--white);

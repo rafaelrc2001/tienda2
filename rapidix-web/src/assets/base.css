@@ -209,6 +209,28 @@ body {
   margin-bottom: 10px;
 }
 
+/*
+ * Safari en iPhone pinta fecha y hora con su control nativo: ignora `width: 100%`,
+ * se sale de la tarjeta y queda más alto que los demás campos. Sin apariencia nativa
+ * obedece, y la altura se fija porque vacío no tiene texto que la marque
+ * (1.2em de línea + 22px de padding + 3px de borde, lo que mide un campo de texto).
+ */
+.form-input[type='date'],
+.form-input[type='time'] {
+  -webkit-appearance: none;
+  appearance: none;
+  min-width: 0;
+  max-width: 100%;
+  height: calc(1.2em + 25px);
+  line-height: 1.2;
+}
+
+.form-input[type='date']::-webkit-date-and-time-value,
+.form-input[type='time']::-webkit-date-and-time-value {
+  margin: 0;
+  text-align: left;
+}
+
 .form-textarea {
   resize: vertical;
   min-height: 64px;

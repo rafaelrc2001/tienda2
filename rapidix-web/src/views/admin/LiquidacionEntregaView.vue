@@ -782,11 +782,11 @@ async function finalizar(): Promise<void> {
   color: var(--muted);
 }
 
-/* El descuadre, en el mismo bloque crema que las zonas de captura. */
+/* El descuadre, en el mismo bloque blanco que las zonas de captura. */
 .descuadre {
   margin-top: 8px;
   padding: 10px 12px;
-  background: var(--cream-2);
+  background: var(--white);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   font-size: 12.5px;
@@ -806,9 +806,9 @@ async function finalizar(): Promise<void> {
   color: var(--muted);
 }
 
-/* Donde se escribe: bloque crema y campo blanco, para que se vea dónde capturar. */
+/* Donde se escribe: bloque blanco y campo blanco, para que se vea dónde capturar. */
 .zona-captura {
-  background: var(--cream-2);
+  background: var(--white);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   padding: 10px 12px;

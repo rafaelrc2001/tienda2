@@ -47,7 +47,7 @@ async function alternar(): Promise<void> {
     </button>
   </Teleport>
 
-  <!-- Bloque crema y campo blanco: se ve dónde se escribe. -->
+  <!-- Bloque blanco y campo blanco: se ve dónde se escribe. -->
   <div v-if="abierta" class="busqueda">
     <input
       ref="campo"
@@ -86,7 +86,7 @@ async function alternar(): Promise<void> {
   flex-shrink: 0;
   margin: 0 0 12px;
   padding: 8px 10px;
-  background: var(--cream-2);
+  background: var(--white);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
 }

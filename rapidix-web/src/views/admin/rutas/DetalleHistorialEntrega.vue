@@ -530,7 +530,7 @@ tr.corto .recibido {
 }
 
 .zona-captura {
-  background: var(--cream-2);
+  background: var(--white);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   padding: 10px 12px;

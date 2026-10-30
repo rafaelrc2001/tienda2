@@ -471,7 +471,7 @@ async function alFacturar(factura: FacturaGlobal | null): Promise<void> {
     </p>
 
     <template v-else>
-      <!-- Bloque crema y campos blancos: se ve dónde se elige. -->
+      <!-- Bloque blanco y campos blancos: se ve dónde se elige. -->
       <div class="filtros">
         <div class="campo">
           <label class="form-label" for="bancos-cuenta">Cuenta bancaria</label>
@@ -853,7 +853,7 @@ async function alFacturar(factura: FacturaGlobal | null): Promise<void> {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: end;
   gap: 10px 12px;
-  background: var(--cream-2);
+  background: var(--white);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   padding: 10px 12px;
@@ -1055,9 +1055,9 @@ async function alFacturar(factura: FacturaGlobal | null): Promise<void> {
   color: var(--rojo);
 }
 
-/* El renglón que se escribe: crema, con los campos blancos. */
+/* El renglón que se escribe: en blanco, igual que sus campos. */
 .tabla .captura td {
-  background: var(--cream-2);
+  background: var(--white);
   vertical-align: middle;
 }
 
@@ -1165,9 +1165,9 @@ async function alFacturar(factura: FacturaGlobal | null): Promise<void> {
   white-space: nowrap;
 }
 
-/* Donde se escribe: bloque crema y campos blancos. */
+/* Donde se escribe: bloque blanco y campos blancos. */
 .zona-captura {
-  background: var(--cream-2);
+  background: var(--white);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   padding: 10px 12px;

@@ -712,9 +712,9 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
   font-size: 12px;
 }
 
-/* Donde se escribe: bloque crema y campos blancos, para que se vea dónde capturar. */
+/* Donde se escribe: bloque blanco y campos blancos, para que se vea dónde capturar. */
 .zona-captura {
-  background: var(--cream-2);
+  background: var(--white);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   padding: 10px 12px;
