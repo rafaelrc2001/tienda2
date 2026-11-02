@@ -40,7 +40,7 @@ describe('mensajeDeEntrega', () => {
     expect(mensaje).toContain('Cliente: Ruben')
     expect(mensaje).toContain('1 × Chorizo Ahumado 250 gr · $44.99 c/u = $44.99')
     expect(mensaje).toContain('*Total: $44.99*')
-    expect(mensaje).toContain('Billetera: −$2.00')
+    expect(mensaje).toContain('Monedero electrónico: −$2.00')
     expect(mensaje).toContain('Pago: Efectivo $42.99')
   })
 })

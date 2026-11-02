@@ -453,7 +453,7 @@ type CampoMonto = 'pagoCon' | 'billetera'
 const montoTecleado = ref<CampoMonto | null>(null)
 const MONTOS = {
   pagoCon: { valor: pagoCon, titulo: '¿Con cuánto paga?' },
-  billetera: { valor: montoBilletera, titulo: 'De su billetera' },
+  billetera: { valor: montoBilletera, titulo: 'De su Monedero electrónico' },
 }
 const tecladoCantidad = ref<HTMLElement | null>(null)
 /** Dónde va, pegado a la tarjeta. `null`: no cabe a los lados y va al pie. */
@@ -1036,8 +1036,8 @@ function limpiar(): void {
         <div class="barra-compra">
           <span
             class="cashback-tile"
-            :aria-label="`Gana ${dinero(monedero)} en su monedero electrónico`"
-            :title="`Gana ${dinero(monedero)} en su monedero electrónico`"
+            :aria-label="`Gana ${dinero(monedero)} en su Monedero electrónico`"
+            :title="`Gana ${dinero(monedero)} en su Monedero electrónico`"
           >
             <svg
               viewBox="0 0 24 24"
@@ -1222,7 +1222,7 @@ function limpiar(): void {
                 <td class="num">{{ dinero(previa.envio) }}</td>
               </tr>
               <tr v-if="previa.billetera > 0">
-                <td colspan="3">Billetera electrónica</td>
+                <td colspan="3">Monedero electrónico</td>
                 <td class="num">−{{ dinero(previa.billetera) }}</td>
               </tr>
             </tfoot>
@@ -1251,7 +1251,7 @@ function limpiar(): void {
               <span>Total a pagar</span><span>{{ dinero(previa.aPagar) }}</span>
             </p>
             <p v-if="previa.cashbackBilletera > 0" class="cashback">
-              Gana {{ dinero(previa.cashbackBilletera) }} en su billetera
+              Gana {{ dinero(previa.cashbackBilletera) }} en su Monedero electrónico
             </p>
           </div>
         </div>
@@ -1266,14 +1266,14 @@ function limpiar(): void {
                 type="checkbox"
                 :disabled="bloqueada || !cliente || cliente.saldoBilletera <= 0"
               />
-              Billetera electrónica
+              Monedero electrónico
               <span class="nota-opcion disponible">
                 Disponible: {{ dinero(cliente?.saldoBilletera ?? 0) }}
               </span>
             </label>
             <div v-if="usarBilletera" class="zona-captura">
               <label class="form-label" for="pdv-billetera">
-                ¿Cuánto descuenta de su billetera?
+                ¿Cuánto descuenta de su Monedero electrónico?
               </label>
               <!-- Como la cantidad: teclado propio, no el del dispositivo. -->
               <input
@@ -1298,7 +1298,7 @@ function limpiar(): void {
               </p>
             </div>
             <p v-if="previa && !hayQueCobrar" class="nota-pago">
-              La billetera cubre el pedido completo: no hay nada más que cobrar.
+              El Monedero electrónico cubre el pedido completo: no hay nada más que cobrar.
             </p>
             <p v-else-if="aCredito" class="nota-pago">
               Cliente con crédito: pagar es opcional. Si no dice con cuánto paga, el pedido queda a
@@ -1636,7 +1636,7 @@ function limpiar(): void {
 }
 
 .zona-captura {
-  background: var(--white);
+  background: var(--cream);
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 10px 12px 2px;

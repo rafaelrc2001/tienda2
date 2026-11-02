@@ -330,7 +330,7 @@ async function cancelar(transferencia: Transferencia): Promise<void> {
             <td>{{ saldo.categoria }}</td>
             <td class="num">{{ saldo.inventario }}</td>
             <td class="num">{{ saldo.aptInventario }}</td>
-            <td class="num">
+            <td class="num celda-captura">
               <input
                 class="cantidad"
                 :class="{ capturada: (cantidades[saldo.id] ?? 0) > 0 }"
@@ -479,11 +479,12 @@ async function cancelar(transferencia: Transferencia): Promise<void> {
 </template>
 
 <style scoped>
+/* Todo el encabezado es captura: bloque gris con borde y campos blancos. */
 .encabezado {
-  background: var(--white);
+  background: var(--cream);
+  border: 1px solid var(--line);
   border-radius: 14px;
   padding: 14px;
-  box-shadow: var(--shadow);
   margin-bottom: 14px;
 }
 
@@ -594,7 +595,7 @@ thead .col-producto {
   padding: 5px 7px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: var(--cream);
+  background: var(--white);
   color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
@@ -602,6 +603,11 @@ thead .col-producto {
 .cantidad:focus {
   outline: none;
   border-color: var(--terracotta);
+}
+
+/* La celda donde se escribe, en gris: el campo blanco marca dónde capturar. */
+.celda-captura {
+  background: var(--cream);
 }
 
 .cantidad.capturada {

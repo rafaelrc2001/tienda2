@@ -80,7 +80,14 @@ async function guardar(): Promise<void> {
     <p v-for="(mensaje, i) in erroresGenerales" :key="i" class="form-error">{{ mensaje }}</p>
 
     <form novalidate @submit.prevent="guardar">
-      <CamposFiscales v-model="formulario" :catalogos="catalogos" :errores="errores" prefijo="pf" />
+      <div class="zona-captura">
+        <CamposFiscales
+          v-model="formulario"
+          :catalogos="catalogos"
+          :errores="errores"
+          prefijo="pf"
+        />
+      </div>
 
       <button type="submit" class="btn-primary guardar" :disabled="guardando">
         {{ guardando ? 'Guardando…' : 'Guardar datos de facturación' }}
@@ -114,6 +121,15 @@ async function guardar(): Promise<void> {
   color: var(--muted);
   margin: 0 0 12px;
   line-height: 1.4;
+}
+
+/* Igual que en el resto del perfil: el bloque crema marca dónde se escribe. */
+.zona-captura {
+  background: var(--cream);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 12px 2px;
+  margin-bottom: 12px;
 }
 
 .guardar {

@@ -1,7 +1,7 @@
 import bronce from '@/assets/medallas/bronce.svg'
-import diamante from '@/assets/medallas/diamante.webp'
 import oro from '@/assets/medallas/oro.webp'
 import plata from '@/assets/medallas/plata.webp'
+import platino from '@/assets/medallas/platino.svg'
 
 /**
  * La medalla de cada nivel de cashback. Los nombres los teclea el negocio en
@@ -12,8 +12,9 @@ const MEDALLAS: { raiz: string; emoji: string; imagen: string }[] = [
   { raiz: 'bronce', emoji: '🥉', imagen: bronce },
   { raiz: 'plata', emoji: '🥈', imagen: plata },
   { raiz: 'oro', emoji: '🥇', imagen: oro },
-  { raiz: 'diamante', emoji: '💎', imagen: diamante },
-  { raiz: 'platino', emoji: '💎', imagen: diamante },
+  // Platino (o Diamante) en el mismo modelo de medalla con listones que los demás.
+  { raiz: 'diamante', emoji: '💎', imagen: platino },
+  { raiz: 'platino', emoji: '💎', imagen: platino },
 ]
 
 function buscar(nivel: string | null | undefined) {

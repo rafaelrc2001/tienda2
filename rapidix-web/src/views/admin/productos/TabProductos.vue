@@ -372,8 +372,9 @@ const filasConError = computed(() => resumen.value?.filas.filter((f) => f.estado
         Columnas: <strong>Categoría</strong>, <strong>Producto</strong>, <strong>Unidad</strong>,
         <strong>Precio de costo</strong> y <strong>Precio de venta</strong>. Opcionales:
         <em>Imagen</em> (URL), <em>Piso 2</em>, <em>Precio 2</em>, <em>Piso 3</em> y
-        <em>Precio 3</em> (precio por volumen), <em>Aplica cashback</em> (Sí / No), <em>IVA</em> (0
-        o 16), <em>Clave SAT</em> (8 dígitos) y <em>Clave de unidad</em> (H87, KGM…).
+        <em>Precio 3</em> (precio por volumen), <em>Aplica Monedero electrónico</em> (Sí / No),
+        <em>IVA</em> (0 o 16), <em>Clave SAT</em> (8 dígitos) y <em>Clave de unidad</em> (H87,
+        KGM…).
       </p>
       <label class="file-drop">
         <input type="file" accept=".xlsx" :disabled="importando" @change="importar" />
@@ -385,13 +386,21 @@ const filasConError = computed(() => resumen.value?.filas.filter((f) => f.estado
 
       <div v-if="resumen" class="resumen-importacion">
         <div class="resumen-cifras">
-          <div class="cifra"><span class="n">{{ resumen.total }}</span><span class="l">Filas</span></div>
-          <div class="cifra"><span class="n">{{ resumen.creados }}</span><span class="l">Creados</span></div>
           <div class="cifra">
-            <span class="n">{{ resumen.actualizados }}</span><span class="l">Actualizados</span>
+            <span class="n">{{ resumen.total }}</span
+            ><span class="l">Filas</span>
+          </div>
+          <div class="cifra">
+            <span class="n">{{ resumen.creados }}</span
+            ><span class="l">Creados</span>
+          </div>
+          <div class="cifra">
+            <span class="n">{{ resumen.actualizados }}</span
+            ><span class="l">Actualizados</span>
           </div>
           <div class="cifra error">
-            <span class="n">{{ resumen.errores }}</span><span class="l">Errores</span>
+            <span class="n">{{ resumen.errores }}</span
+            ><span class="l">Errores</span>
           </div>
         </div>
 
@@ -450,7 +459,7 @@ const filasConError = computed(() => resumen.value?.filas.filter((f) => f.estado
                   {{ lista.rango }} {{ producto.unidad }} · {{ precio(lista.precio) }}
                 </span>
               </template>
-              <span v-if="!producto.aplicaCashback" class="escalon">Sin cashback</span>
+              <span v-if="!producto.aplicaCashback" class="escalon">Sin Monedero electrónico</span>
               <!-- El 0 % es lo normal en un abarrote: solo se marca la excepción. -->
               <span v-if="producto.tasaIva === 'DIECISEIS'" class="escalon">IVA 16 %</span>
               <span v-if="producto.claveProdServ || producto.claveUnidad" class="escalon">
@@ -530,9 +539,7 @@ const filasConError = computed(() => resumen.value?.filas.filter((f) => f.estado
           <option v-for="nombre in categorias" :key="nombre" :value="nombre" />
         </datalist>
         <p v-if="errores.categoria" class="form-error">{{ errores.categoria }}</p>
-        <p class="form-hint">
-          Si la categoría no existe se da de alta sola en el catálogo.
-        </p>
+        <p class="form-hint">Si la categoría no existe se da de alta sola en el catálogo.</p>
 
         <label class="form-label" for="pr-unidad">Unidad</label>
         <input id="pr-unidad" v-model="formulario.unidad" class="form-input" placeholder="kg" />
@@ -630,8 +637,10 @@ const filasConError = computed(() => resumen.value?.filas.filter((f) => f.estado
 
         <div class="toggle-row">
           <div>
-            <div class="t-lbl">Participa en el cashback</div>
-            <div class="t-sub">Apagado, este producto no suma a la base del cashback.</div>
+            <div class="t-lbl">Participa en el Monedero electrónico</div>
+            <div class="t-sub">
+              Apagado, este producto no suma a la base del Monedero electrónico.
+            </div>
           </div>
           <label class="switch">
             <input v-model="formulario.aplicaCashback" type="checkbox" />

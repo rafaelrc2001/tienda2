@@ -13,7 +13,7 @@ const PANTALLAS = [
     ruta: '/admin/configuracion/parametros',
     ico: '⚖️',
     titulo: 'Parámetros del negocio',
-    desc: 'Envío, envío gratis y cashback',
+    desc: 'Envío, envío gratis e inventario',
   },
   {
     ruta: '/admin/configuracion/bancarios',
@@ -37,7 +37,7 @@ const PANTALLAS = [
     ruta: '/admin/configuracion/niveles',
     ico: '🏅',
     titulo: 'Niveles de fidelidad',
-    desc: 'Escalera de niveles y sus umbrales',
+    desc: 'Escalera de niveles, sus umbrales y el Monedero electrónico',
   },
   {
     ruta: '/admin/configuracion/tiendas',

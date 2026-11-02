@@ -289,7 +289,7 @@ async function registrarPago(): Promise<void> {
                         <dd>{{ dinero(pedido.total) }}</dd>
                       </div>
                       <div v-if="pedido.pagadoConBilletera > 0">
-                        <dt>Pagó con su billetera</dt>
+                        <dt>Pagó con su Monedero electrónico</dt>
                         <dd>−{{ dinero(pedido.pagadoConBilletera) }}</dd>
                       </div>
                       <!-- Cada pago con su fecha y su método; quién lo recibió y la nota, debajo. -->
@@ -481,9 +481,9 @@ async function registrarPago(): Promise<void> {
   line-height: 1.45;
 }
 
-/* Donde se escribe: bloque blanco y campos blancos, para que se vea dónde capturar. */
+/* Donde se escribe: bloque crema y campos blancos, para que se vea dónde capturar. */
 .zona-captura {
-  background: var(--white);
+  background: var(--cream-2);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   padding: 10px 12px;

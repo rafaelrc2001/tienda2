@@ -124,7 +124,9 @@ async function guardar(): Promise<void> {
             <p v-if="errores.cierra" class="form-error">{{ errores.cierra }}</p>
           </div>
         </div>
-        <p class="nota">Un horario que cierra antes de abrir se entiende como que cruza la medianoche.</p>
+        <p class="nota">
+          Un horario que cierra antes de abrir se entiende como que cruza la medianoche.
+        </p>
       </div>
 
       <div class="form-block">
@@ -204,7 +206,8 @@ async function guardar(): Promise<void> {
   padding: 9px 2px;
   border-radius: 10px;
   border: 1.5px solid var(--line);
-  background: var(--cream);
+  /* Blanco: sobre el bloque gris del formulario, el crema no se distinguía. */
+  background: var(--white);
   font-family: var(--font-heading);
   font-weight: 700;
   font-size: 10.5px;

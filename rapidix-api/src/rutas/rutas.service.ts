@@ -1218,7 +1218,7 @@ export class RutasService {
           clienteId: pedido.clienteId,
           pedidoId,
           monto: ajuste.billeteraDevuelta,
-          concepto: `Devolución de billetera: el pedido ${pedido.folio} se entregó incompleto`,
+          concepto: `Devolución de Monedero electrónico: el pedido ${pedido.folio} se entregó incompleto`,
         },
       });
       saldo = saldo.add(ajuste.billeteraDevuelta);
@@ -1233,7 +1233,7 @@ export class RutasService {
             clienteId: pedido.clienteId,
             pedidoId,
             monto: retirable.negated(),
-            concepto: `Cashback ajustado: el pedido ${pedido.folio} se entregó incompleto`,
+            concepto: `Monedero electrónico ajustado: el pedido ${pedido.folio} se entregó incompleto`,
           },
         });
         saldo = saldo.sub(retirable);

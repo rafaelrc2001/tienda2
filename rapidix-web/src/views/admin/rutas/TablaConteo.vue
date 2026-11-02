@@ -69,7 +69,7 @@ function faltante(producto: ConteoDeProducto): number | null {
             <strong :class="{ regresa: producto.devolucion > 0 }">{{ producto.devolucion }}</strong>
           </td>
           <template v-if="contados">
-            <td class="num">
+            <td class="num" :class="{ 'celda-captura': !soloLectura && producto.devolucion > 0 }">
               <!-- Sin devolución no hay nada que contar ni que pueda faltar. -->
               <span v-if="soloLectura && producto.devolucion > 0">
                 {{ contados[producto.productoId] || '—' }}
@@ -140,6 +140,11 @@ function faltante(producto: ConteoDeProducto): number | null {
 /* Lo que regresa es lo que hay que contar al bajar: en naranja. */
 .regresa {
   color: var(--orange-dark);
+}
+
+/* La celda donde se cuenta, en gris: el campo blanco marca dónde capturar. */
+.conteo td.celda-captura {
+  background: var(--cream);
 }
 
 /* 16px reales: con menos, Safari en iPhone amplía la página al enfocar el campo. */

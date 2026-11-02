@@ -279,7 +279,7 @@ function iconoMetodo(metodo: string): string {
                       <dd>{{ dinero(pedido.total) }}</dd>
                     </div>
                     <div v-if="pedido.pago.billetera > 0">
-                      <dt>Pagó con su billetera</dt>
+                      <dt>Pagó con su Monedero electrónico</dt>
                       <dd>−{{ dinero(pedido.pago.billetera) }}</dd>
                     </div>
                     <div v-if="pedido.pago.billetera > 0">

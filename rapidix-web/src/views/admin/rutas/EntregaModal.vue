@@ -708,7 +708,8 @@ async function entregar(): Promise<void> {
                 <strong>−{{ dinero(cuenta.descuento) }}</strong>
               </p>
               <p v-if="cuenta.billetera > 0" class="renglon-cuenta">
-                <span>Pagó con su billetera</span><strong>−{{ dinero(cuenta.billetera) }}</strong>
+                <span>Pagó con su Monedero electrónico</span
+                ><strong>−{{ dinero(cuenta.billetera) }}</strong>
               </p>
 
               <!-- A crédito no hay nada que cobrar: el renglón grande dice lo que queda debiendo. -->
@@ -767,12 +768,12 @@ async function entregar(): Promise<void> {
           </section>
 
           <p class="aviso-cashback">
-            ↺ Aviso de cashback:
+            ↺ Aviso de Monedero electrónico:
             <template v-if="pedido.cashbackGenerado > 0">
               este pedido le genera {{ dinero(pedido.cashbackGenerado) }} al cliente; entra a su
-              billetera cuando el pago quede pagado.
+              Monedero electrónico cuando el pago quede pagado.
             </template>
-            <template v-else>este pedido no generó cashback.</template>
+            <template v-else>este pedido no generó Monedero electrónico.</template>
           </p>
 
           <!-- Firma y evidencia -->
@@ -1141,7 +1142,7 @@ async function entregar(): Promise<void> {
 }
 
 .cobro {
-  background: var(--white);
+  background: var(--cream);
 }
 
 .renglon-cuenta {
@@ -1184,7 +1185,7 @@ async function entregar(): Promise<void> {
   color: var(--ink);
 }
 
-/* Campo de captura en blanco sobre el bloque blanco. */
+/* Campo de captura en blanco sobre el bloque crema. */
 .pago {
   margin: 0;
   background: var(--white);

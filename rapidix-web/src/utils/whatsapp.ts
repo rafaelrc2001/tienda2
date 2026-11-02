@@ -47,7 +47,8 @@ export function mensajeDeEntrega(pedido: Pedido): string {
     lineas.push(`Recargo fuera de horario: ${dinero(pedido.recargoFuera)}`)
   if (pedido.descuento > 0) lineas.push(`Descuento: −${dinero(pedido.descuento)}`)
   lineas.push(`*Total: ${dinero(pedido.total)}*`)
-  if (pedido.pago.billetera > 0) lineas.push(`Billetera: −${dinero(pedido.pago.billetera)}`)
+  if (pedido.pago.billetera > 0)
+    lineas.push(`Monedero electrónico: −${dinero(pedido.pago.billetera)}`)
   if (pedido.pago.aPagar > 0) {
     lineas.push(`Pago: ${nombreMetodoPago(pedido.pago.metodo)} ${dinero(pedido.pago.aPagar)}`)
     // Con cuánto pagó y su cambio, como en el detalle del pedido: ya vienen calculados.
@@ -56,7 +57,7 @@ export function mensajeDeEntrega(pedido: Pedido): string {
     }
   }
   if (pedido.cashbackGenerado > 0) {
-    lineas.push(`Ganaste ${dinero(pedido.cashbackGenerado)} de cashback`)
+    lineas.push(`Ganaste ${dinero(pedido.cashbackGenerado)} para tu Monedero electrónico`)
   }
   lineas.push('', '¡Gracias por tu compra!')
   return lineas.join('\n')

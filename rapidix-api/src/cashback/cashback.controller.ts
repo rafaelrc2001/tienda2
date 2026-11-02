@@ -4,7 +4,7 @@ import { UsuarioActual } from '../auth/usuario-actual.decorator';
 import { ROL_CLIENTE, UsuarioAutenticado } from '../auth/jwt-payload';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 
-@ApiTags('Cashback')
+@ApiTags('Monedero electrónico')
 @ApiBearerAuth()
 @Controller('perfil/cashback')
 export class CashbackController {

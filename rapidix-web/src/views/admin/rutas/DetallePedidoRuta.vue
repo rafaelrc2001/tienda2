@@ -60,7 +60,7 @@ const sinAceptar = computed(() =>
           <td class="num">−{{ dinero(pedido.descuento) }}</td>
         </tr>
         <tr v-if="pedido.pago.billetera > 0">
-          <td colspan="2">Pagó con su billetera</td>
+          <td colspan="2">Pagó con su Monedero electrónico</td>
           <td class="num">−{{ dinero(pedido.pago.billetera) }}</td>
         </tr>
         <tr class="fuerte">

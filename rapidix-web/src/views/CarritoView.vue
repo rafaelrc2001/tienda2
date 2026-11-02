@@ -133,7 +133,7 @@ async function cargarPerfil(): Promise<void> {
  */
 const tiendas = ref<TiendaParaRecoger[]>([])
 
-async function cargarTiendas(): Promise<void> {
+async function cargarTiendas(perfilListo: Promise<void>): Promise<void> {
   try {
     tiendas.value = await http.get<TiendaParaRecoger[]>('/tiendas')
   } catch {
@@ -145,7 +145,20 @@ async function cargarTiendas(): Promise<void> {
   if (carrito.tiendaId && !tiendas.value.some((t) => t.id === carrito.tiendaId)) {
     carrito.fijarTienda(null)
   }
-  if (proponerUnicaTienda() && !carrito.vacio) recalcular()
+  // La sucursal de Mi Perfil necesita el perfil, que se pide a la vez.
+  await perfilListo
+  if ((proponerSucursalDelPerfil() || proponerUnicaTienda()) && !carrito.vacio) recalcular()
+}
+
+/**
+ * Sin tienda elegida todavía, se propone la sucursal que el cliente puso en
+ * Mi Perfil, si sigue abierta. Una elegida a mano en el carrito no se pisa.
+ */
+function proponerSucursalDelPerfil(): boolean {
+  const sucursal = perfil.value?.tiendaId
+  if (carrito.tiendaId || !sucursal || !tiendas.value.some((t) => t.id === sucursal)) return false
+  carrito.fijarTienda(sucursal)
+  return true
 }
 
 /** Con una sola tienda no hay nada que elegir: se da por elegida. */
@@ -203,9 +216,9 @@ function recalcular(): void {
 
 onMounted(() => {
   if (!carrito.vacio) recalcular()
-  void cargarPerfil()
+  const perfilListo = cargarPerfil()
   void cargarCashback()
-  void cargarTiendas()
+  void cargarTiendas(perfilListo)
 })
 
 watch(() => carrito.lineas.map((l) => `${l.productoId}:${l.cantidad}`).join(','), recalcular)
@@ -1188,11 +1201,11 @@ async function confirmar(): Promise<void> {
 
 /*
  * Los campos ya eran blancos, pero dentro de una tarjeta blanca no se veía
- * dónde se escribe. La zona de alrededor lleva borde y así el campo
- * vuelve a leerse como «aquí se captura».
+ * dónde se escribe. La zona de alrededor pasa a crema y así el blanco del
+ * campo vuelve a leerse como «aquí se captura».
  */
 .zona-captura {
-  background: var(--white);
+  background: var(--cream);
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 10px 12px;

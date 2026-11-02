@@ -19,7 +19,7 @@ function perfil(sobre: Partial<Perfil> = {}): Perfil {
     telefono: "+52 993 123 4567",
     fechaNacimiento: null,
     quienRecibe: null,
-    sucursal: null,
+    tiendaId: null,
     direccion: {
       calle: "Reforma 12",
       colonia: "Centro",

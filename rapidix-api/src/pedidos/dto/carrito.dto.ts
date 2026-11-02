@@ -206,8 +206,8 @@ export class PrevisualizarCarritoDto {
   /** Saldo de billetera que quiere aplicar (HU-12). */
   @IsOptional()
   @Type(() => Number)
-  @IsNumber({ maxDecimalPlaces: 2 }, { message: 'El monto de billetera no es válido' })
-  @Min(0, { message: 'El monto de billetera no es válido' })
+  @IsNumber({ maxDecimalPlaces: 2 }, { message: 'El monto de Monedero electrónico no es válido' })
+  @Min(0, { message: 'El monto de Monedero electrónico no es válido' })
   usarBilletera?: number;
 
   /** Sin el, a domicilio: es como se venia pidiendo. */
@@ -257,8 +257,8 @@ export class CrearPedidoDto {
 
   @IsOptional()
   @Type(() => Number)
-  @IsNumber({ maxDecimalPlaces: 2 }, { message: 'El monto de billetera no es válido' })
-  @Min(0, { message: 'El monto de billetera no es válido' })
+  @IsNumber({ maxDecimalPlaces: 2 }, { message: 'El monto de Monedero electrónico no es válido' })
+  @Min(0, { message: 'El monto de Monedero electrónico no es válido' })
   usarBilletera?: number;
 
   @IsOptional()

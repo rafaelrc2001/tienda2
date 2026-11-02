@@ -176,12 +176,24 @@ body {
  * Formularios
  * ------------------------------------------------------------------ */
 
+/*
+ * Donde se escribe: bloque gris con borde y los campos blancos dentro. Así se
+ * lee igual en toda la app («aquí se captura»), como el cupón del carrito.
+ */
 .form-block {
   margin: 4px 18px 16px;
-  background: var(--white);
+  background: var(--cream);
+  border: 1px solid var(--line);
   border-radius: 16px;
   padding: 16px;
-  box-shadow: var(--shadow);
+}
+
+/* La misma idea para un grupo de campos dentro de una tarjeta blanca. */
+.zona-captura {
+  background: var(--cream);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
 }
 
 .form-label {

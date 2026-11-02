@@ -84,8 +84,8 @@ export class CrearPedidoPdvDto {
 
   @IsOptional()
   @Type(() => Number)
-  @IsNumber({ maxDecimalPlaces: 2 }, { message: 'El monto de billetera no es válido' })
-  @Min(0, { message: 'El monto de billetera no es válido' })
+  @IsNumber({ maxDecimalPlaces: 2 }, { message: 'El monto de Monedero electrónico no es válido' })
+  @Min(0, { message: 'El monto de Monedero electrónico no es válido' })
   usarBilletera?: number;
 
   /** Sin el, se lleva en mostrador: es lo normal en el punto de venta. */

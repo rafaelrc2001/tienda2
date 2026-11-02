@@ -328,7 +328,7 @@ async function cancelarAbono(turno: TurnoPdv): Promise<void> {
                 <td class="num">{{ dinero(abierto.totales.transferencia) }}</td>
               </tr>
               <tr>
-                <td>Billetera electrónica</td>
+                <td>Monedero electrónico</td>
                 <td />
                 <td class="num">{{ dinero(abierto.totales.billetera) }}</td>
               </tr>
@@ -516,7 +516,7 @@ async function cancelarAbono(turno: TurnoPdv): Promise<void> {
                           <dd>{{ dinero(p.total) }}</dd>
                         </div>
                         <div v-if="p.pago.billetera > 0">
-                          <dt>Pagó con su billetera</dt>
+                          <dt>Pagó con su Monedero electrónico</dt>
                           <dd>−{{ dinero(p.pago.billetera) }}</dd>
                         </div>
                         <div v-if="p.pago.billetera > 0">
@@ -740,7 +740,7 @@ h4:not(:first-child) {
 }
 
 .zona-captura {
-  background: var(--white);
+  background: var(--cream);
   border: 1px solid var(--line);
   border-radius: 14px;
   padding: 12px 14px 2px;
