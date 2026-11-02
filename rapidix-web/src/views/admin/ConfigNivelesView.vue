@@ -179,7 +179,7 @@ async function eliminar(nivel: NivelFidelidad): Promise<void> {
             <th class="num">Orden</th>
             <th>Nivel</th>
             <th class="num">Monedero electrónico</th>
-            <th class="num">Desde (gasto acumulado)</th>
+            <th class="num">Desde (venta acumulada)</th>
             <th />
           </tr>
         </thead>
@@ -293,7 +293,7 @@ async function eliminar(nivel: NivelFidelidad): Promise<void> {
 
         <div class="form-row-2">
           <div>
-            <label class="form-label" for="niv-umbral">Umbral de gasto</label>
+            <label class="form-label" for="niv-umbral">Venta acumulada</label>
             <input
               id="niv-umbral"
               v-model.number="formulario.umbralGasto"
@@ -318,7 +318,7 @@ async function eliminar(nivel: NivelFidelidad): Promise<void> {
         </div>
         <p v-if="errores.umbralGasto" class="form-error">{{ errores.umbralGasto }}</p>
         <p v-if="errores.orden" class="form-error">{{ errores.orden }}</p>
-        <p class="nota">El nivel 1 es el de entrada y debe tener umbral 0.</p>
+        <p class="nota">El nivel 1 es el de entrada y debe tener venta acumulada 0.</p>
 
         <label class="form-label" for="niv-porcentaje">Monedero electrónico (%)</label>
         <input

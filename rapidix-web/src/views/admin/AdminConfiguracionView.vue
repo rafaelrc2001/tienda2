@@ -37,7 +37,7 @@ const PANTALLAS = [
     ruta: '/admin/configuracion/niveles',
     ico: '🏅',
     titulo: 'Niveles de fidelidad',
-    desc: 'Escalera de niveles, sus umbrales y el Monedero electrónico',
+    desc: 'Escalera de niveles, su venta acumulada y el Monedero electrónico',
   },
   {
     ruta: '/admin/configuracion/tiendas',
