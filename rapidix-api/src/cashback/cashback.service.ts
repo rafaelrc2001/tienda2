@@ -104,7 +104,7 @@ export class CashbackService {
         clienteId: pedido.clienteId,
         pedidoId,
         monto: pedido.cashbackGenerado,
-        concepto: `Cashback del pedido ${pedido.folio}`,
+        concepto: `Monedero electrónico del pedido ${pedido.folio}`,
       },
     });
     await tx.cliente.update({

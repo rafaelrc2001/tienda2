@@ -422,12 +422,12 @@ async function guardarEnPerfil(): Promise<void> {
 }
 
 /*
- * Bloque blanco con borde alrededor de la captura: el borde marca dónde se escribe
- * dentro de la tarjeta del resumen, que también es blanca.
+ * Fondo crema alrededor de la captura: los campos son blancos y la tarjeta del
+ * resumen también, así que sin esto no se veía dónde se escribe.
  */
 .campos {
   margin-top: 8px;
-  background: var(--white);
+  background: var(--cream);
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 10px 12px;

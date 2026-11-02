@@ -54,7 +54,7 @@ async function cancelar(pedido: Pedido): Promise<void> {
   if (cancelando.value) return
   const devuelve =
     pedido.pago.billetera > 0
-      ? ` Los ${dinero(pedido.pago.billetera)} de tu billetera regresan a tu saldo.`
+      ? ` Los ${dinero(pedido.pago.billetera)} de tu Monedero electrónico regresan a tu saldo.`
       : ''
   if (!confirm(`¿Cancelar el pedido ${pedido.folio}?${devuelve}`)) return
 
@@ -209,7 +209,7 @@ async function descargarXml(pedido: Pedido): Promise<void> {
                       <td class="num">{{ dinero(pedido.total) }}</td>
                     </tr>
                     <tr v-if="pedido.pago.billetera > 0" class="descuento">
-                      <td colspan="2">Pagado con billetera</td>
+                      <td colspan="2">Pagado con Monedero electrónico</td>
                       <td class="num">−{{ dinero(pedido.pago.billetera) }}</td>
                     </tr>
                     <tr>
@@ -217,7 +217,7 @@ async function descargarXml(pedido: Pedido): Promise<void> {
                         {{
                           pedido.pago.aPagar > 0
                             ? nombreMetodoPago(pedido.pago.metodo)
-                            : 'Billetera'
+                            : 'Monedero electrónico'
                         }}
                         · {{ nombreEstadoPago(pedido.pago.estado) }}
                       </td>
@@ -240,13 +240,14 @@ async function descargarXml(pedido: Pedido): Promise<void> {
                 </table>
                 <!-- Un cancelado ya no lo va a recibir: no se promete. -->
                 <p v-if="pedido.cashbackGenerado > 0 && pedido.cashbackAcreditado" class="cashback">
-                  Cashback generado: {{ dinero(pedido.cashbackGenerado) }}
+                  Monedero electrónico generado: {{ dinero(pedido.cashbackGenerado) }}
                 </p>
                 <p
                   v-else-if="pedido.cashbackGenerado > 0 && pedido.pago.estado !== 'CANCELADO'"
                   class="cashback"
                 >
-                  Cashback por acreditar: {{ dinero(pedido.cashbackGenerado) }} al quedar pagado
+                  Monedero electrónico por acreditar: {{ dinero(pedido.cashbackGenerado) }} al
+                  quedar pagado
                 </p>
                 <!-- Facturar lo decide la API (`facturable`): pagado y sin CFDI. -->
                 <div v-if="pedido.factura" class="factura">

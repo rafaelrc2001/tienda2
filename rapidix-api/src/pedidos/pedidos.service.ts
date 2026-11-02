@@ -654,7 +654,7 @@ export class PedidosService {
         email: prospecto.email,
         fechaNacimiento: prospecto.fechaNacimiento,
         quienRecibe: prospecto.quienRecibe,
-        sucursal: prospecto.sucursal,
+        tiendaId: prospecto.tiendaId,
         calle: prospecto.calle,
         colonia: prospecto.colonia,
         cp: prospecto.cp,

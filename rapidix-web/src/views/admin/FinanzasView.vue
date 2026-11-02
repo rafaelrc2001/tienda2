@@ -415,7 +415,7 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
                       <dd>{{ dinero(pedido.total) }}</dd>
                     </div>
                     <div v-if="pedido.pago.billetera > 0">
-                      <dt>Pagó con su billetera</dt>
+                      <dt>Pagó con su Monedero electrónico</dt>
                       <dd>−{{ dinero(pedido.pago.billetera) }}</dd>
                     </div>
                     <div v-if="pedido.pago.billetera > 0">
@@ -479,11 +479,11 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
         <p class="modal-texto">
           <template v-if="confirmando.boton.estado === 'CANCELADO'">
             El pedido se deshace: su mercancía regresa a bodega y el saldo que usó vuelve a su
-            billetera. No se puede revertir.
+            Monedero electrónico. No se puede revertir.
           </template>
           <template v-else>
-            Se da el dinero por recibido y su cashback de
-            {{ dinero(confirmando.pedido.cashbackGenerado) }} entra a la billetera del cliente.
+            Se da el dinero por recibido y su Monedero electrónico de
+            {{ dinero(confirmando.pedido.cashbackGenerado) }} se abona al cliente.
           </template>
         </p>
 
@@ -712,9 +712,9 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
   font-size: 12px;
 }
 
-/* Donde se escribe: bloque blanco y campos blancos, para que se vea dónde capturar. */
+/* Donde se escribe: bloque crema y campos blancos, para que se vea dónde capturar. */
 .zona-captura {
-  background: var(--white);
+  background: var(--cream-2);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   padding: 10px 12px;

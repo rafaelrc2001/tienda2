@@ -21,7 +21,7 @@ export class GuardarNivelDto {
 
   /** Cashback del nivel en puntos porcentuales: 1.5 = 1.5 % (HU-17). */
   @Type(() => Number)
-  @IsNumber({ maxDecimalPlaces: 2 }, { message: 'El porcentaje de cashback es obligatorio' })
+  @IsNumber({ maxDecimalPlaces: 2 }, { message: 'El porcentaje de Monedero electrónico es obligatorio' })
   @Min(0)
   @Max(100)
   porcentaje: number;

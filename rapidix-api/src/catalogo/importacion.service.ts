@@ -19,7 +19,13 @@ export const COLUMNA_OPCIONAL = 'Imagen';
 /** Listas de precio por volumen (HU-08). La lista 1 es el precio de venta. */
 export const COLUMNAS_LISTAS = ['Piso 2', 'Precio 2', 'Piso 3', 'Precio 3'] as const;
 /** Si el producto suma a la base del cashback (HU-12). Si / No. */
-export const COLUMNA_CASHBACK = 'Aplica cashback';
+export const COLUMNA_CASHBACK = 'Aplica Monedero electrónico';
+/**
+ * El encabezado de antes del cambio de nombre. Se sigue leyendo porque sin el
+ * la columna de un Excel viejo se ignoraria en silencio y el producto se
+ * quedaria con el valor que ya tenia, sin ningun aviso.
+ */
+const COLUMNA_CASHBACK_ANTERIOR = 'Aplica cashback';
 /** Tasa de IVA para facturar: 0 o 16 (con o sin %). */
 export const COLUMNA_IVA = 'IVA';
 /** c_ClaveProdServ y c_ClaveUnidad del SAT, para la factura. */
@@ -219,7 +225,10 @@ export class ImportacionService {
     }
 
     const conListas = COLUMNAS_LISTAS.some((c) => indices.has(ImportacionService.normalizar(c)));
-    const conCashback = indices.has(ImportacionService.normalizar(COLUMNA_CASHBACK));
+    const columnaCashback = indices.has(ImportacionService.normalizar(COLUMNA_CASHBACK))
+      ? COLUMNA_CASHBACK
+      : COLUMNA_CASHBACK_ANTERIOR;
+    const conCashback = indices.has(ImportacionService.normalizar(columnaCashback));
     const conIva = indices.has(ImportacionService.normalizar(COLUMNA_IVA));
 
     const leerCelda = (numeroFila: number, encabezado: string): string => {
@@ -246,7 +255,7 @@ export class ImportacionService {
         precio2: leerCelda(n, 'Precio 2'),
         piso3: leerCelda(n, 'Piso 3'),
         precio3: leerCelda(n, 'Precio 3'),
-        aplicaCashback: leerCelda(n, COLUMNA_CASHBACK),
+        aplicaCashback: leerCelda(n, columnaCashback),
         iva: leerCelda(n, COLUMNA_IVA),
         claveSat: leerCelda(n, COLUMNA_CLAVE_SAT),
         claveUnidad: leerCelda(n, COLUMNA_CLAVE_UNIDAD),

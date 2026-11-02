@@ -184,7 +184,7 @@ async function repetirPedido(): Promise<void> {
     }
 
     if (carrito.vacio) {
-      ui.error('Ningún producto de ese pedido está disponible ahora mismo.');
+      ui.error('Ningún producto de ese pedido está disponible ahora mismo.')
       return
     }
 
@@ -263,7 +263,12 @@ async function comprarAhora(): Promise<void> {
         @click="busqueda = ''"
       >
         <svg viewBox="0 0 24 24" fill="none">
-          <path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" />
+          <path
+            d="M6 6l12 12M18 6 6 18"
+            stroke="currentColor"
+            stroke-width="2.4"
+            stroke-linecap="round"
+          />
         </svg>
       </button>
     </div>
@@ -303,8 +308,8 @@ async function comprarAhora(): Promise<void> {
         <span
           v-if="cashback > 0"
           class="cashback-tile"
-          :aria-label="`Ganas ${dinero(cashback)} de cashback`"
-          :title="`Ganas ${dinero(cashback)} de cashback`"
+          :aria-label="`Ganas ${dinero(cashback)} para tu Monedero electrónico`"
+          :title="`Ganas ${dinero(cashback)} para tu Monedero electrónico`"
         >
           <svg
             viewBox="0 0 24 24"

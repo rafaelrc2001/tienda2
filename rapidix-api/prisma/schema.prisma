@@ -76,10 +76,11 @@ model Cliente {
   lat         Float?
   lng         Float?
 
-  /// Sucursal a la que pertenece el cliente. Se usa para segmentar campanias
-  /// (Word 4.9.3); es texto libre porque el negocio todavia no tiene un
-  /// catalogo de sucursales.
-  sucursal String?
+  /// Sucursal donde compra el cliente: una de las tiendas dadas de alta. La
+  /// elige en Mi Perfil; el carrito la propone al recoger en tienda y la
+  /// segmentacion de campanias (Word 4.9.3) casa contra su nombre.
+  tiendaId String?
+  tienda   Tienda? @relation(fields: [tiendaId], references: [id], onDelete: SetNull)
 
   /// Codigo de la fuente de adquisicion, capturado del enlace rapidix.mx/r/CODIGO.
   fuenteCodigo   String?
@@ -176,7 +177,8 @@ model Prospecto {
   email           String?
   fechaNacimiento DateTime?
   quienRecibe     String?
-  sucursal        String?
+  tiendaId        String?
+  tienda          Tienda?   @relation(fields: [tiendaId], references: [id], onDelete: SetNull)
 
   calle       String?
   colonia     String?
@@ -482,6 +484,9 @@ model Tienda {
   turnos         TurnoPdv[]
   /// Los pedidos de la app que se recogen aqui.
   pedidos        Pedido[]
+  /// Quienes la eligieron como su sucursal en Mi Perfil.
+  clientes       Cliente[]
+  prospectos     Prospecto[]
 
   @@map("tiendas")
 }

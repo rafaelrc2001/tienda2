@@ -1370,8 +1370,11 @@ export interface Perfil {
   telefono: string
   fechaNacimiento: string | null
   quienRecibe: string | null
-  /** Sucursal del cliente. Solo se usa para segmentar campañas. */
-  sucursal: string | null
+  /**
+   * Sucursal donde compra: una de las tiendas (`GET /tiendas`). El carrito la
+   * propone al recoger en tienda; las campañas segmentan por su nombre.
+   */
+  tiendaId: string | null
   direccion: Direccion
   notificaciones: boolean
   pedidos: number
@@ -1387,7 +1390,8 @@ export interface ActualizarPerfil {
   email?: string
   fechaNacimiento?: string
   quienRecibe?: string
-  sucursal?: string
+  /** `null` quita la sucursal. */
+  tiendaId?: string | null
   calle?: string
   colonia?: string
   cp?: string

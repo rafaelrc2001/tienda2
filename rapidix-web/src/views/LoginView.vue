@@ -39,7 +39,7 @@ const TARJETAS: { rol: RolToken; icono: string; titulo: string; descripcion: str
     rol: 'CLIENTE',
     icono: '🧑‍🍳',
     titulo: 'Cliente',
-    descripcion: 'Pide comida, guarda recetas y acumula cashback',
+    descripcion: 'Pide comida, guarda recetas y acumula saldo en tu Monedero electrónico',
   },
   {
     rol: 'ADMINISTRADOR',
@@ -280,7 +280,9 @@ async function entrarComoStaff(): Promise<void> {
         <span class="ico">🧑‍🍳</span>
         <span class="txt">
           <span class="t">Cliente</span>
-          <span class="s">Pide comida, guarda recetas y acumula cashback</span>
+          <span class="s"
+            >Pide comida, guarda recetas y acumula saldo en tu Monedero electrónico</span
+          >
         </span>
         <span class="chev">›</span>
       </button>

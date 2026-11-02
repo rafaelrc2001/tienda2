@@ -141,18 +141,28 @@ export class CampaniasService {
       },
     });
 
+    // La regla `sucursal` casa contra el nombre de su tienda: se lee una vez.
+    const sucursal = cliente.tiendaId
+      ? ((await this.prisma.tienda.findUnique({ where: { id: cliente.tiendaId } }))?.nombre ?? null)
+      : null;
+
     const emitidos: CuponEmitido[] = [];
     for (const campania of candidatas) {
       if (campania.endsAt && ahora > CampaniasService.finDelDia(campania.endsAt)) continue;
       if (await this.cupones.tieneCuponActivoOUsado(cliente.id, campania.name)) continue;
-      if (!CampaniasService.clienteCalifica(cliente, campania, ahora)) continue;
+      if (!CampaniasService.clienteCalifica(cliente, campania, ahora, sucursal)) continue;
       emitidos.push(await this.cupones.emitir(campania, OrigenCupon.CAMPAIGN, { clienteId: cliente.id }));
     }
     return emitidos;
   }
 
   /** Traduce la audiencia de la campana a un si/no para este cliente. */
-  static clienteCalifica(cliente: Cliente, campania: Campania, ahora = new Date()): boolean {
+  static clienteCalifica(
+    cliente: Cliente,
+    campania: Campania,
+    ahora = new Date(),
+    sucursal: string | null = null,
+  ): boolean {
     switch (campania.targetType) {
       case TipoAudiencia.ALL:
         return true;
@@ -166,7 +176,7 @@ export class CampaniasService {
         return !!campania.sourceCode && cliente.fuenteCodigo === campania.sourceCode;
       case TipoAudiencia.SEGMENT:
         return clienteCumpleSegmento(
-          CampaniasService.aSegmentable(cliente),
+          CampaniasService.aSegmentable(cliente, sucursal),
           campania.segmentRules as unknown as ReglaSegmento[],
           ahora,
         );
@@ -180,7 +190,8 @@ export class CampaniasService {
 
   // ----------------------------------------------------------------
 
-  private static aSegmentable(cliente: Cliente): ClienteSegmentable {
+  /** `sucursal`: el nombre de la tienda que eligio en Mi Perfil. */
+  private static aSegmentable(cliente: Cliente, sucursal: string | null): ClienteSegmentable {
     return {
       pedidos: cliente.pedidos,
       totalGastado: cliente.totalGastado.toNumber(),
@@ -188,7 +199,7 @@ export class CampaniasService {
       creado: cliente.creado,
       nombre: cliente.nombre,
       telefono: cliente.telefono,
-      sucursal: cliente.sucursal,
+      sucursal,
       colonia: cliente.colonia,
       ciudad: cliente.ciudad,
       estado: cliente.estado,

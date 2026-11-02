@@ -281,7 +281,7 @@ async function alCambiarDias(cliente: ClienteAdmin, evento: Event): Promise<void
                   @change="alCambiarCredito(cliente, $event)"
                 />
               </td>
-              <td class="num">
+              <td class="num celda-captura">
                 <!-- Se captura aunque el check esté apagado: es dato del cliente. -->
                 <input
                   class="dias-credito"
@@ -463,7 +463,11 @@ async function alCambiarDias(cliente: ClienteAdmin, evento: Event): Promise<void
   cursor: pointer;
 }
 
-/* Blanco sobre la fila: se ve dónde se escribe. */
+/* Celda gris y campo blanco: se ve dónde se escribe. */
+.tabla-clientes td.celda-captura {
+  background: var(--cream);
+}
+
 .dias-credito {
   width: 58px;
   padding: 4px 6px;

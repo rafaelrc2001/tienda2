@@ -119,7 +119,7 @@ export function bloqueoDeFacturacion(pedido: {
   if (!totalAFacturar(pedido).greaterThan(0)) {
     return {
       codigo: 'PAGADO_CON_MONEDERO',
-      mensaje: 'Este pedido se pagó con tu monedero: no hay importe que facturar.',
+      mensaje: 'Este pedido se pagó con tu Monedero electrónico: no hay importe que facturar.',
     };
   }
   return null;

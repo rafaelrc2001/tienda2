@@ -12,6 +12,7 @@ import { computed, defineAsyncComponent, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ErrorApi, http } from '@/api/http'
 import { useAuthStore } from '@/stores/auth'
+import { useCarritoStore } from '@/stores/carrito'
 import { useUiStore } from '@/stores/ui'
 import { dinero } from '@/utils/formato'
 import { emojiDeNivel, imagenDeNivel } from '@/utils/medallas'
@@ -21,9 +22,10 @@ import DatosFacturacionPerfil from '@/components/DatosFacturacionPerfil.vue'
  * que el formulario se pueda usar sin esperar al mapa.
  */
 const MapaDireccion = defineAsyncComponent(() => import('@/components/MapaDireccion.vue'))
-import type { ActualizarPerfil, EstadoCashback, Perfil } from '@/api/tipos'
+import type { ActualizarPerfil, EstadoCashback, Perfil, TiendaParaRecoger } from '@/api/tipos'
 
 const auth = useAuthStore()
+const carrito = useCarritoStore()
 const ui = useUiStore()
 const router = useRouter()
 
@@ -32,7 +34,7 @@ const CAMPOS = [
   'email',
   'fechaNacimiento',
   'quienRecibe',
-  'sucursal',
+  'tiendaId',
   'calle',
   'colonia',
   'cp',
@@ -45,6 +47,8 @@ const CAMPOS = [
 
 const perfil = ref<Perfil | null>(null)
 const cashback = ref<EstadoCashback | null>(null)
+/** Las tiendas abiertas, para elegir la sucursal. Vacía si falla: el resto del perfil sigue. */
+const tiendas = ref<TiendaParaRecoger[]>([])
 const cargando = ref(true)
 const guardando = ref(false)
 const errores = ref<Record<string, string>>({})
@@ -73,6 +77,12 @@ onMounted(async () => {
     cargando.value = false
   }
 
+  try {
+    tiendas.value = await http.get<TiendaParaRecoger[]>('/tiendas')
+  } catch {
+    tiendas.value = []
+  }
+
   // El cashback es informativo: si falla, el perfil se sigue pudiendo editar.
   try {
     cashback.value = await http.get<EstadoCashback>('/perfil/cashback')
@@ -87,7 +97,8 @@ function volcarAlFormulario(datos: Perfil): void {
     email: datos.email ?? undefined,
     fechaNacimiento: datos.fechaNacimiento ?? undefined,
     quienRecibe: datos.quienRecibe ?? undefined,
-    sucursal: datos.sucursal ?? undefined,
+    // '' es «Sin sucursal» en la lista; al guardar se manda como `null`.
+    tiendaId: datos.tiendaId ?? '',
     calle: datos.direccion.calle ?? undefined,
     colonia: datos.direccion.colonia ?? undefined,
     cp: datos.direccion.cp ?? undefined,
@@ -117,6 +128,8 @@ function cuerpoDelPatch(): ActualizarPerfil {
   }
   if (lat.value !== null) cuerpo.lat = lat.value
   if (lng.value !== null) cuerpo.lng = lng.value
+  // La sucursal sí se manda vacía: así se puede quitar.
+  cuerpo.tiendaId = formulario.value.tiendaId || null
   return cuerpo
 }
 
@@ -127,6 +140,8 @@ async function guardar(): Promise<void> {
   try {
     perfil.value = await http.patch<Perfil>('/perfil', cuerpoDelPatch())
     volcarAlFormulario(perfil.value)
+    // El carrito la propone al recoger: la nueva vale ya para el siguiente pedido.
+    if (perfil.value.tiendaId) carrito.fijarTienda(perfil.value.tiendaId)
     ui.exito('Perfil guardado')
   } catch (fallo) {
     if (fallo instanceof ErrorApi) {
@@ -155,7 +170,6 @@ async function salir(): Promise<void> {
       <!-- Tarjeta de cashback -->
       <section v-if="cashback" class="cashback-card">
         <p class="cb-title">Monedero electrónico</p>
-        <p class="cb-sub">Disponible para tu próxima compra</p>
 
         <div class="cb-top-row">
           <div class="cb-saldo-box">
@@ -247,16 +261,20 @@ async function salir(): Promise<void> {
           />
 
           <!--
-            La sucursal no es parte de la dirección de entrega: la usa el panel
-            para segmentar campañas (Word 4.9.3).
+            Una de las tiendas dadas de alta: el carrito la propone al recoger
+            en tienda y el panel la usa para segmentar campañas (Word 4.9.3).
           -->
           <label class="form-label" for="p-sucursal">Sucursal</label>
-          <input
+          <select
             id="p-sucursal"
-            v-model="formulario.sucursal"
-            class="form-input"
-            placeholder="La sucursal donde compras"
-          />
+            v-model="formulario.tiendaId"
+            class="select-input"
+            :class="{ 'is-invalid': errores.tiendaId }"
+          >
+            <option value="">Sin sucursal</option>
+            <option v-for="t in tiendas" :key="t.id" :value="t.id">{{ t.nombre }}</option>
+          </select>
+          <p v-if="errores.tiendaId" class="form-error">{{ errores.tiendaId }}</p>
         </div>
       </section>
 
@@ -378,11 +396,11 @@ async function salir(): Promise<void> {
 }
 
 /*
- * Un campo blanco sobre la tarjeta blanca no se distingue: el bloque blanco marca dónde
+ * Un campo blanco sobre la tarjeta blanca no se distingue: el bloque crema marca dónde
  * se escribe. Abajo el colchón ya lo pone el margen del último campo.
  */
 .zona-captura {
-  background: var(--white);
+  background: var(--cream);
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 12px 12px 2px;
@@ -456,13 +474,7 @@ async function salir(): Promise<void> {
   font-family: var(--font-heading);
   font-weight: 800;
   font-size: 16px;
-  margin: 0;
-}
-
-.cb-sub {
-  font-size: 11.5px;
-  opacity: 0.85;
-  margin: 2px 0 14px;
+  margin: 0 0 8px;
 }
 
 .cb-top-row {
@@ -470,7 +482,7 @@ async function salir(): Promise<void> {
   align-items: center;
   justify-content: space-between;
   gap: 14px;
-  margin-bottom: 14px;
+  margin-bottom: 4px;
 }
 
 .cb-saldo-box .lbl {
@@ -577,7 +589,7 @@ async function salir(): Promise<void> {
 .cb-estado-link {
   display: block;
   text-align: center;
-  margin-top: 14px;
+  margin-top: 6px;
   font-family: var(--font-heading);
   font-weight: 700;
   font-size: 12.5px;

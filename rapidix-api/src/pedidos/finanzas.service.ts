@@ -249,7 +249,7 @@ export class FinanzasService {
             clienteId: pedido.clienteId,
             pedidoId,
             monto: billeteraDevuelta,
-            concepto: `Devolución de billetera: bajó el precio en el pedido ${pedido.folio}`,
+            concepto: `Devolución de Monedero electrónico: bajó el precio en el pedido ${pedido.folio}`,
           },
         });
         saldo = saldo.add(billeteraDevuelta);
@@ -564,14 +564,14 @@ export class FinanzasService {
             clienteId: pedido.clienteId,
             pedidoId: pedido.id,
             monto: retirable.negated(),
-            concepto: `Cashback retirado: el pedido ${pedido.folio} se canceló`,
+            concepto: `Monedero electrónico retirado: el pedido ${pedido.folio} se canceló`,
           },
         });
         saldo = saldo.sub(retirable);
       }
       if (retirable.lessThan(pedido.cashbackGenerado)) {
         this.logger.warn(
-          `Pedido ${pedido.folio} cancelado: no se pudo retirar todo el cashback ` +
+          `Pedido ${pedido.folio} cancelado: no se pudo retirar todo el Monedero electrónico ` +
             `(${pedido.cashbackGenerado.toString()}), el cliente ya lo había gastado.`,
         );
       }
@@ -592,7 +592,7 @@ export class FinanzasService {
 
     this.logger.log(
       `Pedido ${pedido.folio} cancelado: ${piezas} pieza(s) a bodega, ` +
-        `$${pedido.pagadoConBilletera.toString()} de billetera devueltos.`,
+        `$${pedido.pagadoConBilletera.toString()} de Monedero electrónico devueltos.`,
     );
   }
 

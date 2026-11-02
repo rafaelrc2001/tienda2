@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -70,7 +70,7 @@ const SELECT_PERFIL = {
   telefono: true,
   fechaNacimiento: true,
   quienRecibe: true,
-  sucursal: true,
+  tiendaId: true,
   calle: true,
   colonia: true,
   cp: true,
@@ -100,7 +100,7 @@ const SELECT_PERFIL_PROSPECTO = {
   telefono: true,
   fechaNacimiento: true,
   quienRecibe: true,
-  sucursal: true,
+  tiendaId: true,
   calle: true,
   colonia: true,
   cp: true,
@@ -150,6 +150,19 @@ export class ClientesService {
    * el intento con un 400 antes de llegar aqui.
    */
   async actualizar(duenioId: string, cambios: ActualizarPerfilDto): Promise<PerfilDto> {
+    // Solo se elige entre las tiendas abiertas: es la que el carrito propondra
+    // para recoger, y una apagada ahi daria TIENDA_NO_DISPONIBLE.
+    if (cambios.tiendaId) {
+      const tienda = await this.prisma.tienda.findUnique({ where: { id: cambios.tiendaId } });
+      if (!tienda?.activa) {
+        throw new BadRequestException({
+          statusCode: 400,
+          code: 'TIENDA_NO_DISPONIBLE',
+          message: 'Esa sucursal ya no está disponible: elige otra.',
+        });
+      }
+    }
+
     const { fechaNacimiento, ...resto } = cambios;
     const datos = {
       ...resto,
@@ -437,7 +450,7 @@ export class ClientesService {
       telefono: c.telefono,
       fechaNacimiento: c.fechaNacimiento?.toISOString() ?? null,
       quienRecibe: c.quienRecibe,
-      sucursal: c.sucursal,
+      tiendaId: c.tiendaId,
       direccion: {
         calle: c.calle,
         colonia: c.colonia,
@@ -466,7 +479,7 @@ export class ClientesService {
       telefono: p.telefono,
       fechaNacimiento: p.fechaNacimiento?.toISOString() ?? null,
       quienRecibe: p.quienRecibe,
-      sucursal: p.sucursal,
+      tiendaId: p.tiendaId,
       direccion: {
         calle: p.calle,
         colonia: p.colonia,

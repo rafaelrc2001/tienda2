@@ -139,7 +139,7 @@ async function aceptar(): Promise<void> {
                 <td class="num">{{ dinero(turno.totales.transferencia) }}</td>
               </tr>
               <tr>
-                <td>Billetera electrónica</td>
+                <td>Monedero electrónico</td>
                 <td class="num">{{ dinero(turno.totales.billetera) }}</td>
               </tr>
               <tr>

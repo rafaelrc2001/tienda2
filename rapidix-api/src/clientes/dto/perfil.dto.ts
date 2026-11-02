@@ -41,11 +41,14 @@ export class ActualizarPerfilDto {
   @MaxLength(120)
   quienRecibe?: string;
 
-  /** Sucursal del cliente. Solo se usa para segmentar campanias. */
+  /**
+   * Sucursal donde compra: el id de una tienda activa. `null` la quita. El
+   * servicio comprueba que la tienda exista y siga abierta.
+   */
   @IsOptional()
   @IsString()
-  @MaxLength(80)
-  sucursal?: string;
+  @MaxLength(64)
+  tiendaId?: string | null;
 
   // ---- Direccion de envio ----
 
@@ -120,7 +123,8 @@ export interface PerfilDto {
   telefono: string;
   fechaNacimiento: string | null;
   quienRecibe: string | null;
-  sucursal: string | null;
+  /** La tienda que eligio como su sucursal; el carrito la propone al recoger. */
+  tiendaId: string | null;
   direccion: DireccionDto;
   notificaciones: boolean;
   pedidos: number;

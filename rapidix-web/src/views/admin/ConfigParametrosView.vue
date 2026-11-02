@@ -2,8 +2,9 @@
 /**
  * Configuración → Parámetros del negocio (HU-A05).
  *
- * Estos cuatro números deciden el envío y el cashback de cada pedido: son los
- * que lee `CarritoService.calcularCarrito`.
+ * El envío y el control de inventario. Los dos valores del Monedero
+ * electrónico van en Configuración → Niveles de fidelidad, junto al % de cada
+ * nivel; se guardan en el mismo registro, así que aquí se reenvían tal cual.
  */
 import { onMounted, ref } from 'vue'
 import { ErrorApi, http } from '@/api/http'
@@ -12,12 +13,7 @@ import type { Parametros } from '@/api/tipos'
 
 const ui = useUiStore()
 
-const CAMPOS = [
-  'costoEnvio',
-  'montoEnvioGratis',
-  'multiplicadorCashback',
-  'montoMinimoCashback',
-] as const
+const CAMPOS = ['costoEnvio', 'montoEnvioGratis'] as const
 
 const parametros = ref<Parametros | null>(null)
 const cargando = ref(true)
@@ -102,50 +98,12 @@ async function guardar(): Promise<void> {
       </div>
 
       <div class="form-block">
-        <label class="form-label" for="multiplicador">Valor del cashback en billetera (× veces)</label>
-        <input
-          id="multiplicador"
-          v-model.number="parametros.multiplicadorCashback"
-          class="form-input"
-          :class="{ 'is-invalid': errores.multiplicadorCashback }"
-          type="number"
-          step="0.01"
-          min="0"
-        />
-        <p v-if="errores.multiplicadorCashback" class="form-error">
-          {{ errores.multiplicadorCashback }}
-        </p>
-        <p class="nota">
-          El % de cashback lo pone el nivel de cada cliente (Configuración → Niveles). Este número
-          es cuántas veces vale al ir a la billetera: con 2, $18 de cashback se acreditan como $36.
-        </p>
-
-        <label class="form-label" for="minimo">Compra mínima para generar cashback</label>
-        <input
-          id="minimo"
-          v-model.number="parametros.montoMinimoCashback"
-          class="form-input"
-          :class="{ 'is-invalid': errores.montoMinimoCashback }"
-          type="number"
-          step="0.01"
-          min="0"
-        />
-        <p v-if="errores.montoMinimoCashback" class="form-error">
-          {{ errores.montoMinimoCashback }}
-        </p>
-        <p class="nota">
-          Se mide solo sobre los productos que participan en el cashback, y hay que
-          <strong>superarlo</strong>: con el monto exacto todavía no se genera.
-        </p>
-      </div>
-
-      <div class="form-block">
         <div class="toggle-row">
           <div>
             <div class="t-lbl">Descontar inventario al vender</div>
             <div class="t-sub">
-              Cada pedido resta de la bodega y deja su movimiento. Si a un producto no le alcanza
-              el saldo, el pedido no se confirma.
+              Cada pedido resta de la bodega y deja su movimiento. Si a un producto no le alcanza el
+              saldo, el pedido no se confirma.
             </div>
           </div>
           <label class="switch">

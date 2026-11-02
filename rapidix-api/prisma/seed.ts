@@ -353,7 +353,7 @@ const FUENTES = [
 const NOTICIAS = [
   { badge: '2x1', titulo: 'Pechuga de pollo al 2x1', desc: 'Válido de lunes a jueves en toda la tienda Rapidix.' },
   { badge: 'Envío gratis', titulo: 'Envío gratis en compras +$300', desc: 'Aplica automáticamente al finalizar tu pedido.' },
-  { badge: 'Cashback', titulo: '10% de cashback en tu primer pedido', desc: 'El saldo se refleja al instante en tu perfil.' },
+  { badge: 'Monedero electrónico', titulo: '10% de Monedero electrónico en tu primer pedido', desc: 'El saldo se refleja al instante en tu perfil.' },
 ];
 
 const AVISOS = [

@@ -119,7 +119,7 @@ function verHoy(): void {
 
     <PestanasFinanzas activa="ingresos" />
 
-    <!-- Bloque blanco y campos blancos: se ve dónde se escribe. -->
+    <!-- Bloque crema y campos blancos: se ve dónde se escribe. -->
     <div class="filtros">
       <div class="campo">
         <label class="form-label" for="ingresos-desde">Desde</label>
@@ -222,7 +222,7 @@ function verHoy(): void {
                         <tr>
                           <th class="num">Efectivo</th>
                           <th class="num">Transferencia</th>
-                          <th class="num">Billetera electrónica</th>
+                          <th class="num">Monedero electrónico</th>
                           <th class="num">Crédito</th>
                           <th class="num total-cierre">
                             Total vendido ({{ ingreso.cierre.vendidos }})
@@ -282,7 +282,7 @@ function verHoy(): void {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: end;
   gap: 10px 12px;
-  background: var(--white);
+  background: var(--cream-2);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   padding: 10px 12px;
