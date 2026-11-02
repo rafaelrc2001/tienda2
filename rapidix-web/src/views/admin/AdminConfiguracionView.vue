@@ -36,7 +36,7 @@ const PANTALLAS = [
   {
     ruta: '/admin/configuracion/niveles',
     ico: '🏅',
-    titulo: 'Niveles de fidelidad',
+    titulo: 'Niveles Programa de Lealtad',
     desc: 'Escalera de niveles, su venta acumulada y el Monedero electrónico',
   },
   {
