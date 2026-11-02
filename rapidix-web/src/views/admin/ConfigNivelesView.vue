@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * Configuración → Niveles de fidelidad (HU-17).
+ * Configuración → Niveles Programa de Lealtad (HU-17).
  *
  * Estos niveles no existen en el Word ni en el prototipo —allí Bronce y Plata
  * estaban escritos a mano—, así que se configuran aquí. Cada uno dice desde

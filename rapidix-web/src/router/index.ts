@@ -192,7 +192,7 @@ const routes: RouteRecordRaw[] = [
     path: '/admin/configuracion/niveles',
     name: 'config-niveles',
     component: () => import('@/views/admin/ConfigNivelesView.vue'),
-    meta: { seccion: 'configuracion', titulo: 'Niveles de fidelidad' },
+    meta: { seccion: 'configuracion', titulo: 'Niveles Programa de Lealtad' },
   },
   {
     path: '/admin/configuracion/tiendas',

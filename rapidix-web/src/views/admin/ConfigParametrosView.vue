@@ -3,7 +3,7 @@
  * Configuración → Parámetros del negocio (HU-A05).
  *
  * El envío y el control de inventario. Los dos valores del Monedero
- * electrónico van en Configuración → Niveles de fidelidad, junto al % de cada
+ * electrónico van en Configuración → Niveles Programa de Lealtad, junto al % de cada
  * nivel; se guardan en el mismo registro, así que aquí se reenvían tal cual.
  */
 import { onMounted, ref } from 'vue'
