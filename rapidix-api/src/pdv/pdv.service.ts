@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -942,6 +943,10 @@ export class PdvService {
    * caja con su dinero y su mercancia. Por eso no se entrega sin turno (409
    * `SIN_TURNO`): ese efectivo no tendria corte en el que rendirse. El
    * entregado a credito pasa a CXC y no suma a la caja.
+   *
+   * Con `cobro` el cliente paga ahi mismo con ese metodo: el pendiente se
+   * cobra con el en vez del que eligio en la app, y el de credito se salda
+   * entero —no llega a CXC— y su dinero entra a la caja como cualquier cobro.
    */
   async avanzarEnTienda(
     tiendaId: string,
@@ -949,6 +954,7 @@ export class PdvService {
     destino: EstadoPedido,
     usuario: UsuarioAutenticado,
     nota?: string,
+    cobro?: MetodoPago,
   ): Promise<PedidoEnPantallaDto> {
     const controlInventario = (await this.configuracion.obtener()).controlInventario;
     const quien = actorDe(usuario);
@@ -960,6 +966,17 @@ export class PdvService {
       }
       const transicion = FlujoPedidosService.exigirAvance(pedido, destino);
       const entrega = transicion.a === EstadoPedido.ENTREGADO;
+
+      if (cobro && !entrega) {
+        throw new BadRequestException({
+          statusCode: 400,
+          code: 'COBRO_SOLO_AL_ENTREGAR',
+          message: 'El pago se registra al entregar el pedido.',
+        });
+      }
+      if (cobro && pedido.estadoPago === EstadoPago.PAGADO) {
+        throw PdvService.conflicto('YA_PAGADO', `El pedido ${pedido.folio} ya está pagado.`);
+      }
 
       let turnoId: string | null = null;
       if (entrega) {
@@ -974,18 +991,24 @@ export class PdvService {
       await FlujoPedidosService.aplicar(tx, pedidoId, transicion, quien, nota);
 
       if (entrega) {
-        await tx.pedido.update({ where: { id: pedidoId }, data: { turnoId } });
-        await FlujoPedidosService.abrirCxc(tx, pedidoId);
-        // Solo el pendiente: el pagado ya lo esta, y al de credito nadie le
-        // cobro nada en caja.
-        if (pedido.estadoPago === EstadoPago.PAGO_PENDIENTE) {
+        // El metodo con el que pago es el que cuenta el corte de caja.
+        await tx.pedido.update({
+          where: { id: pedidoId },
+          data: { turnoId, ...(cobro && { metodoPago: cobro }) },
+        });
+        // Solo el pendiente, o el de credito que pago aqui: el pagado ya lo
+        // esta, y el de credito que no pago va a CXC sin tocar la caja.
+        if (cobro || pedido.estadoPago === EstadoPago.PAGO_PENDIENTE) {
           await this.finanzas.marcarPagado(
             tx,
             pedidoId,
             quien,
-            'Cobrado al recogerlo en la tienda',
+            cobro
+              ? `Pagado al recogerlo en la tienda (${cobro === MetodoPago.EFECTIVO ? 'efectivo' : 'transferencia'})`
+              : 'Cobrado al recogerlo en la tienda',
           );
         }
+        await FlujoPedidosService.abrirCxc(tx, pedidoId);
       }
     });
     return FlujoPedidosService.enPantalla(await this.pedidos.detalle(pedidoId));

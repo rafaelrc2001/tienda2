@@ -14,6 +14,7 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
+import { AvanzarPedidoDto } from '../../pedidos/dto/avanzar-pedido.dto';
 import { LineaCarritoDto, PrevisualizarCarritoDto } from '../../pedidos/dto/carrito.dto';
 
 /** El mismo formato que acepta el login del cliente: es el mismo identificador. */
@@ -92,6 +93,18 @@ export class CrearPedidoPdvDto {
   @IsOptional()
   @IsEnum(MetodoEntrega, { message: 'El método de entrega no es válido' })
   metodoEntrega?: MetodoEntrega;
+}
+
+/**
+ * El paso de un pedido que se recoge en la tienda. Al entregarlo puede llevar
+ * con que pago el cliente en el mostrador: al de credito lo salda entero en
+ * vez de mandarlo a CXC, y al pendiente le cambia el metodo que eligio en la
+ * app. Sin el, el de credito va a CXC y el pendiente se cobra con su metodo.
+ */
+export class AvanzarEnTiendaDto extends AvanzarPedidoDto {
+  @IsOptional()
+  @IsEnum(MetodoPago, { message: 'Elige cómo pagó' })
+  cobro?: MetodoPago;
 }
 
 export class CorteDeCajaDto {
