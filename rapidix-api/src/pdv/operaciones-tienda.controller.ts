@@ -13,11 +13,11 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { RequiereSeccion } from '../auth/seccion.decorator';
 import { UsuarioActual } from '../auth/usuario-actual.decorator';
 import { UsuarioAutenticado } from '../auth/jwt-payload';
-import { AvanzarPedidoDto } from '../pedidos/dto/avanzar-pedido.dto';
 import { CancelarPedidoDto } from '../pedidos/dto/cancelar-pedido.dto';
 import { FinanzasService } from '../pedidos/finanzas.service';
 import { FlujoPedidosService, PedidoEnPantallaDto } from '../pedidos/flujo-pedidos.service';
 import { PedidosService } from '../pedidos/pedidos.service';
+import { AvanzarEnTiendaDto } from './dto/pdv.dto';
 import { PdvService } from './pdv.service';
 
 /**
@@ -57,16 +57,18 @@ export class OperacionesTiendaController {
   /**
    * Da el siguiente paso. Los candados de pago responden 409 con su `code`,
    * como en Operaciones; 409 `SIN_EXISTENCIA_EN_TIENDA` al entregar lo que la
-   * tienda no tiene y 404 si el pedido no se recoge en esa tienda.
+   * tienda no tiene y 404 si el pedido no se recoge en esa tienda. `cobro`
+   * solo vale al entregar (400 `COBRO_SOLO_AL_ENTREGAR`) y con algo por
+   * cobrar (409 `YA_PAGADO`).
    */
   @Patch('tiendas/:id/operaciones/pedidos/:pedidoId/estado')
   avanzar(
     @Param('id') id: string,
     @Param('pedidoId') pedidoId: string,
-    @Body() dto: AvanzarPedidoDto,
+    @Body() dto: AvanzarEnTiendaDto,
     @UsuarioActual() usuario: UsuarioAutenticado,
   ): Promise<PedidoEnPantallaDto> {
-    return this.pdv.avanzarEnTienda(id, pedidoId, dto.estado, usuario, dto.nota);
+    return this.pdv.avanzarEnTienda(id, pedidoId, dto.estado, usuario, dto.nota, dto.cobro);
   }
 
   /**

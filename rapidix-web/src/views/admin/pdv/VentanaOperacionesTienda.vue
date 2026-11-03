@@ -6,7 +6,8 @@
  *
  * Son los mismos pasos que surte bodega, y la pantalla tampoco decide nada:
  * cada pedido llega con su `paso` calculado por la API. Al entregarlo, la
- * mercancía sale del inventario de la tienda.
+ * mercancía sale del inventario de la tienda; si queda algo por cobrar se dice
+ * antes cómo pagó (`CobroAlEntregar`), y el de crédito puede no pagar.
  *
  * Los pedidos capturados en el mostrador no pasan por aquí: esos no se
  * preparan, se entregan desde la caja o desde Corte de caja.
@@ -25,8 +26,9 @@ import {
 import SkeletonList from '@/components/SkeletonList.vue'
 import BitacoraPedido from '@/components/BitacoraPedido.vue'
 import ComprobanteWhatsApp from '@/components/ComprobanteWhatsApp.vue'
+import CobroAlEntregar from './CobroAlEntregar.vue'
 import { PASOS, bloqueoDe, esPasoSiguiente, pasoDado } from '../operaciones/pasos'
-import type { EstadoPago, PedidoEnPantalla, Tienda } from '@/api/tipos'
+import type { EstadoPago, MetodoPago, PedidoEnPantalla, Tienda } from '@/api/tipos'
 
 const props = defineProps<{ tienda: Tienda; porPreparar: number }>()
 /** Un pedido avanzó: quien pinta el aviso de la pestaña vuelve a contarlos. */
@@ -41,6 +43,8 @@ const avanzando = ref<string | null>(null)
 const bitacoraDe = ref<PedidoEnPantalla | null>(null)
 /** El pedido recién entregado, para mandarle su comprobante por WhatsApp. */
 const comprobante = ref<PedidoEnPantalla | null>(null)
+/** El pedido que se va a entregar con algo por cobrar: antes se dice cómo pagó. */
+const porCobrar = ref<PedidoEnPantalla | null>(null)
 
 /** Recargar mientras otra carga sigue en el aire deja respuestas viejas: gana la última. */
 let peticion = 0
@@ -71,14 +75,33 @@ watch(
   () => void cargar(false),
 )
 
-async function avanzar(pedido: PedidoEnPantalla): Promise<void> {
+/**
+ * Entregar uno a crédito o pendiente de pago pasa antes por la ventana de
+ * cobro; el resto de los pasos, y el ya pagado, se dan directo.
+ */
+function pulsarPaso(pedido: PedidoEnPantalla): void {
+  const conCobro =
+    pedido.paso.siguiente === 'ENTREGADO' &&
+    (pedido.pago.estado === 'CREDITO' || pedido.pago.estado === 'PAGO_PENDIENTE') &&
+    pedido.pago.saldo > 0
+  if (conCobro) porCobrar.value = pedido
+  else void avanzar(pedido)
+}
+
+async function entregarConCobro(cobro: MetodoPago | null): Promise<void> {
+  if (!porCobrar.value) return
+  await avanzar(porCobrar.value, cobro)
+  porCobrar.value = null
+}
+
+async function avanzar(pedido: PedidoEnPantalla, cobro: MetodoPago | null = null): Promise<void> {
   const destino = pedido.paso.siguiente
   if (!destino || avanzando.value) return
   avanzando.value = pedido.id
   try {
     const actualizado = await http.patch<PedidoEnPantalla>(
       `/admin/pdv/tiendas/${props.tienda.id}/operaciones/pedidos/${pedido.id}/estado`,
-      { estado: destino },
+      { estado: destino, ...(cobro && { cobro }) },
     )
     ui.exito(`${pedido.folio} → ${nombreEstadoPedido(actualizado.estado)}`)
     pedidos.value = pedidos.value.map((p) => (p.id === actualizado.id ? actualizado : p))
@@ -222,7 +245,7 @@ function iconoMetodo(metodo: string): string {
                       pedido.paso.bloqueo !== null ||
                       avanzando === pedido.id
                     "
-                    @click="avanzar(pedido)"
+                    @click="pulsarPaso(pedido)"
                   >
                     <template v-if="avanzando === pedido.id && esPasoSiguiente(pedido, estado)">
                       …
@@ -328,6 +351,14 @@ function iconoMetodo(metodo: string): string {
     </div>
 
     <p v-else class="empty-block">No hay pedidos por recoger en esta tienda. 🎉</p>
+
+    <CobroAlEntregar
+      v-if="porCobrar"
+      :pedido="porCobrar"
+      :enviando="avanzando === porCobrar.id"
+      @cerrar="porCobrar = null"
+      @entregar="entregarConCobro"
+    />
 
     <ComprobanteWhatsApp v-if="comprobante" :pedido="comprobante" @cerrar="comprobante = null" />
 
