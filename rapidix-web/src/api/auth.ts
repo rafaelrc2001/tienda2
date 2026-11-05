@@ -5,6 +5,7 @@ import type {
   RespuestaSolicitarCodigo,
   RespuestaToken,
   RespuestaVerificarCodigo,
+  RolPersonal,
   RolToken,
   UsuarioAutenticado,
 } from './tipos'
@@ -35,8 +36,12 @@ export const apiAuth = {
   }): Promise<RespuestaVerificarCodigo> =>
     http.post('/auth/cliente/verificar-codigo', datos, { sinCierreDeSesion: true }),
 
-  loginStaff: (email: string, password: string): Promise<RespuestaToken> =>
-    http.post('/auth/staff/login', { email, password }, { sinCierreDeSesion: true }),
+  /**
+   * `rol` es la tarjeta por la que se entró: si la cuenta es de otro rol la
+   * API responde 403 `ROL_DISTINTO`.
+   */
+  loginStaff: (usuario: string, password: string, rol?: RolPersonal): Promise<RespuestaToken> =>
+    http.post('/auth/staff/login', { usuario, password, rol }, { sinCierreDeSesion: true }),
 
   yo: (): Promise<UsuarioAutenticado> => http.get('/auth/yo'),
 

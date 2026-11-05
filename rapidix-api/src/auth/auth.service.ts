@@ -91,6 +91,16 @@ const NOMBRE_DEMO: Readonly<Record<RolToken, string>> = {
   [RolUsuario.RUTA]: 'Ruta de prueba',
   [RolUsuario.OPERACIONES]: 'Operaciones de prueba',
   [RolUsuario.FINANZAS]: 'Finanzas de prueba',
+  [RolUsuario.PDV]: 'PDV de prueba',
+};
+
+/** Como se llama cada rol en las tarjetas del login. */
+const NOMBRE_ROL: Readonly<Record<RolUsuario, string>> = {
+  [RolUsuario.ADMINISTRADOR]: 'Administrador',
+  [RolUsuario.RUTA]: 'Ruta',
+  [RolUsuario.OPERACIONES]: 'Operaciones',
+  [RolUsuario.FINANZAS]: 'Finanzas',
+  [RolUsuario.PDV]: 'PDV',
 };
 
 @Injectable()
@@ -121,23 +131,32 @@ export class AuthService {
   // ----------------------------------------------------------------
 
   /**
-   * Login del personal (Administrador, Ruta, Operaciones, Finanzas).
+   * Login del personal (Administrador, Ruta, Operaciones, Finanzas, PDV).
    *
-   * El mensaje de error es el mismo para "email inexistente", "contrasena
+   * El mensaje de error es el mismo para "usuario inexistente", "contrasena
    * incorrecta" y "usuario desactivado": no se le dice a un atacante cual de
-   * los tres fallo.
+   * los tres fallo. El de rol equivocado si es distinto, pero solo sale con la
+   * contrasena correcta.
    */
   async loginStaff(dto: StaffLoginDto): Promise<TokenResponse> {
-    const email = dto.email.trim().toLowerCase();
-    const usuario = await this.prisma.usuario.findUnique({ where: { email } });
+    const nombreUsuario = dto.usuario.trim().toLowerCase();
+    const usuario = await this.prisma.usuario.findUnique({ where: { usuario: nombreUsuario } });
 
     // Se verifica siempre contra un hash, exista o no el usuario, para que el
-    // tiempo de respuesta no revele si el email esta dado de alta.
+    // tiempo de respuesta no revele si esta dado de alta.
     const hash = usuario?.passwordHash ?? AuthService.HASH_SENUELO;
     const passwordValida = await argon2.verify(hash, dto.password).catch(() => false);
 
     if (!usuario || !usuario.activo || !passwordValida) {
-      throw new UnauthorizedException('Credenciales inválidas');
+      throw new UnauthorizedException('Usuario o contraseña incorrectos');
+    }
+
+    if (dto.rol && dto.rol !== usuario.rol) {
+      throw new ForbiddenException({
+        statusCode: 403,
+        code: 'ROL_DISTINTO',
+        message: `Esta cuenta es de ${NOMBRE_ROL[usuario.rol]}. Entra por esa opción.`,
+      });
     }
 
     return this.firmarToken({ sub: usuario.id, rol: usuario.rol, nombre: usuario.nombre });
@@ -187,6 +206,7 @@ export class AuthService {
       })) ??
       (await this.prisma.usuario.create({
         data: {
+          usuario: `demo-${rol.toLowerCase()}@rapidix.mx`,
           email: `demo-${rol.toLowerCase()}@rapidix.mx`,
           // Contrasena aleatoria que no conoce nadie: a este usuario se entra
           // por aqui y solo por aqui, nunca por /auth/staff/login.

@@ -1,6 +1,14 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { EstadoPago, EstadoPedido, MetodoEntrega, Prisma, Tienda } from '@prisma/client';
+import {
+  EstadoPago,
+  EstadoPedido,
+  MetodoEntrega,
+  Prisma,
+  RolUsuario,
+  Tienda,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { UsuarioAutenticado } from '../auth/jwt-payload';
 import { LineaAMover } from '../inventario/salidas-del-pedido';
 import { GuardarTiendaDto } from './dto/tienda.dto';
 
@@ -62,6 +70,25 @@ export class TiendasService {
   /** Las que se pueden elegir como destino o abrir en el punto de venta. */
   activas(): Promise<Tienda[]> {
     return this.prisma.tienda.findMany({ where: { activa: true }, orderBy: { nombre: 'asc' } });
+  }
+
+  /**
+   * Las que el punto de venta le ofrece a quien entra. El cajero (PDV) con
+   * tienda asignada solo tiene esa: abrir caja en otra seria cobrar en una
+   * tienda que no es la suya. Si no tiene ninguna asignada ve todas, para que
+   * una cuenta a medio configurar no se quede sin poder trabajar.
+   */
+  async activasPara(usuario: UsuarioAutenticado): Promise<Tienda[]> {
+    if (usuario.rol === RolUsuario.PDV) {
+      const ficha = await this.prisma.usuario.findUnique({
+        where: { id: usuario.sub },
+        select: { tiendaId: true },
+      });
+      if (ficha?.tiendaId) {
+        return this.prisma.tienda.findMany({ where: { id: ficha.tiendaId, activa: true } });
+      }
+    }
+    return this.activas();
   }
 
   /** Las tiendas entre las que el cliente elige al pedir «Recoger en tienda». */

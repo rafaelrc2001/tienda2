@@ -40,7 +40,7 @@ configuración que ya trae el `.env.example`.
 | `NODE_ENV` | no | En `production` se activan comprobaciones extra (ver abajo). |
 | `CORS_ORIGIN` | en producción | Orígenes que pueden llamar a la API, separados por comas. Sin ella solo se permite `http://localhost:5173` (Vite en desarrollo). |
 | `APP_PUBLIC_URL` | no | Base de los enlaces de fuentes: `<APP_PUBLIC_URL>/r/CODIGO`. Por defecto `https://rapidix.mx`. |
-| `ADMIN_EMAIL` | no | Correo del administrador que crea el seed. Por defecto `admin@rapidix.mx`. |
+| `ADMIN_EMAIL` | no | Correo del administrador que crea el seed; es también su usuario para entrar. Por defecto `admin@rapidix.mx`. |
 | `ADMIN_PASSWORD` | en producción | Contraseña de ese administrador. **El seed falla en producción si no está definida.** |
 | `NOTIFICATIONS_ALLOW_CONSOLE` | no | Con `true` deja arrancar en producción sin proveedor real de WhatsApp, escribiendo los OTP en el log. Solo para demos. Por defecto `false`. |
 | `API_PUBLIC_URL` | no | Base de las URL de imagen que sirve la propia API. Se deduce de la petición, así que normalmente sobra; solo hace falta si hay un dominio delante que la API no puede ver. |

@@ -8,6 +8,7 @@ import { useRecetarioStore } from './recetario'
 import type {
   ItemMenu,
   RespuestaSolicitarCodigo,
+  RolPersonal,
   RolToken,
   Seccion,
   UsuarioAutenticado,
@@ -214,8 +215,13 @@ export const useAuthStore = defineStore('auth', () => {
     await establecerSesion(respuesta.accessToken)
   }
 
-  async function loginStaff(email: string, password: string): Promise<void> {
-    const respuesta = await apiAuth.loginStaff(email, password)
+  /** `rol` es la tarjeta del login por la que se entró. */
+  async function loginStaff(
+    nombreUsuario: string,
+    password: string,
+    rol?: RolPersonal,
+  ): Promise<void> {
+    const respuesta = await apiAuth.loginStaff(nombreUsuario, password, rol)
     await establecerSesion(respuesta.accessToken)
   }
 

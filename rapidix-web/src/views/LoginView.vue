@@ -2,12 +2,15 @@
 /**
  * Login.
  *
- * Porta el flujo del mockup con dos correcciones que impone la API:
+ * Porta el flujo del mockup: una tarjeta por modo de acceso (más PDV, el
+ * cajero de tienda, que el mockup no tenía).
  *
- *  - Las cuatro tarjetas de staff (Administrador, Ruta, Operaciones,
- *    Finanzas) se colapsan en una, "Personal del negocio": el rol no lo elige
- *    el usuario, viaja dentro del JWT.
- *  - El cliente pasa por un OTP de 6 dígitos que el mockup no tenía.
+ *  - Cliente entra con su número de WhatsApp, que es su cuenta. Pasa por un
+ *    OTP de 6 dígitos que el mockup no tenía.
+ *  - Cada tarjeta del personal pide usuario y contraseña (las cuentas se dan
+ *    de alta en Configuración → Usuarios). La tarjeta viaja al login: si la
+ *    cuenta es de otro rol la API lo rechaza con `ROL_DISTINTO`.
+ *  - Con `AUTH_DEMO_LOGIN` cada paso ofrece además entrar sin credenciales.
  *
  * El paso del nombre reenvía **el mismo código**: la API deja el OTP vivo
  * cuando responde `NOMBRE_REQUERIDO`, justo para esto.
@@ -23,18 +26,19 @@ import { useAuthStore } from '@/stores/auth'
 import { useUiStore } from '@/stores/ui'
 import { apiAuth } from '@/api/auth'
 import { ErrorApi } from '@/api/http'
-import type { RolToken } from '@/api/tipos'
+import type { RolPersonal, RolToken } from '@/api/tipos'
 
 type Paso = 'modo' | 'telefono' | 'codigo' | 'nombre' | 'staff'
 
-/**
- * Las cinco tarjetas del prototipo, tal cual.
- *
- * Solo salen cuando la API viene con `AUTH_DEMO_LOGIN`: entonces tocar una
- * entra con ese rol y ya está. Es la simulación de n8n, que identificará al
- * cliente por su WhatsApp antes de abrir la app.
- */
-const TARJETAS: { rol: RolToken; icono: string; titulo: string; descripcion: string }[] = [
+interface Tarjeta {
+  rol: RolToken
+  icono: string
+  titulo: string
+  descripcion: string
+}
+
+/** Las cinco tarjetas del prototipo y la de PDV. */
+const TARJETAS: Tarjeta[] = [
   {
     rol: 'CLIENTE',
     icono: '🧑‍🍳',
@@ -55,6 +59,12 @@ const TARJETAS: { rol: RolToken; icono: string; titulo: string; descripcion: str
     descripcion: 'Seguimiento del día a día',
   },
   { rol: 'FINANZAS', icono: '💵', titulo: 'Finanzas', descripcion: 'Ingresos, gastos y clientes' },
+  {
+    rol: 'PDV',
+    icono: '🏪',
+    titulo: 'PDV',
+    descripcion: 'Punto de venta: caja, inventario y corte de la tienda',
+  },
 ]
 
 const auth = useAuthStore()
@@ -75,8 +85,20 @@ const telefono = ref('')
 const codigo = ref('')
 const nombre = ref('')
 
-const email = ref('')
+/** Tarjeta del personal por la que se entró al formulario de usuario. */
+const tarjetaStaff = ref<Tarjeta | null>(null)
+const usuario = ref('')
 const password = ref('')
+
+function elegir(tarjeta: Tarjeta): void {
+  if (tarjeta.rol === 'CLIENTE') {
+    irA('telefono')
+    return
+  }
+  tarjetaStaff.value = tarjeta
+  password.value = ''
+  irA('staff')
+}
 
 onMounted(async () => {
   // Enlace de fuente de adquisición: `?r=CODIGO` o `/r/CODIGO`.
@@ -200,10 +222,18 @@ async function verificar(): Promise<void> {
 }
 
 async function entrarComoStaff(): Promise<void> {
+  if (!usuario.value.trim() || !password.value) {
+    error.value = 'Escribe tu usuario y tu contraseña'
+    return
+  }
   enviando.value = true
   error.value = ''
   try {
-    await auth.loginStaff(email.value.trim(), password.value)
+    await auth.loginStaff(
+      usuario.value.trim(),
+      password.value,
+      tarjetaStaff.value?.rol as RolPersonal | undefined,
+    )
     await entrar()
   } catch (fallo) {
     mostrarFallo(fallo)
@@ -230,11 +260,8 @@ async function entrarComoStaff(): Promise<void> {
       <div class="login-logo-text">RAPIDIX</div>
     </div>
 
-    <!--
-      Acceso directo (AUTH_DEMO_LOGIN): las cinco tarjetas del prototipo, y
-      tocar una entra sin pedir nada. Simulación de n8n.
-    -->
-    <template v-if="paso === 'modo' && accesoDirecto">
+    <!-- Paso 1: cómo entras -->
+    <template v-if="paso === 'modo'">
       <div class="login-title">¿Cómo deseas ingresar?</div>
       <div class="login-subtitle">Elige el modo con el que quieres usar la app</div>
 
@@ -244,58 +271,12 @@ async function entrarComoStaff(): Promise<void> {
         type="button"
         class="role-card"
         :class="{ 'client-card-highlight': tarjeta.rol === 'CLIENTE' }"
-        :disabled="entrandoComo !== null"
-        @click="entrarDirecto(tarjeta.rol)"
+        @click="elegir(tarjeta)"
       >
         <span class="ico">{{ tarjeta.icono }}</span>
         <span class="txt">
           <span class="t">{{ tarjeta.titulo }}</span>
           <span class="s">{{ tarjeta.descripcion }}</span>
-        </span>
-        <span class="chev">{{ entrandoComo === tarjeta.rol ? '…' : '›' }}</span>
-      </button>
-
-      <p v-if="error" class="form-error">{{ error }}</p>
-
-      <!--
-        Las tarjetas de arriba entran sin identificar a nadie, asi que tapaban
-        el login de verdad: con el acceso directo encendido no habia forma de
-        llegar a escribir un telefono. Esta puerta lo devuelve.
-      -->
-      <div class="separador"><span>o</span></div>
-
-      <button type="button" class="btn-secondary ancho" @click="irA('telefono')">
-        Entrar con mi WhatsApp
-      </button>
-
-      <p class="login-aviso">Modo de pruebas: las tarjetas entran sin contraseña.</p>
-    </template>
-
-    <!-- Paso 1: cómo entras -->
-    <template v-else-if="paso === 'modo'">
-      <div class="login-title">¿Cómo deseas ingresar?</div>
-      <div class="login-subtitle">Elige el modo con el que quieres usar la app</div>
-
-      <button type="button" class="role-card client-card-highlight" @click="irA('telefono')">
-        <span class="ico">🧑‍🍳</span>
-        <span class="txt">
-          <span class="t">Cliente</span>
-          <span class="s"
-            >Pide comida, guarda recetas y acumula saldo en tu Monedero electrónico</span
-          >
-        </span>
-        <span class="chev">›</span>
-      </button>
-
-      <!--
-        Las cuatro tarjetas de staff del mockup se colapsan aquí: el rol lo
-        decide el token, no quien entra.
-      -->
-      <button type="button" class="role-card" @click="irA('staff')">
-        <span class="ico">🛠️</span>
-        <span class="txt">
-          <span class="t">Personal del negocio</span>
-          <span class="s">Administración, rutas, operaciones y finanzas</span>
         </span>
         <span class="chev">›</span>
       </button>
@@ -325,6 +306,20 @@ async function entrarComoStaff(): Promise<void> {
       <button type="submit" class="btn-primary ancho" :disabled="enviando">
         {{ enviando ? 'Enviando…' : 'Continuar' }}
       </button>
+
+      <!-- AUTH_DEMO_LOGIN: el cliente de prueba, sin teclear número. -->
+      <template v-if="accesoDirecto">
+        <div class="separador"><span>o</span></div>
+        <button
+          type="button"
+          class="btn-secondary ancho"
+          :disabled="entrandoComo !== null"
+          @click="entrarDirecto('CLIENTE')"
+        >
+          {{ entrandoComo ? 'Entrando…' : 'Entrar como cliente de prueba' }}
+        </button>
+        <p class="login-aviso">Modo de pruebas: entra sin número ni código.</p>
+      </template>
     </form>
 
     <!-- Paso 3 del cliente: código de 6 dígitos -->
@@ -381,20 +376,24 @@ async function entrarComoStaff(): Promise<void> {
       </button>
     </form>
 
-    <!-- Personal del negocio: email y contraseña -->
+    <!-- Personal del negocio: usuario y contraseña -->
     <form v-else @submit.prevent="entrarComoStaff">
       <button type="button" class="login-back" @click="irA('modo')">← Elegir otro modo</button>
-      <div class="login-step-title">Personal del negocio</div>
-      <div class="login-step-sub">Entra con el correo y la contraseña de tu cuenta.</div>
+      <div class="login-step-title">
+        {{ tarjetaStaff?.icono }} {{ tarjetaStaff?.titulo ?? 'Personal del negocio' }}
+      </div>
+      <div class="login-step-sub">Entra con el usuario y la contraseña de tu cuenta.</div>
 
-      <label class="form-label" for="email">Correo</label>
+      <label class="form-label" for="usuario">Usuario</label>
       <input
-        id="email"
-        v-model="email"
+        id="usuario"
+        v-model="usuario"
         class="form-input"
-        type="email"
+        autocapitalize="none"
+        autocorrect="off"
+        spellcheck="false"
         autocomplete="username"
-        placeholder="tu@rapidix.mx"
+        placeholder="Tu usuario"
       />
 
       <label class="form-label" for="password">Contraseña</label>
@@ -412,6 +411,20 @@ async function entrarComoStaff(): Promise<void> {
       <button type="submit" class="btn-primary ancho" :disabled="enviando">
         {{ enviando ? 'Entrando…' : 'Entrar' }}
       </button>
+
+      <!-- AUTH_DEMO_LOGIN: entra con el rol de la tarjeta sin credenciales. -->
+      <template v-if="accesoDirecto && tarjetaStaff">
+        <div class="separador"><span>o</span></div>
+        <button
+          type="button"
+          class="btn-secondary ancho"
+          :disabled="entrandoComo !== null"
+          @click="entrarDirecto(tarjetaStaff.rol)"
+        >
+          {{ entrandoComo ? 'Entrando…' : 'Entrar sin contraseña' }}
+        </button>
+        <p class="login-aviso">Modo de pruebas: entra sin usuario ni contraseña.</p>
+      </template>
     </form>
   </div>
 </template>

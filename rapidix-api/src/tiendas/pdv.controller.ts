@@ -22,9 +22,13 @@ export class PdvController {
     private readonly transferencias: TransferenciasService,
   ) {}
 
+  /**
+   * Las tiendas en las que puede trabajar quien entra. Un cajero (rol PDV)
+   * con tienda asignada solo ve la suya; el resto, todas las activas.
+   */
   @Get('tiendas')
-  listarTiendas(): Promise<Tienda[]> {
-    return this.tiendas.activas();
+  listarTiendas(@UsuarioActual() usuario: UsuarioAutenticado): Promise<Tienda[]> {
+    return this.tiendas.activasPara(usuario);
   }
 
   @Get('tiendas/:id/inventario')

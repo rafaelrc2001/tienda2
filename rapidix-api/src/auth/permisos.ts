@@ -43,6 +43,8 @@ export const PERMISOS_POR_ROL: Readonly<Record<RolToken, readonly Seccion[]>> = 
   [RolUsuario.RUTA]: ['rutas'],
   [RolUsuario.OPERACIONES]: ['operaciones'],
   [RolUsuario.FINANZAS]: ['finanzas', 'clientes'],
+  // Cajero de tienda: su punto de venta y nada mas.
+  [RolUsuario.PDV]: ['pdv'],
 };
 
 /** Roles que pueden entrar a una seccion. */

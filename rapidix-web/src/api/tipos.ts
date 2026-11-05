@@ -9,8 +9,11 @@
 // Identidad y permisos
 // ------------------------------------------------------------------
 
-/** Los cinco modos de acceso del Word 2.4. */
-export type RolToken = 'ADMINISTRADOR' | 'RUTA' | 'OPERACIONES' | 'FINANZAS' | 'CLIENTE'
+/** Roles del personal del negocio (`RolUsuario` de la API). */
+export type RolPersonal = 'ADMINISTRADOR' | 'RUTA' | 'OPERACIONES' | 'FINANZAS' | 'PDV'
+
+/** Los modos de acceso del Word 2.4, más el cajero de tienda (PDV). */
+export type RolToken = RolPersonal | 'CLIENTE'
 
 /** Las diez secciones de `PERMISOS_POR_ROL`. */
 export type Seccion =
@@ -1776,6 +1779,21 @@ export interface Tienda {
   responsable: string
   /** Una tienda no se borra: apagada, deja de ofrecerse como destino. */
   activa: boolean
+}
+
+/** Una cuenta del personal en Configuración → Usuarios. */
+export interface UsuarioPanel {
+  id: string
+  usuario: string
+  nombre: string
+  apellidos: string
+  /** `AAAA-MM-DD`; `null` en las cuentas de antes de la ficha. */
+  fechaIngreso: string | null
+  rol: RolPersonal
+  tiendaId: string | null
+  /** Nombre de la tienda asignada. */
+  tienda: string | null
+  activo: boolean
 }
 
 /**

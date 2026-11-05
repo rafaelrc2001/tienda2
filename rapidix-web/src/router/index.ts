@@ -201,6 +201,12 @@ const routes: RouteRecordRaw[] = [
     meta: { seccion: 'configuracion', titulo: 'Tiendas' },
   },
   {
+    path: '/admin/configuracion/usuarios',
+    name: 'config-usuarios',
+    component: () => import('@/views/admin/ConfigUsuariosView.vue'),
+    meta: { seccion: 'configuracion', titulo: 'Usuarios' },
+  },
+  {
     path: '/admin/cupones',
     name: 'admin-cupones',
     component: () => import('@/views/admin/AdminCuponesView.vue'),
