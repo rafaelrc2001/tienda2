@@ -392,7 +392,9 @@ async function seedAdministrador(): Promise<void> {
     );
   }
 
-  const existente = await prisma.usuario.findUnique({ where: { email } });
+  // Entra con su email como nombre de usuario, igual que las cuentas que ya
+  // existian antes de que hubiera usuarios.
+  const existente = await prisma.usuario.findUnique({ where: { usuario: email } });
   if (existente) {
     console.log(`  usuarios: ${email} ya existe, no se toca su contrasena`);
     return;
@@ -400,6 +402,7 @@ async function seedAdministrador(): Promise<void> {
 
   await prisma.usuario.create({
     data: {
+      usuario: email,
       email,
       passwordHash: await argon2.hash(password, { type: argon2.argon2id }),
       nombre: 'Administrador',

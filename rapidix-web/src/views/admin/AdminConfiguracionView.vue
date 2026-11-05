@@ -46,6 +46,12 @@ const PANTALLAS = [
     desc: 'Nombre, dirección y persona responsable',
   },
   {
+    ruta: '/admin/configuracion/usuarios',
+    ico: '👤',
+    titulo: 'Usuarios',
+    desc: 'Cuentas del personal: rol, tienda y contraseña',
+  },
+  {
     ruta: '/admin/cupones',
     ico: '🎟️',
     titulo: 'Cupones',

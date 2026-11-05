@@ -18,6 +18,7 @@ negocio, el [README](README.md); esto es el *dónde está cada cosa*.
 - [`src/admin/` — menú del panel](#srcadmin--menú-del-panel)
 - [`src/catalogo/` — productos y categorías](#srccatalogo--productos-y-categorías)
 - [`src/inventario/` — bodega y bitácora](#srcinventario--bodega-y-bitácora)
+- [`src/usuarios/` — cuentas del personal](#srcusuarios--cuentas-del-personal)
 - [`src/tiendas/` — tiendas, su inventario y transferencias](#srctiendas--tiendas-su-inventario-y-transferencias)
 - [`src/clientes/` — perfil, clientes y prospectos](#srcclientes--perfil-clientes-y-prospectos)
 - [`src/pedidos/` — carrito y checkout](#srcpedidos--carrito-y-checkout)
@@ -62,11 +63,11 @@ negocio, el [README](README.md); esto es el *dónde está cada cosa*.
 27 modelos y 11 enums. Agrupados por dominio:
 
 **Identidad y acceso**
-- `Usuario` — personal del negocio: email, `passwordHash` (argon2id), rol, activo.
+- `Usuario` — personal del negocio: `usuario` (con el que entra, en minúsculas, único), nombre, apellidos, `fechaIngreso`, `passwordHash` (argon2id), rol, `tiendaId` (obligatoria para PDV: su punto de venta solo le ofrece esa) y activo. `email` es opcional y queda de antes: las cuentas viejas tienen de `usuario` su email.
 - `Cliente` — quien ya compró. Datos personales, dirección con `lat`/`lng`, contadores (`pedidos`, `totalGastado`, `primerPedido`, `ultimoPedido`), `saldoCashback`, `nivelId`, `fuenteCodigo`.
 - `Prospecto` — quien se registró y aún no compró. Los mismos campos de perfil, sin contadores de compra.
 - `CodigoOtp` — códigos de login: `codigoHash`, `expiraEn`, `intentos`, `consumidoEn`.
-- `enum RolUsuario` — ADMINISTRADOR, RUTA, OPERACIONES, FINANZAS.
+- `enum RolUsuario` — ADMINISTRADOR, RUTA, OPERACIONES, FINANZAS, PDV (cajero de tienda: solo la sección `pdv`).
 
 **Catálogo**
 - `Categoria` — catálogo de categorías, nombre único.
@@ -175,7 +176,7 @@ Registra los módulos y —lo importante— los dos guards globales:
 | Archivo | Qué contiene |
 | --- | --- |
 | [auth.module.ts](src/auth/auth.module.ts) | `@Global`. Configura `JwtModule` leyendo `JWT_SECRET` (**la app no arranca sin ella**) y `JWT_EXPIRES_IN` (por defecto `7d`). |
-| [auth.controller.ts](src/auth/auth.controller.ts) | `GET /auth/modo` (qué modos de acceso ofrece la API), `POST /auth/demo/entrar`, `POST /auth/staff/login`, `POST /auth/cliente/solicitar-codigo`, `POST /auth/cliente/verificar-codigo`, `GET /auth/yo`. Todas públicas salvo la última. |
+| [auth.controller.ts](src/auth/auth.controller.ts) | `GET /auth/modo` (qué modos de acceso ofrece la API), `POST /auth/demo/entrar`, `POST /auth/staff/login` (`usuario` + `password` y, opcional, el `rol` de la tarjeta: si no coincide, 403 `ROL_DISTINTO`), `POST /auth/cliente/solicitar-codigo`, `POST /auth/cliente/verificar-codigo`, `GET /auth/yo`. Todas públicas salvo la última. |
 | [auth.service.ts](src/auth/auth.service.ts) | El corazón. Login de staff con argon2 (verifica siempre contra un hash señuelo aunque el email no exista, para no filtrar por tiempo de respuesta qué correos están dados de alta). Login de cliente en dos pasos con OTP de 6 dígitos, 5 minutos de vigencia y 5 intentos. **`verificarCodigo` busca el teléfono solo en `clientes`**; a quien no esté se le pide el nombre y se hace `upsert` en `prospectos`. Al entrar dispara la evaluación de cupones. Exporta `otpSinEnvio()` y `demoLoginActivo()`. |
 | [jwt-payload.ts](src/auth/jwt-payload.ts) | Forma del token: `sub`, `rol`, `nombre` y `tipo` (CLIENTE/PROSPECTO). Define `ROL_CLIENTE` y `RolToken` (los 4 roles de staff + cliente). |
 | [permisos.ts](src/auth/permisos.ts) | **La matriz.** Las 10 secciones del panel y qué rol entra a cada una, portada literal de la tabla del Word 2.4. Cambiar aquí cambia el acceso en toda la API. |
@@ -257,6 +258,16 @@ registra el movimiento que falta, con motivo `AJUSTE`, y queda escrito.
 
 ---
 
+## `src/usuarios/` — cuentas del personal
+
+| Archivo | Qué hace |
+|---|---|
+| [admin-usuarios.controller.ts](src/usuarios/admin-usuarios.controller.ts) | `GET/POST /admin/configuracion/usuarios` y `PATCH :id`, bajo `configuracion`. **Sin `DELETE`**: de una cuenta cuelgan turnos, cortes y cobros; se retira desactivándola. |
+| [usuarios.service.ts](src/usuarios/usuarios.service.ts) | Alta y edición. Nunca devuelve el hash. 409 `USUARIO_DUPLICADO` (lo impide el `@unique`); nadie puede desactivarse ni cambiarse el rol a sí mismo; la tienda tiene que existir y estar activa. |
+| [dto/usuario.dto.ts](src/usuarios/dto/usuario.dto.ts) | `CrearUsuarioDto` / `ActualizarUsuarioDto`: nombre, apellidos, `fechaIngreso` (`AAAA-MM-DD`), usuario (se pasa a minúsculas), contraseña (mínimo 3; vacía al editar = no se cambia), rol y tienda (obligatoria con PDV). |
+
+Las cuentas de prueba (`administrador`, `ruta`, `operaciones`, `finanzas`, `pdv`, todas con contraseña `123`) las crea la migración `20261105120100_usuarios_ficha`.
+
 ## `src/tiendas/` — tiendas, su inventario y transferencias
 
 Una tienda tiene su propio inventario (`inventario_tienda`), aparte del de
@@ -272,7 +283,7 @@ está pendiente, libera lo apartado. Los tres pasos dejan su renglón en
 | [tiendas.module.ts](src/tiendas/tiendas.module.ts) | Cuatro controladores, uno por audiencia, y dos servicios. Exporta `TiendasService` para el punto de venta y para el checkout (`PedidosModule`). |
 | [admin-tiendas.controller.ts](src/tiendas/admin-tiendas.controller.ts) | `GET/POST /admin/configuracion/tiendas` y `PATCH :id`, bajo `configuracion`: nombre, dirección y responsable. **Sin `DELETE`**: una tienda se retira apagando `activa`. |
 | [admin-transferencias.controller.ts](src/tiendas/admin-transferencias.controller.ts) | El lado de bodega, bajo `productos` y con el prefijo `admin/inventario`: `GET tiendas` (destinos activos), `GET/POST transferencias` y `POST transferencias/:id/cancelar`. |
-| [pdv.controller.ts](src/tiendas/pdv.controller.ts) | El lado de la tienda, bajo la sección `pdv`: `GET /admin/pdv/tiendas`, `GET tiendas/:id/inventario`, `GET transferencias` y `POST transferencias/:id/aceptar` (409 `TRANSFERENCIA_RESUELTA` si ya se aceptó o canceló). |
+| [pdv.controller.ts](src/tiendas/pdv.controller.ts) | El lado de la tienda, bajo la sección `pdv`: `GET /admin/pdv/tiendas` (a un cajero PDV con tienda asignada solo le da la suya), `GET tiendas/:id/inventario`, `GET transferencias` y `POST transferencias/:id/aceptar` (409 `TRANSFERENCIA_RESUELTA` si ya se aceptó o canceló). |
 | [tiendas.controller.ts](src/tiendas/tiendas.controller.ts) | El lado del cliente: `GET /tiendas`, **público**, con las tiendas activas entre las que elige al pedir «Recoger en tienda». Solo nombre y dirección: el responsable no viaja. |
 | [tiendas.service.ts](src/tiendas/tiendas.service.ts) | CRUD de tiendas y su inventario. `entrar()` suma lo aceptado; `salir()` resta lo que el punto de venta entrega: con `controlInventario` encendido la condición de saldo va dentro del `WHERE` (409 `SIN_EXISTENCIA_EN_TIENDA`); apagado, baja hasta donde haya y la venta sigue. `disponibles()` da lo que la tienda puede vender —lo que hay menos lo prometido en pedidos sin entregar, los de mostrador y los de la app que se recogen ahí— y `faltantes()` qué no alcanza a surtir: con eso el PDV marca agotados en su catálogo, apaga «Confirmar pedido» en la previsualización y rechaza el pedido, y el checkout de la app hace lo mismo al recoger en tienda. `resolverRecogida()` dice en qué tienda se recoge un pedido de la app o por qué no vale la que mandó el carrito (`TIENDA_REQUERIDA` si hay tiendas activas y no eligió, `TIENDA_NO_DISPONIBLE`); sin tiendas activas devuelve `null` y el pedido lo surte bodega. |
 | [transferencias.service.ts](src/tiendas/transferencias.service.ts) | `crear()` (todo o nada, folio `TRA000123` de `transferencias_folio_seq`; 409 `TIENDA_INACTIVA`), `aceptar()` y `cancelar()`. Los dos últimos bloquean la fila (`FOR UPDATE`) y exigen que siga pendiente: una doble pulsación de «Aceptar» no saca dos veces la mercancía. Los saldos de bodega los mueve `InventarioService` (`apartarTransferencia`, `sacarTransferencia`, `liberarTransferencia`), sin mirar `controlInventario`: es un movimiento de bodega capturado por una persona. |

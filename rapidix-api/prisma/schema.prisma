@@ -21,15 +21,30 @@ enum RolUsuario {
   RUTA
   OPERACIONES
   FINANZAS
+  /// Cajero de una tienda: solo ve la seccion PDV.
+  PDV
 }
 
 /// Personal del negocio. Nunca clientes: esos viven en `Cliente`.
+///
+/// Se da de alta en Configuracion -> Usuarios y entra con `usuario` y
+/// contrasena. El email quedo de antes de que hubiera nombre de usuario: las
+/// cuentas viejas lo conservan y su `usuario` es ese mismo email.
 model Usuario {
   id            String     @id @default(uuid())
-  email         String     @unique
+  /// Nombre con el que entra. Siempre en minusculas.
+  usuario       String     @unique
+  email         String?    @unique
   passwordHash  String
   nombre        String
+  apellidos     String     @default("")
+  /// Dia en que entro a trabajar. Solo dato de ficha: no calcula nada.
+  fechaIngreso  DateTime?  @db.Date
   rol           RolUsuario
+  /// Tienda donde trabaja. Obligatoria para PDV (su punto de venta solo le
+  /// ofrece esa); para el resto del personal es informativa.
+  tiendaId      String?
+  tienda        Tienda?    @relation(fields: [tiendaId], references: [id], onDelete: SetNull)
   activo        Boolean    @default(true)
   creadoEn      DateTime   @default(now())
   actualizadoEn DateTime   @updatedAt
@@ -487,6 +502,8 @@ model Tienda {
   /// Quienes la eligieron como su sucursal en Mi Perfil.
   clientes       Cliente[]
   prospectos     Prospecto[]
+  /// Personal asignado a esta tienda.
+  usuarios       Usuario[]
 
   @@map("tiendas")
 }
