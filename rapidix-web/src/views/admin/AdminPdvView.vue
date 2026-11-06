@@ -30,7 +30,7 @@
  * `pantalla-pdv` le pide al layout una columna más ancha que la del resto del
  * panel: el catálogo de la caja aprovecha el ancho.
  */
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ErrorApi, http } from '@/api/http'
 import SkeletonList from '@/components/SkeletonList.vue'
@@ -120,6 +120,28 @@ function cambiarDeTienda(): void {
 /** Lo que la tienda elegida tiene por preparar: el número de la campana. */
 const porPreparar = computed(() => (tienda.value ? (pendientes.value[tienda.value.id] ?? 0) : 0))
 
+/**
+ * La fila de pestañas se desliza de lado en un teléfono: al entrar con una
+ * pestaña de la URL (p. ej. Facturación) o al tocar una medio cortada en el
+ * borde, se recorre la fila hasta dejarla entera a la vista. Se mueve solo
+ * `scrollLeft` de la fila: `scrollIntoView` arrastraría también el scroll
+ * vertical de `.app-screen`.
+ */
+const filaPestanas = ref<HTMLElement | null>(null)
+
+function mostrarPestanaActiva(): void {
+  const fila = filaPestanas.value
+  const activa = fila?.querySelector<HTMLElement>('.subtab.active')
+  if (!fila || !activa) return
+  const margen = 5
+  const izquierda = activa.offsetLeft - margen
+  const derecha = activa.offsetLeft + activa.offsetWidth + margen - fila.clientWidth
+  if (fila.scrollLeft > izquierda) fila.scrollTo({ left: izquierda, behavior: 'smooth' })
+  else if (fila.scrollLeft < derecha) fila.scrollTo({ left: derecha, behavior: 'smooth' })
+}
+
+watch([ventana, filaPestanas], () => void nextTick(mostrarPestanaActiva))
+
 function abrir(id: Ventana): void {
   vuelta.value++
   void contarPendientes()
@@ -150,7 +172,7 @@ function abrir(id: Ventana): void {
         <button type="button" @click="cambiarDeTienda">Cambiar de tienda</button>
       </div>
 
-      <div class="subtab-row" role="tablist" aria-label="Punto de Venta">
+      <div ref="filaPestanas" class="subtab-row" role="tablist" aria-label="Punto de Venta">
         <button
           v-for="v in VENTANAS"
           :key="v.id"
@@ -279,23 +301,34 @@ function abrir(id: Ventana): void {
   margin: 0 0 12px;
 }
 
-/* Las pestañas de `base.css` miden todas lo mismo, y en un teléfono a
-   «Operaciones» no le cabía la campana: el texto se cortaba y de ella solo
-   asomaba un trozo del globo. Aquí cada una mide lo que ocupa su contenido y
-   se reparten lo que sobra; si aun así no cabe, se recorta el rótulo, nunca
-   la campana. */
+/* Son cinco pestañas y en un teléfono no caben: recortadas a «Invent…» o
+   «Factura…» no se leían. En vez de encogerlas, la fila se desliza hacia los
+   lados con el dedo; cada pestaña mide lo que ocupa su rótulo completo y, si en
+   pantalla ancha sobra sitio, se lo reparten. La barra de scroll se oculta: la
+   pestaña cortada en el borde ya avisa de que hay más. */
+.subtab-row {
+  /* `relative` para que el `offsetLeft` de cada pestaña se mida desde la fila. */
+  position: relative;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  scroll-padding: 0 5px;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.subtab-row::-webkit-scrollbar {
+  display: none;
+}
+
 .subtab-row .subtab {
   display: flex;
   align-items: center;
   justify-content: center;
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.rotulo {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex: 1 0 auto;
+  padding-left: 14px;
+  padding-right: 14px;
+  scroll-snap-align: start;
 }
 
 /* La campana toma el color del texto de la pestaña; el número va encima, en el
