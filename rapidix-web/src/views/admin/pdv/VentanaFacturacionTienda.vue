@@ -15,7 +15,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { guardarBlob, http, obtenerArchivo } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
-import { dinero, fechaHora, fechaNumerica, nombreEstadoPago } from '@/utils/formato'
+import { dinero, fechaDia, fechaHora, fechaNumerica, nombreEstadoPago } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
 import VisorPdfFactura from '@/components/VisorPdfFactura.vue'
 import FacturarPdvModal from './FacturarPdvModal.vue'
@@ -183,7 +183,6 @@ function folios(f: FacturaEmitida): string {
               <th>Pedido</th>
               <th>Fecha</th>
               <th>Cliente</th>
-              <th>Datos fiscales</th>
               <th>Pago</th>
               <th class="num">A facturar</th>
               <th>Acción</th>
@@ -205,27 +204,25 @@ function folios(f: FacturaEmitida): string {
                 />
               </td>
               <td><span class="folio">{{ p.folio }}</span></td>
-              <td class="fecha">{{ fechaNumerica(p.creadoEn) }}</td>
+              <td class="fecha">{{ fechaDia(p.creadoEn) }}</td>
               <td>
                 {{ p.cliente.nombre }}
                 <span class="dato-chico">{{ p.cliente.telefono }}</span>
               </td>
-              <td>
-                <span v-if="p.cliente.conDatosFiscales" class="mini-tag con-datos">Guardados</span>
-                <span v-else class="sin-datos">Sin datos</span>
-              </td>
               <td>{{ nombreEstadoPago(p.estadoPago) }}</td>
               <td class="num importe">{{ dinero(p.aFacturar) }}</td>
               <td class="accion">
+                <!-- Bloqueado se queda el botón apagado; el motivo va en el title para no
+                     ensanchar la columna con el texto. -->
                 <button
-                  v-if="p.bloqueo === null"
                   type="button"
                   class="btn-facturar"
+                  :disabled="p.bloqueo !== null"
+                  :title="p.bloqueo ?? undefined"
                   @click="facturarUno(p)"
                 >
                   Facturar
                 </button>
-                <p v-else class="bloqueo">{{ p.bloqueo }}</p>
               </td>
             </tr>
           </tbody>
@@ -399,15 +396,6 @@ function folios(f: FacturaEmitida): string {
   color: var(--muted);
 }
 
-.sin-datos {
-  font-size: 12px;
-  color: var(--orange-dark);
-}
-
-.mini-tag.con-datos {
-  margin-left: 0;
-}
-
 .mini-tag.simulada {
   margin-left: 4px;
   color: var(--muted);
@@ -433,12 +421,9 @@ function folios(f: FacturaEmitida): string {
   cursor: pointer;
 }
 
-.bloqueo {
-  margin: 0;
-  max-width: 220px;
-  font-size: 11.5px;
-  font-weight: 600;
-  color: var(--orange-dark);
+.tabla.lineal td > .btn-facturar:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .tabla .archivo {
