@@ -8,7 +8,7 @@
  * recargar no la pierda; entrar desde el menú llega sin ella y vuelve a
  * preguntar. «Cambiar de tienda» regresa a la lista.
  *
- * Con la tienda elegida, cuatro pestañas:
+ * Con la tienda elegida, cinco pestañas:
  *
  *  - **Punto de Venta**: el turno del cajero en esa tienda y su caja. Los
  *    pedidos se capturan, se entregan y se cobran ahí mismo.
@@ -20,6 +20,9 @@
  *    cuántos faltan por preparar —el mismo globo del carrito—, para que quien
  *    está cobrando se entere de que entró uno sin tener que abrirla. El aviso
  *    va solo aquí, ya dentro de la tienda: la lista de tiendas no lo enseña.
+ *  - **Facturación**: los pedidos de la tienda sin factura, que aquí se
+ *    facturan uno por uno o varios juntos con la razón social que se elija, y
+ *    las facturas que ya tienen.
  *
  * Como en Rutas, la pestaña va en la URL y cada una se vuelve a montar —y a
  * pedir sus datos— en cada toque: así nunca enseña datos viejos.
@@ -36,15 +39,17 @@ import VentanaInventarioTienda from './pdv/VentanaInventarioTienda.vue'
 import VentanaPuntoDeVenta from './pdv/VentanaPuntoDeVenta.vue'
 import VentanaCorteDeCaja from './pdv/VentanaCorteDeCaja.vue'
 import VentanaOperacionesTienda from './pdv/VentanaOperacionesTienda.vue'
+import VentanaFacturacionTienda from './pdv/VentanaFacturacionTienda.vue'
 import type { PendientesPorTienda, Tienda } from '@/api/tipos'
 
-type Ventana = 'pdv' | 'inventario' | 'corte' | 'operaciones'
+type Ventana = 'pdv' | 'inventario' | 'corte' | 'operaciones' | 'facturacion'
 
 const VENTANAS: { id: Ventana; titulo: string }[] = [
   { id: 'pdv', titulo: 'Punto de Venta' },
   { id: 'inventario', titulo: 'Inventario' },
   { id: 'corte', titulo: 'Corte de caja' },
   { id: 'operaciones', titulo: 'Operaciones' },
+  { id: 'facturacion', titulo: 'Facturación' },
 ]
 
 /** Cada cuánto se vuelve a preguntar si entró un pedido para recoger. */
@@ -199,6 +204,11 @@ function abrir(id: Ventana): void {
           :tienda="tienda"
           :por-preparar="porPreparar"
           @cambio="contarPendientes"
+        />
+        <VentanaFacturacionTienda
+          v-else-if="ventana === 'facturacion'"
+          :key="`facturacion-${tienda.id}-${vuelta}`"
+          :tienda="tienda"
         />
         <VentanaCorteDeCaja v-else :key="`corte-${tienda.id}-${vuelta}`" :tienda="tienda" />
       </div>

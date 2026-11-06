@@ -672,6 +672,14 @@ export class PedidosService {
         carrito: prospecto.carrito ?? Prisma.DbNull,
         carritoEn: prospecto.carritoEn,
         borradorEntrega: prospecto.borradorEntrega ?? Prisma.DbNull,
+        // Los que le capturo el punto de venta al facturar: su primera factura
+        // desde la app sale ya llena.
+        rfc: prospecto.rfc,
+        razonSocial: prospecto.razonSocial,
+        regimenFiscal: prospecto.regimenFiscal,
+        usoCfdi: prospecto.usoCfdi,
+        cpFiscal: prospecto.cpFiscal,
+        emailFacturacion: prospecto.emailFacturacion,
       },
     });
 

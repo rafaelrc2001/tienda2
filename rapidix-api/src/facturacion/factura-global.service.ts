@@ -24,7 +24,7 @@ import {
 import { DocumentoFactura, FacturacionService } from './facturacion.service';
 import { PrevisualizarFacturaGlobalDto, TimbrarFacturaGlobalDto } from './dto/factura-global.dto';
 import { FacturaTimbrada, Receptor } from './timbrador';
-import { emisorDesdeEntorno } from './timbrador-simulado';
+import { EmisorElegido, RazonesSocialesService } from './razones-sociales.service';
 
 const Decimal = Prisma.Decimal;
 
@@ -142,6 +142,7 @@ export class FacturaGlobalService {
     private readonly prisma: PrismaService,
     private readonly catalogoSat: CatalogoSatService,
     private readonly facturacion: FacturacionService,
+    private readonly razones: RazonesSocialesService,
   ) {}
 
   async datos(): Promise<DatosFacturaGlobalDto> {
@@ -150,8 +151,9 @@ export class FacturaGlobalService {
       orderBy: { nombre: 'asc' },
       select: { id: true, nombre: true, claveProdServ: true, tasaIva: true },
     });
+    const emisor = await this.razones.principal();
     return {
-      receptor: await this.receptorFijo(),
+      receptor: this.receptorFijo(emisor),
       formasPago: this.catalogoSat.formasDePago(),
       periodicidades: PERIODICIDADES,
       meses: MESES_SAT,
@@ -162,7 +164,7 @@ export class FacturaGlobalService {
         claveGenerica: !p.claveProdServ,
         tasaIva: p.tasaIva,
       })),
-      modo: this.facturacion.timbrador.modo,
+      modo: this.facturacion.timbradorPara(emisor).modo,
     };
   }
 
@@ -212,16 +214,18 @@ export class FacturaGlobalService {
       });
     }
 
+    // La emite la razon social principal.
+    const emisor = await this.razones.principal();
     const receptor: Receptor = {
       rfc: PUBLICO_EN_GENERAL.rfc,
       razonSocial: PUBLICO_EN_GENERAL.razonSocial,
       regimenFiscal: PUBLICO_EN_GENERAL.regimenFiscal,
       usoCfdi: PUBLICO_EN_GENERAL.usoCfdi,
-      cpFiscal: (await this.receptorFijo()).cpFiscal,
+      cpFiscal: this.receptorFijo(emisor).cpFiscal,
       email: dto.email ?? null,
     };
     const informacionGlobal = { periodicidad: dto.periodicidad, meses: dto.meses, anio: dto.anio };
-    const timbrador = this.facturacion.timbrador;
+    const timbrador = this.facturacion.timbradorPara(emisor);
 
     const reserva = await this.prisma.$transaction(async (tx) => {
       const creada = await tx.facturaGlobal.create({
@@ -236,6 +240,7 @@ export class FacturaGlobalService {
           // El del CFDI: puede quedar un centavo arriba de lo depositado.
           total: armada.totalFactura,
           conceptos: armada.guardados as unknown as Prisma.InputJsonValue,
+          razonSocialId: emisor.id,
           creadoPorId: usuarioId,
         },
         select: { id: true, numero: true },
@@ -326,6 +331,7 @@ export class FacturaGlobalService {
   async documento(id: string, formato: 'pdf' | 'xml'): Promise<DocumentoFactura> {
     const factura = await this.prisma.facturaGlobal.findFirst({
       where: { id, estado: EstadoFactura.TIMBRADA },
+      include: { emisor: { select: { rfc: true, nombre: true, regimen: true, cp: true } } },
     });
     if (!factura) throw new NotFoundException('La factura global no existe');
     const folioPedido = `G${factura.numero}`;
@@ -356,7 +362,13 @@ export class FacturaGlobalService {
       },
     };
 
-    const timbrador = this.facturacion.timbradorDelModo(factura.modo);
+    // La global no congela su emisor: la simulada sale con los datos de hoy de
+    // su razon social (o con los del entorno, si es de antes).
+    const timbrador = await this.facturacion.timbradorDeFactura({
+      modo: factura.modo,
+      razonSocialId: factura.razonSocialId,
+      emisor: factura.emisor,
+    });
     try {
       const contenido =
         formato === 'pdf' ? await timbrador.pdf(timbrada) : await timbrador.xml(timbrada);
@@ -374,12 +386,8 @@ export class FacturaGlobalService {
   // Ayudas
   // ----------------------------------------------------------------
 
-  /** El receptor generico. El CP es el de Configuracion -> Fiscal, o el del emisor de pruebas. */
-  private async receptorFijo(): Promise<ReceptorGlobalDto> {
-    const config = await this.prisma.configuracionNegocio.findUnique({
-      where: { id: 1 },
-      select: { fiscalCp: true },
-    });
+  /** El receptor generico. El CP es el de la razon social principal, o el del emisor de pruebas. */
+  private receptorFijo(emisor: EmisorElegido): ReceptorGlobalDto {
     const nombre = (lista: OpcionSat[], clave: string): OpcionSat => ({
       clave,
       nombre: lista.find((x) => x.clave === clave)?.nombre ?? '',
@@ -389,7 +397,7 @@ export class FacturaGlobalService {
       razonSocial: PUBLICO_EN_GENERAL.razonSocial,
       regimenFiscal: nombre(REGIMENES_FISCALES, PUBLICO_EN_GENERAL.regimenFiscal),
       usoCfdi: nombre(USOS_CFDI, PUBLICO_EN_GENERAL.usoCfdi),
-      cpFiscal: config?.fiscalCp ?? emisorDesdeEntorno().cp,
+      cpFiscal: emisor.cp,
       metodoPago: { clave: 'PUE', nombre: 'Pago en una sola exhibición' },
     };
   }

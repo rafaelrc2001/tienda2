@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   ConflictException,
   Injectable,
   InternalServerErrorException,
@@ -7,11 +6,9 @@ import {
 } from '@nestjs/common';
 import { ConfiguracionNegocio, CuentaBancaria, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { REGIMENES_FISCALES, RegimenFiscal, tipoPersona } from '../facturacion/catalogos-sat';
 import {
   BancariosDto,
   CuentaBancariaDto,
-  FiscalDto,
   HorarioDto,
   ParametrosDto,
 } from './dto/configuracion.dto';
@@ -39,15 +36,6 @@ export interface BancariosResponse {
   numeroCuenta: string | null;
   numeroTarjeta: string | null;
   clabe: string | null;
-}
-
-export interface FiscalResponse {
-  rfc: string | null;
-  nombre: string | null;
-  regimen: string | null;
-  cp: string | null;
-  /** El catalogo viaja con los datos: la interfaz no lleva su propia copia. */
-  regimenes: RegimenFiscal[];
 }
 
 /** Lo que necesita la app del cliente: horario, envio y datos de pago. */
@@ -194,45 +182,6 @@ export class ConfiguracionService {
       }
       throw fallo;
     }
-  }
-
-  async verFiscal(): Promise<FiscalResponse> {
-    const c = await this.obtener();
-    return {
-      rfc: c.fiscalRfc,
-      nombre: c.fiscalNombre,
-      regimen: c.fiscalRegimen,
-      cp: c.fiscalCp,
-      regimenes: REGIMENES_FISCALES,
-    };
-  }
-
-  async guardarFiscal(dto: FiscalDto): Promise<FiscalResponse> {
-    // El SAT rechaza el CFDI si el regimen no es del tipo de persona del RFC:
-    // se dice al guardar y no al timbrar la primera factura.
-    const persona = tipoPersona(dto.rfc);
-    const regimen = REGIMENES_FISCALES.find((r) => r.clave === dto.regimen);
-    if (regimen && !regimen.personas.includes(persona)) {
-      throw new BadRequestException({
-        statusCode: 400,
-        code: 'REGIMEN_NO_CORRESPONDE',
-        message:
-          persona === 'MORAL'
-            ? 'Ese régimen es de personas físicas y el RFC es de persona moral (12 caracteres).'
-            : 'Ese régimen es de personas morales y el RFC es de persona física (13 caracteres).',
-      });
-    }
-    await this.obtener();
-    await this.prisma.configuracionNegocio.update({
-      where: { id: 1 },
-      data: {
-        fiscalRfc: dto.rfc,
-        fiscalNombre: dto.nombre,
-        fiscalRegimen: dto.regimen,
-        fiscalCp: dto.cp,
-      },
-    });
-    return this.verFiscal();
   }
 
   async verPublica(): Promise<ConfiguracionPublica> {

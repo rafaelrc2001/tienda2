@@ -94,8 +94,9 @@ negocio, el [README](README.md); esto es el *dónde está cada cosa*.
 - `BitacoraPedido` — un renglón por cambio de estado en cualquiera de los dos ejes (`eje`, `estadoAnterior`, `estadoNuevo`, `nota`, actor congelado con su nombre). Solo se escribe; `src/pedidos/bitacora.ts` es el único sitio que la escribe.
 
 **Facturación**
-- `Factura` — el CFDI de un pedido (`pedidoId @unique`). Copia el receptor, los conceptos (JSON) y los totales tal como se timbraron; `estado` (TIMBRANDO es la reserva antes de llamar al proveedor, TIMBRADA ya tiene UUID, lo exige un `CHECK`) y `modo` (SIMULADO / FACTURA_COM).
-- `Cliente.rfc`, `razonSocial`, `regimenFiscal`, `usoCfdi`, `cpFiscal`, `emailFacturacion` — lo guardado para pre-llenar la siguiente factura. Solo en clientes: el prospecto no ha comprado.
+- `RazonSocial` — los emisores (Configuración → Fiscal): RFC, nombre, régimen, CP y las llaves de factura.com de ese RFC (nunca se devuelven). Una sola `principal` (índice único parcial): la de Mis pedidos, Finanzas y la factura global; el punto de venta elige entre las activas. Con facturas no se borra, se desactiva.
+- `Factura` — el CFDI de **uno o varios pedidos**: los pedidos apuntan a ella (`Pedido.facturaId`, una sola columna, así que un pedido no entra a dos). Copia el emisor (`razonSocialId` y `emisor*` congelados), el receptor, los conceptos (JSON), los totales, el `numOrden` con que se timbró y quién la pidió (`creadoPor*`, sin llave foránea, como la bitácora); `clienteId` solo si todos los pedidos son de un cliente. `estado` (TIMBRANDO es la reserva antes de llamar al proveedor, TIMBRADA ya tiene UUID) y `modo` (SIMULADO / FACTURA_COM).
+- `Cliente.rfc`, `razonSocial`, `regimenFiscal`, `usoCfdi`, `cpFiscal`, `emailFacturacion` — lo guardado para pre-llenar la siguiente factura. El prospecto los tiene también: el punto de venta se los guarda al facturar con su WhatsApp, y viajan al cliente al convertirse.
 - `enum TasaIva` (CERO / DIECISEIS) en `Producto` y congelada en `PedidoItem`.
 
 **Rutas** — la jornada del repartidor, el camión y el dinero que trae de vuelta. Cuatro columnas de `Pedido` cuelgan de aquí: `repartidorId` (se lo queda el primero que lo recolecta), `liquidado`/`liquidadoEn` y `corteId`.
@@ -411,32 +412,42 @@ Códigos de error que interpreta la interfaz: `SIN_JORNADA`, `JORNADA_ABIERTA`,
 
 ## `src/facturacion/` — CFDI 4.0
 
-El cliente pide la factura de su pedido desde Mis pedidos. **El timbrado vive
-detrás de un enchufe con dos implementaciones** que devuelven la misma forma:
-`TimbradorFacturaCom` si están las tres `FACTURACOM_*`, `TimbradorSimulado` si
-no. El servicio no lleva ningún `if (modo)`: el demo y la producción son el
+El cliente pide la factura de su pedido desde Mis pedidos, Finanzas la pide a
+su nombre y el punto de venta factura los pedidos de su tienda, uno o varios
+juntos. **El timbrado vive detrás de un enchufe con dos implementaciones** que
+devuelven la misma forma: `TimbradorFacturaCom` si la razón social que emite
+tiene llaves (las suyas, o la principal las tres `FACTURACOM_*` del entorno),
+`TimbradorSimulado` si no. El servicio no lleva ningún `if (modo)`: el demo y la producción son el
 mismo código. Una factura simulada se sigue sirviendo con el simulado aunque
 después se pongan las llaves (`Factura.modo`).
 
 **Solo se factura lo cerrado:** `ENTREGADO` y `PAGADO`. Una entrega parcial ya
 reescribió renglones y total, así que la factura sale por lo que de verdad se
 llevó el cliente; y como está pagado, siempre es método PUE. **Un pedido, un
-CFDI**, garantizado por el `@unique` de `Factura.pedidoId`: el botón apagado en
-la interfaz es solo cortesía.
+CFDI**, garantizado por la columna `Pedido.facturaId`: la reserva solo se queda
+con los pedidos que siguen sin factura, y si no son todos no aparta ninguno. El
+botón apagado en la interfaz es solo cortesía.
 
 | Archivo | Qué contiene |
 | --- | --- |
-| [facturacion.module.ts](src/facturacion/facturacion.module.ts) | Dos controladores y dos servicios. Exporta `CatalogoSatService` para el catálogo de productos. |
+| [facturacion.module.ts](src/facturacion/facturacion.module.ts) | Exporta `CatalogoSatService` para el catálogo de productos; importa `TiendasModule` para saber qué tiendas son de quien factura en el punto de venta. |
+| [razones-sociales.service.ts](src/facturacion/razones-sociales.service.ts) | Alta, cambio y baja de razones sociales (la primera nace principal; la principal no se apaga ni deja de serlo sola; llaves las tres o ninguna) y de dónde sale el emisor de cada timbre: `principal()`, `activa(id)` (punto de venta) y `llavesParaDocumentos()` (las propias, o las del entorno). |
+| [admin-razones-sociales.controller.ts](src/facturacion/admin-razones-sociales.controller.ts) | `GET/POST /admin/configuracion/razones-sociales`, `PUT/DELETE :id` bajo la sección `configuracion`. Cada respuesta trae la lista completa. |
+| [facturacion-pdv.service.ts](src/facturacion/facturacion-pdv.service.ts) | PDV → Facturación: los pedidos de la tienda (del mostrador por el turno, o recogidos en ella) sin factura con su `bloqueo`, las facturas que los cubren, la hoja (`datos`: razones sociales, catálogos, lo guardado del cliente y su WhatsApp) y el timbre con la razón social elegida. Con `whatsapp` guarda los datos fiscales en el cliente o prospecto que lo tenga, o da de alta un prospecto. Solo las tiendas de `activasPara(usuario)`. |
+| [pdv-facturacion.controller.ts](src/facturacion/pdv-facturacion.controller.ts) | `admin/pdv/tiendas/:tiendaId/facturacion`: `GET pedidos`, `GET facturas`, `POST datos`, `POST vista-previa`, `POST` y `GET facturas/:id/pdf` / `xml`, bajo la sección `pdv`. |
+| [facturas-emitidas.service.ts](src/facturacion/facturas-emitidas.service.ts) | Fiscal → Facturación: las de pedidos y las globales mes por mes, con su emisor, cuándo se crearon y quién (nombre y rol); `deLaTienda()` para el punto de venta. |
 | [catalogo-sat.service.ts](src/facturacion/catalogo-sat.service.ts) | Los catálogos oficiales c_ClaveProdServ (~52 mil) y c_ClaveUnidad (~2,400), leídos al arrancar de `catalogos-sat/*.tsv` y buscados **en memoria** (sin acentos, todas las palabras, también por las «palabras similares» del SAT). `validarClaveProdServ()` / `validarClaveUnidad()` los usan el alta y la importación de productos. Sin los archivos la API arranca y solo exige el formato. Probado en `catalogo-sat.service.spec.ts` contra los archivos reales. |
 | [admin-catalogo-sat.controller.ts](src/facturacion/admin-catalogo-sat.controller.ts) | `GET /admin/sat/productos-servicios?q=` y `GET /admin/sat/unidades?q=` bajo la sección `productos`: los buscadores de los campos de clave SAT del producto. Con `q` vacío, productos no devuelve nada y unidades las comunes de un abarrote. |
 | [facturacion.controller.ts](src/facturacion/facturacion.controller.ts) | Solo clientes (rol comprobado a mano). `GET/PUT /perfil/datos-fiscales` (lo guardado para pre-llenar, más los catálogos del SAT y el `modo`), `POST /pedidos/:id/factura`, `POST /pedidos/:id/factura/vista-previa` (el CFDI armado sin timbrar, con la retención de ISR del RESICO si aplica) y `GET /pedidos/:id/factura/pdf` / `xml`. Comparte el prefijo `pedidos/` con `PedidosController` sin chocar: aquí todo empieza en `/factura`. Finanzas tiene las mismas en `admin/finanzas/pedidos/:id/...`. |
-| [facturacion.service.ts](src/facturacion/facturacion.service.ts) | Los candados en orden: el pedido es suyo (404, no 403), no tiene CFDI (409 `YA_FACTURADO`, `TIMBRADO_EN_CURSO`), está cerrado (409 `PEDIDO_SIN_ENTREGAR`, `PEDIDO_SIN_PAGAR`, `PEDIDO_CANCELADO`), los datos no se contradicen (400 `DATOS_FISCALES_INCOMPATIBLES`) y los conceptos cuadran con el total (409 `FACTURA_NO_CUADRA`). Antes de llamar al proveedor **escribe una reserva `TIMBRANDO`**: el `@unique` impide que dos peticiones simultáneas timbren dos CFDI; si el proveedor rechaza, la reserva se borra y se puede corregir (422 `TIMBRADO_RECHAZADO` con el motivo del SAT, 502 `PROVEEDOR_NO_DISPONIBLE`). Una reserva de más de 2 minutos se da por abandonada. Un timbre bueno que no se pudo guardar es otro error (503 `FACTURA_SIN_GUARDAR`) y deja el UUID en el log. |
+| [facturacion.service.ts](src/facturacion/facturacion.service.ts) | Los candados en orden, para uno o varios pedidos: son de quien pregunta o de la tienda (404, no 403), no tienen CFDI (409 `YA_FACTURADO`, `TIMBRADO_EN_CURSO`), están pagados (409 `PEDIDO_SIN_PAGAR`, `PEDIDO_CANCELADO`, `PAGADO_CON_MONEDERO`), los datos no se contradicen (400 `DATOS_FISCALES_INCOMPATIBLES`) y cada pedido cuadra con su total (409 `FACTURA_NO_CUADRA`). Con varios, cada uno se arma solo y la factura junta sus conceptos (con el folio en la descripción); la retención del RESICO depende de la razón social que emite. Antes de llamar al proveedor **escribe una reserva `TIMBRANDO` y aparta los pedidos** en una transacción: si otro ya se llevó alguno, no aparta ninguno; si el proveedor rechaza, la reserva se borra (suelta sus pedidos) y se puede corregir (422 `TIMBRADO_RECHAZADO` con el motivo del SAT, 502 `PROVEEDOR_NO_DISPONIBLE`). Una reserva de más de 2 minutos se da por abandonada. Un timbre bueno que no se pudo guardar es otro error (503 `FACTURA_SIN_GUARDAR`) y deja el UUID en el log. |
 | [comprobante.ts](src/facturacion/comprobante.ts) | Cuentas **puras** del CFDI (probadas en `comprobante.spec.ts`). Los precios de Rapidix ya incluyen el IVA; `armarComprobante()` lo desglosa buscando, concepto por concepto, la base que con su IVA redondeado da justo lo cobrado (`baseAl16`), y arrastra el centavo que no se alcanza hasta un producto al 0 %, que lo absorbe. El cupón se reparte entre productos (solo los de sus categorías, si las tenía) y nunca toca el envío. Envío y recargo van como servicios al 16 %. También `bloqueoDeFacturacion()` (lo usa `PedidosService` para el `facturable` del `PedidoDto`), `claveUnidad()` (la deducida del texto, cuando el producto no tiene clave propia) y `formaDePago()` (la que cubrió más: la billetera es monedero electrónico, 05). |
 | [catalogos-sat.ts](src/facturacion/catalogos-sat.ts) | Regímenes fiscales y usos del CFDI que se ofrecen, e `incompatibilidad()`: régimen de persona física con RFC de moral y viceversa, y el 616 que solo admite S01. |
 | [timbrador.ts](src/facturacion/timbrador.ts) | La interfaz `Timbrador` (`timbrar`, `pdf`, `xml`) y los dos errores que traduce el servicio: `TimbradoRechazado` y `ProveedorNoDisponible`. |
 | [timbrador-factura-com.ts](src/facturacion/timbrador-factura-com.ts) | factura.com API v4. Busca al receptor por RFC y lo **actualiza siempre** (o lo da de alta) antes de timbrar: el SAT valida nombre, régimen y CP contra la constancia. Manda el folio del pedido como `NumOrder`. Sandbox salvo `FACTURACOM_ENTORNO=produccion`. La descarga acepta binario o base64, porque la documentación no dice cuál llega. |
-| [timbrador-simulado.ts](src/facturacion/timbrador-simulado.ts) | UUID al azar, PDF con `pdf-lib` y XML de CFDI 4.0, los dos **con la leyenda «CFDI SIMULADO — no tiene validez fiscal»**. Se arman desde los conceptos congelados en la factura, no desde el pedido. |
+| [timbrador-simulado.ts](src/facturacion/timbrador-simulado.ts) | UUID al azar, PDF con `pdf-lib` y XML de CFDI 4.0, los dos **con la leyenda «CFDI SIMULADO — no tiene validez fiscal»**. Se arman desde los conceptos y el emisor congelados en la factura, no desde el pedido (las de antes de congelarse, con el emisor del entorno). |
 | [dto/factura.dto.ts](src/facturacion/dto/factura.dto.ts) | `DatosFiscalesDto` (RFC y razón social a mayúsculas, CP de 5 dígitos, correo opcional) y `FacturarPedidoDto`, que añade `guardarDatos`. |
+| [dto/factura-pdv.dto.ts](src/facturacion/dto/factura-pdv.dto.ts) | `PedidosAFacturarDto` y `FacturarPedidosPdvDto`: de 1 a 50 pedidos, la razón social y el `whatsapp` opcional con el que se guardan los datos. |
+| [dto/razon-social.dto.ts](src/facturacion/dto/razon-social.dto.ts) | `RazonSocialDto`: RFC, nombre, régimen, CP, `principal`, `activa` y las llaves (vacías se conservan; `quitarLlaves` las borra). |
 
 La tasa de IVA es de cada producto (`Producto.tasaIva`, nace en 0 %) y **cada
 renglón de pedido congela la suya** al venderse, igual que el precio.
@@ -501,11 +512,11 @@ El módulo más grande. Es `@Global` porque el login y el checkout disparan emis
 | Archivo | Qué contiene |
 | --- | --- |
 | [configuracion.module.ts](src/configuracion/configuracion.module.ts) | Dos controladores, dos servicios. |
-| [admin-configuracion.controller.ts](src/configuracion/admin-configuracion.controller.ts) | Horario, parámetros, datos bancarios y fiscales del negocio (GET/PUT), alta/baja de cuentas bancarias (`GET/POST cuentas-bancarias`, `DELETE :id`) y de noticias y avisos. `GET fiscal` trae el catálogo de regímenes. |
+| [admin-configuracion.controller.ts](src/configuracion/admin-configuracion.controller.ts) | Horario, parámetros y datos bancarios (GET/PUT), alta/baja de cuentas bancarias (`GET/POST cuentas-bancarias`, `DELETE :id`) y de noticias y avisos. Los datos fiscales son las razones sociales de `src/facturacion/`. |
 | [destacados.controller.ts](src/configuracion/destacados.controller.ts) | `GET /destacados`, `POST /destacados/leido` y `GET /configuracion` (lo que la app del cliente necesita: horario, envío, datos de pago y si está abierto ahora). |
 | [configuracion.service.ts](src/configuracion/configuracion.service.ts) | Lee y escribe la fila única (`id = 1`); si no existe, falla claro en vez de inventarse un costo de envío. `estaDentroDeHorario()` entiende un horario que cruza la medianoche (22:00 a 02:00). |
 | [destacados.service.ts](src/configuracion/destacados.service.ts) | Noticias y avisos. El contador de no leídos **no es un número guardado**: se calcula comparando la publicación con la última lectura de cada cliente, así que no hay contador global que se desincronice. |
-| [dto/configuracion.dto.ts](src/configuracion/dto/configuracion.dto.ts) | `HorarioDto` (con `DiasServicioDto` anidado y validación `HH:MM`), `ParametrosDto`, `BancariosDto`, `CuentaBancariaDto`, `FiscalDto` (mismo formato de RFC que el receptor de la factura), `NoticiaDto`, `AvisoDto`. |
+| [dto/configuracion.dto.ts](src/configuracion/dto/configuracion.dto.ts) | `HorarioDto` (con `DiasServicioDto` anidado y validación `HH:MM`), `ParametrosDto`, `BancariosDto`, `CuentaBancariaDto`, `NoticiaDto`, `AvisoDto`. |
 
 ---
 

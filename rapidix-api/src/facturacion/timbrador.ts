@@ -61,6 +61,8 @@ export interface FacturaTimbrada extends Receptor {
   conceptos: ConceptoGuardado[];
   timbradaEn: Date;
   folioPedido: string;
+  /** Los folios de los pedidos que cubre, si son varios (el punto de venta los consolida). */
+  folios?: string[];
   informacionGlobal?: InformacionGlobal;
 }
 

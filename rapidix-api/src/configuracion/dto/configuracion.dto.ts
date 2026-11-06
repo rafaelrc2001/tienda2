@@ -1,7 +1,6 @@
 import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
-  IsIn,
   IsNumber,
   IsObject,
   IsOptional,
@@ -12,7 +11,6 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
-import { REGIMENES_FISCALES } from '../../facturacion/catalogos-sat';
 
 const HORA = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -121,11 +119,6 @@ export class BancariosDto {
 
 const recortado = ({ value }: { value: unknown }) =>
   typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : value;
-const mayusculas = ({ value }: { value: unknown }) =>
-  typeof value === 'string' ? value.trim().replace(/\s+/g, ' ').toUpperCase() : value;
-/** El RFC se pega a veces con espacios o guiones (`ABC-010101-XY1`): se quitan. */
-const rfcLimpio = ({ value }: { value: unknown }) =>
-  typeof value === 'string' ? value.replace(/[\s-]/g, '').toUpperCase() : value;
 
 /** Alta de una cuenta en Datos bancarios -> Cuentas bancarias. Los tres obligatorios. */
 export class CuentaBancariaDto {
@@ -148,33 +141,6 @@ export class CuentaBancariaDto {
   @MinLength(1, { message: 'El titular es obligatorio' })
   @MaxLength(120)
   titular: string;
-}
-
-/**
- * Datos fiscales del negocio. Se guardan todos juntos o ninguno: un RFC sin
- * regimen no sirve para nada. La forma del RFC es la misma que la del receptor.
- */
-export class FiscalDto {
-  @Transform(rfcLimpio)
-  @IsString()
-  @Matches(/^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/, {
-    message: 'El RFC no es válido: son 12 caracteres (empresa) o 13 (persona física)',
-  })
-  rfc: string;
-
-  /** Tal cual la constancia y sin el regimen societario, como pide el CFDI 4.0. */
-  @Transform(mayusculas)
-  @IsString()
-  @MinLength(1, { message: 'El nombre es obligatorio' })
-  @MaxLength(254)
-  nombre: string;
-
-  @IsIn(REGIMENES_FISCALES.map((r) => r.clave), { message: 'Elige un régimen del catálogo' })
-  regimen: string;
-
-  @Transform(recortado)
-  @Matches(/^\d{5}$/, { message: 'El CP debe tener 5 dígitos' })
-  cp: string;
 }
 
 export class NoticiaDto {
