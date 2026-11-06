@@ -204,7 +204,7 @@ function folios(f: FacturaEmitida): string {
                   :aria-label="`Palomear el pedido ${p.folio}`"
                 />
               </td>
-              <td class="folio">{{ p.folio }}</td>
+              <td><span class="folio">{{ p.folio }}</span></td>
               <td class="fecha">{{ fechaNumerica(p.creadoEn) }}</td>
               <td>
                 {{ p.cliente.nombre }}

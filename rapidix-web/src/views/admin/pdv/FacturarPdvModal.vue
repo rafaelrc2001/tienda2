@@ -225,7 +225,7 @@ function mostrarFallo(fallo: unknown): void {
             </thead>
             <tbody>
               <tr v-for="p in datos.pedidos" :key="p.id">
-                <td class="folio">{{ p.folio }}</td>
+                <td><span class="folio">{{ p.folio }}</span></td>
                 <td>{{ p.cliente.nombre }}</td>
                 <td class="telefono">{{ p.cliente.telefono }}</td>
                 <td class="num">{{ dinero(p.aFacturar) }}</td>
