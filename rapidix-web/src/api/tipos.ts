@@ -585,7 +585,7 @@ export interface ConceptoVistaFactura {
 /** `POST /pedidos/:id/factura/vista-previa`: el CFDI armado, sin timbrar. */
 export interface VistaFactura {
   modo: ModoTimbrado
-  /** El negocio, de Configuración → Fiscal; lo no capturado llega en null. */
+  /** La razón social que emite (Configuración → Fiscal). */
   emisor: { rfc: string | null; nombre: string | null; regimen: string | null; cp: string | null }
   receptor: DatosFiscales
   formaPago: string
@@ -1186,6 +1186,14 @@ export interface FacturaEmitida {
   formaPago: { clave: string; nombre: string }
   total: number
   timbradaEn: string
+  /** Cuándo se pidió. */
+  creadaEn: string
+  /** Quién la creó, con su rol (CLIENTE, PDV, FINANZAS…). Null en las de antes de guardarse. */
+  creadoPor: { nombre: string; rol: string | null } | null
+  /** La razón social que la emitió. Null en las de antes de que hubiera varias. */
+  emisor: { rfc: string; nombre: string } | null
+  /** Folios de los pedidos que cubre; vacío en la global. */
+  pedidos: string[]
   modo: ModoTimbrado
   /** Nombre de sus archivos, sin extensión. */
   archivo: string
@@ -1468,13 +1476,79 @@ export interface CuentaBancaria {
   creadoEn: string
 }
 
-/** `GET/PUT /admin/configuracion/fiscal`: datos fiscales del negocio y el catálogo de regímenes. */
-export interface FiscalNegocio {
-  rfc: string | null
-  nombre: string | null
-  regimen: string | null
-  cp: string | null
+/** Una razón social emisora de Configuración → Fiscal. Las llaves nunca viajan de vuelta. */
+export interface RazonSocial {
+  id: string
+  rfc: string
+  nombre: string
+  regimen: string
+  cp: string
+  /** La que usan Mis pedidos, Finanzas y la factura global. */
+  principal: boolean
+  activa: boolean
+  facturaCom: { llavesPropias: boolean; serie: string | null; produccion: boolean }
+  /** Con qué timbra hoy. */
+  modo: ModoTimbrado
+  /** Cuántas facturas emitió: con alguna ya no se elimina, se desactiva. */
+  facturas: number
+}
+
+/** `GET /admin/configuracion/razones-sociales` (y la respuesta de cada cambio). */
+export interface RazonesSociales {
+  razones: RazonSocial[]
   regimenes: RegimenFiscal[]
+  /** Hay llaves de factura.com en el servidor: la principal sin llaves propias usa esas. */
+  llavesDeEntorno: boolean
+}
+
+/** Una razón social para elegir al facturar en el punto de venta. */
+export interface EmisorParaElegir {
+  id: string
+  rfc: string
+  nombre: string
+  regimen: string
+  cp: string
+  principal: boolean
+  modo: ModoTimbrado
+}
+
+/** `GET /admin/pdv/tiendas/:id/facturacion/pedidos`: un pedido de la tienda sin factura. */
+export interface PedidoPorFacturar {
+  id: string
+  folio: string
+  creadoEn: string
+  cliente: { id: string; nombre: string; telefono: string; conDatosFiscales: boolean }
+  total: number
+  /** Por cuánto sale su factura: lo pagado aparte del monedero, al peso. */
+  aFacturar: number
+  estadoPago: EstadoPago
+  /** Null si ya se puede facturar; si no, por qué todavía no. */
+  bloqueo: string | null
+}
+
+/** `POST /admin/pdv/tiendas/:id/facturacion/datos`: lo que la hoja «Facturar» necesita. */
+export interface DatosFacturaPdv {
+  pedidos: PedidoPorFacturar[]
+  aFacturar: number
+  razonesSociales: EmisorParaElegir[]
+  regimenes: RegimenFiscal[]
+  usos: { clave: string; nombre: string }[]
+  formasPago: { clave: string; descripcion: string }[]
+  /** Lo guardado del cliente, si todos los pedidos son de uno y lo tiene. */
+  receptor: DatosFiscales | null
+  emailSugerido: string | null
+  /** El WhatsApp de ese cliente: con él se guarda lo que se capture. */
+  whatsappSugerido: string | null
+  formaPagoSugerida: string
+}
+
+/** `POST /admin/pdv/tiendas/:id/facturacion`: la factura y a quién se le guardaron los datos. */
+export interface FacturaPdv extends FacturaDePedido {
+  id: string
+  rfc: string
+  razonSocial: string
+  total: number
+  datosGuardadosEn: { nombre: string; telefono: string; nuevo: boolean } | null
 }
 
 /**

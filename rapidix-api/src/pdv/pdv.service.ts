@@ -631,7 +631,7 @@ export class PdvService {
    * su nombre. Busca en las dos tablas, como el perfil.
    */
   async buscarCliente(telefono: string): Promise<ClientePdvDto | null> {
-    const candidatos = PdvService.variantesDe(telefono);
+    const candidatos = AuthService.variantesDeTelefono(telefono);
     const cliente = await this.prisma.cliente.findFirst({
       where: { telefono: { in: candidatos } },
       select: { ...CAMPOS_DIRECCION, saldoCashback: true, credito: true },
@@ -1193,18 +1193,6 @@ export class PdvService {
       lat: perfil.lat,
       lng: perfil.lng,
     };
-  }
-
-  /**
-   * El mismo telefono como pudo haberse guardado. El login lo normaliza a
-   * digitos y conserva el `+` si venia con lada; en el mostrador se teclean
-   * los 10 digitos, asi que se prueba tambien con las ladas de Mexico.
-   */
-  private static variantesDe(telefono: string): string[] {
-    const normalizado = AuthService.normalizarTelefono(telefono);
-    const digitos = normalizado.replace(/\D/g, '');
-    const local = digitos.slice(-10);
-    return [...new Set([normalizado, digitos, local, `52${local}`, `+52${local}`, `+521${local}`])];
   }
 
   private static aCliente(

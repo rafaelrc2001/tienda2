@@ -126,6 +126,18 @@ export class AuthService {
     return telefono.trim().startsWith('+') ? `+${soloDigitos}` : soloDigitos;
   }
 
+  /**
+   * El mismo telefono como pudo haberse guardado. El login lo normaliza a
+   * digitos y conserva el `+` si venia con lada; en el mostrador se teclean
+   * los 10 digitos, asi que se prueba tambien con las ladas de Mexico.
+   */
+  static variantesDeTelefono(telefono: string): string[] {
+    const normalizado = AuthService.normalizarTelefono(telefono);
+    const digitos = normalizado.replace(/\D/g, '');
+    const local = digitos.slice(-10);
+    return [...new Set([normalizado, digitos, local, `52${local}`, `+52${local}`, `+521${local}`])];
+  }
+
   // ----------------------------------------------------------------
   // Staff
   // ----------------------------------------------------------------

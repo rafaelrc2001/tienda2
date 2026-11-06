@@ -115,11 +115,12 @@ ${conceptos}
     lienzo.texto(LEYENDA.toUpperCase(), { negrita: true, tamano: 11, color: ROJO });
     lienzo.salto(6);
     lienzo.texto('Factura', { negrita: true, tamano: 18 });
-    lienzo.texto(
-      f.informacionGlobal
-        ? `Serie ${f.serie ?? ''}  ·  Folio ${f.folio ?? ''}  ·  Factura global`
-        : `Serie ${f.serie ?? ''}  ·  Folio ${f.folio ?? ''}  ·  Pedido ${f.folioPedido}`,
-    );
+    const deQue = f.informacionGlobal
+      ? 'Factura global'
+      : f.folios && f.folios.length > 1
+        ? `Pedidos ${listaCorta(f.folios)}`
+        : `Pedido ${f.folioPedido}`;
+    lienzo.texto(`Serie ${f.serie ?? ''}  ·  Folio ${f.folio ?? ''}  ·  ${deQue}`);
     if (f.informacionGlobal) {
       lienzo.texto(
         `Periodicidad ${f.informacionGlobal.periodicidad}  ·  Meses ${f.informacionGlobal.meses}  ·  Año ${f.informacionGlobal.anio}`,
@@ -282,6 +283,13 @@ function recortar(texto: string, fuente: PDFFont, tamano: number, ancho: number)
     corto = corto.slice(0, -1);
   }
   return `${corto}...`;
+}
+
+/** La linea no se parte: pasados unos cuantos folios se dice cuantos faltan. */
+function listaCorta(folios: string[]): string {
+  const MAXIMO = 5;
+  if (folios.length <= MAXIMO) return folios.join(', ');
+  return `${folios.slice(0, MAXIMO).join(', ')} y ${folios.length - MAXIMO} más`;
 }
 
 function dinero(valor: string | Prisma.Decimal): string {

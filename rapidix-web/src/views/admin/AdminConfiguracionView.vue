@@ -25,7 +25,7 @@ const PANTALLAS = [
     ruta: '/admin/configuracion/fiscal',
     ico: '🧾',
     titulo: 'Fiscal',
-    desc: 'RFC, nombre, régimen y CP; facturas emitidas',
+    desc: 'Razones sociales que facturan; facturas emitidas',
   },
   {
     ruta: '/admin/configuracion/noticias',

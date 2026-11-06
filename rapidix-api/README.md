@@ -50,7 +50,7 @@ configuración que ya trae el `.env.example`.
 | `S3_ACCESS_KEY_ID` | no | Credencial de acceso. |
 | `S3_SECRET_ACCESS_KEY` | no | Credencial secreta. |
 | `S3_PUBLIC_BASE_URL` | no | Base pública desde la que se sirven las imágenes. |
-| `FACTURACOM_API_KEY` | no | Llave de factura.com (Desarrolladores > API > Datos de acceso). Sin ella y las dos siguientes, las facturas se timbran en modo **simulado**: folio inventado, sin validez fiscal. |
+| `FACTURACOM_API_KEY` | no | Llave de factura.com (Desarrolladores > API > Datos de acceso). La usa la razón social **principal** cuando no tiene llaves propias (cada razón social puede capturar las suyas en Configuración → Fiscal). Sin llaves, la factura se timbra en modo **simulado**: folio inventado, sin validez fiscal. |
 | `FACTURACOM_SECRET_KEY` | no | Llave secreta de factura.com. |
 | `FACTURACOM_SERIE` | no | Id numérico de la serie de facturas en factura.com (Configuraciones > Series). |
 | `FACTURACOM_ENTORNO` | no | `sandbox` (por defecto) o `produccion`. |

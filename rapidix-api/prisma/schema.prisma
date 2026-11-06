@@ -219,6 +219,17 @@ model Prospecto {
   /// Viaja al cliente al convertirse: la atribucion es del registro, no de la compra.
   fuenteCodigo String?
 
+  /// Los mismos datos fiscales que en `clientes`. Los llena el punto de venta
+  /// al facturar con el WhatsApp de alguien que todavia no esta registrado:
+  /// queda dado de alta con ellos y su primera factura sale ya llena. Al
+  /// convertirse se copian tal cual.
+  rfc              String?
+  razonSocial      String?
+  regimenFiscal    String?
+  usoCfdi          String?
+  cpFiscal         String?
+  emailFacturacion String?
+
   creado        DateTime @default(now())
   actualizadoEn DateTime @updatedAt
 
@@ -985,10 +996,13 @@ model Pedido {
   cargas      CargaRepartidor[]
   entrega     EntregaPedido?
   pagos       PagoPedido[]
-  /// Su CFDI. Uno como maximo: lo garantiza el @unique de Factura.pedidoId.
-  factura     Factura?
+  /// Su CFDI, que puede cubrir tambien otros pedidos (el punto de venta los
+  /// consolida). Uno como maximo por pedido: es una sola columna.
+  facturaId   String?
+  factura     Factura? @relation(fields: [facturaId], references: [id], onDelete: SetNull)
 
   @@index([clienteId, creadoEn])
+  @@index([facturaId])
   @@index([cxcDesde])
   @@index([repartidorId])
   @@index([entregaRutaId])
@@ -1076,24 +1090,94 @@ enum EstadoFactura {
   TIMBRADA
 }
 
-/// El CFDI de un pedido. El emisor es Rapidix y vive en la cuenta del proveedor
-/// (o en variables de entorno, en modo simulado); aqui va el receptor y lo que
-/// se timbro.
+/// Configuracion -> Fiscal -> Razones sociales: los emisores con los que el
+/// negocio puede facturar.
 ///
-/// Todo se congela al timbrar —receptor, conceptos y totales—: un CFDI timbrado
-/// no se corrige, se cancela y se vuelve a emitir. Por eso el PDF simulado se
-/// regenera desde `conceptos` y no desde el pedido.
+/// La `principal` es con la que timbran Mis pedidos, Finanzas y la factura
+/// global; en el punto de venta se elige. Solo puede haber una (indice unico
+/// parcial en la migracion).
+///
+/// En factura.com cada RFC es una cuenta con sus propias llaves, asi que las
+/// llaves van con la razon social. Sin llaves, la principal usa las de las
+/// variables `FACTURACOM_*` (como antes de que hubiera varias) y las demas
+/// timbran en modo simulado. Las llaves se escriben y nunca se devuelven.
+///
+/// Con facturas no se borra: se desactiva, y deja de ofrecerse.
+model RazonSocial {
+  id      String  @id @default(uuid())
+  rfc     String  @unique
+  /// Tal cual la constancia y sin el regimen societario, como pide el CFDI 4.0.
+  nombre  String
+  /// Clave del catalogo c_RegimenFiscal (601, 612, 626...).
+  regimen String
+  /// CP del domicilio fiscal: es el lugar de expedicion del CFDI.
+  cp      String
+
+  principal Boolean @default(false)
+  activa    Boolean @default(true)
+
+  facturaComApiKey     String?
+  facturaComSecretKey  String?
+  /// El id numerico de la serie, del panel de factura.com.
+  facturaComSerie      String?
+  /// Sandbox salvo que se pida produccion a proposito, como `FACTURACOM_ENTORNO`.
+  facturaComProduccion Boolean @default(false)
+
+  creadoEn      DateTime @default(now())
+  actualizadoEn DateTime @updatedAt
+
+  facturas         Factura[]
+  facturasGlobales FacturaGlobal[]
+
+  @@map("razones_sociales")
+}
+
+/// Un CFDI de uno o varios pedidos. Aqui va el emisor con el que se timbro, el
+/// receptor y lo que se timbro.
+///
+/// Los pedidos que cubre apuntan a ella (`Pedido.facturaId`): uno solo desde
+/// Mis pedidos y Finanzas; varios cuando el punto de venta los consolida. Esa
+/// columna es la que impide timbrar dos CFDI del mismo pedido: la reserva
+/// solo se queda con los pedidos que siguen sin factura.
+///
+/// Todo se congela al timbrar —emisor, receptor, conceptos y totales—: un CFDI
+/// timbrado no se corrige, se cancela y se vuelve a emitir. Por eso el PDF
+/// simulado se regenera desde `conceptos` y no desde los pedidos.
 model Factura {
-  id        String  @id @default(uuid())
-  pedidoId  String  @unique
-  pedido    Pedido  @relation(fields: [pedidoId], references: [id])
-  clienteId String
-  cliente   Cliente @relation(fields: [clienteId], references: [id])
+  id      String   @id @default(uuid())
+  pedidos Pedido[]
+  /// El cliente de los pedidos cuando todos son de uno; null si se
+  /// consolidaron pedidos de clientes distintos.
+  clienteId String?
+  cliente   Cliente? @relation(fields: [clienteId], references: [id], onDelete: Restrict)
 
   estado EstadoFactura @default(TIMBRANDO)
   modo   ModoTimbrado
 
-  // Receptor, como lo capturo el cliente para esta factura.
+  /// La razon social que emitio. Null en las de antes de que hubiera varias:
+  /// esas se timbraron con las llaves de las variables de entorno.
+  razonSocialId String?
+  emisor        RazonSocial? @relation(fields: [razonSocialId], references: [id], onDelete: Restrict)
+  /// El emisor congelado, para el PDF simulado. Null en las de antes: esas
+  /// salen con el emisor de las variables de entorno, como entonces.
+  emisorRfc     String?
+  emisorNombre  String?
+  emisorRegimen String?
+  emisorCp      String?
+
+  /// El numero de orden con el que se timbro (`NumOrder`): el folio del
+  /// pedido, o el del primero con cuantos mas van si se consolidaron.
+  numOrden String?
+
+  /// Quien la pidio, congelado con su nombre y sin llave foranea como en la
+  /// bitacora: puede ser el cliente desde la app o alguien del personal. Null
+  /// en las de antes de que se guardara.
+  creadoPorId     String?
+  creadoPorNombre String?
+  /// `RolToken` de quien la pidio: CLIENTE, PDV, FINANZAS...
+  creadoPorRol    String?
+
+  // Receptor, como se capturo para esta factura.
   rfc           String
   razonSocial   String
   regimenFiscal String
@@ -1692,13 +1776,7 @@ model ConfiguracionNegocio {
   /// 18 digitos; es lo que pide una transferencia SPEI.
   clabe         String?
 
-  // Datos fiscales del negocio (Configuracion -> Fiscal)
-  fiscalRfc     String?
-  fiscalNombre  String?
-  /// Clave del catalogo c_RegimenFiscal (601, 612, 626...).
-  fiscalRegimen String?
-  /// CP del domicilio fiscal: es el lugar de expedicion del CFDI.
-  fiscalCp      String?
+  // Los datos fiscales del negocio viven en `RazonSocial`: puede haber varias.
 
   actualizadoEn DateTime @updatedAt
 
@@ -1814,6 +1892,11 @@ model FacturaGlobal {
   timbradaEn  DateTime?
 
   movimientos MovimientoBancario[]
+
+  /// La razon social que emitio (la principal al timbrar). Null en las de
+  /// antes: esas se timbraron con las llaves de las variables de entorno.
+  razonSocialId String?
+  emisor        RazonSocial? @relation(fields: [razonSocialId], references: [id], onDelete: Restrict)
 
   creadoPorId String
   creadoPor   Usuario  @relation("FacturasGlobales", fields: [creadoPorId], references: [id])

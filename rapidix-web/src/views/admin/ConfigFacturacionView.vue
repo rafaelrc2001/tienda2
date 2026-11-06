@@ -1,7 +1,8 @@
 <script setup lang="ts">
 /**
  * Configuración → Fiscal → Facturación: todas las facturas que emitió el
- * negocio, las de los pedidos y las globales, mes por mes.
+ * negocio, las de los pedidos y las globales, mes por mes. Cada una dice qué
+ * razón social la emitió, cuándo se creó y quién la creó.
  *
  * El selector solo ofrece los meses que tienen facturas (los corta la API en
  * la hora de México). El PDF se abre en el visor, que ya trae compartir y
@@ -14,10 +15,11 @@
 import { computed, onMounted, ref, shallowRef, watch } from 'vue'
 import { guardarBlob, http, obtenerArchivo } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
-import { dinero } from '@/utils/formato'
+import { dinero, fechaHora } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
 import VisorPdfFactura from '@/components/VisorPdfFactura.vue'
 import PestanasFiscal from './fiscal/PestanasFiscal.vue'
+import { nombreRol } from './fiscal/roles'
 import type { FacturaEmitida, PeriodoFacturas } from '@/api/tipos'
 
 const ui = useUiStore()
@@ -370,7 +372,10 @@ async function compartir(): Promise<void> {
               <th>RFC</th>
               <th>Nombre</th>
               <th>Método pago</th>
+              <th>Emisor</th>
               <th class="num">Total</th>
+              <th>Creada</th>
+              <th>Creó</th>
               <th class="archivo">PDF</th>
               <th class="archivo">XML</th>
             </tr>
@@ -392,6 +397,13 @@ async function compartir(): Promise<void> {
                   Global
                 </span>
                 <span
+                  v-else-if="f.pedidos.length > 1"
+                  class="mini-tag"
+                  :title="`Pedidos ${f.pedidos.join(', ')}`"
+                >
+                  {{ f.pedidos.length }} pedidos
+                </span>
+                <span
                   v-if="f.modo === 'SIMULADO'"
                   class="mini-tag simulada"
                   title="Timbrada en modo de prueba: no tiene validez fiscal"
@@ -405,7 +417,16 @@ async function compartir(): Promise<void> {
                 {{ f.formaPago.clave
                 }}<template v-if="f.formaPago.nombre"> · {{ f.formaPago.nombre }}</template>
               </td>
+              <td class="rfc" :title="f.emisor?.nombre">{{ f.emisor?.rfc ?? '—' }}</td>
               <td class="num importe">{{ dinero(f.total) }}</td>
+              <td class="fecha">{{ fechaHora(f.creadaEn) }}</td>
+              <td>
+                <template v-if="f.creadoPor">
+                  {{ f.creadoPor.nombre }}
+                  <span class="dato-chico">{{ nombreRol(f.creadoPor.rol) }}</span>
+                </template>
+                <template v-else>—</template>
+              </td>
               <td class="archivo">
                 <button type="button" class="enlace" @click="visor = f">PDF</button>
               </td>
@@ -421,7 +442,7 @@ async function compartir(): Promise<void> {
               </td>
             </tr>
             <tr v-if="facturas.length === 0 && !cargandoMes">
-              <td colspan="9" class="vacio">
+              <td colspan="12" class="vacio">
                 Sin facturas en {{ elegido ? nombrePeriodo(elegido) : 'este mes' }}.
               </td>
             </tr>
@@ -511,7 +532,13 @@ async function compartir(): Promise<void> {
 }
 
 .tabla {
-  min-width: 820px;
+  min-width: 1060px;
+}
+
+.dato-chico {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
 }
 
 .tabla .casilla {

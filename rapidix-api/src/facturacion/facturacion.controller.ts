@@ -16,6 +16,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { UsuarioActual } from '../auth/usuario-actual.decorator';
 import { ROL_CLIENTE, UsuarioAutenticado } from '../auth/jwt-payload';
 import {
+  autorDe,
   DatosFiscalesRespuesta,
   FacturacionService,
   FacturaDto,
@@ -65,7 +66,7 @@ export class FacturacionController {
     @Body() dto: FacturarPedidoDto,
   ): Promise<FacturaDto> {
     soloCliente(usuario);
-    return this.facturacion.facturar(usuario.sub, id, dto);
+    return this.facturacion.facturar(usuario.sub, id, dto, autorDe(usuario));
   }
 
   /** El CFDI que se timbraria con estos datos, sin timbrar. Mismos candados que el POST. */

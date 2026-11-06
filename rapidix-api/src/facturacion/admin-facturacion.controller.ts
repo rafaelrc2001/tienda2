@@ -13,7 +13,10 @@ import type { Response } from 'express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { RequiereSeccion } from '../auth/seccion.decorator';
 import { SoloPersonal } from '../auth/solo-personal.decorator';
+import { UsuarioActual } from '../auth/usuario-actual.decorator';
+import { UsuarioAutenticado } from '../auth/jwt-payload';
 import {
+  autorDe,
   DatosFiscalesRespuesta,
   FacturacionService,
   FacturaDto,
@@ -51,8 +54,15 @@ export class AdminFacturacionController {
   async facturar(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: FacturarPedidoDto,
+    @UsuarioActual() usuario: UsuarioAutenticado,
   ): Promise<FacturaDto> {
-    return this.facturacion.facturar(await this.facturacion.clienteDelPedido(id), id, dto);
+    // El CFDI es del cliente; quien lo pidio queda como autor.
+    return this.facturacion.facturar(
+      await this.facturacion.clienteDelPedido(id),
+      id,
+      dto,
+      autorDe(usuario),
+    );
   }
 
   /** El CFDI que se timbraria, sin timbrar. Mismos codigos que `POST /pedidos/:id/factura/vista-previa`. */

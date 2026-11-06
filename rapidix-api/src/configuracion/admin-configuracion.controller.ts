@@ -13,7 +13,6 @@ import { CuentaBancaria } from '@prisma/client';
 import {
   BancariosResponse,
   ConfiguracionService,
-  FiscalResponse,
   HorarioResponse,
   ParametrosResponse,
 } from './configuracion.service';
@@ -22,7 +21,6 @@ import {
   AvisoDto,
   BancariosDto,
   CuentaBancariaDto,
-  FiscalDto,
   HorarioDto,
   NoticiaDto,
   ParametrosDto,
@@ -93,18 +91,6 @@ export class AdminConfiguracionController {
   @HttpCode(HttpStatus.NO_CONTENT)
   eliminarCuentaBancaria(@Param('id') id: string): Promise<void> {
     return this.configuracion.eliminarCuentaBancaria(id);
-  }
-
-  // ---- Datos fiscales del negocio ----
-
-  @Get('fiscal')
-  verFiscal(): Promise<FiscalResponse> {
-    return this.configuracion.verFiscal();
-  }
-
-  @Put('fiscal')
-  guardarFiscal(@Body() dto: FiscalDto): Promise<FiscalResponse> {
-    return this.configuracion.guardarFiscal(dto);
   }
 
   // ---- Noticias y avisos (HU-A07) ----

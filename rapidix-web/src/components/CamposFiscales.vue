@@ -1,17 +1,18 @@
 <script setup lang="ts">
 /**
  * Los campos del receptor del CFDI: RFC, razón social, régimen, uso, CP y
- * correo. Los comparten «Facturar» de Mis pedidos y la tarjeta de datos de
- * facturación del Perfil, para que los dos capturen exactamente lo mismo.
+ * correo. Los comparten «Facturar» de Mis pedidos, la tarjeta de datos de
+ * facturación del Perfil y «Facturar» del punto de venta, para que todos
+ * capturen exactamente lo mismo.
  *
- * Los catálogos llegan de `GET /perfil/datos-fiscales`; aquí no hay copia.
+ * Los catálogos llegan de la API con los datos; aquí no hay copia.
  */
 import { computed } from 'vue'
 import type { DatosFiscalesRespuesta } from '@/api/tipos'
 import type { CampoFiscal, FormularioFiscal } from '@/utils/datosFiscales'
 
 const props = defineProps<{
-  catalogos: DatosFiscalesRespuesta | null
+  catalogos: Pick<DatosFiscalesRespuesta, 'regimenes' | 'usos'> | null
   errores: Partial<Record<CampoFiscal, string>>
   /** Prefijo de los `id`: el modal y el perfil pueden estar montados a la vez. */
   prefijo: string

@@ -1,7 +1,7 @@
 /**
- * Lo que comparten las dos pantallas que capturan datos fiscales («Facturar»
- * de Mis pedidos y la tarjeta del Perfil): la forma del formulario, cómo se
- * llena con lo guardado y cómo se manda a la API.
+ * Lo que comparten las pantallas que capturan datos fiscales («Facturar» de
+ * Mis pedidos y del punto de venta, y la tarjeta del Perfil): la forma del
+ * formulario, cómo se llena con lo guardado y cómo se manda a la API.
  */
 import type { DatosFiscales, DatosFiscalesRespuesta } from '@/api/tipos'
 
@@ -25,7 +25,9 @@ export interface FormularioFiscal {
 }
 
 /** Lo guardado si lo hay; si no, vacío con el correo del perfil y uso G03. */
-export function formularioFiscalDesde(respuesta: DatosFiscalesRespuesta): FormularioFiscal {
+export function formularioFiscalDesde(
+  respuesta: Pick<DatosFiscalesRespuesta, 'datos' | 'emailSugerido'>,
+): FormularioFiscal {
   const datos = respuesta.datos
   if (datos) return { ...datos, email: datos.email ?? '' }
   return {
