@@ -10,38 +10,32 @@
  */
 
 :root {
-  /*
-   * PRUEBA: paleta en blanco y negro. Se conservan los nombres (`--verde`,
-   * `--orange`…) para no tocar ninguna regla; solo cambian los valores. Para
-   * volver a la paleta de color basta con revertir este archivo.
-   */
+  /* Verde equilibrado: cabecera, botones primarios y estados de éxito. */
+  --verde: #4caf50;
+  --verde-dark: #388e3c;
+  /* Verde profundo del botón «Comprar ahora»: lo separa de los demás verdes. */
+  --verde-compra: #1a5c38;
 
-  /* Antes verde: cabecera, botones primarios y estados de éxito. */
-  --verde: #1a1a1a;
-  --verde-dark: #000000;
-  /* Botón «Comprar ahora»: negro puro para separarlo de los demás primarios. */
-  --verde-compra: #000000;
-
-  /* Antes naranja: llamadas a la acción, acentos y notificaciones. */
-  --orange: #3d3d3d;
-  --orange-dark: #262626;
+  /* Naranja equilibrado: llamadas a la acción, acentos y notificaciones. */
+  --orange: #f57c00;
+  --orange-dark: #e65100;
 
   /*
-   * Antes amarillo del ahorro: el billete de cashback y la promesa «Lleva más,
-   * paga menos». Va siempre con texto oscuro (`--ink`), así que queda en un
-   * gris claro que conserva el contraste.
+   * Amarillo del ahorro: el billete de cashback y la promesa «Lleva más, paga
+   * menos». Va siempre con texto oscuro (`--ink`): el blanco sobre amarillo no
+   * alcanza contraste legible.
    */
-  --amarillo: #d6d6d6;
-  --amarillo-dark: #b3b3b3;
+  --amarillo: #ffc820;
+  --amarillo-dark: #d9a800;
 
-  /* Antes rojo de alerta: el listón de «Agotado». */
-  --rojo: #000000;
+  /* Rojo de alerta: el listón de «Agotado», que no debe confundirse con el naranja de acción. */
+  --rojo: #d32f2f;
 
   /* Neutros */
   --white: #ffffff;
   --neutro: #ebebeb;
-  --gris: #6e6e6e;
-  --gris-oscuro: #1a1a1a;
+  --gris: #808080;
+  --gris-oscuro: #4d4d4d;
 
   /*
    * Nombres del mockup, repartidos entre la paleta. El terracota y el dorado

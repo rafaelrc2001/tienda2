@@ -558,7 +558,7 @@ async function entrarComoStaff(): Promise<void> {
 
 .role-card.client-card-highlight {
   border-color: var(--terracotta);
-  background: linear-gradient(135deg, #f5f5f5, #e0e0e0);
+  background: linear-gradient(135deg, #fff3e0, #ffe0b2);
 }
 
 .role-card:disabled {

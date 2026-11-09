@@ -612,7 +612,7 @@ thead .col-producto {
 
 .cantidad.capturada {
   border-color: var(--sage);
-  background: rgba(0, 0, 0, 0.12);
+  background: rgba(76, 175, 80, 0.12);
   font-weight: 700;
 }
 
@@ -640,12 +640,12 @@ thead .col-producto {
 }
 
 .mini-tag.entrada {
-  background: rgba(0, 0, 0, 0.15);
+  background: rgba(76, 175, 80, 0.15);
   color: var(--sage);
 }
 
 .mini-tag.salida {
-  background: rgba(0, 0, 0, 0.12);
+  background: rgba(245, 124, 0, 0.12);
   color: var(--terracotta-dark);
 }
 
