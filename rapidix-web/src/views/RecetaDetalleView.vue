@@ -506,7 +506,7 @@ async function copiarCupon(codigo: string): Promise<void> {
 }
 
 .client-cupon-card {
-  background: linear-gradient(135deg, #fff3e0, #ffe0b2);
+  background: linear-gradient(135deg, #f5f5f5, #e0e0e0);
   border: 1.5px dashed var(--gold-dark);
   border-radius: 16px;
   padding: 16px;
