@@ -294,7 +294,7 @@ async function copiarEnlace(enlace: string): Promise<void> {
   font-weight: 700;
   font-size: 9.5px;
   color: var(--navy);
-  background: #e8f5e9;
+  background: #eeeeee;
   padding: 3px 8px;
   border-radius: 7px;
   letter-spacing: 0.03em;
