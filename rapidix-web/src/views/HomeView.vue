@@ -291,7 +291,7 @@ function irAlRecetario(categoria: string): void {
 
 .paused-banner {
   margin: 14px 18px 4px;
-  background: linear-gradient(135deg, #f5f5f5, #e0e0e0);
+  background: linear-gradient(135deg, #fff3e0, #ffe0b2);
   border: 1.5px solid var(--gold-dark);
   border-radius: 18px;
   padding: 14px;
@@ -377,7 +377,7 @@ function irAlRecetario(categoria: string): void {
 .order-btn {
   display: block;
   width: 100%;
-  background: linear-gradient(180deg, #4d4d4d, #3d3d3d);
+  background: linear-gradient(180deg, #ff9800, #f57c00);
   color: var(--white);
   border: none;
   border-radius: 16px;
@@ -385,7 +385,7 @@ function irAlRecetario(categoria: string): void {
   font-family: var(--font-heading);
   font-weight: 700;
   font-size: 14px;
-  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 6px 14px rgba(245, 124, 0, 0.3);
   cursor: pointer;
   text-align: center;
   text-decoration: none;
