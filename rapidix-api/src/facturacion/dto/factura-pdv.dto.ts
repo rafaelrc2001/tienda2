@@ -35,8 +35,9 @@ export class PedidosAFacturarDto {
 }
 
 /**
- * «Facturar» del punto de venta: los pedidos, la razon social que emite y el
- * receptor, que se captura ahi mismo aunque no este en ninguna ficha.
+ * «Facturar» del punto de venta: los pedidos y el receptor, que se captura ahi
+ * mismo aunque no este en ninguna ficha. El emisor no viaja: es la cuenta de
+ * factura.com del servidor.
  */
 export class FacturarPedidosPdvDto extends DatosFiscalesDto {
   @IsArray()
@@ -46,9 +47,6 @@ export class FacturarPedidosPdvDto extends DatosFiscalesDto {
   })
   @IsUUID('all', { each: true, message: 'Alguno de los pedidos no es válido' })
   pedidoIds: string[];
-
-  @IsUUID('all', { message: 'Elige la razón social que emite la factura' })
-  razonSocialId: string;
 
   /** c_FormaPago. Sin ella, la del pedido de mayor importe. */
   @IsOptional()

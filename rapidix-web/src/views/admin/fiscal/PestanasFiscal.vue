@@ -1,10 +1,10 @@
 <script setup lang="ts">
 /**
- * Las dos pantallas de Configuración → Fiscal: las razones sociales con las
- * que se timbra y las facturas que ya se timbraron.
+ * Las dos pantallas de Configuración → Fiscal: el emisor con el que se timbra
+ * y las facturas que ya se timbraron.
  */
 const PESTANAS = [
-  { id: 'datos', titulo: 'Razones sociales', a: '/admin/configuracion/fiscal' },
+  { id: 'datos', titulo: 'Emisor', a: '/admin/configuracion/fiscal' },
   { id: 'facturacion', titulo: 'Facturación', a: '/admin/configuracion/fiscal/facturacion' },
 ] as const
 

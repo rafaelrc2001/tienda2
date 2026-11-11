@@ -25,7 +25,7 @@ const PANTALLAS = [
     ruta: '/admin/configuracion/fiscal',
     ico: '🧾',
     titulo: 'Fiscal',
-    desc: 'Razones sociales que facturan; facturas emitidas',
+    desc: 'Emisor de las facturas (cuenta de factura.com); facturas emitidas',
   },
   {
     ruta: '/admin/configuracion/noticias',

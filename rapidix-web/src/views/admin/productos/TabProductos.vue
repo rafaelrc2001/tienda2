@@ -135,7 +135,8 @@ const formulario = ref({
   rol: 'RUTINA' as RolProducto,
   escalones: filasEscalon(),
   aplicaCashback: true,
-  tasaIva: 'CERO' as TasaIva,
+  /** Vacío = sin configurar: así nace, y sin elegirla no se factura. */
+  tasaIva: '' as TasaIva | '',
   claveProdServ: '',
   claveUnidad: '',
 })
@@ -207,7 +208,7 @@ function abrirAlta(): void {
     rol: 'RUTINA',
     escalones: filasEscalon(),
     aplicaCashback: true,
-    tasaIva: 'CERO',
+    tasaIva: '',
     claveProdServ: '',
     claveUnidad: '',
   }
@@ -228,7 +229,7 @@ function abrirEdicion(producto: Producto): void {
     rol: producto.rol,
     escalones: filasEscalon(producto.escalones),
     aplicaCashback: producto.aplicaCashback,
-    tasaIva: producto.tasaIva,
+    tasaIva: producto.tasaIva ?? '',
     claveProdServ: producto.claveProdServ ?? '',
     claveUnidad: producto.claveUnidad ?? '',
   }
@@ -245,7 +246,8 @@ function cuerpo(): Record<string, unknown> {
     precioVenta: formulario.value.precioVenta ?? 0,
     rol: formulario.value.rol,
     aplicaCashback: formulario.value.aplicaCashback,
-    tasaIva: formulario.value.tasaIva,
+    // Sin elegir no viaja: el producto se queda sin configurar.
+    ...(formulario.value.tasaIva && { tasaIva: formulario.value.tasaIva }),
     // Las claves del SAT viajan aunque estén vacías: vacía es como se quitan.
     claveProdServ: formulario.value.claveProdServ,
     claveUnidad: formulario.value.claveUnidad,
@@ -387,20 +389,16 @@ const filasConError = computed(() => resumen.value?.filas.filter((f) => f.estado
       <div v-if="resumen" class="resumen-importacion">
         <div class="resumen-cifras">
           <div class="cifra">
-            <span class="n">{{ resumen.total }}</span
-            ><span class="l">Filas</span>
+            <span class="n">{{ resumen.total }}</span><span class="l">Filas</span>
           </div>
           <div class="cifra">
-            <span class="n">{{ resumen.creados }}</span
-            ><span class="l">Creados</span>
+            <span class="n">{{ resumen.creados }}</span><span class="l">Creados</span>
           </div>
           <div class="cifra">
-            <span class="n">{{ resumen.actualizados }}</span
-            ><span class="l">Actualizados</span>
+            <span class="n">{{ resumen.actualizados }}</span><span class="l">Actualizados</span>
           </div>
           <div class="cifra error">
-            <span class="n">{{ resumen.errores }}</span
-            ><span class="l">Errores</span>
+            <span class="n">{{ resumen.errores }}</span><span class="l">Errores</span>
           </div>
         </div>
 
@@ -448,7 +446,7 @@ const filasConError = computed(() => resumen.value?.filas.filter((f) => f.estado
               v-if="
                 producto.escalones.length > 0 ||
                 !producto.aplicaCashback ||
-                producto.tasaIva === 'DIECISEIS' ||
+                producto.tasaIva !== 'CERO' ||
                 producto.claveProdServ ||
                 producto.claveUnidad
               "
@@ -460,8 +458,9 @@ const filasConError = computed(() => resumen.value?.filas.filter((f) => f.estado
                 </span>
               </template>
               <span v-if="!producto.aplicaCashback" class="escalon">Sin Monedero electrónico</span>
-              <!-- El 0 % es lo normal en un abarrote: solo se marca la excepción. -->
+              <!-- El 0 % es lo normal en un abarrote: se marcan el 16 % y lo que falta elegir. -->
               <span v-if="producto.tasaIva === 'DIECISEIS'" class="escalon">IVA 16 %</span>
+              <span v-else-if="!producto.tasaIva" class="escalon sin-iva">IVA sin configurar</span>
               <span v-if="producto.claveProdServ || producto.claveUnidad" class="escalon">
                 SAT {{ [producto.claveProdServ, producto.claveUnidad].filter(Boolean).join(' · ') }}
               </span>
@@ -649,13 +648,23 @@ const filasConError = computed(() => resumen.value?.filas.filter((f) => f.estado
         </div>
 
         <label class="form-label" for="pr-iva">IVA en la factura</label>
-        <select id="pr-iva" v-model="formulario.tasaIva" class="form-input">
+        <select
+          id="pr-iva"
+          v-model="formulario.tasaIva"
+          class="form-input"
+          :class="{ 'is-invalid': !formulario.tasaIva }"
+        >
+          <option value="" disabled>Sin configurar: elige la tasa</option>
           <option v-for="tasa in TASAS_IVA" :key="tasa.valor" :value="tasa.valor">
             {{ tasa.etiqueta }}
           </option>
         </select>
+        <p v-if="!formulario.tasaIva" class="form-error">
+          Sin IVA elegido, los pedidos con este producto no se pueden facturar.
+        </p>
         <p class="form-hint">
-          El precio de venta ya lo incluye: la factura lo desglosa. Cambiarlo no toca lo ya vendido.
+          El precio de venta ya lo incluye: la factura lo desglosa. Cambiarlo no toca lo ya
+          facturado; los pedidos vendidos sin tasa toman la que elijas.
         </p>
 
         <label class="form-label" for="pr-clave-sat">Clave SAT del producto</label>
@@ -934,6 +943,11 @@ const filasConError = computed(() => resumen.value?.filas.filter((f) => f.estado
   font-size: 11px;
   color: var(--muted);
   margin: 2px 0 0;
+}
+
+.detalle .escalon.sin-iva {
+  background: var(--rojo);
+  color: var(--white);
 }
 
 .detalle .escalon {

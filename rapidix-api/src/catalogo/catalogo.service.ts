@@ -36,8 +36,11 @@ export interface ProductoDto {
   escalones: { piso: number; precio: number }[];
   /** Si suma a la base del cashback (HU-12). */
   aplicaCashback: boolean;
-  /** IVA con el que se factura; el precio de venta ya lo incluye. */
-  tasaIva: TasaIva;
+  /**
+   * IVA con el que se factura; el precio de venta ya lo incluye. Null = sin
+   * configurar: sus pedidos no se facturan hasta que se elija.
+   */
+  tasaIva: TasaIva | null;
   /** c_ClaveProdServ del SAT. `null` = sin clasificar (la factura usa la generica). */
   claveProdServ: string | null;
   /** c_ClaveUnidad del SAT. `null` = se deduce de `unidad`. */

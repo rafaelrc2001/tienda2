@@ -365,8 +365,14 @@ async function timbrar(): Promise<void> {
                 <td>
                   <select v-model="r.productoId" class="form-input" aria-label="Producto">
                     <option value="" disabled>Elige un producto</option>
-                    <option v-for="p in disponibles(r)" :key="p.id" :value="p.id">
-                      {{ p.nombre }}
+                    <!-- Sin tasa la API no lo deja facturar: se dice antes de elegirlo. -->
+                    <option
+                      v-for="p in disponibles(r)"
+                      :key="p.id"
+                      :value="p.id"
+                      :disabled="!p.tasaIva"
+                    >
+                      {{ p.nombre }}{{ p.tasaIva ? '' : ' (IVA sin configurar)' }}
                     </option>
                   </select>
                 </td>

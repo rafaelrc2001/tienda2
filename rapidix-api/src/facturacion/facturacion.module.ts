@@ -9,15 +9,15 @@ import { AdminFacturaGlobalController } from './admin-factura-global.controller'
 import { FacturaGlobalService } from './factura-global.service';
 import { AdminFacturasController } from './admin-facturas.controller';
 import { FacturasEmitidasService } from './facturas-emitidas.service';
-import { AdminRazonesSocialesController } from './admin-razones-sociales.controller';
-import { RazonesSocialesService } from './razones-sociales.service';
+import { AdminEmisorController } from './admin-emisor.controller';
+import { EmisorService } from './emisor.service';
 import { PdvFacturacionController } from './pdv-facturacion.controller';
 import { FacturacionPdvService } from './facturacion-pdv.service';
 
 /**
- * CFDI 4.0 con factura.com, o simulado sin llaves. Las llaves son de cada
- * razon social (Configuracion -> Fiscal); la principal sin llaves propias usa
- * las variables `FACTURACOM_*` (ver `razones-sociales.service.ts`).
+ * CFDI 4.0 con factura.com, o simulado sin llaves. Un solo emisor: la cuenta
+ * de factura.com de las variables `FACTURACOM_*`, con sus datos fiscales
+ * leidos de ella (ver `emisor.service.ts`).
  *
  * Exporta los catalogos del SAT: el catalogo de productos los usa para validar
  * las claves que se le asignan a cada producto. Importa `TiendasModule` porque
@@ -31,7 +31,7 @@ import { FacturacionPdvService } from './facturacion-pdv.service';
     AdminFacturacionController,
     AdminFacturaGlobalController,
     AdminFacturasController,
-    AdminRazonesSocialesController,
+    AdminEmisorController,
     PdvFacturacionController,
   ],
   providers: [
@@ -39,7 +39,7 @@ import { FacturacionPdvService } from './facturacion-pdv.service';
     CatalogoSatService,
     FacturaGlobalService,
     FacturasEmitidasService,
-    RazonesSocialesService,
+    EmisorService,
     FacturacionPdvService,
   ],
   exports: [CatalogoSatService],
