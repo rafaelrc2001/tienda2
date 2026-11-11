@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
 import { ModoTimbrado, TasaIva } from '@prisma/client';
+import { REGIMENES_FISCALES } from './catalogos-sat';
 import {
   FacturaTimbrada,
   ProveedorNoDisponible,
@@ -137,6 +138,34 @@ export class TimbradorFacturaCom implements Timbrador {
     };
   }
 
+  /**
+   * Los datos fiscales de la cuenta de estas llaves: es el emisor de todo lo
+   * que se timbra con ellas, porque factura.com sella con el CSD de la cuenta
+   * y no con lo que diga Rapidix. Leerlos de aqui es la unica forma de que la
+   * vista previa, la retencion del RESICO y lo congelado en la factura no se
+   * aparten del CFDI real.
+   *
+   * El regimen llega como texto («Régimen Simplificado de Confianza»): se
+   * traduce a su clave del catalogo. Si no se reconoce queda null, y la
+   * retencion no se aplica a ciegas.
+   */
+  async cuenta(): Promise<EmisorDeCuenta> {
+    const respuesta = await this.peticion('GET', '/v1/current/account');
+    const datos = respuesta.data as Datos | undefined;
+    const rfc = texto(datos?.rfc);
+    if (respuesta.status !== 'success' || !rfc) {
+      throw new ProveedorNoDisponible(
+        `No se pudieron leer los datos fiscales de la cuenta de factura.com: ${mensajeDeError(respuesta)}`,
+      );
+    }
+    return {
+      rfc: rfc.toUpperCase(),
+      nombre: texto(datos?.razon_social) ?? rfc,
+      regimen: claveDeRegimen(texto(datos?.regimen_fiscal)),
+      cp: texto(datos?.codpos),
+    };
+  }
+
   pdf(factura: FacturaTimbrada): Promise<Buffer> {
     return this.documento(factura, 'pdf');
   }
@@ -239,6 +268,35 @@ export class TimbradorFacturaCom implements Timbrador {
 }
 
 type Datos = Record<string, unknown>;
+
+/** El emisor tal como lo tiene dado de alta la cuenta de factura.com. */
+export interface EmisorDeCuenta {
+  rfc: string;
+  nombre: string;
+  /** Clave c_RegimenFiscal; null si factura.com mando un texto que no se reconoce. */
+  regimen: string | null;
+  cp: string | null;
+}
+
+const sinAcentos = (s: string): string =>
+  s
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+
+/** «Régimen Simplificado de Confianza» -> 626. Acepta tambien la clave tal cual. */
+export function claveDeRegimen(valor: string | null): string | null {
+  if (!valor) return null;
+  const clave = /^\s*(\d{3})\b/.exec(valor);
+  if (clave) return clave[1];
+  const buscado = sinAcentos(valor);
+  const regimen = REGIMENES_FISCALES.find(
+    (r) => sinAcentos(r.nombre) === buscado || buscado.includes(sinAcentos(r.nombre)),
+  );
+  return regimen?.clave ?? null;
+}
 
 function texto(valor: unknown): string | null {
   if (typeof valor === 'string' && valor.trim()) return valor.trim();

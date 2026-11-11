@@ -46,8 +46,8 @@ export interface LineaResuelta {
   importe: Decimal;
   /** El producto suma a la base del cashback (HU-12). */
   aplicaCashback: boolean;
-  /** Tasa de IVA del producto, que el pedido congela para facturar. */
-  tasaIva: TasaIva;
+  /** Tasa de IVA del producto, que el pedido congela para facturar. Null = sin configurar. */
+  tasaIva: TasaIva | null;
   /** Precio de la lista anterior, para tacharlo. Null en la primera lista. */
   precioLista: Decimal | null;
   /** Lo que se ahorra frente al precio de venta. */

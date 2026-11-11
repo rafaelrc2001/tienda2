@@ -499,9 +499,9 @@ const TASA_RETENCION_RESICO = new Decimal('0.0125');
  * 1.25 % (art. 113-J de la LISR). A una persona fisica o a PUBLICO EN GENERAL
  * no se le retiene nada.
  *
- * El emisor se lee de Configuracion -> Fiscal. Sin RFC capturado basta el
- * regimen; con RFC de persona moral no hay retencion aunque diga 626 (el RESICO
- * de personas morales no la lleva).
+ * El emisor es la cuenta de factura.com de las llaves del servidor
+ * (`EmisorService`). Sin RFC basta el regimen; con RFC de persona moral no hay
+ * retencion aunque diga 626 (el RESICO de personas morales no la lleva).
  */
 export function retieneIsrResico(
   emisor: { regimen: string | null; rfc: string | null },

@@ -147,8 +147,11 @@ export interface Producto {
   escalones: Escalon[]
   /** Si suma a la base del cashback (HU-12). */
   aplicaCashback: boolean
-  /** IVA con el que se factura; el precio de venta ya lo incluye. */
-  tasaIva: TasaIva
+  /**
+   * IVA con el que se factura; el precio de venta ya lo incluye. `null`: sin
+   * configurar, y sus pedidos no se facturan hasta que se elija.
+   */
+  tasaIva: TasaIva | null
   /** Clave de producto o servicio del SAT. `null`: la factura usa la genérica 01010101. */
   claveProdServ: string | null
   /** Clave de unidad del SAT. `null`: la factura la deduce de `unidad`. */
@@ -1132,7 +1135,8 @@ export interface DatosFacturaGlobal {
     claveProdServ: string
     /** La clave es la genérica 01010101 porque el producto no tiene una en Productos. */
     claveGenerica: boolean
-    tasaIva: TasaIva
+    /** `null`: sin configurar; la API no deja usarlo en la factura. */
+    tasaIva: TasaIva | null
   }[]
   modo: ModoTimbrado
 }
@@ -1482,40 +1486,23 @@ export interface CuentaBancaria {
   creadoEn: string
 }
 
-/** Una razón social emisora de Configuración → Fiscal. Las llaves nunca viajan de vuelta. */
-export interface RazonSocial {
-  id: string
-  rfc: string
-  nombre: string
-  regimen: string
-  cp: string
-  /** La que usan Mis pedidos, Finanzas y la factura global. */
-  principal: boolean
-  activa: boolean
-  facturaCom: { llavesPropias: boolean; serie: string | null; produccion: boolean }
-  /** Con qué timbra hoy. */
+/**
+ * `GET /admin/configuracion/emisor`: a nombre de quién sale toda factura. Es la
+ * cuenta de factura.com de las llaves del servidor; sus datos se leen de ella.
+ */
+export interface EmisorServidor {
   modo: ModoTimbrado
-  /** Cuántas facturas emitió: con alguna ya no se elimina, se desactiva. */
-  facturas: number
-}
-
-/** `GET /admin/configuracion/razones-sociales` (y la respuesta de cada cambio). */
-export interface RazonesSociales {
-  razones: RazonSocial[]
-  regimenes: RegimenFiscal[]
-  /** Hay llaves de factura.com en el servidor: la principal sin llaves propias usa esas. */
-  llavesDeEntorno: boolean
-}
-
-/** Una razón social para elegir al facturar en el punto de venta. */
-export interface EmisorParaElegir {
-  id: string
-  rfc: string
-  nombre: string
-  regimen: string
-  cp: string
-  principal: boolean
-  modo: ModoTimbrado
+  /** Entorno de factura.com. `null` en modo demostración. */
+  entorno: 'PRODUCCION' | 'SANDBOX' | null
+  /** `null` si no se pudo leer la cuenta de factura.com: el motivo va en `error`. */
+  emisor: {
+    rfc: string
+    nombre: string
+    regimen: string | null
+    regimenNombre: string | null
+    cp: string | null
+  } | null
+  error: string | null
 }
 
 /** `GET /admin/pdv/tiendas/:id/facturacion/pedidos`: un pedido de la tienda sin factura. */
@@ -1536,7 +1523,8 @@ export interface PedidoPorFacturar {
 export interface DatosFacturaPdv {
   pedidos: PedidoPorFacturar[]
   aFacturar: number
-  razonesSociales: EmisorParaElegir[]
+  /** Con qué se timbra: `SIMULADO` si el servidor no tiene llaves de factura.com. */
+  modo: ModoTimbrado
   regimenes: RegimenFiscal[]
   usos: { clave: string; nombre: string }[]
   formasPago: { clave: string; descripcion: string }[]

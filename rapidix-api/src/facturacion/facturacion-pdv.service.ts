@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { EstadoPago, Prisma } from '@prisma/client';
+import { EstadoPago, ModoTimbrado, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { UsuarioAutenticado } from '../auth/jwt-payload';
@@ -13,11 +13,12 @@ import {
   DocumentoFactura,
   FacturacionService,
   FacturaDto,
+  ivaSinConfigurar,
   PedidoFacturable,
   VistaFacturaDto,
 } from './facturacion.service';
 import { FacturaEmitidaDto, FacturasEmitidasService } from './facturas-emitidas.service';
-import { EmisorParaElegirDto, RazonesSocialesService } from './razones-sociales.service';
+import { EmisorService } from './emisor.service';
 import { FacturarPedidosPdvDto } from './dto/factura-pdv.dto';
 
 /** Cuantos renglones trae cada lista: los mas recientes. */
@@ -48,7 +49,8 @@ export interface DatosFacturaPdvDto {
   pedidos: PedidoPorFacturarDto[];
   /** La suma de lo que se factura de cada uno. */
   aFacturar: number;
-  razonesSociales: EmisorParaElegirDto[];
+  /** SIMULADO mientras el servidor no tenga llaves: la hoja avisa que no tiene validez. */
+  modo: ModoTimbrado;
   regimenes: RegimenFiscal[];
   usos: UsoCfdi[];
   formasPago: FormaPagoSat[];
@@ -85,14 +87,23 @@ const SELECT_CLIENTE = {
   cpFiscal: true,
 } satisfies Prisma.ClienteSelect;
 
+/** Lo que hace falta de cada renglon para saber si le falta la tasa de IVA. */
+const SELECT_RENGLON_IVA = {
+  nombre: true,
+  cantidad: true,
+  tasaIva: true,
+  producto: { select: { tasaIva: true } },
+} satisfies Prisma.PedidoItemSelect;
+
 /**
  * PDV -> Facturacion: la tienda factura sus pedidos —los capturados en su
- * mostrador y los de la app que se recogieron en ella— con la razon social
- * que elija, uno por uno o varios juntos en una sola factura.
+ * mostrador y los de la app que se recogieron en ella—, uno por uno o varios
+ * juntos en una sola factura. El emisor no se elige: es el mismo de toda la
+ * app, la cuenta de factura.com de las llaves del servidor.
  *
  * No repite nada del timbrado: los candados, el cuadre y la reserva son los de
  * `FacturacionService`, los mismos que Mis pedidos. Aqui solo se decide de que
- * tienda son, quien emite y a quien se le guardan los datos fiscales.
+ * tienda son y a quien se le guardan los datos fiscales.
  */
 @Injectable()
 export class FacturacionPdvService {
@@ -101,7 +112,7 @@ export class FacturacionPdvService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly facturacion: FacturacionService,
-    private readonly razones: RazonesSocialesService,
+    private readonly emisores: EmisorService,
     private readonly emitidas: FacturasEmitidasService,
     private readonly catalogoSat: CatalogoSatService,
     private readonly tiendas: TiendasService,
@@ -119,7 +130,10 @@ export class FacturacionPdvService {
         facturaId: null,
         estadoPago: { not: EstadoPago.CANCELADO },
       },
-      include: { cliente: { select: SELECT_CLIENTE } },
+      include: {
+        cliente: { select: SELECT_CLIENTE },
+        items: { select: SELECT_RENGLON_IVA },
+      },
       orderBy: { creadoEn: 'desc' },
       take: LIMITE,
     });
@@ -164,7 +178,7 @@ export class FacturacionPdvService {
       aFacturar: pedidos
         .reduce((s, p) => s.add(totalAFacturar(p)), new Prisma.Decimal(0))
         .toNumber(),
-      razonesSociales: await this.razones.paraElegir(),
+      modo: this.emisores.modo(),
       regimenes: REGIMENES_FISCALES,
       usos: USOS_CFDI,
       formasPago: this.catalogoSat.formasDePago(),
@@ -231,7 +245,7 @@ export class FacturacionPdvService {
     usuario: UsuarioAutenticado,
   ) {
     await this.exigirTienda(tiendaId, usuario);
-    const emisor = await this.razones.activa(dto.razonSocialId);
+    const emisor = await this.emisores.actual();
     const pedidos: PedidoFacturable[] = await this.facturacion.cargarFacturables(
       dto.pedidoIds,
       FacturacionPdvService.deLaTienda(tiendaId),
@@ -313,7 +327,7 @@ export class FacturacionPdvService {
     pedido: Pick<
       PedidoFacturable,
       'id' | 'folio' | 'creadoEn' | 'total' | 'pagadoConBilletera' | 'estadoPago'
-    >,
+    > & { items: Prisma.PedidoItemGetPayload<{ select: typeof SELECT_RENGLON_IVA }>[] },
     cliente: Prisma.ClienteGetPayload<{ select: typeof SELECT_CLIENTE }>,
   ): PedidoPorFacturarDto {
     return {
@@ -335,7 +349,8 @@ export class FacturacionPdvService {
       total: pedido.total.toNumber(),
       aFacturar: totalAFacturar(pedido).toNumber(),
       estadoPago: pedido.estadoPago,
-      bloqueo: bloqueoDeFacturacion(pedido)?.mensaje ?? null,
+      // Primero lo del pago; si eso esta bien, que falte la tasa de algun producto.
+      bloqueo: bloqueoDeFacturacion(pedido)?.mensaje ?? ivaSinConfigurar(pedido.items),
     };
   }
 }

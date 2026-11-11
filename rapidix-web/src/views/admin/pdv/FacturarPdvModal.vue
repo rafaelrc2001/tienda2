@@ -1,7 +1,8 @@
 <script setup lang="ts">
 /**
  * «Facturar» del punto de venta: uno o varios pedidos de la tienda en una sola
- * factura, con la razón social que se elija.
+ * factura. El emisor no se elige: es la cuenta de factura.com del servidor,
+ * la misma de toda la app.
  *
  * Enseña de quién son los pedidos. Si todos son de un cliente que ya tiene sus
  * datos fiscales, llegan llenos; si no, se capturan aquí mismo —no tienen que
@@ -38,7 +39,7 @@ const emit = defineEmits<{
   (e: 'facturado', factura: FacturaPdv | null): void
 }>()
 
-const CAMPOS_EXTRA = ['formaPago', 'whatsapp', 'razonSocialId'] as const
+const CAMPOS_EXTRA = ['formaPago', 'whatsapp'] as const
 type CampoExtra = (typeof CAMPOS_EXTRA)[number]
 
 const ui = useUiStore()
@@ -58,7 +59,6 @@ const formulario = ref<FormularioFiscal>({
   cpFiscal: '',
   email: '',
 })
-const razonSocialId = ref('')
 const formaPago = ref('')
 const whatsapp = ref('')
 
@@ -72,8 +72,6 @@ onMounted(async () => {
       datos: respuesta.receptor,
       emailSugerido: respuesta.emailSugerido,
     })
-    // La principal llega primero.
-    razonSocialId.value = respuesta.razonesSociales[0]?.id ?? ''
     formaPago.value = respuesta.formaPagoSugerida
     whatsapp.value = respuesta.whatsappSugerido ?? ''
   } catch (fallo) {
@@ -98,10 +96,6 @@ const clientes = computed(() => {
   return [...vistos.values()]
 })
 
-const emisor = computed(
-  () => datos.value?.razonesSociales.find((r) => r.id === razonSocialId.value) ?? null,
-)
-
 /**
  * El CFDI armado por la API con lo capturado, antes de timbrar. Mientras hay
  * vista se enseña ella en lugar del formulario; «Corregir datos» la quita.
@@ -112,7 +106,6 @@ function cuerpo() {
   return {
     ...cuerpoFiscal(formulario.value),
     pedidoIds: props.pedidoIds,
-    razonSocialId: razonSocialId.value,
     formaPago: formaPago.value,
     whatsapp: whatsapp.value.trim(),
   }
@@ -225,7 +218,9 @@ function mostrarFallo(fallo: unknown): void {
             </thead>
             <tbody>
               <tr v-for="p in datos.pedidos" :key="p.id">
-                <td><span class="folio">{{ p.folio }}</span></td>
+                <td>
+                  <span class="folio">{{ p.folio }}</span>
+                </td>
                 <td>{{ p.cliente.nombre }}</td>
                 <td class="telefono">{{ p.cliente.telefono }}</td>
                 <td class="num">{{ dinero(p.aFacturar) }}</td>
@@ -242,28 +237,10 @@ function mostrarFallo(fallo: unknown): void {
 
         <p v-for="(mensaje, i) in erroresGenerales" :key="i" class="form-error">{{ mensaje }}</p>
 
-        <section class="zona-captura grupo" aria-label="Quién emite">
-          <label class="form-label" for="fp-emisor">Razón social que factura</label>
-          <select
-            id="fp-emisor"
-            v-model="razonSocialId"
-            class="select-input"
-            :class="{ 'is-invalid': errores.razonSocialId }"
-            :disabled="datos.razonesSociales.length === 0"
-          >
-            <option v-for="r in datos.razonesSociales" :key="r.id" :value="r.id">
-              {{ r.nombre }} · {{ r.rfc }}{{ r.principal ? ' (principal)' : '' }}
-            </option>
-          </select>
-          <p v-if="errores.razonSocialId" class="form-error">{{ errores.razonSocialId }}</p>
-          <p v-if="datos.razonesSociales.length === 0" class="form-error">
-            No hay razones sociales activas: dalas de alta en Configuración → Fiscal.
-          </p>
-          <p v-else-if="emisor?.modo === 'SIMULADO'" class="aviso-demo">
-            Esta razón social no tiene llaves de factura.com: la factura sale en modo demostración,
-            con un folio de prueba y sin validez fiscal.
-          </p>
-        </section>
+        <p v-if="datos.modo === 'SIMULADO'" class="aviso-demo">
+          El servidor no tiene llaves de factura.com: la factura sale en modo demostración, con un
+          folio de prueba y sin validez fiscal.
+        </p>
 
         <section class="zona-captura grupo" aria-label="Datos del receptor">
           <p class="modal-texto">
@@ -321,11 +298,7 @@ function mostrarFallo(fallo: unknown): void {
 
         <div class="modal-actions">
           <button type="button" class="btn-cancel" @click="emit('cerrar')">Cancelar</button>
-          <button
-            type="submit"
-            class="btn-primary"
-            :disabled="enviando || datos.razonesSociales.length === 0"
-          >
+          <button type="submit" class="btn-primary" :disabled="enviando">
             {{ enviando ? 'Preparando…' : 'Revisar factura' }}
           </button>
         </div>

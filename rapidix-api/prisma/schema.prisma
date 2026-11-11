@@ -346,10 +346,12 @@ model Producto {
   /// normal es que todo participe y se excluye lo que no deja margen.
   aplicaCashback Boolean @default(true)
 
-  /// Con que tasa de IVA se factura. Nace en CERO: casi todo lo que vende un
-  /// abarrote es alimento basico; lo que va al 16 % (refrescos, botanas,
-  /// limpieza) se marca a mano. El precio de venta ya la incluye.
-  tasaIva TasaIva @default(CERO)
+  /// Con que tasa de IVA se factura. El precio de venta ya la incluye.
+  ///
+  /// Null = sin configurar, y asi nace: la tasa la dice la ley (LIVA art. 2-A),
+  /// no una suposicion del sistema, y alguien tiene que elegirla. Un pedido
+  /// con un producto sin tasa no se factura hasta que se configure.
+  tasaIva TasaIva?
 
   /// Clasificacion del producto en el catalogo del SAT (c_ClaveProdServ y
   /// c_ClaveUnidad), elegida en el panel. Nulas = sin clasificar: la factura
@@ -1063,7 +1065,9 @@ model PedidoItem {
   cantidad       Int
   /// La tasa de IVA del producto al venderse. Se congela como el precio: si
   /// despues se corrige el producto, la factura de esta venta no cambia.
-  tasaIva        TasaIva @default(CERO)
+  /// Null si el producto no la tenia configurada: al facturar se toma la que
+  /// tenga entonces, y si sigue sin tenerla no se factura.
+  tasaIva        TasaIva?
 
   cargas CargaRepartidor[]
 

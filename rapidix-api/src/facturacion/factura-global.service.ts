@@ -24,7 +24,7 @@ import {
 import { DocumentoFactura, FacturacionService } from './facturacion.service';
 import { PrevisualizarFacturaGlobalDto, TimbrarFacturaGlobalDto } from './dto/factura-global.dto';
 import { FacturaTimbrada, Receptor } from './timbrador';
-import { EmisorElegido, RazonesSocialesService } from './razones-sociales.service';
+import { EmisorElegido, EmisorService } from './emisor.service';
 
 const Decimal = Prisma.Decimal;
 
@@ -55,7 +55,8 @@ export interface ProductoFacturableDto {
   claveProdServ: string;
   /** Si la clave es la generica porque el producto no tiene una asignada. */
   claveGenerica: boolean;
-  tasaIva: TasaIva;
+  /** Null = sin configurar: no se puede usar en la factura hasta elegirla. */
+  tasaIva: TasaIva | null;
 }
 
 /** `GET .../factura-global/datos`: todo lo que el modal necesita para pintarse. */
@@ -142,7 +143,7 @@ export class FacturaGlobalService {
     private readonly prisma: PrismaService,
     private readonly catalogoSat: CatalogoSatService,
     private readonly facturacion: FacturacionService,
-    private readonly razones: RazonesSocialesService,
+    private readonly emisores: EmisorService,
   ) {}
 
   async datos(): Promise<DatosFacturaGlobalDto> {
@@ -151,7 +152,7 @@ export class FacturaGlobalService {
       orderBy: { nombre: 'asc' },
       select: { id: true, nombre: true, claveProdServ: true, tasaIva: true },
     });
-    const emisor = await this.razones.principal();
+    const emisor = await this.emisores.actual();
     return {
       receptor: this.receptorFijo(emisor),
       formasPago: this.catalogoSat.formasDePago(),
@@ -214,8 +215,8 @@ export class FacturaGlobalService {
       });
     }
 
-    // La emite la razon social principal.
-    const emisor = await this.razones.principal();
+    // La emite la cuenta de factura.com del servidor, como toda factura.
+    const emisor = await this.emisores.actual();
     const receptor: Receptor = {
       rfc: PUBLICO_EN_GENERAL.rfc,
       razonSocial: PUBLICO_EN_GENERAL.razonSocial,
@@ -240,7 +241,7 @@ export class FacturaGlobalService {
           // El del CFDI: puede quedar un centavo arriba de lo depositado.
           total: armada.totalFactura,
           conceptos: armada.guardados as unknown as Prisma.InputJsonValue,
-          razonSocialId: emisor.id,
+          razonSocialId: null,
           creadoPorId: usuarioId,
         },
         select: { id: true, numero: true },
@@ -386,8 +387,21 @@ export class FacturaGlobalService {
   // Ayudas
   // ----------------------------------------------------------------
 
-  /** El receptor generico. El CP es el de la razon social principal, o el del emisor de pruebas. */
+  /**
+   * El receptor generico. Su CP es el lugar de expedicion: el de la cuenta de
+   * factura.com, o el del emisor de pruebas en modo simulado. Sin el, el SAT
+   * rechaza la global: se dice antes de timbrar.
+   */
   private receptorFijo(emisor: EmisorElegido): ReceptorGlobalDto {
+    if (!emisor.cp) {
+      throw new ConflictException({
+        statusCode: 409,
+        code: 'EMISOR_SIN_CP',
+        message:
+          'La cuenta de factura.com no tiene código postal fiscal: captúralo en sus datos fiscales.',
+      });
+    }
+    const cp = emisor.cp;
     const nombre = (lista: OpcionSat[], clave: string): OpcionSat => ({
       clave,
       nombre: lista.find((x) => x.clave === clave)?.nombre ?? '',
@@ -397,7 +411,7 @@ export class FacturaGlobalService {
       razonSocial: PUBLICO_EN_GENERAL.razonSocial,
       regimenFiscal: nombre(REGIMENES_FISCALES, PUBLICO_EN_GENERAL.regimenFiscal),
       usoCfdi: nombre(USOS_CFDI, PUBLICO_EN_GENERAL.usoCfdi),
-      cpFiscal: emisor.cp,
+      cpFiscal: cp,
       metodoPago: { clave: 'PUE', nombre: 'Pago en una sola exhibición' },
     };
   }
@@ -479,6 +493,16 @@ export class FacturaGlobalService {
       });
     }
 
+    // La tasa la dice la ley, no el sistema: sin ella no se adivina.
+    const sinIva = productos.filter((p) => !p.tasaIva).map((p) => p.nombre);
+    if (sinIva.length > 0) {
+      throw new ConflictException({
+        statusCode: 409,
+        code: 'IVA_SIN_CONFIGURAR',
+        message: `Antes de facturar hay que elegir el IVA (0 % o 16 %) en Productos de: ${sinIva.join(', ')}.`,
+      });
+    }
+
     const renglones: RenglonGlobal[] = dto.renglones.map((r) => {
       const p = porId.get(r.productoId)!;
       const unidad = this.facturacion.unidadSat(p.claveUnidad) ?? claveUnidad(p.unidad);
@@ -488,7 +512,7 @@ export class FacturaGlobalService {
         claveUnidad: unidad.clave,
         unidad: unidad.nombre,
         cantidad: r.cantidad,
-        tasa: p.tasaIva,
+        tasa: p.tasaIva!,
         peso: p.precioVenta.mul(r.cantidad),
       };
     });

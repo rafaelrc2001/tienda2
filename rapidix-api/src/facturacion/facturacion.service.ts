@@ -41,7 +41,7 @@ import {
 } from './timbrador';
 import { emisorDesdeEntorno, TimbradorSimulado } from './timbrador-simulado';
 import { configFacturaComDesdeEntorno, TimbradorFacturaCom } from './timbrador-factura-com';
-import { EmisorElegido, RazonesSocialesService } from './razones-sociales.service';
+import { EmisorElegido, EmisorService } from './emisor.service';
 
 const Decimal = Prisma.Decimal;
 
@@ -53,7 +53,9 @@ const VIGENCIA_RESERVA_MS = 2 * 60_000;
 
 /** Lo que se lee de cada pedido para facturarlo. */
 const INCLUIR_FACTURABLE = {
-  items: { include: { producto: { select: { claveProdServ: true, claveUnidad: true } } } },
+  items: {
+    include: { producto: { select: { claveProdServ: true, claveUnidad: true, tasaIva: true } } },
+  },
   cupon: { select: { sourceKind: true, sourceCode: true } },
   factura: { select: { id: true, estado: true, uuid: true } },
 } satisfies Prisma.PedidoInclude;
@@ -177,40 +179,45 @@ export class FacturacionService implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly catalogoSat: CatalogoSatService,
-    private readonly razones: RazonesSocialesService,
+    private readonly emisores: EmisorService,
   ) {}
 
   onModuleInit(): void {
     const config = configFacturaComDesdeEntorno();
     if (config) {
       const entorno = config.sandbox ? 'sandbox' : 'PRODUCCION';
-      this.logger.log(`Llaves de factura.com en el entorno (${entorno}): las usa la principal`);
+      this.logger.log(
+        `Llaves de factura.com en el entorno (${entorno}): toda factura sale con esa cuenta`,
+      );
     } else {
       this.logger.warn(
-        'Sin FACTURACOM_API_KEY/SECRET_KEY/SERIE: solo timbran con factura.com las razones ' +
-          'sociales con llaves propias; las demas, en modo SIMULADO (folio inventado, sin validez fiscal).',
+        'Sin FACTURACOM_API_KEY/SECRET_KEY/SERIE: se factura en modo SIMULADO ' +
+          '(folio inventado, sin validez fiscal).',
       );
     }
   }
 
-  /** Con que se timbra con ese emisor: factura.com si tiene llaves, si no simulado. */
+  /**
+   * Con que se timbra con ese emisor: factura.com si tiene llaves, si no
+   * simulado, con el emisor de pruebas del entorno.
+   */
   timbradorPara(emisor: EmisorElegido): Timbrador {
     return emisor.facturaCom
       ? new TimbradorFacturaCom(emisor.facturaCom)
-      : new TimbradorSimulado(emisor);
+      : new TimbradorSimulado(emisorDesdeEntorno());
   }
 
-  /** El modo de la principal: el aviso de «modo demostracion» de Mis pedidos y Finanzas. */
-  async modoPrincipal(): Promise<ModoTimbrado> {
-    return this.timbradorPara(await this.razones.principal()).modo;
+  /** El aviso de «modo demostracion» de Mis pedidos y Finanzas. */
+  modoPrincipal(): ModoTimbrado {
+    return this.emisores.modo();
   }
 
   /**
    * El timbrador con el que se timbro una factura, para servir sus archivos.
    * Una simulada sigue siendo simulada aunque despues se pongan las llaves, y
    * sale con el emisor con el que se timbro (el del entorno si es de antes de
-   * que se congelara). Una de factura.com se pide con las llaves de su razon
-   * social, o con las del entorno.
+   * que se congelara). Una de factura.com se pide con las llaves con que se
+   * timbro: las del servidor, o las propias de su razon social si es de antes.
    */
   async timbradorDeFactura(factura: {
     modo: ModoTimbrado;
@@ -220,7 +227,7 @@ export class FacturacionService implements OnModuleInit {
     if (factura.modo === ModoTimbrado.SIMULADO) {
       return new TimbradorSimulado(factura.emisor ?? emisorDesdeEntorno());
     }
-    const llaves = await this.razones.llavesParaDocumentos(factura.razonSocialId);
+    const llaves = await this.emisores.llavesParaDocumentos(factura.razonSocialId);
     if (!llaves) {
       throw new ServiceUnavailableException({
         statusCode: 503,
@@ -271,7 +278,7 @@ export class FacturacionService implements OnModuleInit {
       regimenes: REGIMENES_FISCALES,
       usos: USOS_CFDI,
       formasPago: this.catalogoSat.formasDePago(),
-      modo: await this.modoPrincipal(),
+      modo: this.modoPrincipal(),
     };
   }
 
@@ -308,7 +315,7 @@ export class FacturacionService implements OnModuleInit {
     dto: FacturarPedidoDto,
   ): Promise<VistaFacturaDto> {
     const pedidos = await this.cargarFacturables([pedidoId], { clienteId });
-    return this.vista(await this.preparar(pedidos, dto, await this.razones.principal()));
+    return this.vista(await this.preparar(pedidos, dto, await this.emisores.actual()));
   }
 
   /**
@@ -333,7 +340,7 @@ export class FacturacionService implements OnModuleInit {
     autor: AutorFactura,
   ): Promise<FacturaDto> {
     const pedidos = await this.cargarFacturables([pedidoId], { clienteId });
-    const preparada = await this.preparar(pedidos, dto, await this.razones.principal());
+    const preparada = await this.preparar(pedidos, dto, await this.emisores.actual());
     const factura = await this.timbrar(preparada, autor);
 
     if (dto.guardarDatos) {
@@ -418,6 +425,14 @@ export class FacturacionService implements OnModuleInit {
           message: `${de}${bloqueo.mensaje}`,
         });
       }
+      const sinIva = ivaSinConfigurar(pedido.items);
+      if (sinIva) {
+        throw new ConflictException({
+          statusCode: 409,
+          code: 'IVA_SIN_CONFIGURAR',
+          message: `${de}${sinIva}`,
+        });
+      }
     }
   }
 
@@ -452,8 +467,11 @@ export class FacturacionService implements OnModuleInit {
           ...pedido,
           // Las claves del SAT se leen del producto de hoy, no del renglon: no
           // mueven dinero y corregirlas tiene que alcanzar a lo no facturado.
+          // La tasa es la congelada; si se vendio sin ella, la configurada
+          // despues (`exigirFacturables` ya garantizo que alguna hay).
           items: pedido.items.map((i) => ({
             ...i,
+            tasaIva: tasaDeRenglon(i) ?? exigida(i.nombre),
             claveProdServ: i.producto.claveProdServ,
             claveUnidad: this.unidadSat(i.producto.claveUnidad),
           })),
@@ -516,8 +534,8 @@ export class FacturacionService implements OnModuleInit {
     };
 
     // La retencion va despues del cuadre: el cuadre es contra lo cobrado, y la
-    // retencion solo baja lo que el receptor paga en el CFDI. Depende de la
-    // razon social que emite.
+    // retencion solo baja lo que el receptor paga en el CFDI. Depende del
+    // regimen de la cuenta de factura.com que emite.
     const final = retieneIsrResico(emisor, receptor.rfc)
       ? conRetencionResico(comprobante)
       : comprobante;
@@ -578,7 +596,9 @@ export class FacturacionService implements OnModuleInit {
         data: {
           clienteId: clientes.size === 1 ? pedidos[0].clienteId : null,
           modo: timbrador.modo,
-          razonSocialId: emisor.id,
+          // Ya no hay razones sociales: el emisor es la cuenta de las llaves
+          // del servidor, y queda congelado con sus datos.
+          razonSocialId: null,
           emisorRfc: emisor.rfc,
           emisorNombre: emisor.nombre,
           emisorRegimen: emisor.regimen,
@@ -859,6 +879,47 @@ export class FacturacionService implements OnModuleInit {
     }
     return fallo instanceof Error ? fallo : new Error(String(fallo));
   }
+}
+
+/**
+ * La tasa con que se factura un renglon: la que congelo al venderse, o si el
+ * producto no la tenia entonces, la que tenga hoy. Null = sigue sin configurar.
+ */
+function tasaDeRenglon(item: {
+  tasaIva: TasaIva | null;
+  producto: { tasaIva: TasaIva | null };
+}): TasaIva | null {
+  return item.tasaIva ?? item.producto.tasaIva;
+}
+
+/**
+ * Por que el pedido no se puede facturar todavia por el IVA: los productos que
+ * siguen sin tasa. Null si todos la tienen. La tasa la dice la ley, no el
+ * sistema: sin ella no se adivina. El punto de venta lo ensena en su lista.
+ */
+export function ivaSinConfigurar(
+  items: {
+    nombre: string;
+    cantidad: number;
+    tasaIva: TasaIva | null;
+    producto: { tasaIva: TasaIva | null };
+  }[],
+): string | null {
+  const nombres = [
+    ...new Set(items.filter((i) => i.cantidad > 0 && !tasaDeRenglon(i)).map((i) => i.nombre)),
+  ];
+  return nombres.length > 0
+    ? `Antes de facturar hay que elegir el IVA (0 % o 16 %) en Productos de: ${nombres.join(', ')}.`
+    : null;
+}
+
+/** Nunca deberia pasar: `exigirFacturables` corre antes. Si pasa, no se adivina. */
+function exigida(nombre: string): never {
+  throw new ConflictException({
+    statusCode: 409,
+    code: 'IVA_SIN_CONFIGURAR',
+    message: `Antes de facturar hay que elegir el IVA (0 % o 16 %) en Productos de: ${nombre}.`,
+  });
 }
 
 /**
