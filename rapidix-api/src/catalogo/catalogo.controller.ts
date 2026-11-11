@@ -1,7 +1,7 @@
 import { Controller, ForbiddenException, Get, Param, Post, Query } from '@nestjs/common';
 import { CatalogoService, CategoriaConProductos, ProductoDto } from './catalogo.service';
 import { CatalogoRecomendadoDto, RecomendacionesService } from './recomendaciones.service';
-import { BuscarProductosDto } from './dto/producto.dto';
+import { BuscarProductosDto, InventarioTiendaQueryDto } from './dto/producto.dto';
 import { UsuarioActual } from '../auth/usuario-actual.decorator';
 import { AutenticacionOpcional } from '../auth/auth-opcional.decorator';
 import { UsuarioAutenticado, ROL_CLIENTE } from '../auth/jwt-payload';
@@ -32,16 +32,20 @@ export class CatalogoController {
    * El token es opcional a proposito. Con sesion, el orden sale del historial
    * del cliente; sin ella, el visitante ve el catalogo del negocio en vez de un
    * 401 — puede mirar la tienda antes de decidir si se registra.
+   *
+   * `tiendaId` es la tienda donde va a recoger: las existencias salen de su
+   * anaquel. Sin el, de bodega, que es quien surte a domicilio.
    */
   @Get('productos/recomendados')
   @AutenticacionOpcional()
   recomendados(
+    @Query() query: InventarioTiendaQueryDto,
     @UsuarioActual() usuario?: UsuarioAutenticado,
   ): Promise<CatalogoRecomendadoDto> {
     // Solo el historial de un cliente ordena el catalogo: un token de staff
     // mirando la tienda no tiene pedidos suyos que consultar.
     const clienteId = usuario?.rol === ROL_CLIENTE ? usuario.sub : undefined;
-    return this.recomendaciones.catalogoPara(clienteId);
+    return this.recomendaciones.catalogoPara(clienteId, query.tiendaId);
   }
 
   @Get('categorias')
@@ -54,15 +58,19 @@ export class CatalogoController {
     return this.catalogo.obtener(id);
   }
 
-  /** "Programar" un producto agotado. Solo tiene sentido para un cliente. */
+  /**
+   * "Programar" un producto agotado. Solo tiene sentido para un cliente.
+   * `tiendaId`, igual que en el catalogo: agotado en esa tienda.
+   */
   @Post('productos/:id/programar')
   programar(
     @Param('id') id: string,
+    @Query() query: InventarioTiendaQueryDto,
     @UsuarioActual() usuario: UsuarioAutenticado,
   ): Promise<{ registrado: true }> {
     if (usuario.rol !== ROL_CLIENTE) {
       throw new ForbiddenException('Solo un cliente puede programar un producto.');
     }
-    return this.catalogo.programar(id, usuario.sub);
+    return this.catalogo.programar(id, usuario.sub, query.tiendaId);
   }
 }
