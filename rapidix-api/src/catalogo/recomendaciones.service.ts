@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { EstadoPago, RolProducto } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConfiguracionService } from '../configuracion/configuracion.service';
+import { TiendasService } from '../tiendas/tiendas.service';
 import { CatalogoService, ProductoDto } from './catalogo.service';
 
 /** Producto del catalogo con lo que este cliente ha hecho con el. */
@@ -32,8 +33,17 @@ export interface CatalogoRecomendadoDto {
    * Si un pedido descuenta existencias. La Tienda solo topa la cantidad al
    * saldo cuando esta encendido: con el control apagado todos los productos
    * estan en cero y topar ahi seria no dejar comprar nada.
+   *
+   * Viendo una tienda va siempre encendido: su saldo entro por transferencias
+   * aceptadas, no es el cero con el que nace la bodega, y el checkout de
+   * recoger en tienda ya rechaza lo que el anaquel no tiene.
    */
   controlInventario: boolean;
+  /**
+   * De que tienda son las existencias (`aptInventario`, `agotado`). Null =
+   * bodega: no se pidio tienda o la pedida ya no esta activa.
+   */
+  tiendaId: string | null;
 }
 
 /**
@@ -73,6 +83,7 @@ export class RecomendacionesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly configuracion: ConfiguracionService,
+    private readonly tiendas: TiendasService,
   ) {}
 
   /**
@@ -113,16 +124,22 @@ export class RecomendacionesService {
    * `clienteId` llega solo cuando la peticion trae un token valido de cliente.
    * Sin el sale el mismo catalogo para todo el mundo, ordenado por la prioridad
    * de cada familia: es el caso del visitante que todavia no ha entrado.
+   *
+   * Con `tiendaId` las existencias son las de esa tienda: quien recoge se
+   * lleva lo que hay en su anaquel, no lo de bodega. Lo que alli esta en cero
+   * viaja agotado, aunque en bodega sobre, y por eso se va al final de su fila.
    */
-  async catalogoPara(clienteId?: string): Promise<CatalogoRecomendadoDto> {
-    const [productos, config, historial] = await Promise.all([
+  async catalogoPara(clienteId?: string, tiendaId?: string): Promise<CatalogoRecomendadoDto> {
+    const [productos, config, historial, tienda] = await Promise.all([
       this.prisma.producto.findMany({
         where: { eliminadoEn: null },
         include: { categoria: { select: { nombre: true, prioridad: true } } },
       }),
       this.configuracion.obtener(),
       clienteId ? this.historialDe(clienteId) : Promise.resolve(SIN_HISTORIAL),
+      this.tiendas.activa(tiendaId),
     ]);
+    const enTienda = tienda ? await this.tiendas.disponibles(tienda.id) : null;
 
     // Una familia existe en la Tienda si tiene productos. Las categorias vacias
     // siguen en el catalogo —las campanias de cupones restringen por ellas—
@@ -139,8 +156,14 @@ export class RecomendacionesService {
       };
 
       const ultimoComprado = historial.ultimoPedido.has(producto.id);
+      const dto = CatalogoService.aDto(producto);
+      if (enTienda) {
+        const hay = enTienda.get(producto.id) ?? 0;
+        dto.aptInventario = hay;
+        dto.agotado = dto.agotado || hay <= 0;
+      }
       familia.productos.push({
-        ...CatalogoService.aDto(producto),
+        ...dto,
         ultimoComprado,
         vecesComprado: historial.frecuencia.get(producto.id) ?? 0,
       });
@@ -158,7 +181,8 @@ export class RecomendacionesService {
     return {
       familias: ordenadas,
       personalizado: historial.frecuencia.size > 0,
-      controlInventario: config.controlInventario,
+      controlInventario: tienda ? true : config.controlInventario,
+      tiendaId: tienda?.id ?? null,
     };
   }
 

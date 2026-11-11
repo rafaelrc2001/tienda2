@@ -2,8 +2,12 @@
 /**
  * Tienda: el catálogo ordenado a la medida del cliente (HU-01 a HU-15).
  *
- * Tres bloques, de arriba abajo:
+ * Cuatro bloques, de arriba abajo:
  *
+ *  0. **Cómo recibe el pedido**: recoger en tienda (y en cuál) o a domicilio.
+ *     Decide de qué inventario salen las existencias: quien recoge se lleva lo
+ *     que hay en el anaquel de su tienda; a domicilio surte la bodega. Es la
+ *     misma elección que la del carrito, que la hereda.
  *  1. **Repetir la última compra**, si la hay, y debajo el buscador. Se pliega
  *     al bajar.
  *  2. **Una fila por familia**, en el orden que devuelve la API. La pantalla
@@ -26,10 +30,23 @@ import { dinero } from '@/utils/formato'
 import SkeletonCard from '@/components/SkeletonCard.vue'
 import CarruselFamilia from '@/components/tienda/CarruselFamilia.vue'
 import PanelUltimoPedido from '@/components/tienda/PanelUltimoPedido.vue'
-import type { CatalogoRecomendado, FamiliaRecomendada, UltimoPedido } from '@/api/tipos'
+import type {
+  CatalogoRecomendado,
+  FamiliaRecomendada,
+  MetodoEntrega,
+  Perfil,
+  TiendaParaRecoger,
+  UltimoPedido,
+} from '@/api/tipos'
 
 /** Lo que hay que bajar para que el bloque de repetir compra se pliegue. */
 const SCROLL_PARA_PLEGAR = 60
+
+/** Mismo orden y mismo arranque que en el carrito: recoger, mientras no elija otra cosa. */
+const ENTREGAS: { valor: MetodoEntrega; titulo: string }[] = [
+  { valor: 'TIENDA', titulo: 'Recoger en tienda' },
+  { valor: 'DOMICILIO', titulo: 'A domicilio' },
+]
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -89,8 +106,94 @@ const mostrarFastTrack = computed(
 
 const cashback = computed(() => carrito.cashbackEstimado ?? 0)
 
+// ------------------------------------------------------------------
+// Cómo recibe el pedido: de qué inventario se le enseña
+// ------------------------------------------------------------------
+
+/**
+ * Las tiendas donde se puede recoger. Vacía si el negocio no tiene ninguna o
+ * si falló la petición: entonces no se pregunta nada y todo sale de bodega,
+ * como antes de que hubiera tiendas.
+ */
+const tiendas = ref<TiendaParaRecoger[]>([])
+
+const aDomicilio = computed(() => carrito.metodoEntrega === 'DOMICILIO')
+
+/** La tienda cuyo anaquel se pinta. `null` = bodega. */
+const tiendaDelCatalogo = computed(() => (aDomicilio.value ? null : carrito.tiendaId))
+
+/** Recoger sin tienda elegida: se ve la bodega, pero se le pide elegir. */
+const faltaTienda = computed(() => !aDomicilio.value && !carrito.tiendaId)
+
+/**
+ * Hasta que se sabe qué tienda proponer no se escucha el cambio de tienda: la
+ * primera carga ya sale con ella, y escucharlo antes la pediría dos veces.
+ */
+let entregaLista = false
+
+/**
+ * Las tiendas y, si falta, cuál proponer. La elegida antes se recuerda (la
+ * comparte el carrito); sin ella, la única que haya o la sucursal de Mi Perfil,
+ * en el mismo orden de preferencia que el carrito.
+ */
+async function prepararEntrega(): Promise<void> {
+  try {
+    tiendas.value = await http.get<TiendaParaRecoger[]>('/tiendas')
+  } catch {
+    tiendas.value = []
+    return
+  }
+  // La que se recordaba pudo desactivarse desde entonces.
+  if (carrito.tiendaId && !tiendas.value.some((t) => t.id === carrito.tiendaId)) {
+    carrito.fijarTienda(null)
+  }
+  if (carrito.tiendaId || aDomicilio.value) return
+
+  const sucursal = await sucursalDelPerfil()
+  if (sucursal && tiendas.value.some((t) => t.id === sucursal)) {
+    carrito.fijarTienda(sucursal)
+  } else if (tiendas.value.length === 1) {
+    carrito.fijarTienda(tiendas.value[0].id)
+  }
+}
+
+/** La sucursal que eligió en Mi Perfil. El visitante no tiene perfil. */
+async function sucursalDelPerfil(): Promise<string | null> {
+  if (!auth.autenticado || !auth.esCliente) return null
+  try {
+    return (await http.get<Perfil>('/perfil')).tiendaId
+  } catch {
+    return null
+  }
+}
+
+function elegirEntrega(entrega: MetodoEntrega): void {
+  if (carrito.metodoEntrega === entrega) return
+  carrito.fijarEntrega(entrega)
+  // Con una sola tienda no hay nada que elegir.
+  if (entrega === 'TIENDA' && !carrito.tiendaId && tiendas.value.length === 1) {
+    carrito.fijarTienda(tiendas.value[0].id)
+  }
+}
+
+function elegirTienda(id: string): void {
+  if (!id || id === carrito.tiendaId) return
+  carrito.fijarTienda(id)
+}
+
+// Otra tienda u otro método es otro inventario: el catálogo se vuelve a pedir.
+watch(tiendaDelCatalogo, () => {
+  if (entregaLista) void cargarCatalogo()
+})
+
 onMounted(async () => {
-  await Promise.all([cargarCatalogo(), cargarUltimoPedido()])
+  await Promise.all([
+    prepararEntrega().then(() => {
+      entregaLista = true
+      return cargarCatalogo()
+    }),
+    cargarUltimoPedido(),
+  ])
 
   // El carrito puede venir de otra sesión o de otro día: el importe se
   // recalcula al entrar, nunca se da por bueno el que estaba en pantalla.
@@ -103,17 +206,29 @@ onBeforeUnmount(() => {
   contenedor?.removeEventListener('scroll', alDesplazar)
 })
 
+/** Secuencia de las cargas del catálogo: cambiar dos veces de tienda deja ganar a la última. */
+let ultimaCarga = 0
+
 async function cargarCatalogo(): Promise<void> {
+  const miCarga = ++ultimaCarga
+  const tiendaId = tiendaDelCatalogo.value
   cargando.value = true
   fallo.value = false
   try {
-    catalogo.value = await http.get<CatalogoRecomendado>('/productos/recomendados')
+    const respuesta = await http.get<CatalogoRecomendado>('/productos/recomendados', {
+      query: { tiendaId },
+    })
+    if (miCarga !== ultimaCarga) return
+    catalogo.value = respuesta
+    // La pedida ya no está activa y la API respondió con bodega: se olvida,
+    // y el selector vuelve a pedir que se elija una.
+    if (tiendaId && respuesta.tiendaId === null) carrito.fijarTienda(null)
   } catch {
     // El motivo no se enseña como toast: la pantalla entera se queda sin
     // catálogo, así que el mensaje va en el sitio donde debería estar.
-    fallo.value = true
+    if (miCarga === ultimaCarga) fallo.value = true
   } finally {
-    cargando.value = false
+    if (miCarga === ultimaCarga) cargando.value = false
   }
 }
 
@@ -207,7 +322,10 @@ async function programar(productoId: string, nombre: string): Promise<void> {
 
   programando.value = productoId
   try {
-    await http.post(`/productos/${productoId}/programar`)
+    // Agotado en la tienda que se está viendo, aunque en bodega haya.
+    await http.post(`/productos/${productoId}/programar`, undefined, {
+      query: { tiendaId: catalogo.value?.tiendaId },
+    })
     ui.exito(`Te avisaremos cuando ${nombre} vuelva a estar disponible.`)
   } catch (error) {
     ui.errorDeApi(error)
@@ -234,6 +352,41 @@ async function comprarAhora(): Promise<void> {
 
 <template>
   <div ref="raiz" class="tienda">
+    <!--
+      Antes que nada, cómo lo recibe: decide qué existencias se ven. Sin
+      tiendas dadas de alta no hay nada que elegir y todo sale de bodega.
+    -->
+    <div v-if="tiendas.length > 0" class="entrega">
+      <div class="entrega-opciones" role="radiogroup" aria-label="Cómo recibes tu pedido">
+        <button
+          v-for="e in ENTREGAS"
+          :key="e.valor"
+          type="button"
+          role="radio"
+          class="entrega-opcion"
+          :class="{ elegida: carrito.metodoEntrega === e.valor }"
+          :aria-checked="carrito.metodoEntrega === e.valor"
+          @click="elegirEntrega(e.valor)"
+        >
+          {{ e.titulo }}
+        </button>
+      </div>
+      <select
+        v-if="!aDomicilio"
+        class="tienda-select"
+        :class="{ falta: faltaTienda }"
+        aria-label="Tienda donde recoges"
+        :value="carrito.tiendaId ?? ''"
+        @change="elegirTienda(($event.target as HTMLSelectElement).value)"
+      >
+        <option value="" disabled>Elige tu tienda</option>
+        <option v-for="t in tiendas" :key="t.id" :value="t.id">{{ t.nombre }}</option>
+      </select>
+      <p v-if="faltaTienda" class="entrega-aviso">
+        Elige la tienda donde recoges para ver lo que tiene.
+      </p>
+    </div>
+
     <PanelUltimoPedido
       v-if="mostrarFastTrack && ultimoPedido"
       :pedido="ultimoPedido"
@@ -342,6 +495,74 @@ async function comprarAhora(): Promise<void> {
 <style scoped>
 .tienda {
   position: relative;
+}
+
+/*
+ * Bloque de captura: gris con borde y lo que se elige en blanco dentro, como
+ * el resto de campos de la app.
+ */
+.entrega {
+  margin: 10px 18px 8px;
+  padding: 6px;
+  background: var(--cream-2);
+  border: 1.5px solid var(--line);
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.entrega-opciones {
+  display: flex;
+  gap: 4px;
+}
+
+.entrega-opcion {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 12.5px;
+  cursor: pointer;
+  padding: 0 8px;
+}
+
+.entrega-opcion.elegida {
+  background: var(--white);
+  color: var(--terracotta);
+  box-shadow: var(--shadow);
+}
+
+.tienda-select {
+  width: 100%;
+  height: 36px;
+  padding: 0 10px;
+  border: 1.5px solid var(--line);
+  border-radius: 10px;
+  background: var(--white);
+  color: var(--ink);
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+}
+
+.tienda-select.falta,
+.tienda-select:focus {
+  border-color: var(--terracotta);
+  outline: none;
+}
+
+.entrega-aviso {
+  margin: 0 4px 2px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--terracotta);
 }
 
 .search-bar {

@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { Prisma, Producto, RolProducto, TasaIva } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CatalogoSatService } from '../facturacion/catalogo-sat.service';
+import { TiendasService } from '../tiendas/tiendas.service';
 import { CategoriasService } from './categorias.service';
 import { escalonesAColumnas, escalonesDe, validarEscalones } from './precios';
 import {
@@ -61,6 +62,7 @@ export class CatalogoService {
     private readonly prisma: PrismaService,
     private readonly categorias: CategoriasService,
     private readonly catalogoSat: CatalogoSatService,
+    private readonly tiendas: TiendasService,
   ) {}
 
   /**
@@ -266,14 +268,28 @@ export class CatalogoService {
    * de compra. Solo tiene sentido si el producto esta efectivamente agotado:
    * deshabilitado a mano o, con el control de inventario encendido, sin saldo
    * liberado. Es la misma regla con la que la Tienda pinta la etiqueta.
+   *
+   * Con `tiendaId` el saldo que se mira es el de esa tienda, igual que en
+   * `GET /productos/recomendados`: puede faltar en su anaquel y sobrar en bodega.
    */
-  async programar(productoId: string, clienteId: string): Promise<{ registrado: true }> {
+  async programar(
+    productoId: string,
+    clienteId: string,
+    tiendaId?: string,
+  ): Promise<{ registrado: true }> {
     const producto = await this.prisma.producto.findFirst({
       where: { id: productoId, eliminadoEn: null },
     });
     if (!producto) throw new NotFoundException('Producto no encontrado');
-    const config = await this.prisma.configuracionNegocio.findUnique({ where: { id: 1 } });
-    const sinSaldo = config?.controlInventario === true && producto.aptInventario <= 0;
+    const tienda = await this.tiendas.activa(tiendaId);
+    let sinSaldo: boolean;
+    if (tienda) {
+      const enTienda = await this.tiendas.disponibles(tienda.id, [productoId]);
+      sinSaldo = (enTienda.get(productoId) ?? 0) <= 0;
+    } else {
+      const config = await this.prisma.configuracionNegocio.findUnique({ where: { id: 1 } });
+      sinSaldo = config?.controlInventario === true && producto.aptInventario <= 0;
+    }
     if (!producto.agotado && !sinSaldo) {
       throw new BadRequestException('Este producto está disponible: agrégalo al carrito.');
     }

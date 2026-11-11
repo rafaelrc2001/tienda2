@@ -218,8 +218,14 @@ export interface CatalogoRecomendado {
   /**
    * Si un pedido descuenta existencias. La Tienda solo topa la cantidad al
    * saldo cuando está encendido: apagado, todos los productos están en cero.
+   * Viendo una tienda va siempre encendido.
    */
   controlInventario: boolean
+  /**
+   * De qué tienda son las existencias (`aptInventario`, `agotado`): la de
+   * `?tiendaId=` si sigue activa. `null` = bodega, la que surte a domicilio.
+   */
+  tiendaId: string | null
 }
 
 /** Un producto visto desde el mostrador: lo que su tienda puede vender de él. */

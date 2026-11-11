@@ -209,6 +209,18 @@ export class PrioridadCategoriaDto {
   prioridad: number;
 }
 
+/**
+ * De que inventario se pintan las existencias de la Tienda. Sin `tiendaId`,
+ * el de bodega: es el que surte los pedidos a domicilio. Con el, el de esa
+ * tienda: un pedido para recoger sale de su anaquel.
+ */
+export class InventarioTiendaQueryDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  tiendaId?: string;
+}
+
 export class BuscarProductosDto {
   /** Buscador de la Tienda: filtra por nombre (Word 4.3). */
   @IsOptional()

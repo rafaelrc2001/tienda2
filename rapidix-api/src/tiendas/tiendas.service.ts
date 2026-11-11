@@ -131,6 +131,16 @@ export class TiendasService {
     return { tienda, error: null };
   }
 
+  /**
+   * La tienda, si existe y sigue activa. Una apagada no vende: quien la tenia
+   * recordada en el navegador vuelve a ver la bodega hasta que elija otra.
+   */
+  async activa(id: string | undefined): Promise<Tienda | null> {
+    if (!id) return null;
+    const tienda = await this.prisma.tienda.findUnique({ where: { id } });
+    return tienda?.activa ? tienda : null;
+  }
+
   async crear(dto: GuardarTiendaDto): Promise<Tienda> {
     await this.exigirNombreLibre(dto.nombre);
     return this.prisma.tienda.create({ data: TiendasService.datos(dto) });
