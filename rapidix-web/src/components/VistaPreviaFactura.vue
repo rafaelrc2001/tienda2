@@ -156,8 +156,8 @@ const conRetencion = computed(() => props.vista.retencionIsr > 0)
     </dl>
     <p v-if="conRetencion" class="nota-retencion">
       Lleva retención de ISR: la razón social que emite está en RESICO (626) y
-      {{ receptorEnTercera ? 'el cliente es' : 'tú eres' }} persona moral. El total es subtotal +
-      IVA − retención.
+      {{ receptorEnTercera ? 'el cliente es' : 'tú eres' }} persona moral. El total sigue siendo
+      lo cobrado: subtotal + IVA − retención.
     </p>
 
     <div class="modal-actions">

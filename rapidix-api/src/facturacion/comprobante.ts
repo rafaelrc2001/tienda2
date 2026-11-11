@@ -152,30 +152,57 @@ export function ivaDe(base: Decimal, tasa: TasaIva): Decimal {
     : new Decimal(0);
 }
 
+/** c_RegimenFiscal 626: Regimen Simplificado de Confianza. */
+export const REGIMEN_RESICO = '626';
+const TASA_RETENCION_RESICO = new Decimal('0.0125');
+
+/** ISR que retiene la persona moral al RESICO: 1.25 % de la base, a centavos. */
+export function retencionDe(base: Decimal): Decimal {
+  return base.mul(TASA_RETENCION_RESICO).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+}
+
+/** Lo que suma un concepto en el total del CFDI: base + IVA - retencion. */
+function netoDe(base: Decimal, tasa: TasaIva, retiene: boolean): Decimal {
+  return base.add(ivaDe(base, tasa)).sub(retiene ? retencionDe(base) : 0);
+}
+
 /**
- * La base al 16 % cuya suma con su IVA redondeado da `objetivo` (IVA incluido).
+ * La base cuya suma con su IVA (y menos su retencion, si la lleva) da
+ * `objetivo`, cada impuesto redondeado a centavos.
  *
  * No siempre existe: al subir la base un centavo el total sube uno o dos, asi
  * que hay montos que no se alcanzan. Entonces se toma la mas cercana y se
  * devuelve lo que falto (`resto`) para que lo absorba otro concepto. Entre
  * quedarse un centavo abajo o arriba, arriba: $7 sale en 7.01, no en 6.99.
+ * Al 0 % y sin retencion la base es el objetivo; al 0 % con retencion el total
+ * sube cero o un centavo por centavo de base, asi que siempre se alcanza.
  */
-export function baseAl16(objetivo: Decimal): { base: Decimal; resto: Decimal } {
-  const estimada = objetivo.div(new Decimal('1.16')).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
-  let mejor = {
-    base: estimada,
-    resto: objetivo.sub(estimada.add(ivaDe(estimada, TasaIva.DIECISEIS))),
-  };
+export function baseQueDa(
+  objetivo: Decimal,
+  tasa: TasaIva,
+  retiene: boolean,
+): { base: Decimal; resto: Decimal } {
+  const factor = new Decimal(1)
+    .add(tasa === TasaIva.DIECISEIS ? TASA_16 : 0)
+    .sub(retiene ? TASA_RETENCION_RESICO : 0);
+  if (factor.equals(1)) return { base: objetivo, resto: new Decimal(0) };
+  const estimada = objetivo.div(factor).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+  let mejor = { base: estimada, resto: objetivo.sub(netoDe(estimada, tasa, retiene)) };
   for (let paso = -2; paso <= 2; paso++) {
     const base = estimada.add(CENTAVO.mul(paso));
     if (base.lessThan(0)) continue;
-    const resto = objetivo.sub(base.add(ivaDe(base, TasaIva.DIECISEIS)));
+    const resto = objetivo.sub(netoDe(base, tasa, retiene));
     const masCerca = resto.abs().lessThan(mejor.resto.abs());
     const igualPeroArriba = resto.abs().equals(mejor.resto.abs()) && resto.lessThan(mejor.resto);
     if (masCerca || igualPeroArriba) mejor = { base, resto };
     if (resto.isZero()) break;
   }
   return mejor;
+}
+
+/** La base al 16 % cuya suma con su IVA redondeado da `objetivo` (`baseQueDa`). */
+export function baseAl16(objetivo: Decimal): { base: Decimal; resto: Decimal } {
+  return baseQueDa(objetivo, TasaIva.DIECISEIS, false);
 }
 
 /**
@@ -286,9 +313,11 @@ export function formaDePago(pedido: Pick<PedidoFacturable, 'metodoPago'>): strin
 }
 
 /**
- * Concepto ya desglosado. `objetivo` es lo que debe sumar con IVA (lo cobrado
- * menos su descuento, mas el arrastre de los anteriores); `bruto` lo que valia
- * antes del cupon, con IVA; `conDescuento`, si el cupon le toco.
+ * Concepto ya desglosado. `objetivo` es lo que debe sumar en el total del CFDI
+ * (lo cobrado menos su descuento, mas el arrastre de los anteriores); `bruto`
+ * lo que valia antes del cupon, con IVA; `conDescuento`, si el cupon le toco;
+ * `retiene`, si lleva la retencion del RESICO: entonces base + IVA - retencion
+ * es lo cobrado, y la base sale mas alta que sin ella.
  */
 function concepto(
   datos: Pick<
@@ -298,18 +327,16 @@ function concepto(
   bruto: Decimal,
   objetivo: Decimal,
   conDescuento: boolean,
+  retiene: boolean,
 ): { concepto: Concepto; resto: Decimal } {
-  let base: Decimal;
-  let resto = new Decimal(0);
-  let importe: Decimal;
-
-  if (datos.tasa === TasaIva.DIECISEIS) {
-    ({ base, resto } = baseAl16(Decimal.max(objetivo, 0)));
-    importe = bruto.div(new Decimal('1.16')).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
-  } else {
-    base = Decimal.max(objetivo, 0);
-    importe = bruto;
-  }
+  const { base, resto } = baseQueDa(Decimal.max(objetivo, 0), datos.tasa, retiene);
+  // Lo que valia antes del cupon, sin impuestos: con el mismo factor que la base.
+  const factor = new Decimal(1)
+    .add(datos.tasa === TasaIva.DIECISEIS ? TASA_16 : 0)
+    .sub(retiene ? TASA_RETENCION_RESICO : 0);
+  let importe = factor.equals(1)
+    ? bruto
+    : bruto.div(factor).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
   // El descuento es lo que separa el importe de la base. Sin cupon no hay
   // descuento: el centavo de cuadre va al importe, no a un descuento fantasma.
   // Y si el arrastre dejo la base por encima del importe, el importe sube en
@@ -325,6 +352,7 @@ function concepto(
       descuento: importe.sub(base),
       base,
       iva: ivaDe(base, datos.tasa),
+      ...(retiene && { retencionIsr: retencionDe(base) }),
     },
     resto,
   };
@@ -349,11 +377,16 @@ function concepto(
  * aquellos no alcanzan. Si no hay ninguno al 0 %, el centavo se le pasa a otro
  * al 16 % que si lo alcance; con uno solo al 16 % puede quedar a un centavo:
  * quien llama decide si eso cuadra.
+ *
+ * Con `retiene` (RESICO a persona moral, `retieneIsrResico`) el total sigue
+ * siendo lo cobrado: cada concepto se desglosa para que base + IVA - retencion
+ * lo de. $250 al 16 % salen en base 217.86, IVA 34.86 y retencion 2.72.
  */
 export function armarComprobante(
   pedido: PedidoFacturable,
   categoriasDelCupon: string[],
   claves: ClavesSat,
+  retiene = false,
 ): Comprobante {
   const renglones = pedido.items.filter((i) => i.cantidad > 0);
   const brutos = renglones.map((r) => ({
@@ -434,7 +467,7 @@ export function armarComprobante(
   ];
   const cuadrados = new Map<number, Concepto>();
   const cuadrar = (p: Pendiente, objetivo: Decimal) =>
-    concepto(p.datos, p.bruto, objetivo, p.neto.lessThan(p.bruto));
+    concepto(p.datos, p.bruto, objetivo, p.neto.lessThan(p.bruto), retiene);
   let arrastre = new Decimal(0);
   let objetivoDelUltimo = new Decimal(0);
   for (const p of enOrdenDeCuadre) {
@@ -459,7 +492,7 @@ export function armarComprobante(
         if (!delUltimo.resto.isZero()) continue;
         for (const p of otros) {
           const antes = cuadrados.get(p.orden)!;
-          const delOtro = cuadrar(p, antes.base.add(antes.iva).add(paso));
+          const delOtro = cuadrar(p, netoDe(antes.base, antes.tasa, retiene).add(paso));
           if (delOtro.resto.isZero()) {
             cuadrados.set(ultimo.orden, delUltimo.concepto);
             cuadrados.set(p.orden, delOtro.concepto);
@@ -472,26 +505,23 @@ export function armarComprobante(
 
   // En la factura se leen en el orden del pedido, con los servicios al final.
   const conceptos = pendientes.map((p) => cuadrados.get(p.orden)!);
-  const sumar = (campo: 'importe' | 'descuento' | 'iva'): Decimal =>
-    conceptos.reduce((s, c) => s.add(c[campo]), new Decimal(0));
+  const sumar = (campo: 'importe' | 'descuento' | 'iva' | 'retencionIsr'): Decimal =>
+    conceptos.reduce((s, c) => s.add(c[campo] ?? 0), new Decimal(0));
   const subtotal = sumar('importe');
   const descuento = sumar('descuento');
   const iva = sumar('iva');
+  const retencionIsr = sumar('retencionIsr');
 
   return {
     conceptos,
     subtotal,
     descuento,
     iva,
-    retencionIsr: new Decimal(0),
-    total: subtotal.sub(descuento).add(iva),
+    retencionIsr,
+    total: subtotal.sub(descuento).add(iva).sub(retencionIsr),
     formaPago: formaDePago(pedido),
   };
 }
-
-/** c_RegimenFiscal 626: Regimen Simplificado de Confianza. */
-export const REGIMEN_RESICO = '626';
-const TASA_RETENCION_RESICO = new Decimal('0.0125');
 
 /**
  * Si la factura lleva la retencion de ISR del RESICO: el negocio tributa en el
@@ -510,25 +540,6 @@ export function retieneIsrResico(
   if (emisor.regimen !== REGIMEN_RESICO) return false;
   if (emisor.rfc && emisor.rfc.trim().length === 12) return false;
   return rfcReceptor.trim().length === 12;
-}
-
-/**
- * El comprobante con la retencion del RESICO: 1.25 % de la base de cada
- * concepto, redondeado por concepto como lo valida el SAT. Los conceptos y el
- * IVA no se mueven; solo baja el total: subtotal - descuento + IVA - retencion.
- */
-export function conRetencionResico(c: Comprobante): Comprobante {
-  const conceptos = c.conceptos.map((x) => ({
-    ...x,
-    retencionIsr: x.base.mul(TASA_RETENCION_RESICO).toDecimalPlaces(2, Decimal.ROUND_HALF_UP),
-  }));
-  const retencionIsr = conceptos.reduce((s, x) => s.add(x.retencionIsr), new Decimal(0));
-  return {
-    ...c,
-    conceptos,
-    retencionIsr,
-    total: c.subtotal.sub(c.descuento).add(c.iva).sub(retencionIsr),
-  };
 }
 
 /**
