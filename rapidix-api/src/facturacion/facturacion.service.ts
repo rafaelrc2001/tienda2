@@ -19,7 +19,6 @@ import {
   ClavesSat,
   Comprobante,
   ConceptoGuardado,
-  conRetencionResico,
   retieneIsrResico,
   totalAFacturar,
 } from './comprobante';
@@ -459,6 +458,10 @@ export class FacturacionService implements OnModuleInit {
       });
     }
 
+    // La retencion del RESICO depende del regimen de la cuenta de factura.com
+    // que emite y de a quien se le factura. No mueve el total: el CFDI va por
+    // lo cobrado y la base se desglosa para que base + IVA - retencion lo den.
+    const retiene = retieneIsrResico(emisor, dto.rfc);
     const varios = pedidos.length > 1;
     const partes: Comprobante[] = [];
     for (const pedido of pedidos) {
@@ -478,6 +481,7 @@ export class FacturacionService implements OnModuleInit {
         },
         await this.categoriasDelCupon(pedido.cupon),
         this.claves,
+        retiene,
       );
       // La factura va por lo pagado aparte del monedero, redondeado al peso
       // (`totalAFacturar`). Sin ningun producto al 0 % el desglose puede quedar
@@ -533,14 +537,7 @@ export class FacturacionService implements OnModuleInit {
       email: dto.email,
     };
 
-    // La retencion va despues del cuadre: el cuadre es contra lo cobrado, y la
-    // retencion solo baja lo que el receptor paga en el CFDI. Depende del
-    // regimen de la cuenta de factura.com que emite.
-    const final = retieneIsrResico(emisor, receptor.rfc)
-      ? conRetencionResico(comprobante)
-      : comprobante;
-
-    return { pedidos, emisor, receptor, comprobante: final };
+    return { pedidos, emisor, receptor, comprobante };
   }
 
   vista(preparada: FacturaPreparada): VistaFacturaDto {
@@ -930,7 +927,7 @@ function exigida(nombre: string): never {
  */
 function juntar(partes: Comprobante[]): Comprobante {
   if (partes.length === 1) return partes[0];
-  const sumar = (campo: 'subtotal' | 'descuento' | 'iva' | 'total') =>
+  const sumar = (campo: 'subtotal' | 'descuento' | 'iva' | 'retencionIsr' | 'total') =>
     partes.reduce((s, p) => s.add(p[campo]), new Decimal(0));
   const mayor = partes.reduce((m, p) => (p.total.greaterThan(m.total) ? p : m));
   return {
@@ -938,7 +935,7 @@ function juntar(partes: Comprobante[]): Comprobante {
     subtotal: sumar('subtotal'),
     descuento: sumar('descuento'),
     iva: sumar('iva'),
-    retencionIsr: new Decimal(0),
+    retencionIsr: sumar('retencionIsr'),
     total: sumar('total'),
     formaPago: mayor.formaPago,
   };

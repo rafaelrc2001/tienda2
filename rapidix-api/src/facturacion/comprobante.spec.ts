@@ -5,7 +5,6 @@ import {
   bloqueoDeFacturacion,
   aGuardado,
   claveUnidad,
-  conRetencionResico,
   formaDePago,
   PedidoFacturable,
   RenglonFacturable,
@@ -592,55 +591,94 @@ describe('retieneIsrResico', () => {
   });
 });
 
-describe('conRetencionResico', () => {
-  it('retiene 1.25 % de la base de cada concepto y lo resta del total', () => {
-    // $116 al 16 %: base 100, IVA 16, retencion 1.25 -> total 114.75.
-    const c = conRetencionResico(
-      armarComprobante(
-        pedido({
-          items: [renglon({ precio: 116, cantidad: 1, tasaIva: TasaIva.DIECISEIS })],
-          total: 116,
-        }),
-        [],
-        CLAVES,
-      ),
+describe('armarComprobante con retencion RESICO', () => {
+  it('el total queda en lo cobrado y la base sube para cubrir la retencion', () => {
+    // $250 al 16 %: base 217.86, IVA 34.86, retencion 2.72 -> total 250.
+    const c = armarComprobante(
+      pedido({
+        items: [renglon({ precio: 250, cantidad: 1, tasaIva: TasaIva.DIECISEIS })],
+        total: 250,
+      }),
+      [],
+      CLAVES,
+      true,
     );
-    expect(c.subtotal.toFixed(2)).toBe('100.00');
-    expect(c.iva.toFixed(2)).toBe('16.00');
-    expect(c.retencionIsr.toFixed(2)).toBe('1.25');
-    expect(c.total.toFixed(2)).toBe('114.75');
-    expect(c.conceptos[0].retencionIsr?.toFixed(2)).toBe('1.25');
+    expect(c.subtotal.toFixed(2)).toBe('217.86');
+    expect(c.iva.toFixed(2)).toBe('34.86');
+    expect(c.retencionIsr.toFixed(2)).toBe('2.72');
+    expect(c.total.toFixed(2)).toBe('250.00');
+    expect(c.conceptos[0].retencionIsr?.toFixed(2)).toBe('2.72');
   });
 
-  it('redondea por concepto y el total retenido es la suma de los conceptos', () => {
-    const c = conRetencionResico(
-      armarComprobante(
-        pedido({
-          items: [
-            renglon({ precio: 33, cantidad: 1 }),
-            renglon({ precio: 58, cantidad: 1, tasaIva: TasaIva.DIECISEIS }),
-          ],
-          total: 91,
-        }),
-        [],
-        CLAVES,
-      ),
+  it('redondea por concepto y cuadra el total con productos al 0 % y al 16 %', () => {
+    const c = armarComprobante(
+      pedido({
+        items: [
+          renglon({ precio: 33, cantidad: 1 }),
+          renglon({ precio: 58, cantidad: 1, tasaIva: TasaIva.DIECISEIS }),
+        ],
+        total: 91,
+      }),
+      [],
+      CLAVES,
+      true,
     );
     const suma = c.conceptos.reduce((s, k) => s.add(k.retencionIsr!), D(0));
     expect(c.retencionIsr.toFixed(2)).toBe(suma.toFixed(2));
     for (const k of c.conceptos) {
       expect(k.retencionIsr!.toFixed(2)).toBe(k.base.mul('0.0125').toDecimalPlaces(2).toFixed(2));
     }
+    expect(c.total.toFixed(2)).toBe('91.00');
     expect(c.total.toFixed(2)).toBe(c.subtotal.sub(c.descuento).add(c.iva).sub(suma).toFixed(2));
   });
 
-  it('el concepto guardado lleva la retencion solo si la hay', () => {
+  it('cualquier total de centavos cuadra con un producto al 0 %', () => {
+    for (let cent = 1; cent <= 2000; cent += 7) {
+      const total = D(cent).div(100);
+      const c = armarComprobante(
+        pedido({ items: [renglon({ precio: total.toNumber(), cantidad: 1 })], total: total.toNumber() }),
+        [],
+        CLAVES,
+        true,
+      );
+      expect(c.total.toFixed(2)).toBe(totalFacturado(total).toFixed(2));
+    }
+  });
+
+  it('con un solo producto al 16 % lo que no cuadra queda un centavo arriba, nunca abajo', () => {
+    for (const retiene of [true, false]) {
+      for (let cent = 100; cent <= 60000; cent += 13) {
+        const total = D(cent).div(100);
+        const c = armarComprobante(
+          pedido({
+            items: [renglon({ precio: total.toNumber(), cantidad: 1, tasaIva: TasaIva.DIECISEIS })],
+            total: total.toNumber(),
+          }),
+          [],
+          CLAVES,
+          retiene,
+        );
+        const diferencia = c.total.sub(totalFacturado(total));
+        expect(['0.00', '0.01']).toContain(diferencia.toFixed(2));
+      }
+    }
+  });
+
+  it('sin retencion no cambia nada y el guardado no la lleva', () => {
     const sin = armarComprobante(
       pedido({ items: [renglon({ precio: 10, cantidad: 1 })], total: 10 }),
       [],
       CLAVES,
     );
+    expect(sin.retencionIsr.toFixed(2)).toBe('0.00');
     expect(aGuardado(sin.conceptos[0]).retencionIsr).toBeUndefined();
-    expect(aGuardado(conRetencionResico(sin).conceptos[0]).retencionIsr).toBe('0.13');
+    const con = armarComprobante(
+      pedido({ items: [renglon({ precio: 10, cantidad: 1 })], total: 10 }),
+      [],
+      CLAVES,
+      true,
+    );
+    expect(con.total.toFixed(2)).toBe('10.00');
+    expect(aGuardado(con.conceptos[0]).retencionIsr).toBe('0.13');
   });
 });
