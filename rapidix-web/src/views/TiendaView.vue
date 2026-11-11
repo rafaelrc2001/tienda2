@@ -2,14 +2,14 @@
 /**
  * Tienda: el catálogo ordenado a la medida del cliente (HU-01 a HU-15).
  *
- * Cuatro bloques, de arriba abajo:
+ * Tres bloques, de arriba abajo:
  *
- *  0. **Cómo recibe el pedido**: recoger en tienda (y en cuál) o a domicilio.
- *     Decide de qué inventario salen las existencias: quien recoge se lleva lo
- *     que hay en el anaquel de su tienda; a domicilio surte la bodega. Es la
- *     misma elección que la del carrito, que la hereda.
- *  1. **Repetir la última compra**, si la hay, y debajo el buscador. Se pliega
- *     al bajar.
+ *  1. **Repetir la última compra**, si la hay (se pliega al bajar); luego
+ *     **cómo recibe el pedido**: recoger en tienda (y en cuál) o a domicilio,
+ *     y debajo el buscador. La entrega decide de qué inventario salen las
+ *     existencias: quien recoge se lleva lo que hay en el anaquel de su
+ *     tienda; a domicilio surte la bodega. Es la misma elección que la del
+ *     carrito, que la hereda.
  *  2. **Una fila por familia**, en el orden que devuelve la API. La pantalla
  *     no reordena nada: el criterio vive en el backend, que es el único que
  *     sabe qué ha comprado esta persona.
@@ -352,8 +352,19 @@ async function comprarAhora(): Promise<void> {
 
 <template>
   <div ref="raiz" class="tienda">
+    <PanelUltimoPedido
+      v-if="mostrarFastTrack && ultimoPedido"
+      :pedido="ultimoPedido"
+      :colapsado="plegado"
+      :ocupado="repitiendo"
+      @usar="repetirPedido"
+      @descartar="descartado = true"
+      @expandir="plegado = false"
+      @contraer="plegado = true"
+    />
+
     <!--
-      Antes que nada, cómo lo recibe: decide qué existencias se ven. Sin
+      Antes de buscar, cómo lo recibe: decide qué existencias se ven. Sin
       tiendas dadas de alta no hay nada que elegir y todo sale de bodega.
     -->
     <div v-if="tiendas.length > 0" class="entrega">
@@ -382,21 +393,7 @@ async function comprarAhora(): Promise<void> {
         <option value="" disabled>Elige tu tienda</option>
         <option v-for="t in tiendas" :key="t.id" :value="t.id">{{ t.nombre }}</option>
       </select>
-      <p v-if="faltaTienda" class="entrega-aviso">
-        Elige la tienda donde recoges para ver lo que tiene.
-      </p>
     </div>
-
-    <PanelUltimoPedido
-      v-if="mostrarFastTrack && ultimoPedido"
-      :pedido="ultimoPedido"
-      :colapsado="plegado"
-      :ocupado="repitiendo"
-      @usar="repetirPedido"
-      @descartar="descartado = true"
-      @expandir="plegado = false"
-      @contraer="plegado = true"
-    />
 
     <div class="search-bar">
       <svg viewBox="0 0 24 24" fill="none">
@@ -556,13 +553,6 @@ async function comprarAhora(): Promise<void> {
 .tienda-select:focus {
   border-color: var(--terracotta);
   outline: none;
-}
-
-.entrega-aviso {
-  margin: 0 4px 2px;
-  font-size: 11.5px;
-  font-weight: 600;
-  color: var(--terracotta);
 }
 
 .search-bar {
