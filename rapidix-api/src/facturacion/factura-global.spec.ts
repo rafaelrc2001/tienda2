@@ -1,7 +1,9 @@
 import { MetodoPago, Prisma, TasaIva } from '@prisma/client';
 import {
   armarFacturaGlobal,
+  esPublicoEnGeneral,
   formaDePagoGlobal,
+  informacionGlobalDelDia,
   margenIvaSat,
   mesesCompatibles,
   RenglonGlobal,
@@ -9,6 +11,42 @@ import {
 } from './factura-global';
 
 const D = (n: number | string) => new Prisma.Decimal(n);
+
+describe('esPublicoEnGeneral', () => {
+  it('pide el RFC generico y el nombre PUBLICO EN GENERAL', () => {
+    expect(esPublicoEnGeneral({ rfc: 'XAXX010101000', razonSocial: 'PUBLICO EN GENERAL' })).toBe(
+      true,
+    );
+    expect(esPublicoEnGeneral({ rfc: ' xaxx010101000', razonSocial: 'publico  en general ' })).toBe(
+      true,
+    );
+  });
+
+  it('con el RFC generico y el nombre de la persona no lo es (no lleva InformacionGlobal)', () => {
+    expect(esPublicoEnGeneral({ rfc: 'XAXX010101000', razonSocial: 'ERIKA SANCHEZ' })).toBe(false);
+    expect(esPublicoEnGeneral({ rfc: 'SAPE820312AB1', razonSocial: 'PUBLICO EN GENERAL' })).toBe(
+      false,
+    );
+  });
+});
+
+describe('informacionGlobalDelDia', () => {
+  it('es diaria con el mes y el año de Mexico', () => {
+    expect(informacionGlobalDelDia(new Date('2026-11-12T18:00:00Z'))).toEqual({
+      periodicidad: '01',
+      meses: '11',
+      anio: 2026,
+    });
+  });
+
+  it('el 1 de enero a las 2 a.m. UTC todavia es diciembre en Mexico', () => {
+    expect(informacionGlobalDelDia(new Date('2027-01-01T02:00:00Z'))).toEqual({
+      periodicidad: '01',
+      meses: '12',
+      anio: 2026,
+    });
+  });
+});
 
 const renglon = (r: Partial<RenglonGlobal> & { cantidad: number }): RenglonGlobal => ({
   descripcion: r.descripcion ?? 'Venta global - Producto',

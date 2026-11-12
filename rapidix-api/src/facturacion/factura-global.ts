@@ -1,5 +1,6 @@
 import { MetodoPago, Prisma, TasaIva } from '@prisma/client';
 import { baseAl16, Concepto, ivaDe } from './comprobante';
+import { InformacionGlobal } from './timbrador';
 
 const Decimal = Prisma.Decimal;
 type Decimal = Prisma.Decimal;
@@ -31,6 +32,36 @@ export const PUBLICO_EN_GENERAL = {
   /** Sin efectos fiscales. */
   usoCfdi: 'S01',
 } as const;
+
+/**
+ * Si una factura de pedido va a PUBLICO EN GENERAL. El SAT (CFDI40130) pide el
+ * nodo InformacionGlobal cuando el RFC es el generico nacional *y* el nombre es
+ * PUBLICO EN GENERAL; con el RFC generico y el nombre de la persona no lo
+ * lleva, asi que se miran los dos.
+ */
+export function esPublicoEnGeneral(receptor: { rfc: string; razonSocial: string }): boolean {
+  return (
+    receptor.rfc.trim().toUpperCase() === PUBLICO_EN_GENERAL.rfc &&
+    receptor.razonSocial.trim().replace(/\s+/g, ' ').toUpperCase() ===
+      PUBLICO_EN_GENERAL.razonSocial
+  );
+}
+
+/**
+ * El InformacionGlobal de una factura de pedido a PUBLICO EN GENERAL: una
+ * venta del dia, asi que periodicidad diaria con el mes y el año de cuando se
+ * timbra (hora de Mexico). Se calcula de la fecha y no se guarda: al volver a
+ * pintar la factura sale igual de `timbradaEn`.
+ */
+export function informacionGlobalDelDia(fecha: Date): InformacionGlobal {
+  const partes = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Mexico_City',
+    year: 'numeric',
+    month: '2-digit',
+  }).formatToParts(fecha);
+  const valor = (tipo: string): string => partes.find((p) => p.type === tipo)?.value ?? '';
+  return { periodicidad: '01', meses: valor('month'), anio: Number(valor('year')) };
+}
 
 export interface OpcionSat {
   clave: string;

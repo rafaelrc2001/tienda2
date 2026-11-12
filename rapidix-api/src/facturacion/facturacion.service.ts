@@ -41,6 +41,7 @@ import {
 import { emisorDesdeEntorno, TimbradorSimulado } from './timbrador-simulado';
 import { cuentasFacturaComDesdeEntorno, TimbradorFacturaCom } from './timbrador-factura-com';
 import { EmisorElegido, EmisorOpcionDto, EmisorService } from './emisor.service';
+import { esPublicoEnGeneral, informacionGlobalDelDia, PUBLICO_EN_GENERAL } from './factura-global';
 
 const Decimal = Prisma.Decimal;
 
@@ -567,16 +568,43 @@ export class FacturacionService implements OnModuleInit {
     // con tarjeta en la terminal, por ejemplo, queda como efectivo).
     if (dto.formaPago) comprobante.formaPago = dto.formaPago;
 
-    const receptor: Receptor = {
-      rfc: dto.rfc,
-      razonSocial: dto.razonSocial,
-      regimenFiscal: dto.regimenFiscal,
-      usoCfdi: dto.usoCfdi,
-      cpFiscal: dto.cpFiscal,
-      email: dto.email,
-    };
+    const receptor: Receptor = esPublicoEnGeneral(dto)
+      ? this.publicoEnGeneral(emisor, dto.email)
+      : {
+          rfc: dto.rfc,
+          razonSocial: dto.razonSocial,
+          regimenFiscal: dto.regimenFiscal,
+          usoCfdi: dto.usoCfdi,
+          cpFiscal: dto.cpFiscal,
+          email: dto.email,
+        };
 
     return { pedidos, emisor, receptor, comprobante };
+  }
+
+  /**
+   * El receptor de una factura de pedido a PUBLICO EN GENERAL, con lo que el
+   * SAT exige y no se deja al que captura: regimen 616, uso S01 y, como CP, el
+   * lugar de expedicion (CFDI40149). Sin CP del emisor el SAT la rechaza: se
+   * dice antes de timbrar.
+   */
+  private publicoEnGeneral(emisor: EmisorElegido, email: string | null): Receptor {
+    if (!emisor.cp) {
+      throw new ConflictException({
+        statusCode: 409,
+        code: 'EMISOR_SIN_CP',
+        message:
+          'La cuenta de factura.com no tiene código postal fiscal: captúralo en sus datos fiscales.',
+      });
+    }
+    return {
+      rfc: PUBLICO_EN_GENERAL.rfc,
+      razonSocial: PUBLICO_EN_GENERAL.razonSocial,
+      regimenFiscal: PUBLICO_EN_GENERAL.regimenFiscal,
+      usoCfdi: PUBLICO_EN_GENERAL.usoCfdi,
+      cpFiscal: emisor.cp,
+      email,
+    };
   }
 
   vista(preparada: FacturaPreparada): VistaFacturaDto {
@@ -680,6 +708,10 @@ export class FacturacionService implements OnModuleInit {
         receptor,
         conceptos,
         formaPago: comprobante.formaPago,
+        // A PUBLICO EN GENERAL el SAT exige el nodo (CFDI40130).
+        ...(esPublicoEnGeneral(receptor) && {
+          informacionGlobal: informacionGlobalDelDia(new Date()),
+        }),
       });
     } catch (fallo) {
       await this.prisma.factura.delete({ where: { id: reserva.id } }).catch((e: unknown) => {
@@ -808,6 +840,9 @@ export class FacturacionService implements OnModuleInit {
       timbradaEn: factura.timbradaEn!,
       folioPedido: numOrden,
       folios,
+      ...(esPublicoEnGeneral(factura) && {
+        informacionGlobal: informacionGlobalDelDia(factura.timbradaEn!),
+      }),
     };
 
     try {
