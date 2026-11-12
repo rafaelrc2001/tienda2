@@ -22,6 +22,11 @@ import { PedidoDto, PedidosService } from './pedidos.service';
 
 const Decimal = Prisma.Decimal;
 
+/** `2.5` → `2.50`; `2.775` → `2.775`. Centavos siempre, y los decimales de mas si los hay. */
+function textoDePrecio(precio: Prisma.Decimal): string {
+  return precio.toFixed(Math.max(2, precio.decimalPlaces()));
+}
+
 /**
  * Un pedido como lo ve Finanzas: con sus siete botones resueltos y si se le
  * puede cambiar el precio a sus productos (`null`) o por que no.
@@ -269,8 +274,9 @@ export class FinanzasService {
           estadoAnterior: pedido.estadoPago,
           estadoNuevo: pedido.estadoPago,
           nota: [
-            `Precio de ${item.nombre}: $${item.precioUnitario.toFixed(2)} → ` +
-              `$${nuevo.toFixed(2)} por pieza. Total $${pedido.total.toFixed(2)} → ` +
+            // El precio por pieza puede traer mas de dos decimales: se escriben todos.
+            `Precio de ${item.nombre}: $${textoDePrecio(item.precioUnitario)} → ` +
+              `$${textoDePrecio(nuevo)} por pieza. Total $${pedido.total.toFixed(2)} → ` +
               `$${total.toFixed(2)}.`,
             nota?.trim(),
           ]

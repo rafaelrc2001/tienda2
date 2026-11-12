@@ -27,6 +27,8 @@ import {
   nombreAbono,
   nombreEstadoPedido,
   nombreMetodoPago,
+  // El precio por pieza puede llevar más de dos decimales; `dinero` lo redondearía.
+  precio as precioPieza,
 } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
 import LupaBusqueda from '@/components/LupaBusqueda.vue'
@@ -228,7 +230,7 @@ async function guardarPrecio(): Promise<void> {
     )
     pedidos.value = pedidos.value.map((p) => (p.id === actualizado.id ? actualizado : p))
     ui.exito(
-      `${actualizado.folio}: ${pendiente.item.nombre} a ${dinero(capturado)} por pieza. Total ${dinero(actualizado.total)}.`,
+      `${actualizado.folio}: ${pendiente.item.nombre} a ${precioPieza(capturado)} por pieza. Total ${dinero(actualizado.total)}.`,
     )
     precioDe.value = null
   } catch (fallo) {
@@ -380,7 +382,7 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
                     <li v-for="item in pedido.items" :key="item.id" class="renglon-precio">
                       <span>
                         <strong>{{ item.cantidad }}-</strong>{{ item.nombre }} ·
-                        {{ dinero(item.precioUnitario) }} c/u
+                        {{ precioPieza(item.precioUnitario) }} c/u
                       </span>
                       <button
                         v-if="pedido.bloqueoPrecio === null"
@@ -525,7 +527,7 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
         <p class="modal-title">Cambiar precio · {{ precioDe.pedido.folio }}</p>
         <p class="modal-texto">
           {{ precioDe.item.cantidad }} × {{ precioDe.item.nombre }}, hoy a
-          {{ dinero(precioDe.item.precioUnitario) }} por pieza. El precio nuevo es solo para este
+          {{ precioPieza(precioDe.item.precioUnitario) }} por pieza. El precio nuevo es solo para este
           pedido: se le cobra y se le factura con él, y el total se recalcula.
         </p>
 
