@@ -1,8 +1,8 @@
 <script setup lang="ts">
 /**
  * «Facturar» del punto de venta: uno o varios pedidos de la tienda en una sola
- * factura. El emisor no se elige: es la cuenta de factura.com del servidor,
- * la misma de toda la app.
+ * factura. El emisor llega elegido con el RFC asignado a la tienda y, si el
+ * servidor tiene más de una cuenta de factura.com, se puede cambiar.
  *
  * Enseña de quién son los pedidos. Si todos son de un cliente que ya tiene sus
  * datos fiscales, llegan llenos; si no, se capturan aquí mismo —no tienen que
@@ -39,7 +39,7 @@ const emit = defineEmits<{
   (e: 'facturado', factura: FacturaPdv | null): void
 }>()
 
-const CAMPOS_EXTRA = ['formaPago', 'whatsapp'] as const
+const CAMPOS_EXTRA = ['emisorRfc', 'formaPago', 'whatsapp'] as const
 type CampoExtra = (typeof CAMPOS_EXTRA)[number]
 
 const ui = useUiStore()
@@ -61,6 +61,8 @@ const formulario = ref<FormularioFiscal>({
 })
 const formaPago = ref('')
 const whatsapp = ref('')
+/** RFC con el que se emite: llega con el de la tienda y se puede cambiar. */
+const emisorRfc = ref('')
 
 onMounted(async () => {
   try {
@@ -73,6 +75,7 @@ onMounted(async () => {
       emailSugerido: respuesta.emailSugerido,
     })
     formaPago.value = respuesta.formaPagoSugerida
+    emisorRfc.value = respuesta.emisorSugerido
     whatsapp.value = respuesta.whatsappSugerido ?? ''
   } catch (fallo) {
     ui.errorDeApi(fallo)
@@ -106,6 +109,7 @@ function cuerpo() {
   return {
     ...cuerpoFiscal(formulario.value),
     pedidoIds: props.pedidoIds,
+    emisorRfc: emisorRfc.value,
     formaPago: formaPago.value,
     whatsapp: whatsapp.value.trim(),
   }
@@ -241,6 +245,27 @@ function mostrarFallo(fallo: unknown): void {
           El servidor no tiene llaves de factura.com: la factura sale en modo demostración, con un
           folio de prueba y sin validez fiscal.
         </p>
+
+        <!-- Con una sola cuenta no hay nada que elegir. -->
+        <section
+          v-if="datos.emisores.length > 1"
+          class="zona-captura grupo"
+          aria-label="Quién emite la factura"
+        >
+          <label class="form-label" for="fp-emisor">Factura a nombre de</label>
+          <select
+            id="fp-emisor"
+            v-model="emisorRfc"
+            class="select-input"
+            :class="{ 'is-invalid': errores.emisorRfc }"
+          >
+            <option v-for="e in datos.emisores" :key="e.rfc" :value="e.rfc">
+              {{ e.nombre }} · {{ e.rfc }}
+            </option>
+          </select>
+          <p v-if="errores.emisorRfc" class="form-error">{{ errores.emisorRfc }}</p>
+          <p class="form-hint">Ya viene con el RFC de {{ tienda.nombre }}.</p>
+        </section>
 
         <section class="zona-captura grupo" aria-label="Datos del receptor">
           <p class="modal-texto">

@@ -8,15 +8,19 @@
  *
  * No hay botón de borrar: de una tienda cuelgan sus transferencias y su
  * inventario. Se retira apagándola, y deja de ofrecerse como destino.
+ *
+ * Cada tienda factura por defecto con una de las cuentas de factura.com del
+ * servidor (Configuración → Fiscal); sin elegir, con la principal. El punto
+ * de venta puede cambiarla al facturar.
  */
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ErrorApi, http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
-import type { Tienda } from '@/api/tipos'
+import type { EmisorServidor, Tienda } from '@/api/tipos'
 
 const ui = useUiStore()
 
-const CAMPOS = ['nombre', 'direccion', 'responsable'] as const
+const CAMPOS = ['nombre', 'direccion', 'responsable', 'emisorRfc'] as const
 
 const tiendas = ref<Tienda[]>([])
 const cargando = ref(true)
@@ -26,9 +30,32 @@ const erroresGenerales = ref<string[]>([])
 
 const modalAbierto = ref(false)
 const editando = ref<Tienda | null>(null)
-const formulario = ref({ nombre: '', direccion: '', responsable: '', activa: true })
+const formulario = ref({
+  nombre: '',
+  direccion: '',
+  responsable: '',
+  activa: true,
+  /** `''` = la cuenta principal. */
+  emisorRfc: '',
+})
 
-onMounted(cargar)
+/** Las cuentas de factura.com del servidor. Si no se leen, la tienda se edita igual. */
+const emisores = ref<EmisorServidor['emisores']>([])
+const principal = computed(() => emisores.value.find((e) => e.principal) ?? null)
+
+onMounted(() => {
+  void cargar()
+  http
+    .get<EmisorServidor>('/admin/configuracion/emisor')
+    .then((r) => (emisores.value = r.emisores))
+    .catch(() => undefined)
+})
+
+/** A nombre de quién factura la tienda, como se lee en la tabla. */
+function facturaComo(tienda: Tienda): string {
+  if (!tienda.emisorRfc) return principal.value?.nombre ?? 'Principal'
+  return emisores.value.find((e) => e.rfc === tienda.emisorRfc)?.nombre ?? tienda.emisorRfc
+}
 
 async function cargar(): Promise<void> {
   cargando.value = true
@@ -49,8 +76,9 @@ function abrir(tienda: Tienda | null): void {
         direccion: tienda.direccion,
         responsable: tienda.responsable,
         activa: tienda.activa,
+        emisorRfc: tienda.emisorRfc ?? '',
       }
-    : { nombre: '', direccion: '', responsable: '', activa: true }
+    : { nombre: '', direccion: '', responsable: '', activa: true, emisorRfc: '' }
   errores.value = {}
   erroresGenerales.value = []
   modalAbierto.value = true
@@ -66,6 +94,7 @@ async function guardar(): Promise<void> {
       direccion: formulario.value.direccion.trim(),
       responsable: formulario.value.responsable.trim(),
       activa: formulario.value.activa,
+      emisorRfc: formulario.value.emisorRfc || null,
     }
     if (editando.value) {
       await http.patch(`/admin/configuracion/tiendas/${editando.value.id}`, cuerpo)
@@ -107,6 +136,7 @@ async function guardar(): Promise<void> {
             <th>Tienda</th>
             <th>Dirección</th>
             <th>Responsable</th>
+            <th>Factura como</th>
             <th>Estatus</th>
             <th />
           </tr>
@@ -118,6 +148,7 @@ async function guardar(): Promise<void> {
             </td>
             <td>{{ tienda.direccion }}</td>
             <td>{{ tienda.responsable }}</td>
+            <td>{{ facturaComo(tienda) }}</td>
             <td>
               <span class="mini-tag">{{ tienda.activa ? 'Activa' : 'Desactivada' }}</span>
             </td>
@@ -175,6 +206,24 @@ async function guardar(): Promise<void> {
         />
         <p v-if="errores.responsable" class="form-error">{{ errores.responsable }}</p>
 
+        <!-- Con una sola cuenta de factura.com no hay nada que elegir. -->
+        <template v-if="emisores.length > 1">
+          <label class="form-label" for="ti-emisor">Factura a nombre de</label>
+          <select
+            id="ti-emisor"
+            v-model="formulario.emisorRfc"
+            class="form-input"
+            :class="{ 'is-invalid': errores.emisorRfc }"
+          >
+            <option value="">Principal · {{ principal?.nombre }}</option>
+            <option v-for="e in emisores.filter((x) => !x.principal)" :key="e.rfc" :value="e.rfc">
+              {{ e.nombre }} · {{ e.rfc }}
+            </option>
+          </select>
+          <p v-if="errores.emisorRfc" class="form-error">{{ errores.emisorRfc }}</p>
+          <p class="form-hint">El punto de venta puede cambiarlo al facturar.</p>
+        </template>
+
         <div v-if="editando" class="toggle-row">
           <div>
             <p class="t-lbl">Tienda activa</p>
@@ -218,7 +267,7 @@ async function guardar(): Promise<void> {
 }
 
 .tabla {
-  min-width: 520px;
+  min-width: 620px;
 }
 
 .apagada td {

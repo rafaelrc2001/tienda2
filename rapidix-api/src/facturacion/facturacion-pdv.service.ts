@@ -18,7 +18,7 @@ import {
   VistaFacturaDto,
 } from './facturacion.service';
 import { FacturaEmitidaDto, FacturasEmitidasService } from './facturas-emitidas.service';
-import { EmisorService } from './emisor.service';
+import { EmisorOpcionDto, EmisorService } from './emisor.service';
 import { FacturarPedidosPdvDto } from './dto/factura-pdv.dto';
 
 /** Cuantos renglones trae cada lista: los mas recientes. */
@@ -46,6 +46,10 @@ export interface PedidoPorFacturarDto {
 
 /** Lo que la hoja «Facturar» necesita para pintarse con esos pedidos. */
 export interface DatosFacturaPdvDto {
+  /** Con quien se puede emitir: las cuentas de factura.com del servidor. */
+  emisores: EmisorOpcionDto[];
+  /** RFC del asignado a la tienda, o el principal: el que sale elegido. */
+  emisorSugerido: string;
   pedidos: PedidoPorFacturarDto[];
   /** La suma de lo que se factura de cada uno. */
   aFacturar: number;
@@ -98,8 +102,8 @@ const SELECT_RENGLON_IVA = {
 /**
  * PDV -> Facturacion: la tienda factura sus pedidos —los capturados en su
  * mostrador y los de la app que se recogieron en ella—, uno por uno o varios
- * juntos en una sola factura. El emisor no se elige: es el mismo de toda la
- * app, la cuenta de factura.com de las llaves del servidor.
+ * juntos en una sola factura. El emisor sale elegido con el de la tienda y se
+ * puede cambiar por otra de las cuentas de factura.com del servidor.
  *
  * No repite nada del timbrado: los candados, el cuadre y la reserva son los de
  * `FacturacionService`, los mismos que Mis pedidos. Aqui solo se decide de que
@@ -172,8 +176,12 @@ export class FacturacionPdvService {
     const mayor = pedidos.reduce((m, p) =>
       totalAFacturar(p).greaterThan(totalAFacturar(m)) ? p : m,
     );
+    const emisores = await this.emisores.opciones();
+    const deLaTienda = await this.emisores.rfcDeTienda(tiendaId);
 
     return {
+      emisores,
+      emisorSugerido: emisores.some((e) => e.rfc === deLaTienda) ? deLaTienda! : emisores[0].rfc,
       pedidos: pedidos.map((p) => FacturacionPdvService.aPorFacturar(p, porId.get(p.clienteId)!)),
       aFacturar: pedidos
         .reduce((s, p) => s.add(totalAFacturar(p)), new Prisma.Decimal(0))
@@ -245,7 +253,7 @@ export class FacturacionPdvService {
     usuario: UsuarioAutenticado,
   ) {
     await this.exigirTienda(tiendaId, usuario);
-    const emisor = await this.emisores.actual();
+    const emisor = await this.emisores.elegir({ rfc: dto.emisorRfc, tiendaId });
     const pedidos: PedidoFacturable[] = await this.facturacion.cargarFacturables(
       dto.pedidoIds,
       FacturacionPdvService.deLaTienda(tiendaId),

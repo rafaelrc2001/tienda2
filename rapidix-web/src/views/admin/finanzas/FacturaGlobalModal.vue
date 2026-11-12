@@ -53,6 +53,8 @@ const nuevoRenglon = (): Renglon => ({ clave: ++siguienteClave, productoId: '', 
 const renglones = ref<Renglon[]>([nuevoRenglon()])
 
 const formaPago = ref('')
+/** RFC con el que se emite: el principal salvo que se elija otro. */
+const emisorRfc = ref('')
 const periodicidad = ref('04')
 const meses = ref(String(props.periodo.mes).padStart(2, '0'))
 const anio = ref(String(props.periodo.anio))
@@ -75,6 +77,7 @@ onMounted(async () => {
       }),
     ])
     datos.value = respuesta
+    emisorRfc.value = respuesta.emisores[0]?.rfc ?? ''
     total.value = suma.total
     formaPago.value = suma.formaPagoSugerida
   } catch (fallo) {
@@ -86,6 +89,14 @@ onMounted(async () => {
 })
 
 const simulado = computed(() => datos.value?.modo === 'SIMULADO')
+
+/** El CP del receptor es el lugar de expedición: el de la cuenta que emite. */
+const cpDelEmisor = computed(
+  () =>
+    datos.value?.emisores.find((e) => e.rfc === emisorRfc.value)?.cpFiscal ??
+    datos.value?.receptor.cpFiscal ??
+    null,
+)
 const porId = computed(() => new Map((datos.value?.productos ?? []).map((p) => [p.id, p])))
 
 /** Un producto ya elegido en otro renglón no se ofrece otra vez. */
@@ -226,6 +237,7 @@ async function timbrar(): Promise<void> {
   try {
     const factura = await http.post<FacturaGlobal>(RUTA, {
       ...cuerpoBase(),
+      emisorRfc: emisorRfc.value || undefined,
       formaPago: formaPago.value,
       periodicidad: periodicidad.value,
       meses: meses.value,
@@ -282,7 +294,7 @@ async function timbrar(): Promise<void> {
             </div>
             <div>
               <dt>Código postal</dt>
-              <dd>{{ datos.receptor.cpFiscal }} (lugar de expedición)</dd>
+              <dd>{{ cpDelEmisor ?? 'Sin capturar en factura.com' }} (lugar de expedición)</dd>
             </div>
             <div>
               <dt>Método de pago</dt>
@@ -296,6 +308,15 @@ async function timbrar(): Promise<void> {
         <!-- Lo que se elige: bloque crema, campos blancos. -->
         <section class="zona-captura" aria-label="Datos de la factura">
           <div class="rejilla">
+            <!-- Con una sola cuenta de factura.com no hay nada que elegir. -->
+            <div v-if="datos.emisores.length > 1" class="campo ancho">
+              <label class="form-label" for="fg-emisor">Factura a nombre de</label>
+              <select id="fg-emisor" v-model="emisorRfc" class="form-input">
+                <option v-for="e in datos.emisores" :key="e.rfc" :value="e.rfc">
+                  {{ e.nombre }} · {{ e.rfc }}
+                </option>
+              </select>
+            </div>
             <div class="campo ancho">
               <label class="form-label" for="fg-forma-pago">Forma de pago</label>
               <select id="fg-forma-pago" v-model="formaPago" class="form-input">

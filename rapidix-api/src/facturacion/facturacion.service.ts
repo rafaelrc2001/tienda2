@@ -39,7 +39,7 @@ import {
   TimbradoRechazado,
 } from './timbrador';
 import { emisorDesdeEntorno, TimbradorSimulado } from './timbrador-simulado';
-import { configFacturaComDesdeEntorno, TimbradorFacturaCom } from './timbrador-factura-com';
+import { cuentasFacturaComDesdeEntorno, TimbradorFacturaCom } from './timbrador-factura-com';
 import { EmisorElegido, EmisorService } from './emisor.service';
 
 const Decimal = Prisma.Decimal;
@@ -57,6 +57,8 @@ const INCLUIR_FACTURABLE = {
   },
   cupon: { select: { sourceKind: true, sourceCode: true } },
   factura: { select: { id: true, estado: true, uuid: true } },
+  // La tienda del mostrador donde se capturo: su emisor es el de la factura.
+  turno: { select: { tiendaId: true } },
 } satisfies Prisma.PedidoInclude;
 
 export type PedidoFacturable = Prisma.PedidoGetPayload<{ include: typeof INCLUIR_FACTURABLE }>;
@@ -182,12 +184,10 @@ export class FacturacionService implements OnModuleInit {
   ) {}
 
   onModuleInit(): void {
-    const config = configFacturaComDesdeEntorno();
-    if (config) {
-      const entorno = config.sandbox ? 'sandbox' : 'PRODUCCION';
-      this.logger.log(
-        `Llaves de factura.com en el entorno (${entorno}): toda factura sale con esa cuenta`,
-      );
+    const cuentas = cuentasFacturaComDesdeEntorno();
+    if (cuentas.length > 0) {
+      const entorno = cuentas[0].sandbox ? 'sandbox' : 'PRODUCCION';
+      this.logger.log(`${cuentas.length} cuenta(s) de factura.com en el entorno (${entorno})`);
     } else {
       this.logger.warn(
         'Sin FACTURACOM_API_KEY/SECRET_KEY/SERIE: se factura en modo SIMULADO ' +
@@ -215,18 +215,22 @@ export class FacturacionService implements OnModuleInit {
    * El timbrador con el que se timbro una factura, para servir sus archivos.
    * Una simulada sigue siendo simulada aunque despues se pongan las llaves, y
    * sale con el emisor con el que se timbro (el del entorno si es de antes de
-   * que se congelara). Una de factura.com se pide con las llaves con que se
-   * timbro: las del servidor, o las propias de su razon social si es de antes.
+   * que se congelara). Una de factura.com se pide con las llaves de la cuenta
+   * que la timbro (por su RFC), o las propias de su razon social si es de antes.
    */
   async timbradorDeFactura(factura: {
     modo: ModoTimbrado;
     razonSocialId: string | null;
+    emisorRfc: string | null;
     emisor: { rfc: string; nombre: string; regimen: string; cp: string } | null;
   }): Promise<Timbrador> {
     if (factura.modo === ModoTimbrado.SIMULADO) {
       return new TimbradorSimulado(factura.emisor ?? emisorDesdeEntorno());
     }
-    const llaves = await this.emisores.llavesParaDocumentos(factura.razonSocialId);
+    const llaves = await this.emisores.llavesParaDocumentos(
+      factura.razonSocialId,
+      factura.emisorRfc,
+    );
     if (!llaves) {
       throw new ServiceUnavailableException({
         statusCode: 503,
@@ -314,7 +318,15 @@ export class FacturacionService implements OnModuleInit {
     dto: FacturarPedidoDto,
   ): Promise<VistaFacturaDto> {
     const pedidos = await this.cargarFacturables([pedidoId], { clienteId });
-    return this.vista(await this.preparar(pedidos, dto, await this.emisores.actual()));
+    return this.vista(await this.preparar(pedidos, dto, await this.emisorDelPedido(pedidos[0])));
+  }
+
+  /**
+   * Con quien se factura un pedido desde Mis pedidos o Finanzas: el emisor de
+   * la tienda donde se recogio o se capturo; a domicilio, el principal.
+   */
+  private emisorDelPedido(pedido: PedidoFacturable): Promise<EmisorElegido> {
+    return this.emisores.elegir({ tiendaId: pedido.tiendaId ?? pedido.turno?.tiendaId });
   }
 
   /**
@@ -339,7 +351,7 @@ export class FacturacionService implements OnModuleInit {
     autor: AutorFactura,
   ): Promise<FacturaDto> {
     const pedidos = await this.cargarFacturables([pedidoId], { clienteId });
-    const preparada = await this.preparar(pedidos, dto, await this.emisores.actual());
+    const preparada = await this.preparar(pedidos, dto, await this.emisorDelPedido(pedidos[0]));
     const factura = await this.timbrar(preparada, autor);
 
     if (dto.guardarDatos) {
@@ -736,6 +748,7 @@ export class FacturacionService implements OnModuleInit {
     const timbrador = await this.timbradorDeFactura({
       modo: factura.modo,
       razonSocialId: factura.razonSocialId,
+      emisorRfc: factura.emisorRfc,
       emisor:
         factura.emisorRfc && factura.emisorNombre && factura.emisorRegimen && factura.emisorCp
           ? {

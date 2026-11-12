@@ -1,13 +1,15 @@
 <script setup lang="ts">
 /**
- * Configuración → Fiscal → Emisor: a nombre de quién sale toda factura.
+ * Configuración → Fiscal → Emisor: a nombre de quién pueden salir las facturas.
  *
- * Solo se mira. El emisor es la cuenta de factura.com de las llaves del
- * servidor (`FACTURACOM_*`), y sus datos —RFC, nombre, régimen y CP— la API
- * los lee de esa cuenta: son los que de verdad quedan sellados en el CFDI.
- * Antes se capturaban aquí a mano y se podían separar de la cuenta real; por
- * eso ya no hay formulario. Se cambian en factura.com o en las variables del
- * servidor.
+ * Solo se mira. Cada emisor es una cuenta de factura.com cuyas llaves están en
+ * el servidor (`FACTURACOM_*` la principal, `FACTURACOM_*_2` la segunda…), y
+ * sus datos —RFC, nombre, régimen y CP— la API los lee de esa cuenta: son los
+ * que de verdad quedan sellados en el CFDI. Antes se capturaban aquí a mano y
+ * se podían separar de la cuenta real; por eso ya no hay formulario. Se
+ * cambian en factura.com o en las variables del servidor.
+ *
+ * Qué emisor usa cada tienda se elige en Configuración → Tiendas.
  */
 import { onMounted, ref } from 'vue'
 import { http } from '@/api/http'
@@ -49,50 +51,49 @@ function comoTimbra(d: EmisorServidor): string {
 
     <template v-else-if="datos">
       <p class="ayuda">
-        Todas las facturas —Mis pedidos, Finanzas, el punto de venta y la factura global— salen con
-        la cuenta de factura.com del servidor. Sus datos se leen de esa cuenta: para cambiarlos,
-        edítalos en factura.com.
+        Las facturas salen con una de estas cuentas de factura.com. Cada tienda usa la suya
+        (Configuración → Tiendas) y el punto de venta puede cambiarla al facturar; a domicilio sale
+        con la principal. Sus datos se leen de cada cuenta: para cambiarlos, edítalos en
+        factura.com.
       </p>
 
       <p v-if="datos.error" class="form-error">
-        No pudimos leer la cuenta de factura.com: {{ datos.error }}
+        No pudimos leer alguna cuenta de factura.com: {{ datos.error }}
       </p>
 
-      <div v-if="datos.emisor" class="tabla-envoltorio">
-        <table class="tabla lineal">
-          <tbody>
+      <div v-if="datos.emisores.length > 0" class="tabla-envoltorio">
+        <table class="tabla">
+          <thead>
             <tr>
               <th>Nombre</th>
-              <td>{{ datos.emisor.nombre }}</td>
-            </tr>
-            <tr>
               <th>RFC</th>
-              <td class="rfc">{{ datos.emisor.rfc }}</td>
-            </tr>
-            <tr>
               <th>Régimen</th>
-              <td :class="{ demo: !datos.emisor.regimen }">
-                <template v-if="datos.emisor.regimen">
-                  {{ datos.emisor.regimen }} · {{ datos.emisor.regimenNombre }}
-                </template>
-                <template v-else>No reconocido: revisa el régimen en factura.com</template>
-              </td>
+              <th>CP</th>
             </tr>
-            <tr>
-              <th>CP (lugar de expedición)</th>
-              <td class="rfc" :class="{ demo: !datos.emisor.cp }">
-                {{ datos.emisor.cp ?? 'Sin capturar en factura.com' }}
+          </thead>
+          <tbody>
+            <tr v-for="e in datos.emisores" :key="e.rfc">
+              <td>
+                {{ e.nombre }}
+                <span v-if="e.principal" class="principal">Principal</span>
               </td>
-            </tr>
-            <tr>
-              <th>Timbra con</th>
-              <td :class="{ demo: datos.modo === 'SIMULADO' }">{{ comoTimbra(datos) }}</td>
+              <td class="rfc">{{ e.rfc }}</td>
+              <td :class="{ demo: !e.regimen }">
+                <template v-if="e.regimen">{{ e.regimen }} · {{ e.regimenNombre }}</template>
+                <template v-else>No reconocido: revísalo en factura.com</template>
+              </td>
+              <td class="rfc" :class="{ demo: !e.cp }">{{ e.cp ?? 'Sin capturar' }}</td>
             </tr>
           </tbody>
         </table>
       </div>
 
-      <p v-if="datos.modo === 'SIMULADO'" class="ayuda nota">
+      <p class="ayuda nota">
+        Timbra con:
+        <strong :class="{ demo: datos.modo === 'SIMULADO' }">{{ comoTimbra(datos) }}</strong>
+      </p>
+
+      <p v-if="datos.modo === 'SIMULADO'" class="ayuda">
         El servidor no tiene las variables <code>FACTURACOM_API_KEY</code>,
         <code>FACTURACOM_SECRET_KEY</code> y <code>FACTURACOM_SERIE</code>: se factura con el emisor
         de pruebas y las facturas no tienen validez fiscal.
@@ -126,14 +127,20 @@ function comoTimbra(d: EmisorServidor): string {
   margin-top: 12px;
 }
 
-.tabla th {
-  width: 40%;
-  text-align: left;
-}
-
 .tabla .rfc {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+.principal {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--cream-2);
+  color: var(--terracotta);
+  font-size: 10.5px;
+  font-weight: 700;
 }
 
 .demo {

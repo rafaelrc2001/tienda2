@@ -20,10 +20,36 @@ export interface ConfigFacturaCom {
   sandbox: boolean;
 }
 
+/** La cuenta principal: la de `FACTURACOM_API_KEY`. Null sin llaves (modo simulado). */
 export function configFacturaComDesdeEntorno(): ConfigFacturaCom | null {
-  const apiKey = process.env.FACTURACOM_API_KEY?.trim();
-  const secretKey = process.env.FACTURACOM_SECRET_KEY?.trim();
-  const serie = process.env.FACTURACOM_SERIE?.trim();
+  return cuentaDelEntorno('');
+}
+
+/**
+ * Todas las cuentas de factura.com del servidor, una por RFC: la principal y
+ * las que sigan con sufijo (`FACTURACOM_API_KEY_2`, `_SECRET_KEY_2`,
+ * `_SERIE_2`, luego `_3`...; tambien sin guion bajo, `FACTURACOM_API_KEY2`).
+ * La serie es de cada cuenta: cada una tiene su propio id de la serie F. El
+ * entorno (`FACTURACOM_ENTORNO`) es uno para todas. Sin principal no hay
+ * ninguna.
+ */
+export function cuentasFacturaComDesdeEntorno(): ConfigFacturaCom[] {
+  const principal = cuentaDelEntorno('');
+  if (!principal) return [];
+  const cuentas = [principal];
+  for (let n = 2; ; n++) {
+    const otra = cuentaDelEntorno(`_${n}`) ?? cuentaDelEntorno(String(n));
+    if (!otra) break;
+    cuentas.push(otra);
+  }
+  return cuentas;
+}
+
+function cuentaDelEntorno(sufijo: string): ConfigFacturaCom | null {
+  const leer = (nombre: string) => process.env[`FACTURACOM_${nombre}${sufijo}`]?.trim();
+  const apiKey = leer('API_KEY');
+  const secretKey = leer('SECRET_KEY');
+  const serie = leer('SERIE');
   if (!apiKey || !secretKey || !serie) return null;
   return {
     apiKey,

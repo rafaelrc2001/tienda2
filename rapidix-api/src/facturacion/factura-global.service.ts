@@ -61,6 +61,12 @@ export interface ProductoFacturableDto {
 
 /** `GET .../factura-global/datos`: todo lo que el modal necesita para pintarse. */
 export interface DatosFacturaGlobalDto {
+  /**
+   * Con quien se puede emitir, la principal primero. `cpFiscal` es el de su
+   * cuenta (null si no lo tiene: con ese emisor no se puede timbrar la global).
+   */
+  emisores: { rfc: string; nombre: string; cpFiscal: string | null }[];
+  /** El de la principal; con otro emisor cambia solo `cpFiscal`. */
   receptor: ReceptorGlobalDto;
   formasPago: FormaPagoSat[];
   periodicidades: OpcionSat[];
@@ -152,9 +158,15 @@ export class FacturaGlobalService {
       orderBy: { nombre: 'asc' },
       select: { id: true, nombre: true, claveProdServ: true, tasaIva: true },
     });
-    const emisor = await this.emisores.actual();
+    const disponibles = await this.emisores.disponibles();
     return {
-      receptor: this.receptorFijo(emisor),
+      // El CP del receptor es el del emisor: va con cada uno.
+      emisores: disponibles.map((e) => ({
+        rfc: e.rfc,
+        nombre: e.nombre,
+        cpFiscal: e.cp,
+      })),
+      receptor: this.receptorFijo(disponibles[0]),
       formasPago: this.catalogoSat.formasDePago(),
       periodicidades: PERIODICIDADES,
       meses: MESES_SAT,
@@ -165,7 +177,7 @@ export class FacturaGlobalService {
         claveGenerica: !p.claveProdServ,
         tasaIva: p.tasaIva,
       })),
-      modo: this.facturacion.timbradorPara(emisor).modo,
+      modo: this.facturacion.timbradorPara(disponibles[0]).modo,
     };
   }
 
@@ -215,8 +227,8 @@ export class FacturaGlobalService {
       });
     }
 
-    // La emite la cuenta de factura.com del servidor, como toda factura.
-    const emisor = await this.emisores.actual();
+    // La emite la cuenta elegida, o la principal.
+    const emisor = await this.emisores.elegir({ rfc: dto.emisorRfc });
     const receptor: Receptor = {
       rfc: PUBLICO_EN_GENERAL.rfc,
       razonSocial: PUBLICO_EN_GENERAL.razonSocial,
@@ -242,6 +254,7 @@ export class FacturaGlobalService {
           total: armada.totalFactura,
           conceptos: armada.guardados as unknown as Prisma.InputJsonValue,
           razonSocialId: null,
+          emisorRfc: emisor.rfc,
           creadoPorId: usuarioId,
         },
         select: { id: true, numero: true },
@@ -368,6 +381,7 @@ export class FacturaGlobalService {
     const timbrador = await this.facturacion.timbradorDeFactura({
       modo: factura.modo,
       razonSocialId: factura.razonSocialId,
+      emisorRfc: factura.emisorRfc,
       emisor: factura.emisor,
     });
     try {

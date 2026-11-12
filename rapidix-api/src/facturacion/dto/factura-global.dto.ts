@@ -81,4 +81,13 @@ export class TimbrarFacturaGlobalDto extends PrevisualizarFacturaGlobalDto {
   @Transform(opcional)
   @IsEmail({}, { message: 'El correo no es válido' })
   email?: string;
+
+  /**
+   * RFC del emisor: una de las cuentas de factura.com del servidor. Sin el,
+   * la principal.
+   */
+  @IsOptional()
+  @IsString()
+  @Matches(/^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/, { message: 'emisorRfc no es un RFC válido' })
+  emisorRfc?: string;
 }
