@@ -562,11 +562,15 @@ export class CarritoService {
     const carrito = await this.resolverTolerante(dto.items);
     const avisos = [...carrito.avisos];
 
-    if (!dentroDeHorario) {
+    // Fuera de horario con recargo en 0 no hay nada que avisar: el pedido
+    // cuesta lo mismo que dentro del horario.
+    if (!dentroDeHorario && !config.atenderFuera) {
       avisos.push(
-        config.atenderFuera
-          ? `Estás fuera del horario de servicio (${config.abre} a ${config.cierra}): tu pedido lleva un recargo del ${config.incrementoFuera.toString()} %.`
-          : `Ahora mismo no estamos recibiendo pedidos. Nuestro horario es de ${config.abre} a ${config.cierra}.`,
+        `Ahora mismo no estamos recibiendo pedidos. Nuestro horario es de ${config.abre} a ${config.cierra}.`,
+      );
+    } else if (!dentroDeHorario && config.incrementoFuera.greaterThan(0)) {
+      avisos.push(
+        `Estás fuera del horario de servicio (${config.abre} a ${config.cierra}): tu pedido lleva un recargo del ${config.incrementoFuera.toString()} %.`,
       );
     }
 
