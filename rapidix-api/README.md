@@ -50,10 +50,11 @@ configuración que ya trae el `.env.example`.
 | `S3_ACCESS_KEY_ID` | no | Credencial de acceso. |
 | `S3_SECRET_ACCESS_KEY` | no | Credencial secreta. |
 | `S3_PUBLIC_BASE_URL` | no | Base pública desde la que se sirven las imágenes. |
-| `FACTURACOM_API_KEY` | no | Llave de factura.com (Desarrolladores > API > Datos de acceso). La usa la razón social **principal** cuando no tiene llaves propias (cada razón social puede capturar las suyas en Configuración → Fiscal). Sin llaves, la factura se timbra en modo **simulado**: folio inventado, sin validez fiscal. |
+| `FACTURACOM_API_KEY` | no | Llave de factura.com (Desarrolladores > API > Datos de acceso) de la cuenta **principal**: su RFC, nombre, régimen y CP son los del emisor. Sin llaves, la factura se timbra en modo **simulado**: folio inventado, sin validez fiscal. |
 | `FACTURACOM_SECRET_KEY` | no | Llave secreta de factura.com. |
 | `FACTURACOM_SERIE` | no | Id numérico de la serie de facturas en factura.com (Configuraciones > Series). |
 | `FACTURACOM_ENTORNO` | no | `sandbox` (por defecto) o `produccion`. |
+| `FACTURACOM_API_KEY_2`, `FACTURACOM_SECRET_KEY_2`, `FACTURACOM_SERIE_2` | no | Otra cuenta de factura.com (otro RFC), con su propia serie; luego `_3`, etc. Cada tienda elige con cuál factura (Configuración → Tiendas) y el punto de venta puede cambiarla. Mismo `FACTURACOM_ENTORNO` para todas. |
 | `FACTURACION_CLAVE_PRODUCTO` | no | c_ClaveProdServ de los productos **que no tienen una propia** (se elige en Administración → Productos). Por defecto `01010101`. |
 | `FACTURACION_CLAVE_SERVICIO` | no | c_ClaveProdServ del envío y del recargo. Por defecto `78102203`. |
 | `FACTURACION_EMISOR_RFC`, `_NOMBRE`, `_REGIMEN`, `_CP` | no | Emisor que imprime el modo simulado. Por defecto el RFC de pruebas del SAT (`EKU9003173C9`). |

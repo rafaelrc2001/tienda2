@@ -37,6 +37,12 @@ export const REGIMENES_FISCALES: RegimenFiscal[] = [
   },
   { clave: '616', nombre: 'Sin obligaciones fiscales', personas: ['FISICA'] },
   { clave: '621', nombre: 'Incorporación Fiscal', personas: ['FISICA'] },
+  {
+    clave: '625',
+    nombre:
+      'Régimen de las Actividades Empresariales con ingresos a través de Plataformas Tecnológicas',
+    personas: ['FISICA'],
+  },
   { clave: '626', nombre: 'Régimen Simplificado de Confianza', personas: ['FISICA', 'MORAL'] },
 ];
 

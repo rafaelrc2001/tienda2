@@ -1117,6 +1117,11 @@ export interface OpcionSat {
 
 /** `GET /admin/finanzas/bancos/factura-global/datos`: lo que pinta el modal. */
 export interface DatosFacturaGlobal {
+  /**
+   * Con quién se puede emitir, el principal primero. `cpFiscal` es el de su
+   * cuenta y pasa al receptor; `null` si no lo tiene (no se puede timbrar).
+   */
+  emisores: { rfc: string; nombre: string; cpFiscal: string | null }[]
   /** PÚBLICO EN GENERAL: fijo por regla del SAT, se enseña y no se edita. */
   receptor: {
     rfc: string
@@ -1490,18 +1495,28 @@ export interface CuentaBancaria {
  * `GET /admin/configuracion/emisor`: a nombre de quién sale toda factura. Es la
  * cuenta de factura.com de las llaves del servidor; sus datos se leen de ella.
  */
+/** Un emisor para elegir: una de las cuentas de factura.com del servidor. */
+export interface EmisorOpcion {
+  rfc: string
+  nombre: string
+}
+
+/** `GET /admin/configuracion/emisor`: las cuentas de factura.com con las que se factura. */
 export interface EmisorServidor {
   modo: ModoTimbrado
   /** Entorno de factura.com. `null` en modo demostración. */
   entorno: 'PRODUCCION' | 'SANDBOX' | null
-  /** `null` si no se pudo leer la cuenta de factura.com: el motivo va en `error`. */
-  emisor: {
+  /** Las que se pudieron leer, la principal primero. */
+  emisores: {
     rfc: string
     nombre: string
     regimen: string | null
     regimenNombre: string | null
     cp: string | null
-  } | null
+    /** Con la que se factura si nada dice otra cosa. */
+    principal: boolean
+  }[]
+  /** Por qué alguna cuenta no se pudo leer; `null` si se leyeron todas. */
   error: string | null
 }
 
@@ -1521,6 +1536,10 @@ export interface PedidoPorFacturar {
 
 /** `POST /admin/pdv/tiendas/:id/facturacion/datos`: lo que la hoja «Facturar» necesita. */
 export interface DatosFacturaPdv {
+  /** Con quién se puede emitir. */
+  emisores: EmisorOpcion[]
+  /** RFC del asignado a la tienda (o el principal): el que sale elegido. */
+  emisorSugerido: string
   pedidos: PedidoPorFacturar[]
   aFacturar: number
   /** Con qué se timbra: `SIMULADO` si el servidor no tiene llaves de factura.com. */
@@ -1847,6 +1866,8 @@ export interface Tienda {
   responsable: string
   /** Una tienda no se borra: apagada, deja de ofrecerse como destino. */
   activa: boolean
+  /** RFC con el que factura por defecto; `null` = el principal. */
+  emisorRfc: string | null
 }
 
 /** Una cuenta del personal en Configuración → Usuarios. */

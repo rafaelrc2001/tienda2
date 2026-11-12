@@ -36,10 +36,19 @@ export class PedidosAFacturarDto {
 
 /**
  * «Facturar» del punto de venta: los pedidos y el receptor, que se captura ahi
- * mismo aunque no este en ninguna ficha. El emisor no viaja: es la cuenta de
- * factura.com del servidor.
+ * mismo aunque no este en ninguna ficha, y con cual de las cuentas de
+ * factura.com del servidor se emite.
  */
 export class FacturarPedidosPdvDto extends DatosFiscalesDto {
+  /**
+   * RFC del emisor: uno de los que ofrece la hoja. Sin el, el asignado a la
+   * tienda (o el principal).
+   */
+  @IsOptional()
+  @IsString()
+  @Matches(/^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/, { message: 'emisorRfc no es un RFC válido' })
+  emisorRfc?: string;
+
   @IsArray()
   @ArrayMinSize(1, { message: 'Elige al menos un pedido' })
   @ArrayMaxSize(MAXIMO_PEDIDOS_POR_FACTURA, {

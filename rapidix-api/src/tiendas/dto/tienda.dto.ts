@@ -1,4 +1,4 @@
-import { IsBoolean, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsBoolean, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
 
 /** Alta y edicion de una tienda (Configuracion -> Tiendas). */
 export class GuardarTiendaDto {
@@ -22,4 +22,14 @@ export class GuardarTiendaDto {
   @IsOptional()
   @IsBoolean()
   activa?: boolean;
+
+  /**
+   * RFC con el que factura por defecto: una de las cuentas de factura.com del
+   * servidor (Configuracion -> Fiscal). Null = la principal. Si deja de estar
+   * configurado, se factura con la principal.
+   */
+  @IsOptional()
+  @IsString()
+  @Matches(/^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/, { message: 'emisorRfc no es un RFC válido' })
+  emisorRfc?: string | null;
 }

@@ -503,6 +503,10 @@ model Tienda {
   /// usuario del panel.
   responsable String
   activa      Boolean @default(true)
+  /// RFC del emisor con el que factura por defecto: una de las cuentas de
+  /// factura.com del servidor (`EmisorService`). Null = la principal. El punto
+  /// de venta puede cambiarlo al facturar.
+  emisorRfc   String?
 
   creadoEn      DateTime @default(now())
   actualizadoEn DateTime @updatedAt
@@ -1901,6 +1905,9 @@ model FacturaGlobal {
   /// antes: esas se timbraron con las llaves de las variables de entorno.
   razonSocialId String?
   emisor        RazonSocial? @relation(fields: [razonSocialId], references: [id], onDelete: Restrict)
+  /// RFC de la cuenta de factura.com que la timbro: con sus llaves se piden el
+  /// PDF y el XML. Null en las de antes: la principal.
+  emisorRfc     String?
 
   creadoPorId String
   creadoPor   Usuario  @relation("FacturasGlobales", fields: [creadoPorId], references: [id])

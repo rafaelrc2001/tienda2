@@ -377,6 +377,7 @@ export class TiendasService {
       direccion: dto.direccion.trim(),
       responsable: dto.responsable.trim(),
       ...(dto.activa !== undefined && { activa: dto.activa }),
+      ...(dto.emisorRfc !== undefined && { emisorRfc: dto.emisorRfc || null }),
     };
   }
 }
