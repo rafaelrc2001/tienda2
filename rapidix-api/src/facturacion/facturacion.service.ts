@@ -40,7 +40,7 @@ import {
 } from './timbrador';
 import { emisorDesdeEntorno, TimbradorSimulado } from './timbrador-simulado';
 import { cuentasFacturaComDesdeEntorno, TimbradorFacturaCom } from './timbrador-factura-com';
-import { EmisorElegido, EmisorService } from './emisor.service';
+import { EmisorElegido, EmisorOpcionDto, EmisorService } from './emisor.service';
 
 const Decimal = Prisma.Decimal;
 
@@ -305,7 +305,7 @@ export class FacturacionService implements OnModuleInit {
   }
 
   // ----------------------------------------------------------------
-  // Un pedido: Mis pedidos y Finanzas, con la razon social principal
+  // Un pedido: Mis pedidos y Finanzas
   // ----------------------------------------------------------------
 
   /**
@@ -315,18 +315,44 @@ export class FacturacionService implements OnModuleInit {
   async previsualizar(
     clienteId: string,
     pedidoId: string,
-    dto: FacturarPedidoDto,
+    dto: FacturarPedidoDto & { emisorRfc?: string },
   ): Promise<VistaFacturaDto> {
     const pedidos = await this.cargarFacturables([pedidoId], { clienteId });
-    return this.vista(await this.preparar(pedidos, dto, await this.emisorDelPedido(pedidos[0])));
+    const emisor = await this.emisorDelPedido(pedidos[0], dto.emisorRfc);
+    return this.vista(await this.preparar(pedidos, dto, emisor));
   }
 
   /**
-   * Con quien se factura un pedido desde Mis pedidos o Finanzas: el emisor de
-   * la tienda donde se recogio o se capturo; a domicilio, el principal.
+   * Con quien se factura un pedido desde Mis pedidos o Finanzas: el que elija
+   * Finanzas (`emisorRfc`; el cliente no puede mandarlo), si no el de la
+   * tienda donde se recogio o se capturo; a domicilio, el principal.
    */
-  private emisorDelPedido(pedido: PedidoFacturable): Promise<EmisorElegido> {
-    return this.emisores.elegir({ tiendaId: pedido.tiendaId ?? pedido.turno?.tiendaId });
+  private emisorDelPedido(pedido: PedidoFacturable, rfc?: string): Promise<EmisorElegido> {
+    return this.emisores.elegir({ rfc, tiendaId: this.tiendaDelPedido(pedido) });
+  }
+
+  private tiendaDelPedido(pedido: { tiendaId: string | null; turno: { tiendaId: string } | null }) {
+    return pedido.tiendaId ?? pedido.turno?.tiendaId ?? null;
+  }
+
+  /**
+   * Finanzas -> Facturar: con quien se puede emitir y cual sale elegido (el de
+   * la tienda del pedido, o el principal).
+   */
+  async emisoresParaPedido(
+    pedidoId: string,
+  ): Promise<{ emisores: EmisorOpcionDto[]; emisorSugerido: string }> {
+    const pedido = await this.prisma.pedido.findUnique({
+      where: { id: pedidoId },
+      select: { tiendaId: true, turno: { select: { tiendaId: true } } },
+    });
+    if (!pedido) throw new NotFoundException('Pedido no encontrado');
+    const emisores = await this.emisores.opciones();
+    const deLaTienda = await this.emisores.rfcDeTienda(this.tiendaDelPedido(pedido));
+    return {
+      emisores,
+      emisorSugerido: emisores.some((e) => e.rfc === deLaTienda) ? deLaTienda! : emisores[0].rfc,
+    };
   }
 
   /**
@@ -347,11 +373,12 @@ export class FacturacionService implements OnModuleInit {
   async facturar(
     clienteId: string,
     pedidoId: string,
-    dto: FacturarPedidoDto,
+    dto: FacturarPedidoDto & { emisorRfc?: string },
     autor: AutorFactura,
   ): Promise<FacturaDto> {
     const pedidos = await this.cargarFacturables([pedidoId], { clienteId });
-    const preparada = await this.preparar(pedidos, dto, await this.emisorDelPedido(pedidos[0]));
+    const emisor = await this.emisorDelPedido(pedidos[0], dto.emisorRfc);
+    const preparada = await this.preparar(pedidos, dto, emisor);
     const factura = await this.timbrar(preparada, autor);
 
     if (dto.guardarDatos) {

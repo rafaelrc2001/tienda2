@@ -4,7 +4,9 @@
  *
  * Finanzas usa la misma hoja (`porFinanzas`) para facturar a nombre del
  * cliente: cambian las rutas —las del panel, que sacan al cliente del
- * pedido— y los textos, que le hablan al personal y no al cliente.
+ * pedido— y los textos, que le hablan al personal y no al cliente. Finanzas
+ * además elige a nombre de quién sale (las cuentas de factura.com del
+ * servidor), con el de la tienda del pedido ya elegido; el cliente no elige.
  *
  * Los catálogos (régimen y uso del CFDI) y lo guardado —aquí o en el Perfil—
  * llegan juntos de `GET /perfil/datos-fiscales`: la interfaz no lleva copia de
@@ -32,7 +34,13 @@ import {
 } from '@/utils/datosFiscales'
 import CamposFiscales from '@/components/CamposFiscales.vue'
 import VistaPreviaFactura from '@/components/VistaPreviaFactura.vue'
-import type { DatosFiscalesRespuesta, FacturaDePedido, Pedido, VistaFactura } from '@/api/tipos'
+import type {
+  DatosFiscalesRespuesta,
+  EmisorOpcion,
+  FacturaDePedido,
+  Pedido,
+  VistaFactura,
+} from '@/api/tipos'
 
 const props = defineProps<{ pedido: Pedido; porFinanzas?: boolean }>()
 
@@ -51,7 +59,10 @@ const emit = defineEmits<{
 }>()
 
 const ui = useUiStore()
-const catalogos = ref<DatosFiscalesRespuesta | null>(null)
+/** En Finanzas trae además con quién se puede emitir y cuál sale elegido. */
+const catalogos = ref<
+  (DatosFiscalesRespuesta & { emisores?: EmisorOpcion[]; emisorSugerido?: string }) | null
+>(null)
 const cargando = ref(true)
 const enviando = ref(false)
 const errores = ref<Partial<Record<CampoFiscal, string>>>({})
@@ -72,11 +83,15 @@ const formulario = ref<FormularioFiscal>({
  * guarda con los datos fiscales: es de este pedido.
  */
 const formaPago = ref(props.pedido.formaPagoFactura)
+/** Solo Finanzas: RFC con el que se emite. */
+const emisorRfc = ref('')
+const emisores = computed(() => catalogos.value?.emisores ?? [])
 
 onMounted(async () => {
   try {
     catalogos.value = await http.get<DatosFiscalesRespuesta>(rutaDatos.value)
     formulario.value = formularioFiscalDesde(catalogos.value)
+    emisorRfc.value = catalogos.value.emisorSugerido ?? ''
   } catch (fallo) {
     ui.errorDeApi(fallo)
     emit('cerrar')
@@ -101,6 +116,8 @@ function cuerpo() {
     // aceptó el timbre, así que un dato rechazado no pisa al bueno.
     guardarDatos: true,
     formaPago: formaPago.value,
+    // El cliente no lo manda: su ruta no lo acepta.
+    ...(props.porFinanzas && emisorRfc.value && { emisorRfc: emisorRfc.value }),
   }
 }
 
@@ -201,6 +218,19 @@ function mostrarFallo(fallo: unknown): void {
         </p>
 
         <p v-for="(mensaje, i) in erroresGenerales" :key="i" class="form-error">{{ mensaje }}</p>
+
+        <!-- Solo Finanzas, y con una sola cuenta de factura.com no hay nada que elegir. -->
+        <template v-if="porFinanzas && emisores.length > 1">
+          <label class="form-label" for="fa-emisor">Factura a nombre de</label>
+          <select id="fa-emisor" v-model="emisorRfc" class="select-input">
+            <option v-for="e in emisores" :key="e.rfc" :value="e.rfc">
+              {{ e.nombre }} · {{ e.rfc }}
+            </option>
+          </select>
+          <p class="form-hint">
+            Ya viene con el de la tienda del pedido; a domicilio, con el principal.
+          </p>
+        </template>
 
         <CamposFiscales
           v-model="formulario"

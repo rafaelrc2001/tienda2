@@ -22,7 +22,8 @@ import {
   FacturaDto,
   VistaFacturaDto,
 } from './facturacion.service';
-import { FacturarPedidoDto } from './dto/factura.dto';
+import { FacturarPedidoFinanzasDto } from './dto/factura.dto';
+import { EmisorOpcionDto } from './emisor.service';
 
 /**
  * Finanzas factura un pedido a nombre de su cliente, para quien no lo pide
@@ -42,10 +43,19 @@ import { FacturarPedidoDto } from './dto/factura.dto';
 export class AdminFacturacionController {
   constructor(private readonly facturacion: FacturacionService) {}
 
-  /** Lo que el cliente tiene guardado, para pre-llenar, mas los catalogos del SAT. */
+  /**
+   * Lo que el cliente tiene guardado, para pre-llenar, los catalogos del SAT
+   * y con quien se puede emitir (Finanzas elige; sale el de la tienda).
+   */
   @Get(':id/datos-fiscales')
-  async datosFiscales(@Param('id', ParseUUIDPipe) id: string): Promise<DatosFiscalesRespuesta> {
-    return this.facturacion.datosFiscales(await this.facturacion.clienteDelPedido(id));
+  async datosFiscales(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<DatosFiscalesRespuesta & { emisores: EmisorOpcionDto[]; emisorSugerido: string }> {
+    const [datos, emisores] = await Promise.all([
+      this.facturacion.clienteDelPedido(id).then((c) => this.facturacion.datosFiscales(c)),
+      this.facturacion.emisoresParaPedido(id),
+    ]);
+    return { ...datos, ...emisores };
   }
 
   /** Timbra el CFDI a nombre del cliente. Mismos codigos que `POST /pedidos/:id/factura`. */
@@ -53,7 +63,7 @@ export class AdminFacturacionController {
   @HttpCode(HttpStatus.CREATED)
   async facturar(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: FacturarPedidoDto,
+    @Body() dto: FacturarPedidoFinanzasDto,
     @UsuarioActual() usuario: UsuarioAutenticado,
   ): Promise<FacturaDto> {
     // El CFDI es del cliente; quien lo pidio queda como autor.
@@ -70,7 +80,7 @@ export class AdminFacturacionController {
   @HttpCode(HttpStatus.OK)
   async previsualizar(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: FacturarPedidoDto,
+    @Body() dto: FacturarPedidoFinanzasDto,
   ): Promise<VistaFacturaDto> {
     return this.facturacion.previsualizar(await this.facturacion.clienteDelPedido(id), id, dto);
   }

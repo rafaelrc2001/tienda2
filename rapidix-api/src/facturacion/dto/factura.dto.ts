@@ -76,3 +76,16 @@ export class FacturarPedidoDto extends DatosFiscalesDto {
   @Matches(/^\d{2}$/, { message: 'formaPago debe ser una clave de 2 dígitos del SAT' })
   formaPago?: string;
 }
+
+/**
+ * Finanzas factura a nombre del cliente y, ademas, elige con cual de las
+ * cuentas de factura.com del servidor. El cliente desde Mis pedidos no elige:
+ * su DTO no tiene el campo y el `ValidationPipe` lo rechaza.
+ */
+export class FacturarPedidoFinanzasDto extends FacturarPedidoDto {
+  /** RFC del emisor. Sin el, el de la tienda del pedido (o el principal). */
+  @IsOptional()
+  @IsString()
+  @Matches(/^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/, { message: 'emisorRfc no es un RFC válido' })
+  emisorRfc?: string;
+}
