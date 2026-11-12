@@ -115,11 +115,14 @@ ${conceptos}
     lienzo.texto(LEYENDA.toUpperCase(), { negrita: true, tamano: 11, color: ROJO });
     lienzo.salto(6);
     lienzo.texto('Factura', { negrita: true, tamano: 18 });
-    const deQue = f.informacionGlobal
-      ? 'Factura global'
-      : f.folios && f.folios.length > 1
-        ? `Pedidos ${listaCorta(f.folios)}`
-        : `Pedido ${f.folioPedido}`;
+    // Un pedido a PUBLICO EN GENERAL tambien lleva InformacionGlobal; la global
+    // es la que no trae folios de pedidos.
+    const deQue =
+      f.informacionGlobal && !f.folios
+        ? 'Factura global'
+        : f.folios && f.folios.length > 1
+          ? `Pedidos ${listaCorta(f.folios)}`
+          : `Pedido ${f.folioPedido}`;
     lienzo.texto(`Serie ${f.serie ?? ''}  ·  Folio ${f.folio ?? ''}  ·  ${deQue}`);
     if (f.informacionGlobal) {
       lienzo.texto(
