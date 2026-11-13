@@ -99,7 +99,8 @@ export class TimbradorFacturaCom implements Timbrador {
       Moneda: 'MXN',
       // factura.com le manda el PDF y el XML al correo del receptor.
       EnviarCorreo: Boolean(solicitud.receptor.email),
-      NumOrder: solicitud.folioPedido,
+      // Sin NumOrder a proposito: factura.com lo imprime como «Orden/Pedido» y
+      // el folio interno de Rapidix no debe salir en la factura del cliente.
       // Factura global a PUBLICO EN GENERAL: el SAT exige el periodo que cubre.
       ...(solicitud.informacionGlobal && {
         InformacionGlobal: {
