@@ -13,7 +13,10 @@ import type { DatosFiscalesRespuesta, VistaFactura } from '@/api/tipos'
 
 const props = defineProps<{
   vista: VistaFactura
-  catalogos: Pick<DatosFiscalesRespuesta, 'regimenes' | 'usos' | 'formasPago'> | null
+  catalogos: Pick<
+    DatosFiscalesRespuesta,
+    'regimenes' | 'usos' | 'formasPago' | 'periodicidades' | 'meses'
+  > | null
   /** Quién es el receptor en la nota de la retención: «tú eres» o «el cliente es». */
   receptorEnTercera?: boolean
 }>()
@@ -32,6 +35,11 @@ function nombreUso(clave: string): string {
 function nombreForma(clave: string): string {
   const f = props.catalogos?.formasPago.find((x) => x.clave === clave)
   return f ? `${clave} · ${f.descripcion}` : clave
+}
+
+function nombreDe(lista: { clave: string; nombre: string }[] | undefined, clave: string): string {
+  const o = lista?.find((x) => x.clave === clave)
+  return o ? `${clave} · ${o.nombre}` : clave
 }
 
 const conRetencion = computed(() => props.vista.retencionIsr > 0)
@@ -84,6 +92,23 @@ const conRetencion = computed(() => props.vista.retencionIsr > 0)
           <div>
             <dt>Código postal</dt>
             <dd>{{ vista.receptor.cpFiscal }}</dd>
+          </div>
+        </dl>
+      </div>
+      <div v-if="vista.informacionGlobal" class="parte">
+        <p class="seccion">Información global</p>
+        <dl>
+          <div>
+            <dt>Periodicidad</dt>
+            <dd>{{ nombreDe(catalogos?.periodicidades, vista.informacionGlobal.periodicidad) }}</dd>
+          </div>
+          <div>
+            <dt>Mes</dt>
+            <dd>{{ nombreDe(catalogos?.meses, vista.informacionGlobal.meses) }}</dd>
+          </div>
+          <div>
+            <dt>Año</dt>
+            <dd>{{ vista.informacionGlobal.anio }}</dd>
           </div>
         </dl>
       </div>
@@ -156,8 +181,8 @@ const conRetencion = computed(() => props.vista.retencionIsr > 0)
     </dl>
     <p v-if="conRetencion" class="nota-retencion">
       Lleva retención de ISR: la razón social que emite está en RESICO (626) y
-      {{ receptorEnTercera ? 'el cliente es' : 'tú eres' }} persona moral. El total sigue siendo
-      lo cobrado: subtotal + IVA − retención.
+      {{ receptorEnTercera ? 'el cliente es' : 'tú eres' }} persona moral. El total sigue siendo lo
+      cobrado: subtotal + IVA − retención.
     </p>
 
     <div class="modal-actions">

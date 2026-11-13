@@ -1,15 +1,19 @@
-import { Transform } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
   IsEmail,
   IsIn,
+  IsInt,
   IsOptional,
   IsString,
   Matches,
+  Max,
   MaxLength,
+  Min,
   MinLength,
 } from 'class-validator';
 import { REGIMENES_FISCALES, USOS_CFDI } from '../catalogos-sat';
+import { MESES_SAT, PERIODICIDADES } from '../factura-global';
 
 const mayusculas = ({ value }: { value: unknown }) =>
   typeof value === 'string' ? value.trim().toUpperCase() : value;
@@ -75,6 +79,25 @@ export class FacturarPedidoDto extends DatosFiscalesDto {
   @IsString()
   @Matches(/^\d{2}$/, { message: 'formaPago debe ser una clave de 2 dígitos del SAT' })
   formaPago?: string;
+
+  /**
+   * InformacionGlobal: solo cuenta si el receptor es PUBLICO EN GENERAL y
+   * vienen los tres. Sin ellos, diario con el mes y el año de la venta.
+   */
+  @IsOptional()
+  @IsIn(PERIODICIDADES.map((p) => p.clave), { message: 'Elige la periodicidad' })
+  periodicidad?: string;
+
+  @IsOptional()
+  @IsIn(MESES_SAT.map((m) => m.clave), { message: 'Elige el mes' })
+  meses?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: 'El año no es válido' })
+  @Min(2000, { message: 'El año no es válido' })
+  @Max(2100, { message: 'El año no es válido' })
+  anio?: number;
 }
 
 /**

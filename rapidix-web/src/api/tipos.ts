@@ -572,6 +572,9 @@ export interface DatosFiscalesRespuesta {
   usos: { clave: string; nombre: string }[]
   /** c_FormaPago del SAT, sin «99 Por definir» (no vale en una factura ya pagada). */
   formasPago: { clave: string; descripcion: string }[]
+  /** c_Periodicidad y c_Meses, para facturar a PÚBLICO EN GENERAL. El punto de venta no los trae. */
+  periodicidades?: OpcionSat[]
+  meses?: OpcionSat[]
   modo: ModoTimbrado
 }
 
@@ -597,6 +600,8 @@ export interface VistaFactura {
   /** La razón social que emite (Configuración → Fiscal). */
   emisor: { rfc: string | null; nombre: string | null; regimen: string | null; cp: string | null }
   receptor: DatosFiscales
+  /** El periodo que cubre: solo a PÚBLICO EN GENERAL (CFDI40130); si no, null. */
+  informacionGlobal?: { periodicidad: string; meses: string; anio: number } | null
   formaPago: string
   metodoPago: 'PUE'
   conceptos: ConceptoVistaFactura[]
@@ -1499,6 +1504,8 @@ export interface CuentaBancaria {
 export interface EmisorOpcion {
   rfc: string
   nombre: string
+  /** CP fiscal de la cuenta: el del receptor a PÚBLICO EN GENERAL. `null` si no lo tiene. */
+  cp: string | null
 }
 
 /** `GET /admin/configuracion/emisor`: las cuentas de factura.com con las que se factura. */

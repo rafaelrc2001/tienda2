@@ -29,6 +29,11 @@ export interface EmisorElegido {
 export interface EmisorOpcionDto {
   rfc: string;
   nombre: string;
+  /**
+   * CP fiscal de la cuenta: es el del receptor cuando se factura a PUBLICO EN
+   * GENERAL (CFDI40149), y la hoja lo llena. Null si la cuenta no lo tiene.
+   */
+  cp: string | null;
 }
 
 /** Una cuenta de factura.com del servidor, como la ensena Configuracion -> Fiscal. */
@@ -114,7 +119,7 @@ export class EmisorService {
 
   /** Para un selector: RFC y nombre de cada emisor disponible. */
   async opciones(): Promise<EmisorOpcionDto[]> {
-    return (await this.disponibles()).map((e) => ({ rfc: e.rfc, nombre: e.nombre }));
+    return (await this.disponibles()).map((e) => ({ rfc: e.rfc, nombre: e.nombre, cp: e.cp }));
   }
 
   /**

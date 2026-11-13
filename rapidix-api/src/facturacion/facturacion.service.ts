@@ -33,6 +33,7 @@ import { DatosFiscalesDto, FacturarPedidoDto } from './dto/factura.dto';
 import { CatalogoSatService, FormaPagoSat } from './catalogo-sat.service';
 import {
   FacturaTimbrada,
+  InformacionGlobal,
   ProveedorNoDisponible,
   Receptor,
   Timbrador,
@@ -41,7 +42,15 @@ import {
 import { emisorDesdeEntorno, TimbradorSimulado } from './timbrador-simulado';
 import { cuentasFacturaComDesdeEntorno, TimbradorFacturaCom } from './timbrador-factura-com';
 import { EmisorElegido, EmisorOpcionDto, EmisorService } from './emisor.service';
-import { esPublicoEnGeneral, informacionGlobalDelDia, PUBLICO_EN_GENERAL } from './factura-global';
+import {
+  esPublicoEnGeneral,
+  informacionGlobalDelDia,
+  MESES_SAT,
+  PERIODICIDADES,
+  problemaDeInformacionGlobal,
+  PUBLICO_EN_GENERAL,
+  OpcionSat,
+} from './factura-global';
 
 const Decimal = Prisma.Decimal;
 
@@ -109,6 +118,9 @@ export interface DatosFiscalesRespuesta {
    * es de cada pedido, y llega ya elegida en `PedidoDto.formaPagoFactura`.
    */
   formasPago: FormaPagoSat[];
+  /** c_Periodicidad y c_Meses: para facturar un pedido a PUBLICO EN GENERAL. */
+  periodicidades: OpcionSat[];
+  meses: OpcionSat[];
   /** SIMULADO mientras no haya llaves: la interfaz avisa que no tiene validez. */
   modo: ModoTimbrado;
 }
@@ -141,6 +153,8 @@ export interface VistaFacturaDto {
   modo: ModoTimbrado;
   emisor: EmisorVistaDto;
   receptor: Receptor;
+  /** El periodo que cubre: solo a PUBLICO EN GENERAL; si no, null. */
+  informacionGlobal: InformacionGlobal | null;
   formaPago: string;
   metodoPago: 'PUE';
   conceptos: ConceptoVistaDto[];
@@ -165,6 +179,8 @@ export interface FacturaPreparada {
   emisor: EmisorElegido;
   receptor: Receptor;
   comprobante: Comprobante;
+  /** Solo a PUBLICO EN GENERAL (CFDI40130); null en las demas. */
+  informacionGlobal: InformacionGlobal | null;
 }
 
 @Injectable()
@@ -282,6 +298,8 @@ export class FacturacionService implements OnModuleInit {
       regimenes: REGIMENES_FISCALES,
       usos: USOS_CFDI,
       formasPago: this.catalogoSat.formasDePago(),
+      periodicidades: PERIODICIDADES,
+      meses: MESES_SAT,
       modo: this.modoPrincipal(),
     };
   }
@@ -568,18 +586,46 @@ export class FacturacionService implements OnModuleInit {
     // con tarjeta en la terminal, por ejemplo, queda como efectivo).
     if (dto.formaPago) comprobante.formaPago = dto.formaPago;
 
-    const receptor: Receptor = esPublicoEnGeneral(dto)
-      ? this.publicoEnGeneral(emisor, dto.email)
-      : {
-          rfc: dto.rfc,
-          razonSocial: dto.razonSocial,
-          regimenFiscal: dto.regimenFiscal,
-          usoCfdi: dto.usoCfdi,
-          cpFiscal: dto.cpFiscal,
-          email: dto.email,
-        };
+    if (!esPublicoEnGeneral(dto)) {
+      const receptor: Receptor = {
+        rfc: dto.rfc,
+        razonSocial: dto.razonSocial,
+        regimenFiscal: dto.regimenFiscal,
+        usoCfdi: dto.usoCfdi,
+        cpFiscal: dto.cpFiscal,
+        email: dto.email,
+      };
+      return { pedidos, emisor, receptor, comprobante, informacionGlobal: null };
+    }
 
-    return { pedidos, emisor, receptor, comprobante };
+    const receptor = this.publicoEnGeneral(emisor, dto.email);
+    const informacionGlobal = this.informacionGlobal(pedidos, dto, emisor);
+    return { pedidos, emisor, receptor, comprobante, informacionGlobal };
+  }
+
+  /**
+   * El periodo de una factura de pedido a PUBLICO EN GENERAL (CFDI40130). El
+   * que eligio Finanzas, si mando los tres datos; si no, diario con el mes y
+   * el año de la venta mas reciente. Lo que el SAT rechazaria se dice aqui.
+   */
+  private informacionGlobal(
+    pedidos: PedidoFacturable[],
+    dto: FacturarPedidoDto,
+    emisor: EmisorElegido,
+  ): InformacionGlobal {
+    const elegida =
+      dto.periodicidad && dto.meses && dto.anio
+        ? { periodicidad: dto.periodicidad, meses: dto.meses, anio: dto.anio }
+        : informacionGlobalDelDia(new Date(Math.max(...pedidos.map((p) => p.creadoEn.getTime()))));
+    const problema = problemaDeInformacionGlobal(elegida, emisor.regimen, new Date());
+    if (problema) {
+      throw new BadRequestException({
+        statusCode: 400,
+        code: 'INFORMACION_GLOBAL_INVALIDA',
+        message: problema,
+      });
+    }
+    return elegida;
   }
 
   /**
@@ -608,11 +654,12 @@ export class FacturacionService implements OnModuleInit {
   }
 
   vista(preparada: FacturaPreparada): VistaFacturaDto {
-    const { comprobante, receptor, emisor } = preparada;
+    const { comprobante, receptor, emisor, informacionGlobal } = preparada;
     return {
       modo: this.timbradorPara(emisor).modo,
       emisor: { rfc: emisor.rfc, nombre: emisor.nombre, regimen: emisor.regimen, cp: emisor.cp },
       receptor,
+      informacionGlobal,
       formaPago: comprobante.formaPago,
       metodoPago: 'PUE',
       conceptos: comprobante.conceptos.map((c) => ({
@@ -646,7 +693,7 @@ export class FacturacionService implements OnModuleInit {
    * Es la columna `pedidos.facturaId` la que impide dos CFDI del mismo pedido.
    */
   async timbrar(preparada: FacturaPreparada, autor: AutorFactura): Promise<FacturaDto> {
-    const { pedidos, emisor, receptor, comprobante } = preparada;
+    const { pedidos, emisor, receptor, comprobante, informacionGlobal } = preparada;
     const conceptos = comprobante.conceptos.map(aGuardado);
     const timbrador = this.timbradorPara(emisor);
     const folios = pedidos.map((p) => p.folio);
@@ -672,6 +719,7 @@ export class FacturacionService implements OnModuleInit {
           creadoPorNombre: autor.nombre,
           creadoPorRol: autor.rol,
           ...receptor,
+          ...(informacionGlobal && informacionGlobal),
           formaPago: comprobante.formaPago,
           subtotal: comprobante.subtotal,
           descuento: comprobante.descuento,
@@ -709,9 +757,7 @@ export class FacturacionService implements OnModuleInit {
         conceptos,
         formaPago: comprobante.formaPago,
         // A PUBLICO EN GENERAL el SAT exige el nodo (CFDI40130).
-        ...(esPublicoEnGeneral(receptor) && {
-          informacionGlobal: informacionGlobalDelDia(new Date()),
-        }),
+        ...(informacionGlobal && { informacionGlobal }),
       });
     } catch (fallo) {
       await this.prisma.factura.delete({ where: { id: reserva.id } }).catch((e: unknown) => {
@@ -840,8 +886,12 @@ export class FacturacionService implements OnModuleInit {
       timbradaEn: factura.timbradaEn!,
       folioPedido: numOrden,
       folios,
+      // La guardada; las de antes de que se guardara salieron con el mes del timbre.
       ...(esPublicoEnGeneral(factura) && {
-        informacionGlobal: informacionGlobalDelDia(factura.timbradaEn!),
+        informacionGlobal:
+          factura.periodicidad && factura.meses && factura.anio
+            ? { periodicidad: factura.periodicidad, meses: factura.meses, anio: factura.anio }
+            : informacionGlobalDelDia(factura.timbradaEn!),
       }),
     };
 

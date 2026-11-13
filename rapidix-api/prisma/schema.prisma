@@ -1193,6 +1193,12 @@ model Factura {
   cpFiscal      String
   email         String?
 
+  /// InformacionGlobal (CFDI40130): solo cuando el receptor es PUBLICO EN
+  /// GENERAL. c_Periodicidad, c_Meses y el año que cubre, como se timbro.
+  periodicidad String?
+  meses        String?
+  anio         Int?
+
   /// Folio fiscal (UUID del timbre del SAT). Null mientras se timbra.
   uuid        String?   @unique
   /// Identificador de la factura en el proveedor (`uid` de factura.com). Con

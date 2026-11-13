@@ -47,20 +47,56 @@ export function esPublicoEnGeneral(receptor: { rfc: string; razonSocial: string 
   );
 }
 
-/**
- * El InformacionGlobal de una factura de pedido a PUBLICO EN GENERAL: una
- * venta del dia, asi que periodicidad diaria con el mes y el año de cuando se
- * timbra (hora de Mexico). Se calcula de la fecha y no se guarda: al volver a
- * pintar la factura sale igual de `timbradaEn`.
- */
-export function informacionGlobalDelDia(fecha: Date): InformacionGlobal {
+/** El mes (`01`..`12`) y el año de una fecha en la hora de Mexico. */
+function mesYAnio(fecha: Date): { mes: string; anio: number } {
   const partes = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/Mexico_City',
     year: 'numeric',
     month: '2-digit',
   }).formatToParts(fecha);
   const valor = (tipo: string): string => partes.find((p) => p.type === tipo)?.value ?? '';
-  return { periodicidad: '01', meses: valor('month'), anio: Number(valor('year')) };
+  return { mes: valor('month'), anio: Number(valor('year')) };
+}
+
+/**
+ * El InformacionGlobal que se propone para una factura de pedido a PUBLICO EN
+ * GENERAL: periodicidad diaria con el mes y el año de la venta (hora de
+ * Mexico), no de cuando se timbra. Finanzas lo puede cambiar.
+ */
+export function informacionGlobalDelDia(fecha: Date): InformacionGlobal {
+  const { mes, anio } = mesYAnio(fecha);
+  return { periodicidad: '01', meses: mes, anio };
+}
+
+/** Solo el RIF factura por bimestre (guia de llenado del CFDI global). */
+const REGIMEN_RIF = '621';
+
+/**
+ * Por que el SAT rechazaria ese InformacionGlobal, o null si pasa. Se dice
+ * antes de timbrar para que el error salga junto al campo y no del PAC:
+ *
+ *  - el mes cabe con la periodicidad (`mesesCompatibles`);
+ *  - la bimestral solo la usa un emisor del RIF (621);
+ *  - el año es el de la emision o el anterior.
+ */
+export function problemaDeInformacionGlobal(
+  ig: InformacionGlobal,
+  regimenEmisor: string | null,
+  hoy: Date,
+): string | null {
+  if (ig.periodicidad === PERIODICIDAD_BIMESTRAL && regimenEmisor !== REGIMEN_RIF) {
+    return 'La periodicidad bimestral es solo para el Régimen de Incorporación Fiscal (621).';
+  }
+  if (!mesesCompatibles(ig.periodicidad, ig.meses)) {
+    return ig.periodicidad === PERIODICIDAD_BIMESTRAL
+      ? 'Con periodicidad bimestral elige un bimestre (Enero-Febrero, Marzo-Abril…).'
+      : 'Elige un solo mes: los bimestres son para la periodicidad bimestral.';
+  }
+  const { anio } = mesYAnio(hoy);
+  if (ig.anio !== anio && ig.anio !== anio - 1) {
+    return `El año tiene que ser ${anio} o ${anio - 1}.`;
+  }
+  return null;
 }
 
 export interface OpcionSat {

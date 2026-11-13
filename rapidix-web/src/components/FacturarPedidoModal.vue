@@ -20,10 +20,20 @@
  * Tocar fuera de la hoja no la cierra: con el formulario a medias se perdía
  * lo capturado por un toque de más. Solo cierra «Cancelar».
  */
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { ErrorApi, http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
 import { dinero } from '@/utils/formato'
+import {
+  aniosValidos,
+  esPublicoEnGeneral,
+  esRfcGenerico,
+  mesesValidos,
+  periodoDeLaVenta,
+  PUBLICO_EN_GENERAL,
+  RFC_GENERICO,
+  type PeriodoGlobal,
+} from '@/utils/informacionGlobal'
 import {
   CAMPOS_FISCALES,
   cuerpoFiscal,
@@ -103,6 +113,75 @@ onMounted(async () => {
 const simulado = computed(() => catalogos.value?.modo === 'SIMULADO')
 
 /**
+ * A PÚBLICO EN GENERAL el SAT la trata como factura global y pide el periodo
+ * que cubre (CFDI40130). Llega con diario y el mes y año de la venta.
+ */
+const periodo = ref<PeriodoGlobal>(periodoDeLaVenta(props.pedido.creadoEn))
+const errorPeriodo = ref('')
+const esGlobal = computed(() =>
+  esPublicoEnGeneral(formulario.value.rfc, formulario.value.razonSocial),
+)
+/** RFC genérico con el nombre de la persona: factura nominativa, sin periodo. */
+const genericoNominativo = computed(() => esRfcGenerico(formulario.value.rfc) && !esGlobal.value)
+const mesesDelPeriodo = computed(() =>
+  mesesValidos(catalogos.value?.meses ?? [], periodo.value.periodicidad),
+)
+const anios = aniosValidos()
+
+/**
+ * El CP de quien factura: a PÚBLICO EN GENERAL es el del receptor (CFDI40149).
+ * Solo Finanzas lo sabe; desde Mis pedidos la API lo pone al timbrar.
+ */
+const cpDelEmisor = computed(
+  () => emisores.value.find((e) => e.rfc === emisorRfc.value)?.cp ?? null,
+)
+
+/**
+ * Al escribir el RFC genérico se llena lo que el SAT exige para PÚBLICO EN
+ * GENERAL; el nombre se puede cambiar por el de la persona (nominativa). Al
+ * cambiarlo por el RFC de una persona se vacía lo de público en general para
+ * que se capturen sus datos. Síncrono para ver `cargando`: lo guardado que
+ * llega al abrir no se toca.
+ */
+watch(
+  () => esRfcGenerico(formulario.value.rfc),
+  (generico, antes) => {
+    if (cargando.value || generico === antes) return
+    if (generico) {
+      formulario.value = {
+        ...formulario.value,
+        razonSocial: PUBLICO_EN_GENERAL,
+        regimenFiscal: '616',
+        usoCfdi: 'S01',
+        cpFiscal: cpDelEmisor.value ?? formulario.value.cpFiscal,
+      }
+    } else if (esPublicoEnGeneral(RFC_GENERICO, formulario.value.razonSocial)) {
+      formulario.value = {
+        ...formulario.value,
+        razonSocial: '',
+        regimenFiscal: '',
+        usoCfdi: 'G03',
+        cpFiscal: '',
+      }
+    }
+  },
+  { flush: 'sync' },
+)
+
+// Si se cambia quién factura, el CP de público en general cambia con él.
+watch(cpDelEmisor, (cp) => {
+  if (cp && esGlobal.value) formulario.value = { ...formulario.value, cpFiscal: cp }
+})
+
+// Bimestral usa los bimestres (13-18) y las demás un mes: si el elegido ya no
+// cabe, se pasa al primero que sí.
+watch(mesesDelPeriodo, (validos) => {
+  if (validos.length && !validos.some((m) => m.clave === periodo.value.meses)) {
+    periodo.value.meses = validos[0].clave
+  }
+})
+
+/**
  * El CFDI armado por la API con lo capturado, antes de timbrar. Mientras hay
  * vista se enseña ella en lugar del formulario; «Corregir datos» la quita.
  */
@@ -116,6 +195,7 @@ function cuerpo() {
     // aceptó el timbre, así que un dato rechazado no pisa al bueno.
     guardarDatos: true,
     formaPago: formaPago.value,
+    ...(esGlobal.value && { ...periodo.value }),
     // El cliente no lo manda: su ruta no lo acepta.
     ...(props.porFinanzas && emisorRfc.value && { emisorRfc: emisorRfc.value }),
   }
@@ -124,6 +204,7 @@ function cuerpo() {
 function limpiarErrores(): void {
   errores.value = {}
   errorFormaPago.value = ''
+  errorPeriodo.value = ''
   erroresGenerales.value = []
 }
 
@@ -164,13 +245,28 @@ function mostrarFallo(fallo: unknown): void {
     // Otra pestaña se adelantó: lo que hay que enseñar es la lista al día.
     ui.info(fallo.message)
     emit('facturado', null)
+  } else if (fallo.codigo === 'INFORMACION_GLOBAL_INVALIDA') {
+    errorPeriodo.value = fallo.message
   } else if (fallo.mensajes.length > 0) {
-    const { campos, generales } = fallo.porCampo([...CAMPOS_FISCALES, 'formaPago'])
-    const { formaPago: mensajeForma, ...fiscales } = erroresSinNombreDeCampo<
-      CampoFiscal | 'formaPago'
-    >(campos)
+    const { campos, generales } = fallo.porCampo([
+      ...CAMPOS_FISCALES,
+      'formaPago',
+      'periodicidad',
+      'meses',
+      'anio',
+    ])
+    const {
+      formaPago: mensajeForma,
+      periodicidad,
+      meses,
+      anio,
+      ...fiscales
+    } = erroresSinNombreDeCampo<CampoFiscal | 'formaPago' | 'periodicidad' | 'meses' | 'anio'>(
+      campos,
+    )
     errores.value = fiscales
     errorFormaPago.value = mensajeForma ?? ''
+    errorPeriodo.value = periodicidad ?? meses ?? anio ?? ''
     erroresGenerales.value = generales
   } else {
     // El rechazo del SAT (422) y los candados (409) se quedan en la hoja:
@@ -239,6 +335,44 @@ function mostrarFallo(fallo: unknown): void {
           prefijo="fa"
         />
 
+        <!-- PÚBLICO EN GENERAL: el SAT pide qué periodo de ventas cubre. -->
+        <div v-if="esGlobal" class="zona-captura periodo">
+          <p class="periodo-titulo">Información global</p>
+          <p class="form-hint">
+            A público en general el SAT la trata como factura global: di qué periodo de ventas
+            cubre. Ya viene con el mes de este pedido. El código postal será el de quien factura.
+          </p>
+
+          <label class="form-label" for="fa-periodicidad">Periodicidad</label>
+          <select id="fa-periodicidad" v-model="periodo.periodicidad" class="select-input">
+            <option v-for="p in catalogos?.periodicidades ?? []" :key="p.clave" :value="p.clave">
+              {{ p.clave }} · {{ p.nombre }}
+            </option>
+          </select>
+
+          <div class="periodo-fila">
+            <div>
+              <label class="form-label" for="fa-meses">Mes</label>
+              <select id="fa-meses" v-model="periodo.meses" class="select-input">
+                <option v-for="m in mesesDelPeriodo" :key="m.clave" :value="m.clave">
+                  {{ m.nombre }}
+                </option>
+              </select>
+            </div>
+            <div>
+              <label class="form-label" for="fa-anio">Año</label>
+              <select id="fa-anio" v-model.number="periodo.anio" class="select-input">
+                <option v-for="a in anios" :key="a" :value="a">{{ a }}</option>
+              </select>
+            </div>
+          </div>
+          <p v-if="errorPeriodo" class="form-error">{{ errorPeriodo }}</p>
+        </div>
+        <p v-else-if="genericoNominativo" class="form-hint">
+          RFC genérico con el nombre de la persona: la factura sale a su nombre y no lleva periodo.
+          Para factura global escribe {{ PUBLICO_EN_GENERAL }}.
+        </p>
+
         <label class="form-label" for="fa-forma-pago">Forma de pago</label>
         <select
           id="fa-forma-pago"
@@ -299,6 +433,32 @@ function mostrarFallo(fallo: unknown): void {
   margin: -6px 0 10px;
   font-size: 11px;
   color: var(--muted);
+}
+
+.periodo {
+  margin: 4px 0 12px;
+}
+
+.periodo .select-input {
+  background: #fff;
+}
+
+.periodo-titulo {
+  margin: 0 0 4px;
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.periodo .form-hint {
+  margin: 0 0 8px;
+}
+
+.periodo-fila {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
 }
 
 .nota-guardado {
