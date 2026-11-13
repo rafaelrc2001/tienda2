@@ -5,6 +5,7 @@ import {
   formaDePagoGlobal,
   informacionGlobalDelDia,
   margenIvaSat,
+  problemaDeInformacionGlobal,
   mesesCompatibles,
   RenglonGlobal,
   repartirTotal,
@@ -27,6 +28,37 @@ describe('esPublicoEnGeneral', () => {
     expect(esPublicoEnGeneral({ rfc: 'SAPE820312AB1', razonSocial: 'PUBLICO EN GENERAL' })).toBe(
       false,
     );
+  });
+});
+
+describe('problemaDeInformacionGlobal', () => {
+  const hoy = new Date('2026-11-13T18:00:00Z');
+
+  it('acepta mensual de octubre de este año', () => {
+    expect(
+      problemaDeInformacionGlobal({ periodicidad: '04', meses: '10', anio: 2026 }, '625', hoy),
+    ).toBeNull();
+  });
+
+  it('bimestral solo para el RIF y con un bimestre', () => {
+    expect(
+      problemaDeInformacionGlobal({ periodicidad: '05', meses: '17', anio: 2026 }, '625', hoy),
+    ).toMatch(/621/);
+    expect(
+      problemaDeInformacionGlobal({ periodicidad: '05', meses: '17', anio: 2026 }, '621', hoy),
+    ).toBeNull();
+    expect(
+      problemaDeInformacionGlobal({ periodicidad: '05', meses: '10', anio: 2026 }, '621', hoy),
+    ).toMatch(/bimestre/);
+  });
+
+  it('el año es el en curso o el anterior', () => {
+    expect(
+      problemaDeInformacionGlobal({ periodicidad: '01', meses: '12', anio: 2025 }, '625', hoy),
+    ).toBeNull();
+    expect(
+      problemaDeInformacionGlobal({ periodicidad: '01', meses: '12', anio: 2024 }, '625', hoy),
+    ).toMatch(/2026 o 2025/);
   });
 });
 
