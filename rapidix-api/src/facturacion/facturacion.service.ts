@@ -19,6 +19,7 @@ import {
   ClavesSat,
   Comprobante,
   ConceptoGuardado,
+  serieFolioFactura,
   retieneIsrResico,
   totalAFacturar,
 } from './comprobante';
@@ -900,7 +901,7 @@ export class FacturacionService implements OnModuleInit {
         formato === 'pdf' ? await timbrador.pdf(timbrada) : await timbrador.xml(timbrada);
       return {
         contenido,
-        nombre: `factura-${numOrden}.${formato}`,
+        nombre: `factura-${serieFolioFactura({ ...factura, uuid: factura.uuid! })}.${formato}`,
         tipo: formato === 'pdf' ? 'application/pdf' : 'application/xml',
       };
     } catch (fallo) {

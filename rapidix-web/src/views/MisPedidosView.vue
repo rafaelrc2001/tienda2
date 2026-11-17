@@ -104,7 +104,10 @@ async function descargarXml(pedido: Pedido): Promise<void> {
   if (descargando.value) return
   descargando.value = pedido.id
   try {
-    await descargarArchivo(`/pedidos/${pedido.id}/factura/xml`, `factura-${pedido.folio}.xml`)
+    await descargarArchivo(
+      `/pedidos/${pedido.id}/factura/xml`,
+      `factura-${pedido.factura?.serieFolio}.xml`,
+    )
   } catch (fallo) {
     ui.errorDeApi(fallo)
   } finally {
@@ -315,8 +318,8 @@ async function descargarXml(pedido: Pedido): Promise<void> {
     <VisorPdfFactura
       v-if="viendoPdf"
       :ruta="`/pedidos/${viendoPdf.id}/factura/pdf`"
-      :nombre="`factura-${viendoPdf.folio}.pdf`"
-      :titulo="`🧾 Factura ${viendoPdf.folio}`"
+      :nombre="`factura-${viendoPdf.factura?.serieFolio}.pdf`"
+      :titulo="`🧾 Factura ${viendoPdf.factura?.serieFolio}`"
       @cerrar="viendoPdf = null"
     />
   </div>

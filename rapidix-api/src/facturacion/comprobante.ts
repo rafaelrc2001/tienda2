@@ -564,3 +564,18 @@ export function aGuardado(c: Concepto): ConceptoGuardado {
     ...(retencionIsr?.greaterThan(0) && { retencionIsr: retencionIsr.toFixed(2) }),
   };
 }
+
+/**
+ * Lo que identifica la factura ante el cliente y en el nombre del PDF y del
+ * XML: `A1127`, con la serie y el folio que puso el proveedor. Nunca el numero
+ * de pedido de Rapidix. Sin folio (las simuladas) va el principio del folio
+ * fiscal. Sin espacios ni barras para que sirva de nombre de archivo.
+ */
+export function serieFolioFactura(f: {
+  serie: string | null;
+  folio: string | null;
+  uuid: string;
+}): string {
+  const serieFolio = f.folio ? `${f.serie ?? ''}${f.folio}` : f.uuid.slice(0, 8);
+  return serieFolio.replace(/[^A-Za-z0-9_-]/g, '_');
+}
