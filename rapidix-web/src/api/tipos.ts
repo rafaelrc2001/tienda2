@@ -544,6 +544,8 @@ export interface FacturaDePedido {
   uuid: string
   modo: ModoTimbrado
   timbradaEn: string
+  /** `A1127`: serie y folio del CFDI, no el número de pedido. */
+  serieFolio: string
 }
 
 /** Lo que pide el CFDI 4.0 del receptor, como viene en su constancia fiscal. */

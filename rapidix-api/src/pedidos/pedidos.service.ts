@@ -33,7 +33,7 @@ import { CrearPedidoDto, DireccionEntregaDto } from './dto/carrito.dto';
 import { ActorDeBitacora, registrarEnBitacora } from './bitacora';
 import { pagadoDelPedido, saldoDelPedido } from './cxc';
 import { bloqueoDeCancelacion } from './flujo-pago';
-import { bloqueoDeFacturacion, formaDePago } from '../facturacion/comprobante';
+import { bloqueoDeFacturacion, formaDePago, serieFolioFactura } from '../facturacion/comprobante';
 
 const Decimal = Prisma.Decimal;
 type Decimal = Prisma.Decimal;
@@ -53,7 +53,9 @@ const INCLUIR_PEDIDO = {
   // Solo para el canal: el pedido de mostrador no lleva `tiendaId`, su tienda
   // es la del turno en el que se capturo.
   turno: { select: { tienda: { select: { nombre: true } } } },
-  factura: { select: { estado: true, uuid: true, modo: true, timbradaEn: true } },
+  factura: {
+    select: { estado: true, uuid: true, modo: true, timbradaEn: true, serie: true, folio: true },
+  },
 } satisfies Prisma.PedidoInclude;
 
 /** El canal de lo que no paso por ninguna tienda. */
@@ -98,7 +100,13 @@ export interface PedidoDto {
    */
   formaPagoFactura: string;
   /** Su CFDI, si ya se timbro. Una reserva a medio timbrar no cuenta. */
-  factura: { uuid: string; modo: ModoTimbrado; timbradaEn: string } | null;
+  factura: {
+    uuid: string;
+    modo: ModoTimbrado;
+    timbradaEn: string;
+    /** `A1127`: serie y folio del CFDI, no el numero de pedido. */
+    serieFolio: string;
+  } | null;
   pago: {
     metodo: MetodoPago;
     estado: EstadoPago;
@@ -935,6 +943,8 @@ export class PedidosService {
         uuid: string | null;
         modo: ModoTimbrado;
         timbradaEn: Date | null;
+        serie: string | null;
+        folio: string | null;
       } | null;
     },
   ): PedidoDto {
@@ -967,6 +977,7 @@ export class PedidosService {
               uuid: timbrada.uuid,
               modo: timbrada.modo,
               timbradaEn: timbrada.timbradaEn.toISOString(),
+              serieFolio: serieFolioFactura({ ...timbrada, uuid: timbrada.uuid }),
             }
           : null,
       pago: {

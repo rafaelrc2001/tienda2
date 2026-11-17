@@ -93,7 +93,7 @@ async function descargarXml(pedido: PedidoEnFinanzas): Promise<void> {
   try {
     await descargarArchivo(
       `/admin/finanzas/pedidos/${pedido.id}/factura/xml`,
-      `factura-${pedido.folio}.xml`,
+      `factura-${pedido.factura?.serieFolio}.xml`,
     )
   } catch (fallo) {
     ui.errorDeApi(fallo)
@@ -589,8 +589,8 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
     <VisorPdfFactura
       v-if="viendoPdf"
       :ruta="`/admin/finanzas/pedidos/${viendoPdf.id}/factura/pdf`"
-      :nombre="`factura-${viendoPdf.folio}.pdf`"
-      :titulo="`🧾 Factura ${viendoPdf.folio}`"
+      :nombre="`factura-${viendoPdf.factura?.serieFolio}.pdf`"
+      :titulo="`🧾 Factura ${viendoPdf.factura?.serieFolio}`"
       @cerrar="viendoPdf = null"
     />
 
