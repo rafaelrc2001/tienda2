@@ -2,3 +2,8 @@
 # cada quien los descarga, y un .key no debe vivir en el repositorio.
 sellos-sandbox/
 sellos-sandbox.zip
+
+# Prueba de timbrado directa contra factura.com y los PDF/XML que deja: son
+# facturas reales con datos fiscales, se quedan en la maquina de quien las corre.
+rapidix-api/scripts/prueba-timbrado.mjs
+rapidix-api/scripts/salida-timbrado/

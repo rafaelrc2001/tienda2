@@ -207,6 +207,18 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   /**
+   * Entra con el nombre en vez del teléfono, sin código. Provisional: la API
+   * solo reconoce cuentas que ya existen y con un nombre que no se repite.
+   */
+  async function entrarPorNombre(
+    nombre: string,
+  ): Promise<{ esNuevo: boolean; cuponesNuevos: number }> {
+    const respuesta = await apiAuth.entrarPorNombre(nombre)
+    await establecerSesion(respuesta.accessToken)
+    return { esNuevo: respuesta.esNuevo, cuponesNuevos: respuesta.cuponesNuevos }
+  }
+
+  /**
    * Acceso directo por rol, sin credenciales. Solo funciona contra una API con
    * `AUTH_DEMO_LOGIN`; de la sesión para dentro es un login como cualquier otro.
    */
@@ -244,6 +256,7 @@ export const useAuthStore = defineStore('auth', () => {
     cerrarSesion,
     solicitarCodigo,
     verificarCodigo,
+    entrarPorNombre,
     entrarDirecto,
     loginStaff,
     recordarFuente,

@@ -8,6 +8,17 @@ export class SolicitarCodigoDto {
   telefono: string;
 }
 
+/**
+ * Entrada por nombre, sin telefono ni codigo. Provisional: ver
+ * `AuthService.entrarPorNombre`.
+ */
+export class EntrarPorNombreDto {
+  @IsString()
+  @MinLength(2, { message: 'El nombre es demasiado corto' })
+  @MaxLength(80)
+  nombre: string;
+}
+
 export class VerificarCodigoDto {
   @IsString()
   @Matches(/^[+\d][\d\s\-()]{6,19}$/, {

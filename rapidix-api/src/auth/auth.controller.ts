@@ -6,7 +6,11 @@ import {
   TokenResponse,
 } from './auth.service';
 import { StaffLoginDto } from './dto/staff-login.dto';
-import { SolicitarCodigoDto, VerificarCodigoDto } from './dto/cliente-login.dto';
+import {
+  EntrarPorNombreDto,
+  SolicitarCodigoDto,
+  VerificarCodigoDto,
+} from './dto/cliente-login.dto';
 import { EntrarDirectoDto } from './dto/demo-login.dto';
 import { Public } from './public.decorator';
 import { UsuarioActual } from './usuario-actual.decorator';
@@ -70,6 +74,20 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   verificarCodigo(@Body() dto: VerificarCodigoDto): Promise<TokenResponse & { esNuevo: boolean; cuponesNuevos: number }> {
     return this.auth.verificarCodigo(dto);
+  }
+
+  /**
+   * Login de cliente por nombre, sin codigo. Provisional: solo reconoce
+   * cuentas existentes y con nombre unico (404 `NOMBRE_NO_ENCONTRADO`,
+   * 409 `NOMBRE_REPETIDO`).
+   */
+  @Public()
+  @Post('cliente/entrar-por-nombre')
+  @HttpCode(HttpStatus.OK)
+  entrarPorNombre(
+    @Body() dto: EntrarPorNombreDto,
+  ): Promise<TokenResponse & { esNuevo: boolean; cuponesNuevos: number }> {
+    return this.auth.entrarPorNombre(dto);
   }
 
   /** Devuelve quien eres segun el token. Sirve para probar el guard. */
