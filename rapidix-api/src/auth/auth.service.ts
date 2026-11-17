@@ -1,9 +1,11 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Inject,
   Injectable,
   Logger,
+  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -16,7 +18,11 @@ import { CuponesService } from '../cupones/cupones.service';
 import { CampaniasService } from '../cupones/campanias.service';
 import { FuentesService } from '../cupones/fuentes.service';
 import { StaffLoginDto } from './dto/staff-login.dto';
-import { SolicitarCodigoDto, VerificarCodigoDto } from './dto/cliente-login.dto';
+import {
+  EntrarPorNombreDto,
+  SolicitarCodigoDto,
+  VerificarCodigoDto,
+} from './dto/cliente-login.dto';
 import { JwtPayload, ROL_CLIENTE, RolToken } from './jwt-payload';
 
 export interface TokenResponse {
@@ -396,6 +402,69 @@ export class AuthService {
         tipo: cliente ? 'CLIENTE' : 'PROSPECTO',
       }),
       esNuevo,
+      cuponesNuevos,
+    };
+  }
+
+  /**
+   * Entra con el nombre en lugar del telefono, sin codigo.
+   *
+   * Provisional, pedido asi "por el momento": el nombre no se comprueba con
+   * nada, asi que cualquiera que sepa como se llama un cliente entra como el.
+   * Se quita cuando el OTP por WhatsApp funcione de verdad.
+   *
+   * Solo reconoce cuentas que ya existen. Un alta necesita telefono (es
+   * obligatorio y unico en las dos tablas), asi que un nombre desconocido se
+   * manda al login por numero. Si el nombre lo comparten varias cuentas no se
+   * adivina cual es: tambien se le pide el numero. Se busca primero en
+   * `clientes` y luego en `prospectos`, sin distinguir mayusculas.
+   */
+  async entrarPorNombre(
+    dto: EntrarPorNombreDto,
+  ): Promise<TokenResponse & { esNuevo: boolean; cuponesNuevos: number }> {
+    const nombre = dto.nombre.trim().replace(/\s+/g, ' ');
+    const filtro = { nombre: { equals: nombre, mode: 'insensitive' as const } };
+
+    // `take: 2` basta para saber si hay uno solo o esta repetido.
+    const clientes = await this.prisma.cliente.findMany({ where: filtro, take: 2 });
+    const prospectos = clientes.length
+      ? []
+      : await this.prisma.prospecto.findMany({ where: filtro, take: 2 });
+    const encontrados = clientes.length ? clientes : prospectos;
+
+    if (encontrados.length === 0) {
+      throw new NotFoundException({
+        statusCode: 404,
+        code: 'NOMBRE_NO_ENCONTRADO',
+        message: 'No encontramos a nadie con ese nombre. Entra con tu número de WhatsApp.',
+      });
+    }
+    if (encontrados.length > 1) {
+      throw new ConflictException({
+        statusCode: 409,
+        code: 'NOMBRE_REPETIDO',
+        message: 'Hay varias cuentas con ese nombre. Entra con tu número de WhatsApp.',
+      });
+    }
+
+    const cliente = clientes[0] ?? null;
+    const prospecto = prospectos[0] ?? null;
+    this.logger.warn(`Entrada por nombre, sin codigo: ${(cliente ?? prospecto)!.id}`);
+
+    const cuponesNuevos = cliente
+      ? await this.cuponesDelCliente(cliente)
+      : await this.cuponesDelProspecto(prospecto!);
+
+    const quien = cliente ?? prospecto!;
+    return {
+      ...this.firmarToken({
+        sub: quien.id,
+        rol: ROL_CLIENTE,
+        nombre: quien.nombre,
+        tipo: cliente ? 'CLIENTE' : 'PROSPECTO',
+      }),
+      // Mismo criterio que `verificarCodigo`: "nuevo" es quien no ha comprado.
+      esNuevo: !cliente,
       cuponesNuevos,
     };
   }

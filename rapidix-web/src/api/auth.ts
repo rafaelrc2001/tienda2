@@ -36,6 +36,10 @@ export const apiAuth = {
   }): Promise<RespuestaVerificarCodigo> =>
     http.post('/auth/cliente/verificar-codigo', datos, { sinCierreDeSesion: true }),
 
+  /** Login de cliente con el nombre, sin código. Provisional. */
+  entrarPorNombre: (nombre: string): Promise<RespuestaVerificarCodigo> =>
+    http.post('/auth/cliente/entrar-por-nombre', { nombre }, { sinCierreDeSesion: true }),
+
   /**
    * `rol` es la tarjeta por la que se entró: si la cuenta es de otro rol la
    * API responde 403 `ROL_DISTINTO`.
