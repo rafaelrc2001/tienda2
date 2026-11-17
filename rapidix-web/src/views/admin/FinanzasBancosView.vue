@@ -992,8 +992,15 @@ async function alFacturar(factura: FacturaGlobal | null): Promise<void> {
   width: 100px;
 }
 
+/* El signo (32) + el monto (110) + el hueco y el padding de la celda. */
 .movimientos th.num {
-  width: 160px;
+  width: 170px;
+}
+
+/* Sin ancho propio, el `width: 1%` de arriba la dejaba en ~8px con el ancho fijo: el
+   select de 150px y el encabezado se salían y quedaban encima de la referencia. */
+.movimientos .metodo {
+  width: 170px;
 }
 
 .casilla input {
