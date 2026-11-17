@@ -406,13 +406,13 @@ function alSalirDelCampo(): void {
 }
 
 /*
- * `cover`: la foto llena el recuadro de lado a lado. Las fotos de producto traen
- * aire alrededor, así que lo que se recorta de los bordes es fondo, no producto.
+ * `contain`: la foto entra completa en el recuadro, sin recortarse. Lo que sobra
+ * queda en blanco, igual que el fondo de las fotos, así que no se nota.
  */
 .media img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
 }
 
 /* Sin foto el recuadro sí va en crema, para que el hueco se lea como imagen pendiente. */

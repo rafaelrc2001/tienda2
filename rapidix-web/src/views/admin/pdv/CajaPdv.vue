@@ -927,7 +927,7 @@ function limpiar(): void {
             class="producto"
             :class="{ agotado: p.agotado, elegido: (cantidades[p.id] ?? 0) > 0 }"
           >
-            <div class="foto">
+            <div class="foto" :class="{ 'sin-foto': !p.imagenUrl }">
               <img v-if="p.imagenUrl" :src="p.imagenUrl" :alt="p.nombre" loading="lazy" />
               <span v-if="p.agotado" class="cinta">Agotado</span>
             </div>
@@ -1774,13 +1774,20 @@ function limpiar(): void {
   aspect-ratio: 4 / 3;
   border-radius: 9px;
   overflow: hidden;
+  /* Blanco como el fondo de las fotos, para que el aire de `contain` no se note. */
+  background: var(--white);
+}
+
+/* Sin foto el recuadro va en crema, para que se lea como imagen pendiente. */
+.foto.sin-foto {
   background: var(--cream);
 }
 
+/* `contain`: la foto entra completa en el recuadro, sin recortarse. */
 .foto img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   display: block;
 }
 
