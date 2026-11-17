@@ -5,15 +5,16 @@
  * Porta el flujo del mockup: una tarjeta por modo de acceso (más PDV, el
  * cajero de tienda, que el mockup no tenía).
  *
- *  - Cliente entra con su número de WhatsApp, que es su cuenta. Pasa por un
- *    OTP de 6 dígitos que el mockup no tenía.
+ *  - Cliente entra con su número de WhatsApp, que es su cuenta, y su nombre.
+ *    Pasa por un OTP de 6 dígitos que el mockup no tenía.
  *  - Cada tarjeta del personal pide usuario y contraseña (las cuentas se dan
  *    de alta en Configuración → Usuarios). La tarjeta viaja al login: si la
  *    cuenta es de otro rol la API lo rechaza con `ROL_DISTINTO`.
  *  - Con `AUTH_DEMO_LOGIN` cada paso ofrece además entrar sin credenciales.
  *
- * El paso del nombre reenvía **el mismo código**: la API deja el OTP vivo
- * cuando responde `NOMBRE_REQUERIDO`, justo para esto.
+ * El nombre se pide junto al teléfono, antes del código, y viaja siempre al
+ * verificar: así nadie entra sin identificarse. La API solo lo usa para dar
+ * de alta (o renombrar) al prospecto; a quien ya es cliente no se lo cambia.
  *
  * Verificado el teléfono se entra sin pantallas de por medio, se venga de un
  * alta o de un número ya conocido. El reconocimiento se nota en el Home, que
@@ -28,7 +29,7 @@ import { apiAuth } from '@/api/auth'
 import { ErrorApi } from '@/api/http'
 import type { RolPersonal, RolToken } from '@/api/tipos'
 
-type Paso = 'modo' | 'telefono' | 'codigo' | 'nombre' | 'staff'
+type Paso = 'modo' | 'telefono' | 'codigo' | 'staff'
 
 interface Tarjeta {
   rol: RolToken
@@ -152,14 +153,17 @@ async function enviarTelefono(): Promise<void> {
     error.value = 'Escribe tu número de WhatsApp'
     return
   }
+  if (nombre.value.trim().length < 2) {
+    error.value = 'Dinos cómo te llamas'
+    return
+  }
   enviando.value = true
   error.value = ''
   try {
     const { expiraEnMinutos, codigoAutomatico } = await auth.solicitarCodigo(telefono.value.trim())
 
     // API con `AUTH_OTP_BYPASS`: el código viene en la respuesta y se entra de
-    // largo. La pantalla de los seis dígitos ni se enseña; si el teléfono es
-    // nuevo, `verificar` cae igual en el paso del nombre.
+    // largo. La pantalla de los seis dígitos ni se enseña.
     if (codigoAutomatico) {
       codigo.value = codigoAutomatico
       await verificar()
@@ -176,17 +180,10 @@ async function enviarTelefono(): Promise<void> {
   }
 }
 
-/**
- * Verifica el código y, si es un alta, pide el nombre sin volver a pedir el
- * código. `nombre` viaja solo cuando ya lo escribió.
- */
+/** Verifica el código. El nombre ya se pidió en el paso del teléfono. */
 async function verificar(): Promise<void> {
   if (!/^\d{6}$/.test(codigo.value.trim())) {
     error.value = 'El código debe tener 6 dígitos'
-    return
-  }
-  if (paso.value === 'nombre' && nombre.value.trim().length < 2) {
-    error.value = 'Dinos cómo te llamas'
     return
   }
 
@@ -196,7 +193,7 @@ async function verificar(): Promise<void> {
     const { esNuevo, cuponesNuevos } = await auth.verificarCodigo({
       telefono: telefono.value.trim(),
       codigo: codigo.value.trim(),
-      nombre: paso.value === 'nombre' ? nombre.value.trim() : undefined,
+      nombre: nombre.value.trim(),
     })
 
     if (esNuevo && cuponesNuevos > 0) {
@@ -208,11 +205,11 @@ async function verificar(): Promise<void> {
     }
     await entrar()
   } catch (fallo) {
-    // La API pide el nombre y deja el mismo código vivo: se avanza de paso
-    // sin tocar `codigo`.
+    // No debería pasar (el nombre siempre viaja), pero si la API lo pide se
+    // vuelve al paso del teléfono, donde está el campo.
     if (fallo instanceof ErrorApi && fallo.codigo === 'NOMBRE_REQUERIDO') {
-      paso.value = 'nombre'
-      error.value = ''
+      irA('telefono')
+      error.value = 'Dinos cómo te llamas'
       return
     }
     mostrarFallo(fallo)
@@ -287,7 +284,7 @@ async function entrarComoStaff(): Promise<void> {
       <button type="button" class="login-back" @click="irA('modo')">← Elegir otro modo</button>
       <div class="login-step-title">Ingresa con tu WhatsApp</div>
       <div class="login-step-sub">
-        Usamos tu número para identificarte y mostrarte tus datos guardados.
+        Usamos tu número y tu nombre para identificarte y mostrarte tus datos guardados.
       </div>
 
       <label class="form-label" for="telefono">Número de WhatsApp</label>
@@ -295,11 +292,21 @@ async function entrarComoStaff(): Promise<void> {
         id="telefono"
         v-model="telefono"
         class="form-input"
-        :class="{ 'is-invalid': error }"
+        :class="{ 'is-invalid': error && !telefono.trim() }"
         type="tel"
         inputmode="tel"
         autocomplete="tel"
         placeholder="Ej. 9211234567"
+      />
+
+      <label class="form-label" for="nombre">¿Cómo te llamas?</label>
+      <input
+        id="nombre"
+        v-model="nombre"
+        class="form-input"
+        :class="{ 'is-invalid': error && telefono.trim() && nombre.trim().length < 2 }"
+        autocomplete="name"
+        placeholder="Tu nombre completo"
       />
       <p v-if="error" class="form-error">{{ error }}</p>
 
@@ -327,8 +334,7 @@ async function entrarComoStaff(): Promise<void> {
       <button type="button" class="login-back" @click="irA('telefono')">← Cambiar número</button>
       <div class="login-step-title">Escribe tu código</div>
       <div class="login-step-sub">
-        Te mandamos un código de 6 dígitos a <strong>{{ telefono }}</strong
-        >.
+        Te mandamos un código de 6 dígitos a <strong>{{ telefono }}</strong>.
       </div>
 
       <label class="form-label" for="codigo">Código de verificación</label>
@@ -349,30 +355,6 @@ async function entrarComoStaff(): Promise<void> {
       </button>
       <button type="button" class="login-reenviar" :disabled="enviando" @click="enviarTelefono">
         No me llegó, enviar otro código
-      </button>
-    </form>
-
-    <!-- Paso 4 del cliente: alta. Reenvía el mismo código. -->
-    <form v-else-if="paso === 'nombre'" @submit.prevent="verificar">
-      <button type="button" class="login-back" @click="irA('telefono')">← Cambiar número</button>
-      <div class="login-step-title">¡Eres nuevo por aquí!</div>
-      <div class="login-step-sub">
-        No encontramos ese número. Dinos tu nombre para darte la bienvenida.
-      </div>
-
-      <label class="form-label" for="nombre">¿Cómo te llamas?</label>
-      <input
-        id="nombre"
-        v-model="nombre"
-        class="form-input"
-        :class="{ 'is-invalid': error }"
-        autocomplete="name"
-        placeholder="Tu nombre completo"
-      />
-      <p v-if="error" class="form-error">{{ error }}</p>
-
-      <button type="submit" class="btn-primary ancho" :disabled="enviando">
-        {{ enviando ? 'Creando tu cuenta…' : 'Continuar' }}
       </button>
     </form>
 
