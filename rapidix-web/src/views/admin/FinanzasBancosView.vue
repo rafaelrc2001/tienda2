@@ -532,7 +532,7 @@ async function alFacturar(factura: FacturaGlobal | null): Promise<void> {
         </div>
 
         <div class="tabla-envoltorio">
-          <table class="tabla lineal movimientos">
+          <table class="tabla lineal movimientos" :class="{ capturando }">
             <thead>
               <tr>
                 <th v-if="seleccionando" class="casilla">
@@ -964,13 +964,18 @@ async function alFacturar(factura: FacturaGlobal | null): Promise<void> {
   text-align: center;
 }
 
-/* Columnas de ancho fijo: el renglón que se captura trae campos más anchos que
-   el texto (en el teléfono, el de fecha sobre todo) y, con el ancho automático,
-   al abrirlo ensanchaba las columnas y recorría los encabezados y las filas de
-   arriba. La referencia se queda con lo que sobra. */
+/* Columnas de ancho fijo para que los encabezados y las filas no bailen. Mientras
+   solo se lee, miden lo justo para «03-nov», un folio de 8 o «Transferencia»: con
+   los anchos de la captura quedaban huecos enormes entre los datos. Al capturar
+   (`.capturando`) se ensanchan lo que piden los campos, el de fecha sobre todo. La
+   referencia se queda con lo que sobra. */
 .movimientos {
-  min-width: 820px;
+  min-width: 560px;
   table-layout: fixed;
+}
+
+.movimientos.capturando {
+  min-width: 820px;
 }
 
 /* Con el ancho fijo, una referencia larga se corta en vez de pisar la columna de al lado. */
@@ -985,21 +990,37 @@ async function alFacturar(factura: FacturaGlobal | null): Promise<void> {
 }
 
 .movimientos .fecha {
-  width: 150px;
+  width: 70px;
 }
 
 .movimientos .factura {
+  width: 80px;
+}
+
+.movimientos th.num {
+  width: 105px;
+}
+
+/* Sin ancho propio, el `width: 1%` de arriba la dejaba en ~8px con el ancho fijo: el
+   select y el encabezado se salían y quedaban encima de la referencia. */
+.movimientos .metodo {
+  width: 115px;
+}
+
+.movimientos.capturando .fecha {
+  width: 150px;
+}
+
+.movimientos.capturando .factura {
   width: 100px;
 }
 
 /* El signo (32) + el monto (110) + el hueco y el padding de la celda. */
-.movimientos th.num {
+.movimientos.capturando th.num {
   width: 170px;
 }
 
-/* Sin ancho propio, el `width: 1%` de arriba la dejaba en ~8px con el ancho fijo: el
-   select de 150px y el encabezado se salían y quedaban encima de la referencia. */
-.movimientos .metodo {
+.movimientos.capturando .metodo {
   width: 170px;
 }
 
