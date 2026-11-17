@@ -14,6 +14,10 @@
  * La cantidad lleva signo: lo que sale del banco va en negativo. El saldo lo
  * suma la API; aquí no se suma nada.
  *
+ * Tocar el encabezado de una columna ordena la tabla como en Excel
+ * (ascendente, descendente y de vuelta al orden de captura). Solo cambia cómo
+ * se ve: lo hace `ordenarMovimientos` de `finanzas/bancos.ts`.
+ *
  * El 🌐 de arriba de la tabla pone una casilla en los depósitos sin factura:
  * en cuanto se palomea uno, la suma (hecha en la API) aparece debajo de la
  * tabla y «Factura global» lo timbra a PÚBLICO EN GENERAL. El folio queda en
@@ -28,7 +32,14 @@ import SkeletonList from '@/components/SkeletonList.vue'
 import VisorPdfFactura from '@/components/VisorPdfFactura.vue'
 import PestanasFinanzas from './finanzas/PestanasFinanzas.vue'
 import FacturaGlobalModal from './finanzas/FacturaGlobalModal.vue'
-import { cantidadBancaria, errorDeCantidad } from './finanzas/bancos'
+import {
+  cantidadBancaria,
+  errorDeCantidad,
+  ordenarMovimientos,
+  siguienteOrden,
+  type ColumnaBancos,
+  type OrdenBancos,
+} from './finanzas/bancos'
 import type {
   CuentaBanco,
   EstadoCuentaBanco,
@@ -265,8 +276,33 @@ const editandoId = ref<string | null>(null)
  */
 type Fila = { tipo: 'movimiento'; m: MovimientoBancario } | { tipo: 'captura' }
 
+/**
+ * El orden elegido tocando un encabezado; null es el de captura. Se queda
+ * aunque se cambie de periodo: quien ordena por fecha suele querer verlo así
+ * en todos los meses.
+ */
+const orden = ref<OrdenBancos | null>(null)
+
+const COLUMNAS: { columna: ColumnaBancos; titulo: string; clase: string }[] = [
+  { columna: 'fecha', titulo: 'Fecha', clase: 'fecha' },
+  { columna: 'factura', titulo: 'Factura', clase: 'factura' },
+  { columna: 'cantidad', titulo: 'Cantidad', clase: 'num' },
+  { columna: 'metodo', titulo: 'Método de pago', clase: 'metodo' },
+  { columna: 'referencia', titulo: 'Referencia', clase: 'referencia' },
+]
+
+function ordenarPor(columna: ColumnaBancos): void {
+  orden.value = siguienteOrden(orden.value, columna)
+}
+
+/** Para lectores de pantalla: cómo está ordenada cada columna. */
+function ariaSort(columna: ColumnaBancos): 'ascending' | 'descending' | 'none' {
+  if (orden.value?.columna !== columna) return 'none'
+  return orden.value.direccion === 'asc' ? 'ascending' : 'descending'
+}
+
 const filas = computed<Fila[]>(() => {
-  const movimientos = periodo.value?.movimientos ?? []
+  const movimientos = ordenarMovimientos(periodo.value?.movimientos ?? [], orden.value)
   const lista: Fila[] = movimientos.map((m) =>
     capturando.value && editandoId.value === m.id ? { tipo: 'captura' } : { tipo: 'movimiento', m },
   )
@@ -597,11 +633,27 @@ async function alFacturar(factura: FacturaGlobal | null): Promise<void> {
                     @change="palomearTodos(($event.target as HTMLInputElement).checked)"
                   />
                 </th>
-                <th class="fecha">Fecha</th>
-                <th class="factura">Factura</th>
-                <th class="num">Cantidad</th>
-                <th class="metodo">Método de pago</th>
-                <th>Referencia</th>
+                <!-- Tocar un encabezado ordena: ascendente, descendente y vuelta al
+                     orden de captura. La flecha dice cómo está. -->
+                <th
+                  v-for="c in COLUMNAS"
+                  :key="c.columna"
+                  :class="c.clase"
+                  :aria-sort="ariaSort(c.columna)"
+                >
+                  <button
+                    type="button"
+                    class="ordenar"
+                    :class="{ activo: orden?.columna === c.columna }"
+                    :title="`Ordenar por ${c.titulo.toLowerCase()}`"
+                    @click="ordenarPor(c.columna)"
+                  >
+                    {{ c.titulo }}
+                    <span class="flecha" aria-hidden="true">{{
+                      orden?.columna !== c.columna ? '↕' : orden.direccion === 'asc' ? '▲' : '▼'
+                    }}</span>
+                  </button>
+                </th>
                 <th class="acciones" aria-label="Acciones" />
               </tr>
             </thead>
@@ -1024,6 +1076,35 @@ async function alFacturar(factura: FacturaGlobal | null): Promise<void> {
   font-variant-numeric: tabular-nums;
 }
 
+/* El encabezado entero es el botón de ordenar, y se lee igual que un encabezado. */
+.ordenar {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ordenar .flecha {
+  font-size: 9px;
+  opacity: 0.45;
+}
+
+/* La columna por la que se ordena se distingue: flecha y texto en terracota. */
+.ordenar.activo,
+.ordenar.activo .flecha {
+  color: var(--terracotta-dark);
+  opacity: 1;
+}
+
 /* Lo que sale del banco salta a la vista, como el renglón amarillo del Excel. */
 .tabla .negativo {
   color: var(--rojo);
@@ -1045,7 +1126,7 @@ async function alFacturar(factura: FacturaGlobal | null): Promise<void> {
    (`.capturando`) se ensanchan lo que piden los campos, el de fecha sobre todo. La
    referencia se queda con lo que sobra. */
 .movimientos {
-  min-width: 560px;
+  min-width: 600px;
   table-layout: fixed;
 }
 
@@ -1077,8 +1158,9 @@ async function alFacturar(factura: FacturaGlobal | null): Promise<void> {
   width: 70px;
 }
 
+/* 90 y no 80: el encabezado lleva además la flecha de ordenar. */
 .movimientos .factura {
-  width: 80px;
+  width: 90px;
 }
 
 .movimientos th.num {
@@ -1088,7 +1170,7 @@ async function alFacturar(factura: FacturaGlobal | null): Promise<void> {
 /* Sin ancho propio, el `width: 1%` de arriba la dejaba en ~8px con el ancho fijo: el
    select y el encabezado se salían y quedaban encima de la referencia. */
 .movimientos .metodo {
-  width: 115px;
+  width: 135px;
 }
 
 .movimientos.capturando .fecha {

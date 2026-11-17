@@ -1,5 +1,101 @@
 import { describe, expect, it } from 'vitest'
-import { cantidadBancaria, cantidadDeProducto, errorDeCantidad } from './bancos'
+import type { MovimientoBancario } from '@/api/tipos'
+import {
+  cantidadBancaria,
+  cantidadDeProducto,
+  errorDeCantidad,
+  ordenarMovimientos,
+  siguienteOrden,
+} from './bancos'
+
+function mov(id: string, datos: Partial<MovimientoBancario>): MovimientoBancario {
+  return {
+    id,
+    fecha: '2026-11-03',
+    factura: null,
+    cantidad: 100,
+    metodo: 'TRANSFERENCIA',
+    referencia: null,
+    facturaGlobalId: null,
+    ...datos,
+  }
+}
+
+describe('ordenarMovimientos', () => {
+  const lista = [
+    mov('a', { fecha: '2026-11-05', factura: 'F10', cantidad: -50, metodo: 'EFECTIVO' }),
+    mov('b', { fecha: '2026-11-03', factura: null, cantidad: 300 }),
+    mov('c', { fecha: '2026-11-04', factura: 'F9', cantidad: 20 }),
+    mov('d', { fecha: '2026-11-03', factura: 'a1159', cantidad: 8000 }),
+  ]
+  const ids = (m: MovimientoBancario[]) => m.map((x) => x.id)
+
+  it('sin orden deja el de captura y no toca el original', () => {
+    const copia = ordenarMovimientos(lista, null)
+    expect(ids(copia)).toEqual(['a', 'b', 'c', 'd'])
+    expect(copia).not.toBe(lista)
+  })
+
+  it('ordena por fecha y conserva el orden de captura en los empates', () => {
+    expect(ids(ordenarMovimientos(lista, { columna: 'fecha', direccion: 'asc' }))).toEqual([
+      'b',
+      'd',
+      'c',
+      'a',
+    ])
+    expect(ids(ordenarMovimientos(lista, { columna: 'fecha', direccion: 'desc' }))).toEqual([
+      'a',
+      'c',
+      'b',
+      'd',
+    ])
+  })
+
+  it('ordena la cantidad como número, con los negativos primero', () => {
+    expect(ids(ordenarMovimientos(lista, { columna: 'cantidad', direccion: 'asc' }))).toEqual([
+      'a',
+      'c',
+      'b',
+      'd',
+    ])
+  })
+
+  it('ordena folios con números naturales y deja los vacíos al final en las dos direcciones', () => {
+    expect(ids(ordenarMovimientos(lista, { columna: 'factura', direccion: 'asc' }))).toEqual([
+      'd',
+      'c',
+      'a',
+      'b',
+    ])
+    expect(ids(ordenarMovimientos(lista, { columna: 'factura', direccion: 'desc' }))).toEqual([
+      'a',
+      'c',
+      'd',
+      'b',
+    ])
+  })
+
+  it('ordena el método por su nombre', () => {
+    expect(ids(ordenarMovimientos(lista, { columna: 'metodo', direccion: 'asc' }))[0]).toBe('a')
+  })
+})
+
+describe('siguienteOrden', () => {
+  it('va de ascendente a descendente y vuelve al orden de captura', () => {
+    const asc = siguienteOrden(null, 'fecha')
+    expect(asc).toEqual({ columna: 'fecha', direccion: 'asc' })
+    const desc = siguienteOrden(asc, 'fecha')
+    expect(desc).toEqual({ columna: 'fecha', direccion: 'desc' })
+    expect(siguienteOrden(desc, 'fecha')).toBeNull()
+  })
+
+  it('otra columna empieza en ascendente', () => {
+    expect(siguienteOrden({ columna: 'fecha', direccion: 'desc' }, 'factura')).toEqual({
+      columna: 'factura',
+      direccion: 'asc',
+    })
+  })
+})
 
 describe('cantidadBancaria', () => {
   it('lee la coma seguida de tres dígitos como separador de miles', () => {

@@ -1,3 +1,6 @@
+import type { MovimientoBancario } from '@/api/tipos'
+import { nombreMetodoPago } from '@/utils/formato'
+
 /**
  * Cómo lee Bancos las cantidades que se escriben o se copian del estado de
  * cuenta del banco.
@@ -62,4 +65,75 @@ export function errorDeCantidad(texto: string, queEs: string): string | null {
     return `No entiendo «${texto.trim()}» como cantidad: escríbela como 6750.00 o 6,750.00.`
   }
   return null
+}
+
+// ------------------------------------------------------------------
+// Orden de la tabla, como el filtro de una columna de Excel
+// ------------------------------------------------------------------
+
+export type ColumnaBancos = 'fecha' | 'factura' | 'cantidad' | 'metodo' | 'referencia'
+export type Direccion = 'asc' | 'desc'
+export interface OrdenBancos {
+  columna: ColumnaBancos
+  direccion: Direccion
+}
+
+/** Lo que se compara de cada columna. Vacío es `null`. */
+function valor(m: MovimientoBancario, columna: ColumnaBancos): string | number | null {
+  switch (columna) {
+    case 'fecha':
+      return m.fecha
+    case 'cantidad':
+      return m.cantidad
+    case 'metodo':
+      return nombreMetodoPago(m.metodo)
+    case 'factura':
+      return m.factura?.trim() || null
+    case 'referencia':
+      return m.referencia?.trim() || null
+  }
+}
+
+/** `numeric`: «F10» va después de «F9», no entre «F1» y «F2». */
+const comparador = new Intl.Collator('es', { numeric: true, sensitivity: 'base' })
+
+/**
+ * Los movimientos en el orden pedido, sin tocar el arreglo original. Solo
+ * cambia cómo se ven: el saldo lo sigue sumando la API.
+ *
+ * Como en Excel, las celdas vacías van siempre al final, sea ascendente o
+ * descendente. Los empates conservan el orden en que llegaron (el de captura).
+ */
+export function ordenarMovimientos(
+  movimientos: readonly MovimientoBancario[],
+  orden: OrdenBancos | null,
+): MovimientoBancario[] {
+  if (!orden) return [...movimientos]
+  const signo = orden.direccion === 'asc' ? 1 : -1
+  return movimientos
+    .map((m, i) => ({ m, i, v: valor(m, orden.columna) }))
+    .sort((a, b) => {
+      if (a.v === null || b.v === null) {
+        if (a.v === b.v) return a.i - b.i
+        return a.v === null ? 1 : -1
+      }
+      const diferencia =
+        typeof a.v === 'number' && typeof b.v === 'number'
+          ? a.v - b.v
+          : comparador.compare(String(a.v), String(b.v))
+      return diferencia * signo || a.i - b.i
+    })
+    .map(({ m }) => m)
+}
+
+/**
+ * El siguiente orden al tocar el encabezado de una columna: ascendente,
+ * descendente y luego vuelta al orden de captura.
+ */
+export function siguienteOrden(
+  actual: OrdenBancos | null,
+  columna: ColumnaBancos,
+): OrdenBancos | null {
+  if (actual?.columna !== columna) return { columna, direccion: 'asc' }
+  return actual.direccion === 'asc' ? { columna, direccion: 'desc' } : null
 }
