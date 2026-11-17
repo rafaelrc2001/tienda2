@@ -1,4 +1,14 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Post,
+  Put,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { RequiereSeccion } from '../auth/seccion.decorator';
 import { UsuarioActual } from '../auth/usuario-actual.decorator';
@@ -59,6 +69,15 @@ export class AdminBancosController {
     @UsuarioActual() usuario: UsuarioAutenticado,
   ): Promise<PeriodoBancarioDto> {
     return this.bancos.agregarMovimiento(id, dto, usuario.sub);
+  }
+
+  /** Reemplaza el renglon entero. Devuelve el periodo con su saldo recalculado. */
+  @Put('movimientos/:id')
+  editarMovimiento(
+    @Param('id') id: string,
+    @Body() dto: NuevoMovimientoDto,
+  ): Promise<PeriodoBancarioDto> {
+    return this.bancos.editarMovimiento(id, dto);
   }
 
   /** Devuelve el periodo como queda, con su saldo ya recalculado. */

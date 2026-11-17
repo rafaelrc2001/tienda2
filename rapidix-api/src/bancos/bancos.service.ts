@@ -239,6 +239,50 @@ export class BancosService {
     return this.verPeriodo(periodoId);
   }
 
+  /**
+   * Corregir un renglon: se reemplaza entero con lo que llega (un campo
+   * opcional que no viene queda vacio), con las mismas reglas que al
+   * agregarlo. El saldo no se toca porque no se guarda: se vuelve a encadenar.
+   */
+  async editarMovimiento(
+    movimientoId: string,
+    dto: NuevoMovimientoDto,
+  ): Promise<PeriodoBancarioDto> {
+    const movimiento = await this.prisma.movimientoBancario.findUnique({
+      where: { id: movimientoId },
+      include: { periodo: { select: { anio: true, mes: true } } },
+    });
+    if (!movimiento) throw new NotFoundException('El movimiento no existe');
+    // Igual que al borrar: cambiarle la cantidad o la fecha dejaria un CFDI
+    // que ya no cuadra con lo que dice cubrir.
+    if (movimiento.facturaGlobalId) {
+      throw new ConflictException({
+        statusCode: 409,
+        code: 'MOVIMIENTO_FACTURADO',
+        message: 'Este movimiento está en una factura global: no se puede editar.',
+      });
+    }
+    if (!diaDentroDelMes(dto.fecha, movimiento.periodo)) {
+      throw new BadRequestException({
+        statusCode: 400,
+        code: 'FECHA_FUERA_DEL_PERIODO',
+        message: `La fecha tiene que ser un día de ${nombreMes(movimiento.periodo)}.`,
+      });
+    }
+
+    await this.prisma.movimientoBancario.update({
+      where: { id: movimientoId },
+      data: {
+        fecha: new Date(`${dto.fecha}T00:00:00Z`),
+        factura: dto.factura ?? null,
+        cantidad: new Decimal(dto.cantidad),
+        metodo: dto.metodo,
+        referencia: dto.referencia ?? null,
+      },
+    });
+    return this.verPeriodo(movimiento.periodoId);
+  }
+
   /** Quitar un renglon capturado por error. Devuelve el periodo como queda. */
   async eliminarMovimiento(movimientoId: string): Promise<PeriodoBancarioDto> {
     const movimiento = await this.prisma.movimientoBancario.findUnique({

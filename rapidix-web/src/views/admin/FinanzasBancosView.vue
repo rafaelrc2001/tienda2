@@ -8,7 +8,8 @@
  * cualquier año: con un mes antes puede heredar su saldo final o empezar en
  * uno escrito; sin ninguno antes, el saldo inicial se escribe. Los saldos los
  * encadena la API. Dentro del periodo, «+ Agregar
- * movimiento» abre un renglón debajo del último para escribir el siguiente.
+ * movimiento» abre un renglón debajo del último para escribir el siguiente, y
+ * el ✎ de un renglón lo vuelve editable en su sitio con los mismos campos.
  *
  * La cantidad lleva signo: lo que sale del banco va en negativo. El saldo lo
  * suma la API; aquí no se suma nada.
@@ -247,10 +248,31 @@ async function abrirPeriodo(): Promise<void> {
 }
 
 // ------------------------------------------------------------------
-// Agregar movimiento: un renglón debajo del último
+// Agregar o editar movimiento: un renglón de captura en la tabla
 // ------------------------------------------------------------------
 
 const capturando = ref(false)
+// Cambiar de periodo o de cuenta cierra la captura: lo que se corregía ya no está.
+watch(capturando, (abierto) => {
+  if (!abierto) editandoId.value = null
+})
+/** El movimiento que se corrige; null es que se agrega uno nuevo al final. */
+const editandoId = ref<string | null>(null)
+
+/**
+ * Lo que pinta la tabla: los movimientos y, al capturar, el renglón de los
+ * campos. Al editar ocupa el sitio del movimiento; al agregar, va al final.
+ */
+type Fila = { tipo: 'movimiento'; m: MovimientoBancario } | { tipo: 'captura' }
+
+const filas = computed<Fila[]>(() => {
+  const movimientos = periodo.value?.movimientos ?? []
+  const lista: Fila[] = movimientos.map((m) =>
+    capturando.value && editandoId.value === m.id ? { tipo: 'captura' } : { tipo: 'movimiento', m },
+  )
+  if (capturando.value && editandoId.value === null) lista.push({ tipo: 'captura' })
+  return lista
+})
 const nuevo = ref({
   fecha: '',
   factura: '',
@@ -282,10 +304,33 @@ async function empezarCaptura(): Promise<void> {
     metodo: anterior?.metodo ?? 'TRANSFERENCIA',
     referencia: '',
   }
+  editandoId.value = null
   errorMovimiento.value = ''
   capturando.value = true
   await nextTick()
   campoFecha.value?.focus()
+}
+
+/** Vuelve editable un renglón, con lo que ya tiene escrito. */
+async function empezarEdicion(m: MovimientoBancario): Promise<void> {
+  nuevo.value = {
+    fecha: m.fecha,
+    factura: m.factura ?? '',
+    cantidad: m.cantidad.toFixed(2),
+    metodo: m.metodo,
+    referencia: m.referencia ?? '',
+  }
+  editandoId.value = m.id
+  errorMovimiento.value = ''
+  capturando.value = true
+  await nextTick()
+  campoFecha.value?.focus()
+}
+
+function cancelarCaptura(): void {
+  capturando.value = false
+  editandoId.value = null
+  errorMovimiento.value = ''
 }
 
 /** El teclado decimal del iPhone no trae el signo menos: este botón lo pone y lo quita. */
@@ -323,21 +368,29 @@ async function guardarMovimiento(): Promise<void> {
   }
 
   const id = periodo.value.id
+  const cuerpo = {
+    fecha: nuevo.value.fecha,
+    cantidad,
+    metodo: nuevo.value.metodo,
+    ...(nuevo.value.factura.trim() && { factura: nuevo.value.factura.trim() }),
+    ...(nuevo.value.referencia.trim() && { referencia: nuevo.value.referencia.trim() }),
+  }
   guardandoMovimiento.value = true
   try {
-    const respuesta = await http.post<PeriodoBancario>(
-      `/admin/finanzas/bancos/periodos/${id}/movimientos`,
-      {
-        fecha: nuevo.value.fecha,
-        cantidad,
-        metodo: nuevo.value.metodo,
-        ...(nuevo.value.factura.trim() && { factura: nuevo.value.factura.trim() }),
-        ...(nuevo.value.referencia.trim() && { referencia: nuevo.value.referencia.trim() }),
-      },
-    )
+    // Al editar se manda el renglón entero: lo que se dejó vacío se borra.
+    const respuesta = editandoId.value
+      ? await http.put<PeriodoBancario>(
+          `/admin/finanzas/bancos/movimientos/${editandoId.value}`,
+          cuerpo,
+        )
+      : await http.post<PeriodoBancario>(
+          `/admin/finanzas/bancos/periodos/${id}/movimientos`,
+          cuerpo,
+        )
     if (sigueEnPantalla(id)) {
       periodo.value = respuesta
       capturando.value = false
+      editandoId.value = null
     }
     void refrescarResumen(respuesta.cuentaId)
   } catch (fallo) {
@@ -553,121 +606,137 @@ async function alFacturar(factura: FacturaGlobal | null): Promise<void> {
               </tr>
             </thead>
             <tbody>
-              <tr
-                v-for="m in periodo.movimientos"
-                :key="m.id"
-                :class="{ palomeado: seleccion.includes(m.id) }"
+              <template
+                v-for="fila in filas"
+                :key="fila.tipo === 'movimiento' ? fila.m.id : 'captura'"
               >
-                <td v-if="seleccionando" class="casilla">
-                  <input
-                    v-if="facturable(m)"
-                    v-model="seleccion"
-                    type="checkbox"
-                    :value="m.id"
-                    :aria-label="`Facturar el depósito del ${fechaCorta(m.fecha)}`"
-                  />
-                </td>
-                <td class="fecha">{{ fechaCorta(m.fecha) }}</td>
-                <td class="factura">
-                  <!-- La factura global timbrada se abre desde su folio. -->
-                  <button
-                    v-if="m.facturaGlobalId"
-                    type="button"
-                    class="enlace"
-                    :title="`Ver la factura global ${m.factura}`"
-                    @click="visor = { id: m.facturaGlobalId, folio: m.factura ?? '' }"
-                  >
-                    {{ m.factura }}
-                  </button>
-                  <template v-else>{{ m.factura ?? '—' }}</template>
-                </td>
-                <td class="num importe" :class="{ negativo: m.cantidad < 0 }">
-                  {{ dinero(m.cantidad) }}
-                </td>
-                <td class="metodo">{{ nombreMetodoPago(m.metodo) }}</td>
-                <td>{{ m.referencia ?? '' }}</td>
-                <td class="acciones">
-                  <!-- Un depósito dentro de una factura global ya no se borra. -->
-                  <button
-                    v-if="!m.facturaGlobalId"
-                    type="button"
-                    class="quitar"
-                    :aria-label="`Eliminar el movimiento del ${fechaCorta(m.fecha)}`"
-                    title="Eliminar"
-                    @click="eliminarMovimiento(m.id)"
-                  >
-                    ✕
-                  </button>
-                </td>
-              </tr>
-
-              <!-- El renglón que se está escribiendo, debajo del último. -->
-              <tr v-if="capturando" class="captura">
-                <td v-if="seleccionando" class="casilla" />
-                <td class="fecha">
-                  <input
-                    ref="campoFecha"
-                    v-model="nuevo.fecha"
-                    class="form-input"
-                    type="date"
-                    :min="limites.min"
-                    :max="limites.max"
-                    aria-label="Fecha"
-                  />
-                </td>
-                <td class="factura">
-                  <input
-                    v-model="nuevo.factura"
-                    class="form-input"
-                    type="text"
-                    maxlength="8"
-                    placeholder="A1127"
-                    aria-label="Factura"
-                  />
-                </td>
-                <td>
-                  <span class="cantidad">
-                    <button
-                      type="button"
-                      class="signo"
-                      title="Cambiar el signo"
-                      aria-label="Cambiar el signo"
-                      @click="cambiarSigno"
-                    >
-                      ±
-                    </button>
+                <tr
+                  v-if="fila.tipo === 'movimiento'"
+                  :class="{ palomeado: seleccion.includes(fila.m.id) }"
+                >
+                  <td v-if="seleccionando" class="casilla">
                     <input
-                      v-model="nuevo.cantidad"
-                      class="form-input monto"
+                      v-if="facturable(fila.m)"
+                      v-model="seleccion"
+                      type="checkbox"
+                      :value="fila.m.id"
+                      :aria-label="`Facturar el depósito del ${fechaCorta(fila.m.fecha)}`"
+                    />
+                  </td>
+                  <td class="fecha">{{ fechaCorta(fila.m.fecha) }}</td>
+                  <td class="factura">
+                    <!-- La factura global timbrada se abre desde su folio. -->
+                    <button
+                      v-if="fila.m.facturaGlobalId"
+                      type="button"
+                      class="enlace"
+                      :title="`Ver la factura global ${fila.m.factura}`"
+                      @click="visor = { id: fila.m.facturaGlobalId, folio: fila.m.factura ?? '' }"
+                    >
+                      {{ fila.m.factura }}
+                    </button>
+                    <template v-else>{{ fila.m.factura ?? '—' }}</template>
+                  </td>
+                  <td class="num importe" :class="{ negativo: fila.m.cantidad < 0 }">
+                    {{ dinero(fila.m.cantidad) }}
+                  </td>
+                  <td class="metodo">{{ nombreMetodoPago(fila.m.metodo) }}</td>
+                  <td>{{ fila.m.referencia ?? '' }}</td>
+                  <td class="acciones">
+                    <!-- Un depósito dentro de una factura global ya no se edita ni se
+                       borra. Mientras se captura otro renglón, tampoco. -->
+                    <span v-if="!fila.m.facturaGlobalId && !capturando" class="botones-fila">
+                      <button
+                        type="button"
+                        class="quitar"
+                        :aria-label="`Editar el movimiento del ${fechaCorta(fila.m.fecha)}`"
+                        title="Editar"
+                        @click="empezarEdicion(fila.m)"
+                      >
+                        ✎
+                      </button>
+                      <button
+                        type="button"
+                        class="quitar"
+                        :aria-label="`Eliminar el movimiento del ${fechaCorta(fila.m.fecha)}`"
+                        title="Eliminar"
+                        @click="eliminarMovimiento(fila.m.id)"
+                      >
+                        ✕
+                      </button>
+                    </span>
+                  </td>
+                </tr>
+
+                <!-- El renglón que se está escribiendo: al final o en lugar del que se edita. -->
+                <tr v-else class="captura">
+                  <td v-if="seleccionando" class="casilla" />
+                  <td class="fecha">
+                    <!-- Ref por función: dentro del v-for, `ref="…"` llenaría un arreglo. -->
+                    <input
+                      :ref="(el) => (campoFecha = el as HTMLInputElement | null)"
+                      v-model="nuevo.fecha"
+                      class="form-input"
+                      type="date"
+                      :min="limites.min"
+                      :max="limites.max"
+                      aria-label="Fecha"
+                    />
+                  </td>
+                  <td class="factura">
+                    <input
+                      v-model="nuevo.factura"
+                      class="form-input"
                       type="text"
-                      inputmode="decimal"
-                      autocomplete="off"
-                      placeholder="0.00"
-                      aria-label="Cantidad"
+                      maxlength="8"
+                      placeholder="A1127"
+                      aria-label="Factura"
+                    />
+                  </td>
+                  <td>
+                    <span class="cantidad">
+                      <button
+                        type="button"
+                        class="signo"
+                        title="Cambiar el signo"
+                        aria-label="Cambiar el signo"
+                        @click="cambiarSigno"
+                      >
+                        ±
+                      </button>
+                      <input
+                        v-model="nuevo.cantidad"
+                        class="form-input monto"
+                        type="text"
+                        inputmode="decimal"
+                        autocomplete="off"
+                        placeholder="0.00"
+                        aria-label="Cantidad"
+                        @keyup.enter="guardarMovimiento"
+                      />
+                    </span>
+                  </td>
+                  <td class="metodo">
+                    <select v-model="nuevo.metodo" class="form-input" aria-label="Método de pago">
+                      <option v-for="metodo in METODOS" :key="metodo" :value="metodo">
+                        {{ nombreMetodoPago(metodo) }}
+                      </option>
+                    </select>
+                  </td>
+                  <td>
+                    <input
+                      v-model="nuevo.referencia"
+                      class="form-input"
+                      type="text"
+                      maxlength="200"
+                      placeholder="Texto libre"
+                      aria-label="Referencia"
                       @keyup.enter="guardarMovimiento"
                     />
-                  </span>
-                </td>
-                <td class="metodo">
-                  <select v-model="nuevo.metodo" class="form-input" aria-label="Método de pago">
-                    <option v-for="metodo in METODOS" :key="metodo" :value="metodo">
-                      {{ nombreMetodoPago(metodo) }}
-                    </option>
-                  </select>
-                </td>
-                <td>
-                  <input
-                    v-model="nuevo.referencia"
-                    class="form-input"
-                    type="text"
-                    maxlength="200"
-                    placeholder="Texto libre"
-                    aria-label="Referencia"
-                    @keyup.enter="guardarMovimiento"
-                  />
-                </td>
-                <td />
-              </tr>
+                  </td>
+                  <td />
+                </tr>
+              </template>
 
               <tr v-if="periodo.movimientos.length === 0 && !capturando">
                 <td :colspan="seleccionando ? 7 : 6" class="vacio">
@@ -686,7 +755,7 @@ async function alFacturar(factura: FacturaGlobal | null): Promise<void> {
               type="button"
               class="btn-cancel"
               :disabled="guardandoMovimiento"
-              @click="capturando = false"
+              @click="cancelarCaptura"
             >
               Cancelar
             </button>
@@ -696,7 +765,13 @@ async function alFacturar(factura: FacturaGlobal | null): Promise<void> {
               :disabled="guardandoMovimiento"
               @click="guardarMovimiento"
             >
-              {{ guardandoMovimiento ? 'Guardando…' : 'Guardar movimiento' }}
+              {{
+                guardandoMovimiento
+                  ? 'Guardando…'
+                  : editandoId
+                    ? 'Guardar cambios'
+                    : 'Guardar movimiento'
+              }}
             </button>
           </template>
           <button v-else type="button" class="btn-secondary" @click="empezarCaptura">
@@ -984,9 +1059,18 @@ async function alFacturar(factura: FacturaGlobal | null): Promise<void> {
   text-overflow: ellipsis;
 }
 
-.movimientos .casilla,
-.movimientos .acciones {
+.movimientos .casilla {
   width: 40px;
+}
+
+/* El ✎ y el ✕ lado a lado. */
+.movimientos .acciones {
+  width: 64px;
+}
+
+.botones-fila {
+  display: inline-flex;
+  white-space: nowrap;
 }
 
 .movimientos .fecha {
