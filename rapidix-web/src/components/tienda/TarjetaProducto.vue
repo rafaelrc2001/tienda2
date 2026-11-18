@@ -57,17 +57,13 @@ const atajos = computed<{ piso: number; precio: number | null }[]>(() =>
 const cantidad = computed(() => carrito.cantidadDe(props.producto.id))
 
 /**
- * El piso cuyo precio ya rige: el más alto alcanzado, como en el PDV. Con los
- * atajos sumando, la cantidad casi nunca es justo un piso (60 + 60 = 120 cae
- * en el de 72), así que marcar solo la coincidencia exacta no diría nada. Sin
- * listas de volumen no rige ninguno.
+ * El último atajo que se tocó: es el que queda prendido en amarillo. Tocar
+ * «+60» lo prende; tocar después «+120» lo pasa a ese. Se apaga cuando el
+ * producto vuelve a cero (el bote, el «−» o borrando el campo).
  */
-const pisoVigente = computed<number | null>(() => {
-  let vigente: number | null = null
-  for (const e of props.producto.escalones) {
-    if (e.piso <= cantidad.value && (vigente === null || e.piso > vigente)) vigente = e.piso
-  }
-  return vigente
+const ultimoAtajo = ref<number | null>(null)
+watch(cantidad, (valor) => {
+  if (valor === 0) ultimoAtajo.value = null
 })
 
 /** La línea tal como la valoró la API, si ya respondió a esta cantidad. */
@@ -106,6 +102,7 @@ function fijar(nueva: number): void {
  */
 function sumarAtajo(piso: number): void {
   fijar(cantidad.value + piso)
+  ultimoAtajo.value = piso
 }
 
 /**
@@ -274,7 +271,8 @@ function alSalirDelCampo(): void {
           :key="atajo.piso"
           type="button"
           class="piso"
-          :class="{ puesto: pisoVigente === atajo.piso, promesa: hayPrecioEscalonado }"
+          :class="{ puesto: ultimoAtajo === atajo.piso, promesa: hayPrecioEscalonado }"
+          :aria-pressed="ultimoAtajo === atajo.piso"
           :disabled="maximo !== null && cantidad >= maximo"
           :title="
             atajo.precio !== null ? `Desde ${atajo.piso}: ${dinero(atajo.precio)} c/u` : undefined
@@ -671,10 +669,11 @@ function alSalirDelCampo(): void {
   padding: 0 4px;
 }
 
+/* El último atajo tocado, siempre en amarillo: haya o no descuento por volumen. */
 .volumen .piso.puesto {
-  border-color: var(--gold-dark);
-  background: var(--gold);
-  color: var(--white);
+  border-color: var(--amarillo-dark);
+  background: var(--amarillo);
+  color: var(--ink);
 }
 
 /*
