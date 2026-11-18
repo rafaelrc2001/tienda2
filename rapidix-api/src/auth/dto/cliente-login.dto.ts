@@ -1,4 +1,12 @@
-import { IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
+import {
+  IsOptional,
+  IsString,
+  IsUUID,
+  Matches,
+  MaxLength,
+  MinLength,
+  ValidateIf,
+} from 'class-validator';
 
 export class SolicitarCodigoDto {
   @IsString()
@@ -11,12 +19,28 @@ export class SolicitarCodigoDto {
 /**
  * Entrada por nombre, sin telefono ni codigo. Provisional: ver
  * `AuthService.entrarPorNombre`.
+ *
+ * Con `id` (la sugerencia que se toco en el desplegable) se entra a esa cuenta
+ * exacta, aunque su nombre se repita; sin el, por el nombre escrito.
  */
 export class EntrarPorNombreDto {
-  @IsString()
+  @ValidateIf((dto: EntrarPorNombreDto) => !dto.id)
+  @IsString({ message: 'Escribe tu nombre' })
   @MinLength(2, { message: 'El nombre es demasiado corto' })
   @MaxLength(80)
-  nombre: string;
+  nombre?: string;
+
+  @IsOptional()
+  @IsUUID('4', { message: 'La cuenta elegida no es válida' })
+  id?: string;
+}
+
+/** `GET /auth/cliente/sugerencias?q=`: lo escrito en el campo del login. */
+export class SugerenciasClienteDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(80)
+  q: string;
 }
 
 export class VerificarCodigoDto {

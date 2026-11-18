@@ -54,6 +54,9 @@ const OTP_MAX_INTENTOS = 5;
  */
 const OTP_RELLENO = '000000';
 
+/** Cuantas sugerencias trae, como mucho, el desplegable del login. */
+const SUGERENCIAS_MAX = 8;
+
 /**
  * Modo sin WhatsApp (`AUTH_OTP_BYPASS=true`).
  *
@@ -422,7 +425,23 @@ export class AuthService {
   async entrarPorNombre(
     dto: EntrarPorNombreDto,
   ): Promise<TokenResponse & { esNuevo: boolean; cuponesNuevos: number }> {
-    const nombre = dto.nombre.trim().replace(/\s+/g, ' ');
+    // Con `id` es la sugerencia que se toco: esa cuenta y ninguna otra.
+    if (dto.id) {
+      const cliente = await this.prisma.cliente.findUnique({ where: { id: dto.id } });
+      const prospecto = cliente
+        ? null
+        : await this.prisma.prospecto.findUnique({ where: { id: dto.id } });
+      if (!cliente && !prospecto) {
+        throw new NotFoundException({
+          statusCode: 404,
+          code: 'NOMBRE_NO_ENCONTRADO',
+          message: 'Esa cuenta ya no existe. Entra con tu número de WhatsApp.',
+        });
+      }
+      return this.entrarSinCodigo(cliente, prospecto);
+    }
+
+    const nombre = (dto.nombre ?? '').trim().replace(/\s+/g, ' ');
     const filtro = { nombre: { equals: nombre, mode: 'insensitive' as const } };
 
     // `take: 2` basta para saber si hay uno solo o esta repetido.
@@ -447,8 +466,63 @@ export class AuthService {
       });
     }
 
-    const cliente = clientes[0] ?? null;
-    const prospecto = prospectos[0] ?? null;
+    return this.entrarSinCodigo(clientes[0] ?? null, prospectos[0] ?? null);
+  }
+
+  /**
+   * Sugerencias del desplegable del login: clientes y prospectos cuyo nombre
+   * contiene lo escrito o, si lleva digitos, cuyo telefono los contiene.
+   *
+   * Provisional como `entrarPorNombre`, y con el mismo precio: es publico, asi
+   * que quien teclee unas letras ve nombres de clientes. Por eso se devuelve
+   * lo justo para elegir: el nombre y los ultimos 4 digitos del telefono, que
+   * distinguen a dos que se llaman igual. Se cortan en `SUGERENCIAS_MAX`.
+   */
+  async sugerenciasDeClientes(
+    q: string,
+  ): Promise<{ id: string; nombre: string; telefonoFinal: string }[]> {
+    const texto = q.trim().replace(/\s+/g, ' ');
+    if (!texto) return [];
+    const digitos = texto.replace(/\D/g, '');
+
+    const where = {
+      OR: [
+        { nombre: { contains: texto, mode: 'insensitive' as const } },
+        // Solo con 3 digitos o mas: con uno o dos casaria casi cualquier telefono.
+        ...(digitos.length >= 3 ? [{ telefono: { contains: digitos } }] : []),
+      ],
+    };
+    const seleccion = { id: true, nombre: true, telefono: true };
+
+    // Los clientes primero (ya compraron); los prospectos rellenan lo que falte.
+    const clientes = await this.prisma.cliente.findMany({
+      where,
+      select: seleccion,
+      orderBy: { nombre: 'asc' },
+      take: SUGERENCIAS_MAX,
+    });
+    const prospectos =
+      clientes.length < SUGERENCIAS_MAX
+        ? await this.prisma.prospecto.findMany({
+            where,
+            select: seleccion,
+            orderBy: { nombre: 'asc' },
+            take: SUGERENCIAS_MAX - clientes.length,
+          })
+        : [];
+
+    return [...clientes, ...prospectos].map((c) => ({
+      id: c.id,
+      nombre: c.nombre,
+      telefonoFinal: c.telefono.replace(/\D/g, '').slice(-4),
+    }));
+  }
+
+  /** Firma el token de quien entra por nombre o por sugerencia, sin OTP. */
+  private async entrarSinCodigo(
+    cliente: Cliente | null,
+    prospecto: Prospecto | null,
+  ): Promise<TokenResponse & { esNuevo: boolean; cuponesNuevos: number }> {
     this.logger.warn(`Entrada por nombre, sin codigo: ${(cliente ?? prospecto)!.id}`);
 
     const cuponesNuevos = cliente

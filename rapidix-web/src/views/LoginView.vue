@@ -21,13 +21,13 @@
  * saluda por el nombre guardado, y del cupón de bienvenida avisa un aviso
  * flotante.
  */
-import { onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useUiStore } from '@/stores/ui'
 import { apiAuth } from '@/api/auth'
 import { ErrorApi } from '@/api/http'
-import type { RolPersonal, RolToken } from '@/api/tipos'
+import type { RolPersonal, RolToken, SugerenciaCliente } from '@/api/tipos'
 
 type Paso = 'modo' | 'telefono' | 'codigo' | 'nombre' | 'staff'
 
@@ -115,6 +115,8 @@ onMounted(async () => {
   }
 })
 
+onBeforeUnmount(() => clearTimeout(esperaSugerencias))
+
 /** Entra con el rol de la tarjeta, sin pedir nada. */
 async function entrarDirecto(rol: RolToken): Promise<void> {
   entrandoComo.value = rol
@@ -188,7 +190,85 @@ async function enviarAcceso(): Promise<void> {
   enviando.value = true
   error.value = ''
   try {
-    const { esNuevo, cuponesNuevos } = await auth.entrarPorNombre(texto)
+    const { esNuevo, cuponesNuevos } = await auth.entrarPorNombre({ nombre: texto })
+    darBienvenida(esNuevo, cuponesNuevos)
+    await entrar()
+  } catch (fallo) {
+    mostrarFallo(fallo)
+  } finally {
+    enviando.value = false
+  }
+}
+
+// ------------------------------------------------------------------
+// Desplegable de sugerencias (provisional, como la entrada por nombre)
+// ------------------------------------------------------------------
+
+const sugerencias = ref<SugerenciaCliente[]>([])
+/** El desplegable se ve: el campo tiene el foco y hay algo que sugerir. */
+const desplegado = ref(false)
+/** El renglón marcado con las flechas del teclado; -1 es ninguno. */
+const marcada = ref(-1)
+let esperaSugerencias: ReturnType<typeof setTimeout> | undefined
+/** Teclear deprisa deja respuestas viejas en el aire: gana la última. */
+let peticionSugerencias = 0
+
+watch(telefono, (texto) => {
+  clearTimeout(esperaSugerencias)
+  const limpio = texto.trim()
+  if (!limpio) {
+    peticionSugerencias++
+    sugerencias.value = []
+    return
+  }
+  // Una pausa corta para no pedir una lista por cada letra.
+  esperaSugerencias = setTimeout(() => void buscarSugerencias(limpio), 200)
+})
+
+async function buscarSugerencias(q: string): Promise<void> {
+  const numero = ++peticionSugerencias
+  try {
+    const lista = await apiAuth.sugerencias(q)
+    if (numero !== peticionSugerencias) return
+    sugerencias.value = lista
+    marcada.value = -1
+  } catch {
+    // Sin sugerencias se puede seguir entrando escribiendo y con «Continuar».
+    if (numero === peticionSugerencias) sugerencias.value = []
+  }
+}
+
+function cerrarSugerencias(): void {
+  desplegado.value = false
+  marcada.value = -1
+}
+
+/** Flechas para moverse por la lista, Enter para elegir, Esc para cerrarla. */
+function teclaEnCampo(evento: KeyboardEvent): void {
+  if (!desplegado.value || sugerencias.value.length === 0) return
+  const total = sugerencias.value.length
+  if (evento.key === 'ArrowDown') {
+    evento.preventDefault()
+    marcada.value = (marcada.value + 1) % total
+  } else if (evento.key === 'ArrowUp') {
+    evento.preventDefault()
+    marcada.value = (marcada.value - 1 + total) % total
+  } else if (evento.key === 'Enter' && marcada.value >= 0) {
+    evento.preventDefault()
+    void elegirSugerencia(sugerencias.value[marcada.value])
+  } else if (evento.key === 'Escape') {
+    cerrarSugerencias()
+  }
+}
+
+/** Tocar una sugerencia entra a esa cuenta exacta, aunque su nombre se repita. */
+async function elegirSugerencia(s: SugerenciaCliente): Promise<void> {
+  cerrarSugerencias()
+  telefono.value = s.nombre
+  enviando.value = true
+  error.value = ''
+  try {
+    const { esNuevo, cuponesNuevos } = await auth.entrarPorNombre({ id: s.id })
     darBienvenida(esNuevo, cuponesNuevos)
     await entrar()
   } catch (fallo) {
@@ -333,15 +413,47 @@ async function entrarComoStaff(): Promise<void> {
 
       <!-- Texto y no `tel`: en el móvil el teclado numérico no deja escribir el nombre. -->
       <label class="form-label" for="telefono">Número de WhatsApp o nombre</label>
-      <input
-        id="telefono"
-        v-model="telefono"
-        class="form-input"
-        :class="{ 'is-invalid': error }"
-        type="text"
-        autocomplete="on"
-        placeholder="Ej. 9211234567 o Ana López"
-      />
+      <!-- El desplegable sugiere clientes mientras se escribe; tocar uno entra. -->
+      <div class="buscador">
+        <input
+          id="telefono"
+          v-model="telefono"
+          class="form-input"
+          :class="{ 'is-invalid': error }"
+          type="text"
+          autocomplete="off"
+          placeholder="Ej. 9211234567 o Ana López"
+          role="combobox"
+          aria-autocomplete="list"
+          aria-controls="sugerencias-clientes"
+          :aria-expanded="desplegado && sugerencias.length > 0"
+          @focus="desplegado = true"
+          @input="desplegado = true"
+          @blur="cerrarSugerencias"
+          @keydown="teclaEnCampo"
+        />
+        <ul
+          v-if="desplegado && sugerencias.length > 0"
+          id="sugerencias-clientes"
+          class="sugerencias"
+          role="listbox"
+        >
+          <!-- `mousedown.prevent`: si el campo perdiera el foco antes, la lista se
+               cerraría y el toque no llegaría al renglón. -->
+          <li
+            v-for="(s, i) in sugerencias"
+            :key="s.id"
+            role="option"
+            :aria-selected="i === marcada"
+            :class="{ marcada: i === marcada }"
+            @mousedown.prevent
+            @click="elegirSugerencia(s)"
+          >
+            <span class="sugerencia-nombre">{{ s.nombre }}</span>
+            <span class="sugerencia-tel">••• {{ s.telefonoFinal }}</span>
+          </li>
+        </ul>
+      </div>
       <p v-if="error" class="form-error">{{ error }}</p>
 
       <button type="submit" class="btn-primary ancho" :disabled="enviando">
@@ -646,6 +758,63 @@ async function entrarComoStaff(): Promise<void> {
 .ancho {
   width: 100%;
   margin-top: 6px;
+}
+
+/* El desplegable flota debajo del campo, encima del botón «Continuar». */
+.buscador {
+  position: relative;
+}
+
+.sugerencias {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  margin: 4px 0 0;
+  padding: 4px 0;
+  list-style: none;
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow);
+  max-height: 264px;
+  overflow-y: auto;
+}
+
+.sugerencias li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--ink);
+}
+
+.sugerencias li + li {
+  border-top: 1px solid var(--line);
+}
+
+.sugerencias li:hover,
+.sugerencias li.marcada {
+  background: var(--cream-2);
+}
+
+.sugerencia-nombre {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.sugerencia-tel {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .campo-codigo {

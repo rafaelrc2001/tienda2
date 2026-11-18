@@ -47,6 +47,14 @@ export interface RespuestaVerificarCodigo extends RespuestaToken {
   cuponesNuevos: number
 }
 
+/** `GET /auth/cliente/sugerencias`: un renglón del desplegable del login. */
+export interface SugerenciaCliente {
+  id: string
+  nombre: string
+  /** Los últimos 4 dígitos del teléfono: distinguen a dos que se llaman igual. */
+  telefonoFinal: string
+}
+
 /** Modos de acceso que ofrece la API (`GET /auth/modo`). */
 export interface ModoAcceso {
   /**
