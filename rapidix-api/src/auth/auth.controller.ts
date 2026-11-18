@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Post, Query } from '@nestjs/common';
 import {
   AuthService,
   demoLoginActivo,
@@ -9,6 +9,7 @@ import { StaffLoginDto } from './dto/staff-login.dto';
 import {
   EntrarPorNombreDto,
   SolicitarCodigoDto,
+  SugerenciasClienteDto,
   VerificarCodigoDto,
 } from './dto/cliente-login.dto';
 import { EntrarDirectoDto } from './dto/demo-login.dto';
@@ -88,6 +89,18 @@ export class AuthController {
     @Body() dto: EntrarPorNombreDto,
   ): Promise<TokenResponse & { esNuevo: boolean; cuponesNuevos: number }> {
     return this.auth.entrarPorNombre(dto);
+  }
+
+  /**
+   * Sugerencias del desplegable del login de cliente: nombre y ultimos 4
+   * digitos del telefono. Provisional y publico, como la entrada por nombre.
+   */
+  @Public()
+  @Get('cliente/sugerencias')
+  sugerencias(
+    @Query() dto: SugerenciasClienteDto,
+  ): Promise<{ id: string; nombre: string; telefonoFinal: string }[]> {
+    return this.auth.sugerenciasDeClientes(dto.q);
   }
 
   /** Devuelve quien eres segun el token. Sirve para probar el guard. */

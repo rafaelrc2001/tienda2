@@ -211,9 +211,9 @@ export const useAuthStore = defineStore('auth', () => {
    * solo reconoce cuentas que ya existen y con un nombre que no se repite.
    */
   async function entrarPorNombre(
-    nombre: string,
+    quien: { nombre: string } | { id: string },
   ): Promise<{ esNuevo: boolean; cuponesNuevos: number }> {
-    const respuesta = await apiAuth.entrarPorNombre(nombre)
+    const respuesta = await apiAuth.entrarPorNombre(quien)
     await establecerSesion(respuesta.accessToken)
     return { esNuevo: respuesta.esNuevo, cuponesNuevos: respuesta.cuponesNuevos }
   }

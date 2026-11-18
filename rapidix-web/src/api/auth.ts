@@ -7,6 +7,7 @@ import type {
   RespuestaVerificarCodigo,
   RolPersonal,
   RolToken,
+  SugerenciaCliente,
   UsuarioAutenticado,
 } from './tipos'
 
@@ -36,9 +37,20 @@ export const apiAuth = {
   }): Promise<RespuestaVerificarCodigo> =>
     http.post('/auth/cliente/verificar-codigo', datos, { sinCierreDeSesion: true }),
 
-  /** Login de cliente con el nombre, sin código. Provisional. */
-  entrarPorNombre: (nombre: string): Promise<RespuestaVerificarCodigo> =>
-    http.post('/auth/cliente/entrar-por-nombre', { nombre }, { sinCierreDeSesion: true }),
+  /**
+   * Login de cliente sin código, provisional: por el nombre escrito o por el
+   * `id` de la sugerencia que se tocó.
+   */
+  entrarPorNombre: (
+    quien: { nombre: string } | { id: string },
+  ): Promise<RespuestaVerificarCodigo> =>
+    http.post('/auth/cliente/entrar-por-nombre', quien, { sinCierreDeSesion: true }),
+
+  /** Clientes cuyo nombre o teléfono contiene lo escrito, para el desplegable. */
+  sugerencias: (q: string): Promise<SugerenciaCliente[]> =>
+    http.get(`/auth/cliente/sugerencias?${new URLSearchParams({ q })}`, {
+      sinCierreDeSesion: true,
+    }),
 
   /**
    * `rol` es la tarjeta por la que se entró: si la cuenta es de otro rol la
