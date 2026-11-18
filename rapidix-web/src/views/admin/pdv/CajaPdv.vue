@@ -382,20 +382,6 @@ const topes = computed(() => {
   return mapa
 })
 
-/**
- * El piso cuyo rango contiene la cantidad: el más alto que ya se alcanzó. Con 100
- * piezas y pisos 72 y 210 rige el de 72, aunque no se haya tecleado justo 72; por
- * debajo del primero rige el precio de venta y no se marca ninguno.
- */
-function pisoVigente(producto: ProductoPdv): number | null {
-  const cantidad = cantidades.value[producto.id] ?? 0
-  let vigente: number | null = null
-  for (const e of producto.escalones) {
-    if (e.piso <= cantidad && (vigente === null || e.piso > vigente)) vigente = e.piso
-  }
-  return vigente
-}
-
 function topeDe(productoId: string): number {
   return topes.value.get(productoId) ?? 0
 }
@@ -414,6 +400,23 @@ function fijar(productoId: string, pedida: number): void {
 
 function sumar(productoId: string, delta: number): void {
   fijar(productoId, (cantidades.value[productoId] ?? 0) + delta)
+}
+
+/**
+ * El último atajo («+60», «+120») tocado en cada producto: es el que queda
+ * prendido en amarillo. Solo se pinta mientras el producto lleva algo en la
+ * orden, así que el bote, el «−» hasta cero o cobrar la venta lo apagan.
+ */
+const ultimoAtajo = ref<Record<string, number>>({})
+
+function sumarAtajo(productoId: string, piso: number): void {
+  if (bloqueada.value) return
+  sumar(productoId, piso)
+  ultimoAtajo.value = { ...ultimoAtajo.value, [productoId]: piso }
+}
+
+function atajoPrendido(productoId: string, piso: number): boolean {
+  return (cantidades.value[productoId] ?? 0) > 0 && ultimoAtajo.value[productoId] === piso
 }
 
 /** Cantidad tecleada: solo dígitos, hasta tres. Vacío mientras se escribe cuenta como cero. */
@@ -1012,11 +1015,12 @@ function limpiar(): void {
                 v-for="a in atajosDe(p)"
                 :key="a.piso"
                 type="button"
-                :class="{ promesa: a.precio !== null, activo: pisoVigente(p) === a.piso }"
+                :class="{ promesa: a.precio !== null, activo: atajoPrendido(p.id, a.piso) }"
+                :aria-pressed="atajoPrendido(p.id, a.piso)"
                 :disabled="bloqueada || (cantidades[p.id] ?? 0) >= topeDe(p.id)"
                 :title="a.precio !== null ? `Desde ${a.piso}: ${dinero(a.precio)} c/u` : undefined"
                 :aria-label="`Sumar ${a.piso} de ${p.nombre}`"
-                @click="sumar(p.id, a.piso)"
+                @click="sumarAtajo(p.id, a.piso)"
               >
                 <!-- Cada toque suma: tres a «+60» son 180. El tope de la tienda se respeta. -->
                 +{{ a.piso }}
@@ -2135,10 +2139,11 @@ function limpiar(): void {
   cursor: default;
 }
 
+/* El último atajo tocado, siempre en amarillo: haya o no descuento por volumen. */
 .escalones button.activo {
-  border-color: var(--gold-dark);
-  background: var(--gold);
-  color: var(--white);
+  border-color: var(--amarillo-dark);
+  background: var(--amarillo);
+  color: var(--ink);
 }
 
 /* Los pisos son la otra mitad de la promesa: llevan su mismo amarillo. */
