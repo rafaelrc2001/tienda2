@@ -1012,16 +1012,38 @@ function limpiar(): void {
                 v-for="a in atajosDe(p)"
                 :key="a.piso"
                 type="button"
-                :class="{
-                  promesa: a.precio !== null,
-                  activo:
-                    a.precio !== null ? pisoVigente(p) === a.piso : cantidades[p.id] === a.piso,
-                }"
-                :disabled="bloqueada || a.piso > topeDe(p.id)"
+                :class="{ promesa: a.precio !== null, activo: pisoVigente(p) === a.piso }"
+                :disabled="bloqueada || (cantidades[p.id] ?? 0) >= topeDe(p.id)"
                 :title="a.precio !== null ? `Desde ${a.piso}: ${dinero(a.precio)} c/u` : undefined"
-                @click="fijar(p.id, a.piso)"
+                :aria-label="`Sumar ${a.piso} de ${p.nombre}`"
+                @click="sumar(p.id, a.piso)"
               >
-                {{ a.piso }}
+                <!-- Cada toque suma: tres a «+60» son 180. El tope de la tienda se respeta. -->
+                +{{ a.piso }}
+              </button>
+              <!-- El mismo bote de la orden: suelta todo lo agregado de este producto. -->
+              <button
+                type="button"
+                class="quitar"
+                :aria-label="`Quitar todo ${p.nombre}`"
+                title="Quitar todo"
+                :disabled="bloqueada || (cantidades[p.id] ?? 0) === 0"
+                @click="fijar(p.id, 0)"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M3 6h18" />
+                  <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
+                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                  <path d="M10 11v6M14 11v6" />
+                </svg>
               </button>
             </div>
           </article>
@@ -2128,6 +2150,17 @@ function limpiar(): void {
 .escalones button.promesa.activo {
   background: var(--amarillo);
   color: var(--ink);
+}
+
+/* El bote junto a los pisos: `.escalones button` le pondría el blanco de los pisos. */
+.escalones .quitar {
+  min-width: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  border-color: color-mix(in srgb, var(--terracotta) 35%, var(--white));
+  background: color-mix(in srgb, var(--terracotta) 10%, var(--white));
+  color: var(--terracotta-dark);
 }
 
 /* El precio de la lista anterior, pequeño y a la izquierda del que se cobra. */
