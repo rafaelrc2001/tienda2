@@ -3,7 +3,8 @@
  * Tarjeta de producto del catálogo (HU-03, HU-07, HU-08, HU-09 y HU-10).
  *
  * Lleva el precio con los centavos en volado, el control de cantidad —con
- * escritura manual y tope de existencias—, los atajos de cantidad y, cuando
+ * escritura manual y tope de existencias—, los atajos de cantidad (cada toque
+ * a «+60» suma 60; el bote de al lado regresa a cero) y, cuando
  * el producto tiene listas de volumen, el precio escalonado: tachado, cuánto
  * ahorra y la oferta de «te faltan N».
  *
@@ -55,6 +56,20 @@ const atajos = computed<{ piso: number; precio: number | null }[]>(() =>
 
 const cantidad = computed(() => carrito.cantidadDe(props.producto.id))
 
+/**
+ * El piso cuyo precio ya rige: el más alto alcanzado, como en el PDV. Con los
+ * atajos sumando, la cantidad casi nunca es justo un piso (60 + 60 = 120 cae
+ * en el de 72), así que marcar solo la coincidencia exacta no diría nada. Sin
+ * listas de volumen no rige ninguno.
+ */
+const pisoVigente = computed<number | null>(() => {
+  let vigente: number | null = null
+  for (const e of props.producto.escalones) {
+    if (e.piso <= cantidad.value && (vigente === null || e.piso > vigente)) vigente = e.piso
+  }
+  return vigente
+})
+
 /** La línea tal como la valoró la API, si ya respondió a esta cantidad. */
 const linea = computed(() => carrito.lineaCalculada(props.producto.id))
 
@@ -85,9 +100,17 @@ function fijar(nueva: number): void {
 }
 
 /**
- * «Lo quiero»: **suma** lo que falta para la siguiente lista, a diferencia de
- * los atajos, que fijan la cantidad. El tope de existencias se sigue
- * respetando: si no alcanza, se queda en lo que hay.
+ * Los atajos **suman** su cantidad cada vez que se tocan: tres toques a «+60»
+ * son 180. El bote de al lado lo regresa a cero. El tope de existencias se
+ * sigue respetando: si no alcanza, se queda en lo que hay.
+ */
+function sumarAtajo(piso: number): void {
+  fijar(cantidad.value + piso)
+}
+
+/**
+ * «Lo quiero»: suma lo que falta para la siguiente lista. El tope de
+ * existencias se sigue respetando: si no alcanza, se queda en lo que hay.
  */
 function aceptarUpsell(): void {
   if (upsell.value) fijar(cantidad.value + upsell.value.faltan)
@@ -251,21 +274,45 @@ function alSalirDelCampo(): void {
           :key="atajo.piso"
           type="button"
           class="piso"
-          :class="{ puesto: cantidad === atajo.piso, promesa: hayPrecioEscalonado }"
-          :disabled="maximo !== null && atajo.piso > maximo"
+          :class="{ puesto: pisoVigente === atajo.piso, promesa: hayPrecioEscalonado }"
+          :disabled="maximo !== null && cantidad >= maximo"
           :title="
             atajo.precio !== null ? `Desde ${atajo.piso}: ${dinero(atajo.precio)} c/u` : undefined
           "
           :aria-label="
             atajo.precio !== null
-              ? `Llevar ${atajo.piso} a ${dinero(atajo.precio)} cada uno`
-              : `Llevar ${atajo.piso}`
+              ? `Sumar ${atajo.piso} (desde ${atajo.piso}: ${dinero(atajo.precio)} cada uno)`
+              : `Sumar ${atajo.piso}`
           "
-          @click="fijar(atajo.piso)"
+          @click="sumarAtajo(atajo.piso)"
         >
-          {{ atajo.piso }}
+          +{{ atajo.piso }}
         </button>
         <span class="medida">{{ producto.unidad }}</span>
+        <!-- El mismo bote del carrito: suelta todo lo agregado de este producto. -->
+        <button
+          type="button"
+          class="vaciar"
+          :aria-label="`Quitar todo ${producto.nombre}`"
+          title="Quitar todo"
+          :disabled="cantidad === 0"
+          @click="fijar(0)"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M3 6h18" />
+            <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
+            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+            <path d="M10 11v6M14 11v6" />
+          </svg>
+        </button>
       </div>
     </template>
   </article>
@@ -569,11 +616,13 @@ function alSalirDelCampo(): void {
   cursor: default;
 }
 
+/* Con «+120» y el bote la fila se aprieta: si hay muchos pisos, bajan de renglón. */
 .volumen {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  gap: 7px;
+  gap: 5px;
   margin-top: 5px;
 }
 
@@ -607,18 +656,19 @@ function alSalirDelCampo(): void {
   color: var(--ink);
 }
 
+/* Ancho según el número: «+5» y «+120» no caben en la misma caja fija. */
 .volumen .piso {
-  width: 28px;
+  min-width: 28px;
   height: 26px;
   border-radius: 7px;
   border: 1.5px solid var(--line);
   background: var(--white);
   font-family: var(--font-heading);
   font-weight: 800;
-  font-size: 12px;
+  font-size: 11px;
   color: var(--ink);
   cursor: pointer;
-  padding: 0;
+  padding: 0 4px;
 }
 
 .volumen .piso.puesto {
@@ -652,6 +702,32 @@ function alSalirDelCampo(): void {
   font-size: 9px;
   color: var(--muted);
   font-weight: 700;
+}
+
+/* El bote rojo claro del carrito, en chico para que quepa en la fila. */
+.volumen .vaciar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 7px;
+  border: 1.5px solid color-mix(in srgb, var(--terracotta) 35%, var(--white));
+  background: color-mix(in srgb, var(--terracotta) 10%, var(--white));
+  color: var(--terracotta-dark);
+  cursor: pointer;
+}
+
+.volumen .vaciar svg {
+  width: 14px;
+  height: 14px;
+}
+
+.volumen .vaciar:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 
 .programar {
