@@ -1784,24 +1784,16 @@ model ConfiguracionNegocio {
   /// no se ha capturado.
   controlInventario Boolean @default(false)
 
-  // Datos bancarios: cuenta principal. Es la que se da a quien marca
-  // "Requiero factura" en el carrito.
-  banco        String?
-  beneficiario String?
-  numeroCuenta String?
-  /// Para depositos en tienda de conveniencia (OXXO y similares).
-  numeroTarjeta String?
-  /// 18 digitos; es lo que pide una transferencia SPEI.
-  clabe         String?
-
-  // Cuenta secundaria: la que se da a quien paga por transferencia sin pedir
-  // factura. Mismos campos que la principal. Mientras no tenga ni tarjeta ni
-  // CLABE, al cliente sin factura se le da la principal.
-  bancoSecundaria         String?
-  beneficiarioSecundaria  String?
-  numeroCuentaSecundaria  String?
-  numeroTarjetaSecundaria String?
-  clabeSecundaria         String?
+  // Datos bancarios: las dos cuentas a las que transfiere el cliente, elegidas
+  // del directorio `CuentaBancaria` (una sola captura por cuenta, la misma que
+  // usa Finanzas -> Bancos). Restrict: una cuenta elegida no se borra.
+  /// La de quien marca "Requiero factura" en el carrito.
+  cuentaPrincipalId  String?
+  cuentaPrincipal    CuentaBancaria? @relation("CuentaPrincipal", fields: [cuentaPrincipalId], references: [id], onDelete: Restrict)
+  /// La de quien no pide factura. Sin ella, o sin tarjeta ni CLABE, se le da
+  /// la principal.
+  cuentaSecundariaId String?
+  cuentaSecundaria   CuentaBancaria? @relation("CuentaSecundaria", fields: [cuentaSecundariaId], references: [id], onDelete: Restrict)
 
   // Los datos fiscales del negocio viven en `RazonSocial`: puede haber varias.
 
@@ -1810,19 +1802,29 @@ model ConfiguracionNegocio {
   @@map("configuracion_negocio")
 }
 
-/// Las cuentas bancarias del negocio (Configuracion -> Datos bancarios ->
-/// Cuentas bancarias). Es un directorio aparte de los datos de pago de arriba:
-/// lo que ve el cliente al transferir sigue saliendo de `ConfiguracionNegocio`.
+/// Las cuentas bancarias del negocio (Configuracion -> Datos bancarios). Un
+/// solo directorio: de aqui salen las cuentas de Finanzas -> Bancos y las dos
+/// a las que transfiere el cliente (`ConfiguracionNegocio.cuentaPrincipal` y
+/// `cuentaSecundaria`).
 model CuentaBancaria {
   id           String @id @default(uuid())
   banco        String
   numeroCuenta String
+  /// Es el beneficiario que ve el cliente al transferir.
   titular      String
+  /// Para depositos en tienda de conveniencia (OXXO y similares). Opcional:
+  /// una cuenta que solo se concilia en Bancos no lo necesita.
+  numeroTarjeta String?
+  /// 18 digitos; es lo que pide una transferencia SPEI.
+  clabe         String?
 
   creadoEn DateTime @default(now())
 
   /// Finanzas -> Bancos: una cuenta con periodos ya no se borra.
   periodos PeriodoBancario[]
+
+  principalDe  ConfiguracionNegocio[] @relation("CuentaPrincipal")
+  secundariaDe ConfiguracionNegocio[] @relation("CuentaSecundaria")
 
   @@map("cuentas_bancarias")
 }

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   InternalServerErrorException,
@@ -30,7 +31,7 @@ export interface ParametrosResponse {
   controlInventario: boolean;
 }
 
-/** Una de las dos cuentas para transferir. */
+/** Una de las dos cuentas para transferir, como la ve el cliente. */
 export interface CuentaPagoResponse {
   banco: string | null;
   beneficiario: string | null;
@@ -39,11 +40,15 @@ export interface CuentaPagoResponse {
   clabe: string | null;
 }
 
-/** Datos bancarios del panel: las dos cuentas tal como se capturaron. */
+/** Datos bancarios del panel: que cuentas del directorio se dan al cliente. */
 export interface BancariosResponse {
-  principal: CuentaPagoResponse;
-  secundaria: CuentaPagoResponse;
+  cuentaPrincipalId: string | null;
+  cuentaSecundariaId: string | null;
 }
+
+/** Sin tarjeta ni CLABE una cuenta no sirve para transferir. */
+const sirveParaCobrar = (c: { numeroTarjeta: string | null; clabe: string | null }) =>
+  !!(c.numeroTarjeta || c.clabe);
 
 /** Lo que necesita la app del cliente: horario, envio y datos de pago. */
 export interface ConfiguracionPublica {
@@ -129,51 +134,48 @@ export class ConfiguracionService {
     return this.verParametros();
   }
 
-  private static principal(c: ConfiguracionNegocio): CuentaPagoResponse {
+  /** Lo que ve el cliente de una cuenta del directorio; sin cuenta, todo en `null`. */
+  private static paraCliente(c: CuentaBancaria | null): CuentaPagoResponse {
     return {
-      banco: c.banco,
-      beneficiario: c.beneficiario,
-      numeroCuenta: c.numeroCuenta,
-      numeroTarjeta: c.numeroTarjeta,
-      clabe: c.clabe,
-    };
-  }
-
-  private static secundaria(c: ConfiguracionNegocio): CuentaPagoResponse {
-    return {
-      banco: c.bancoSecundaria,
-      beneficiario: c.beneficiarioSecundaria,
-      numeroCuenta: c.numeroCuentaSecundaria,
-      numeroTarjeta: c.numeroTarjetaSecundaria,
-      clabe: c.clabeSecundaria,
+      banco: c?.banco ?? null,
+      beneficiario: c?.titular ?? null,
+      numeroCuenta: c?.numeroCuenta ?? null,
+      numeroTarjeta: c?.numeroTarjeta ?? null,
+      clabe: c?.clabe ?? null,
     };
   }
 
   async verBancarios(): Promise<BancariosResponse> {
     const c = await this.obtener();
-    return {
-      principal: ConfiguracionService.principal(c),
-      secundaria: ConfiguracionService.secundaria(c),
-    };
+    return { cuentaPrincipalId: c.cuentaPrincipalId, cuentaSecundariaId: c.cuentaSecundariaId };
   }
 
+  /**
+   * Elige las dos cuentas del directorio. Una cuenta sin tarjeta ni CLABE no
+   * se puede elegir: el cliente no tendria a donde transferir.
+   */
   async guardarBancarios(dto: BancariosDto): Promise<BancariosResponse> {
     await this.obtener();
-    const { principal: p, secundaria: s } = dto;
+    const cuentaPrincipalId = dto.cuentaPrincipalId ?? null;
+    const cuentaSecundariaId = dto.cuentaSecundariaId ?? null;
+    for (const [id, nombre] of [
+      [cuentaPrincipalId, 'principal'],
+      [cuentaSecundariaId, 'secundaria'],
+    ] as const) {
+      if (!id) continue;
+      const cuenta = await this.prisma.cuentaBancaria.findUnique({ where: { id } });
+      if (!cuenta) throw new NotFoundException(`La cuenta ${nombre} ya no existe en el directorio`);
+      if (!sirveParaCobrar(cuenta)) {
+        throw new BadRequestException({
+          statusCode: 400,
+          code: 'CUENTA_SIN_DATOS_DE_PAGO',
+          message: `La cuenta ${cuenta.numeroCuenta} de ${cuenta.banco} no tiene tarjeta ni CLABE: agrégale una para darla al cliente.`,
+        });
+      }
+    }
     await this.prisma.configuracionNegocio.update({
       where: { id: 1 },
-      data: {
-        banco: p.banco ?? null,
-        beneficiario: p.beneficiario ?? null,
-        numeroCuenta: p.numeroCuenta ?? null,
-        numeroTarjeta: p.numeroTarjeta ?? null,
-        clabe: p.clabe ?? null,
-        bancoSecundaria: s.banco ?? null,
-        beneficiarioSecundaria: s.beneficiario ?? null,
-        numeroCuentaSecundaria: s.numeroCuenta ?? null,
-        numeroTarjetaSecundaria: s.numeroTarjeta ?? null,
-        clabeSecundaria: s.clabe ?? null,
-      },
+      data: { cuentaPrincipalId, cuentaSecundariaId },
     });
     return this.verBancarios();
   }
@@ -185,11 +187,15 @@ export class ConfiguracionService {
   /**
    * La misma cuenta dos veces (mismo numero en el mismo banco, sin importar
    * mayusculas) no se da de alta: en Bancos saldria repetida y sus periodos
-   * quedarian repartidos entre las dos.
+   * quedarian repartidos entre las dos. `exceptoId` es la que se esta editando.
    */
-  async crearCuentaBancaria(dto: CuentaBancariaDto): Promise<CuentaBancaria> {
+  private async rechazarRepetida(dto: CuentaBancariaDto, exceptoId?: string): Promise<void> {
     const repetida = await this.prisma.cuentaBancaria.findFirst({
-      where: { numeroCuenta: dto.numeroCuenta, banco: { equals: dto.banco, mode: 'insensitive' } },
+      where: {
+        numeroCuenta: dto.numeroCuenta,
+        banco: { equals: dto.banco, mode: 'insensitive' },
+        ...(exceptoId ? { id: { not: exceptoId } } : {}),
+      },
     });
     if (repetida) {
       throw new ConflictException({
@@ -198,14 +204,66 @@ export class ConfiguracionService {
         message: `La cuenta ${dto.numeroCuenta} de ${repetida.banco} ya está dada de alta.`,
       });
     }
-    return this.prisma.cuentaBancaria.create({ data: { ...dto } });
+  }
+
+  private static datosDeCuenta(dto: CuentaBancariaDto) {
+    return {
+      banco: dto.banco,
+      numeroCuenta: dto.numeroCuenta,
+      titular: dto.titular,
+      numeroTarjeta: dto.numeroTarjeta ?? null,
+      clabe: dto.clabe ?? null,
+    };
+  }
+
+  async crearCuentaBancaria(dto: CuentaBancariaDto): Promise<CuentaBancaria> {
+    await this.rechazarRepetida(dto);
+    return this.prisma.cuentaBancaria.create({ data: ConfiguracionService.datosDeCuenta(dto) });
+  }
+
+  /**
+   * Edita una cuenta del directorio. Si es la principal o la secundaria, no
+   * puede quedarse sin tarjeta ni CLABE: el cliente se quedaria sin a donde
+   * transferir.
+   */
+  async actualizarCuentaBancaria(id: string, dto: CuentaBancariaDto): Promise<CuentaBancaria> {
+    const actual = await this.prisma.cuentaBancaria.findUnique({ where: { id } });
+    if (!actual) throw new NotFoundException('La cuenta bancaria no existe');
+    await this.rechazarRepetida(dto, id);
+    const datos = ConfiguracionService.datosDeCuenta(dto);
+    const uso = sirveParaCobrar(datos) ? null : await this.usoDeCuenta(id);
+    if (uso) {
+      throw new ConflictException({
+        statusCode: 409,
+        code: 'CUENTA_EN_USO',
+        message: `Es la cuenta ${uso} para transferir: necesita tarjeta o CLABE.`,
+      });
+    }
+    return this.prisma.cuentaBancaria.update({ where: { id }, data: datos });
+  }
+
+  /** 'principal' o 'secundaria' si la cuenta esta elegida para cobrar; si no, `null`. */
+  private async usoDeCuenta(id: string): Promise<'principal' | 'secundaria' | null> {
+    const c = await this.obtener();
+    if (c.cuentaPrincipalId === id) return 'principal';
+    if (c.cuentaSecundariaId === id) return 'secundaria';
+    return null;
   }
 
   /**
    * Una cuenta con periodos en Finanzas -> Bancos no se borra: se perderia su
-   * estado de cuenta. Lo impide la llave foranea (`onDelete: Restrict`).
+   * estado de cuenta. Lo impide la llave foranea (`onDelete: Restrict`). Una
+   * elegida como principal o secundaria tampoco: primero se elige otra.
    */
   async eliminarCuentaBancaria(id: string): Promise<void> {
+    const uso = await this.usoDeCuenta(id);
+    if (uso) {
+      throw new ConflictException({
+        statusCode: 409,
+        code: 'CUENTA_EN_USO',
+        message: `Es la cuenta ${uso} para transferir. Elige otra en su lugar antes de eliminarla.`,
+      });
+    }
     try {
       const { count } = await this.prisma.cuentaBancaria.deleteMany({ where: { id } });
       if (count === 0) throw new NotFoundException('La cuenta bancaria no existe');
@@ -223,10 +281,13 @@ export class ConfiguracionService {
 
   async verPublica(): Promise<ConfiguracionPublica> {
     const c = await this.obtener();
-    const principal = ConfiguracionService.principal(c);
-    const secundaria = ConfiguracionService.secundaria(c);
-    // Sin tarjeta ni CLABE la secundaria no sirve para transferir.
-    const secundariaUsable = !!(secundaria.numeroTarjeta || secundaria.clabe);
+    const cuentas = await this.prisma.configuracionNegocio.findUniqueOrThrow({
+      where: { id: 1 },
+      select: { cuentaPrincipal: true, cuentaSecundaria: true },
+    });
+    const principal = ConfiguracionService.paraCliente(cuentas.cuentaPrincipal);
+    const secundaria = ConfiguracionService.paraCliente(cuentas.cuentaSecundaria);
+    const secundariaUsable = sirveParaCobrar(secundaria);
     return {
       horario: await this.verHorario(),
       costoEnvio: c.costoEnvio.toNumber(),

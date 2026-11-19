@@ -2,81 +2,92 @@
 /**
  * Configuración → Datos bancarios (HU-A06).
  *
- * Solo captura: los datos que aquí se guardan son los que el cliente ve al
- * pagar por transferencia. Son dos cuentas, cada una con su tarjeta (depósito
- * en OXXO y similares) y su CLABE (SPEI):
- *  - Principal: la de quien marca «Requiero factura» en el carrito.
- *  - Secundaria: la de quien no la pide. Vacía, a ese cliente se le da la
- *    principal.
+ * Un solo directorio de cuentas del negocio («Cuentas bancarias»): cada cuenta
+ * se captura una vez con banco, número, titular y, si se le va a dar al
+ * cliente, tarjeta (depósito en OXXO y similares) y CLABE (SPEI). De ese mismo
+ * directorio salen las cuentas de Finanzas → Bancos.
  *
- * Debajo, «Cuentas bancarias»: el directorio de cuentas del negocio (banco,
- * número y titular). Se dan de alta y se borran una a una; no cambian lo que
- * ve el cliente al transferir.
+ * Arriba se eligen las dos cuentas a las que transfiere el cliente:
+ *  - Principal: la de quien marca «Requiero factura» en el carrito.
+ *  - Secundaria: la de quien no la pide. Sin ella, se le da la principal.
+ * Solo se ofrecen cuentas con tarjeta o CLABE: sin ellas no hay cómo pagar.
  */
-import { onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import { ErrorApi, http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
-import type { Bancarios, CuentaBancaria, DatosBancariosNegocio } from '@/api/tipos'
+import type { CuentaBancaria, DatosBancariosNegocio } from '@/api/tipos'
 
 const ui = useUiStore()
 
-type Cual = 'principal' | 'secundaria'
+const CAMPOS_CUENTA = ['banco', 'numeroCuenta', 'titular', 'numeroTarjeta', 'clabe'] as const
 
-/** Las dos cuentas, en el orden en que se pintan. */
-const BLOQUES: { cual: Cual; titulo: string; ayuda: string }[] = [
-  {
-    cual: 'principal',
-    titulo: 'Cuenta principal · con factura',
-    ayuda: 'Se le da al cliente que marca «Requiero factura».',
-  },
-  {
-    cual: 'secundaria',
-    titulo: 'Cuenta secundaria · sin factura',
-    ayuda:
-      'Se le da al cliente que no pide factura. Si la dejas sin tarjeta ni CLABE, se le da la principal.',
-  },
-]
+type FormularioCuenta = Record<(typeof CAMPOS_CUENTA)[number], string>
 
-const CAMPOS_CUENTA = ['banco', 'numeroCuenta', 'titular'] as const
+const vacio = (): FormularioCuenta => ({
+  banco: '',
+  numeroCuenta: '',
+  titular: '',
+  numeroTarjeta: '',
+  clabe: '',
+})
 
-/** Se pegan con espacios o guiones desde la app del banco; la API solo acepta dígitos. */
-function soloDigitos(valor: string | null): string | null {
-  return valor?.replace(/\D/g, '') || null
+const cargando = ref(true)
+const cuentas = ref<CuentaBancaria[]>([])
+
+// ---- Cuentas para transferir ----
+
+const elegidas = ref<DatosBancariosNegocio>({ cuentaPrincipalId: null, cuentaSecundariaId: null })
+const guardandoElegidas = ref(false)
+const erroresElegidas = ref<string[]>([])
+
+const sirveParaCobrar = (c: CuentaBancaria) => !!(c.numeroTarjeta || c.clabe)
+
+/** Las que se pueden dar al cliente: con tarjeta o CLABE. */
+const cuentasParaCobrar = computed(() => cuentas.value.filter(sirveParaCobrar))
+
+function nombreCuenta(c: CuentaBancaria): string {
+  return `${c.banco} · ${c.numeroCuenta} · ${c.titular}`
 }
 
-function paraMandar(c: Bancarios): Bancarios {
-  return {
-    banco: c.banco || null,
-    beneficiario: c.beneficiario || null,
-    numeroCuenta: c.numeroCuenta || null,
-    numeroTarjeta: soloDigitos(c.numeroTarjeta),
-    clabe: soloDigitos(c.clabe),
+/** «Principal», «Secundaria» o las dos, para la pastilla de la tabla. */
+function usoDe(c: CuentaBancaria): string | null {
+  const usos = [
+    elegidas.value.cuentaPrincipalId === c.id ? 'Principal' : null,
+    elegidas.value.cuentaSecundariaId === c.id ? 'Secundaria' : null,
+  ].filter(Boolean)
+  return usos.length > 0 ? usos.join(' y ') : null
+}
+
+async function guardarElegidas(): Promise<void> {
+  guardandoElegidas.value = true
+  erroresElegidas.value = []
+  try {
+    elegidas.value = await http.put<DatosBancariosNegocio>(
+      '/admin/configuracion/bancarios',
+      elegidas.value,
+    )
+    ui.exito('Cuentas para transferir guardadas')
+  } catch (fallo) {
+    if (fallo instanceof ErrorApi) erroresElegidas.value = [fallo.message]
+    else ui.errorDeApi(fallo)
+  } finally {
+    guardandoElegidas.value = false
   }
 }
 
-/**
- * Los errores del `ValidationPipe` llegan como `principal.clabe`; aquí se
- * reparten bajo el campo de su cuenta.
- */
-function erroresDe(cual: Cual, campo: keyof Bancarios): string | undefined {
-  return errores.value[`${cual}.${campo}`]
-}
+// ---- Directorio: alta y edición ----
 
-const bancarios = ref<DatosBancariosNegocio | null>(null)
-const cargando = ref(true)
-const guardando = ref(false)
-const errores = ref<Record<string, string>>({})
-const erroresGenerales = ref<string[]>([])
-
-const cuentas = ref<CuentaBancaria[]>([])
-const nuevaCuenta = ref({ banco: '', numeroCuenta: '', titular: '' })
-const agregando = ref(false)
+const formulario = ref<FormularioCuenta>(vacio())
+/** La cuenta que se está editando; `null` es alta. */
+const editandoId = ref<string | null>(null)
+const guardandoCuenta = ref(false)
 const erroresCuenta = ref<Record<string, string>>({})
 const erroresCuentaGenerales = ref<string[]>([])
+const bloqueFormulario = ref<HTMLElement | null>(null)
 
 onMounted(async () => {
   try {
-    ;[bancarios.value, cuentas.value] = await Promise.all([
+    ;[elegidas.value, cuentas.value] = await Promise.all([
       http.get<DatosBancariosNegocio>('/admin/configuracion/bancarios'),
       http.get<CuentaBancaria[]>('/admin/configuracion/cuentas-bancarias'),
     ])
@@ -87,19 +98,74 @@ onMounted(async () => {
   }
 })
 
-async function agregarCuenta(): Promise<void> {
-  agregando.value = true
+/** Se pegan con espacios o guiones desde la app del banco; la API solo acepta dígitos. */
+const soloDigitos = (valor: string) => valor.replace(/\D/g, '')
+
+/** Las mismas reglas de la API para tarjeta y CLABE, revisadas antes de mandar. */
+function validarCuenta(): Record<string, string> {
+  const encontrados: Record<string, string> = {}
+  const tarjeta = soloDigitos(formulario.value.numeroTarjeta)
+  const clabe = soloDigitos(formulario.value.clabe)
+  if (tarjeta && !/^\d{15,19}$/.test(tarjeta)) {
+    encontrados.numeroTarjeta = 'El número de tarjeta debe tener entre 15 y 19 dígitos'
+  }
+  if (clabe && !/^\d{18}$/.test(clabe)) {
+    encontrados.clabe = 'La CLABE debe tener 18 dígitos'
+  }
+  return encontrados
+}
+
+function limpiarFormulario(): void {
+  formulario.value = vacio()
+  editandoId.value = null
   erroresCuenta.value = {}
   erroresCuentaGenerales.value = []
+}
+
+async function editarCuenta(cuenta: CuentaBancaria): Promise<void> {
+  limpiarFormulario()
+  editandoId.value = cuenta.id
+  formulario.value = {
+    banco: cuenta.banco,
+    numeroCuenta: cuenta.numeroCuenta,
+    titular: cuenta.titular,
+    numeroTarjeta: cuenta.numeroTarjeta ?? '',
+    clabe: cuenta.clabe ?? '',
+  }
+  // Quien hace scroll es `.app-screen`: scrollIntoView lo encuentra solo.
+  await nextTick()
+  bloqueFormulario.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+async function guardarCuenta(): Promise<void> {
+  erroresCuenta.value = validarCuenta()
+  erroresCuentaGenerales.value = []
+  if (Object.keys(erroresCuenta.value).length > 0) return
+  guardandoCuenta.value = true
+  const cuerpo = {
+    banco: formulario.value.banco.trim(),
+    numeroCuenta: soloDigitos(formulario.value.numeroCuenta),
+    titular: formulario.value.titular.trim(),
+    numeroTarjeta: soloDigitos(formulario.value.numeroTarjeta) || null,
+    clabe: soloDigitos(formulario.value.clabe) || null,
+  }
   try {
-    const cuenta = await http.post<CuentaBancaria>('/admin/configuracion/cuentas-bancarias', {
-      banco: nuevaCuenta.value.banco.trim(),
-      numeroCuenta: nuevaCuenta.value.numeroCuenta.replace(/\D/g, ''),
-      titular: nuevaCuenta.value.titular.trim(),
-    })
-    cuentas.value.push(cuenta)
-    nuevaCuenta.value = { banco: '', numeroCuenta: '', titular: '' }
-    ui.exito('Cuenta bancaria agregada')
+    if (editandoId.value) {
+      const cuenta = await http.put<CuentaBancaria>(
+        `/admin/configuracion/cuentas-bancarias/${editandoId.value}`,
+        cuerpo,
+      )
+      cuentas.value = cuentas.value.map((c) => (c.id === cuenta.id ? cuenta : c))
+      ui.exito('Cuenta bancaria actualizada')
+    } else {
+      const cuenta = await http.post<CuentaBancaria>(
+        '/admin/configuracion/cuentas-bancarias',
+        cuerpo,
+      )
+      cuentas.value.push(cuenta)
+      ui.exito('Cuenta bancaria agregada')
+    }
+    limpiarFormulario()
   } catch (fallo) {
     if (fallo instanceof ErrorApi) {
       const { campos, generales } = fallo.porCampo(CAMPOS_CUENTA)
@@ -109,7 +175,7 @@ async function agregarCuenta(): Promise<void> {
       ui.errorDeApi(fallo)
     }
   } finally {
-    agregando.value = false
+    guardandoCuenta.value = false
   }
 }
 
@@ -118,57 +184,10 @@ async function eliminarCuenta(cuenta: CuentaBancaria): Promise<void> {
   try {
     await http.delete(`/admin/configuracion/cuentas-bancarias/${cuenta.id}`)
     cuentas.value = cuentas.value.filter((c) => c.id !== cuenta.id)
+    if (editandoId.value === cuenta.id) limpiarFormulario()
     ui.exito('Cuenta bancaria eliminada')
   } catch (fallo) {
     ui.errorDeApi(fallo)
-  }
-}
-
-/**
- * Las mismas reglas de la API para tarjeta y CLABE, revisadas antes de
- * mandar. Con dos cuentas, el mensaje del `ValidationPipe` llega como
- * «principal.La CLABE debe…», sin el campo: así cada error cae bajo su campo.
- */
-function validar(): Record<string, string> {
-  const encontrados: Record<string, string> = {}
-  for (const { cual } of BLOQUES) {
-    const c = paraMandar(bancarios.value![cual])
-    if (c.numeroTarjeta && !/^\d{15,19}$/.test(c.numeroTarjeta)) {
-      encontrados[`${cual}.numeroTarjeta`] = 'El número de tarjeta debe tener entre 15 y 19 dígitos'
-    }
-    if (c.clabe && !/^\d{18}$/.test(c.clabe)) {
-      encontrados[`${cual}.clabe`] = 'La CLABE debe tener 18 dígitos'
-    }
-  }
-  return encontrados
-}
-
-/** «principal.La CLABE…» → «Cuenta principal: La CLABE…». */
-function legible(mensaje: string): string {
-  return mensaje.replace(/^(principal|secundaria)\./, (_, cual: string) => `Cuenta ${cual}: `)
-}
-
-async function guardar(): Promise<void> {
-  if (!bancarios.value) return
-  errores.value = validar()
-  erroresGenerales.value = []
-  if (Object.keys(errores.value).length > 0) return
-  guardando.value = true
-  try {
-    bancarios.value = await http.put<DatosBancariosNegocio>('/admin/configuracion/bancarios', {
-      principal: paraMandar(bancarios.value.principal),
-      secundaria: paraMandar(bancarios.value.secundaria),
-    })
-    ui.exito('Datos bancarios guardados')
-  } catch (fallo) {
-    if (fallo instanceof ErrorApi) {
-      const mensajes = fallo.porCampo([]).generales
-      erroresGenerales.value = (mensajes.length > 0 ? mensajes : [fallo.message]).map(legible)
-    } else {
-      ui.errorDeApi(fallo)
-    }
-  } finally {
-    guardando.value = false
   }
 }
 </script>
@@ -181,68 +200,56 @@ async function guardar(): Promise<void> {
 
     <p v-if="cargando" class="empty-block">Cargando…</p>
 
-    <template v-else-if="bancarios">
-      <p v-for="(mensaje, i) in erroresGenerales" :key="i" class="form-error">{{ mensaje }}</p>
+    <template v-else>
+      <!-- ---- Las dos cuentas que ve el cliente al transferir ---- -->
+      <h2 class="titulo-seccion primero">Cuentas para transferir</h2>
+      <p class="ayuda">
+        Se eligen del directorio de abajo. Solo aparecen las cuentas con tarjeta o CLABE.
+      </p>
 
-      <!-- Las dos cuentas, cada una con su tarjeta (depósito) y su CLABE (SPEI). -->
-      <section v-for="b in BLOQUES" :key="b.cual" class="cuenta-pago">
-        <h2 class="titulo-seccion">{{ b.titulo }}</h2>
-        <p class="ayuda">{{ b.ayuda }}</p>
+      <p v-for="(mensaje, i) in erroresElegidas" :key="i" class="form-error">{{ mensaje }}</p>
 
-        <div class="form-block">
-          <label class="form-label" :for="`${b.cual}-banco`">Banco</label>
-          <input :id="`${b.cual}-banco`" v-model="bancarios[b.cual].banco" class="form-input" />
+      <div class="form-block">
+        <label class="form-label" for="cuenta-principal">Cuenta principal · con factura</label>
+        <select id="cuenta-principal" v-model="elegidas.cuentaPrincipalId" class="form-input">
+          <option :value="null">Sin cuenta</option>
+          <option v-for="c in cuentasParaCobrar" :key="c.id" :value="c.id">
+            {{ nombreCuenta(c) }}
+          </option>
+        </select>
+        <p class="ayuda campo">Se le da al cliente que marca «Requiero factura».</p>
 
-          <label class="form-label" :for="`${b.cual}-beneficiario`">Beneficiario</label>
-          <input
-            :id="`${b.cual}-beneficiario`"
-            v-model="bancarios[b.cual].beneficiario"
-            class="form-input"
-          />
+        <label class="form-label" for="cuenta-secundaria">Cuenta secundaria · sin factura</label>
+        <select id="cuenta-secundaria" v-model="elegidas.cuentaSecundariaId" class="form-input">
+          <option :value="null">Ninguna · se da la principal</option>
+          <option v-for="c in cuentasParaCobrar" :key="c.id" :value="c.id">
+            {{ nombreCuenta(c) }}
+          </option>
+        </select>
+        <p class="ayuda campo">Se le da al cliente que no pide factura.</p>
 
-          <label class="form-label" :for="`${b.cual}-cuenta`">Número de cuenta</label>
-          <input
-            :id="`${b.cual}-cuenta`"
-            v-model="bancarios[b.cual].numeroCuenta"
-            class="form-input"
-            inputmode="numeric"
-          />
+        <p v-if="cuentasParaCobrar.length === 0" class="ayuda campo">
+          Da de alta abajo una cuenta con tarjeta o CLABE para poder elegirla.
+        </p>
+      </div>
 
-          <label class="form-label" :for="`${b.cual}-tarjeta`">
-            Número de tarjeta (depósito)
-          </label>
-          <input
-            :id="`${b.cual}-tarjeta`"
-            v-model="bancarios[b.cual].numeroTarjeta"
-            class="form-input"
-            :class="{ 'is-invalid': erroresDe(b.cual, 'numeroTarjeta') }"
-            inputmode="numeric"
-            maxlength="23"
-          />
-          <p v-if="erroresDe(b.cual, 'numeroTarjeta')" class="form-error">
-            {{ erroresDe(b.cual, 'numeroTarjeta') }}
-          </p>
-
-          <label class="form-label" :for="`${b.cual}-clabe`">CLABE interbancaria (transferencia)</label>
-          <input
-            :id="`${b.cual}-clabe`"
-            v-model="bancarios[b.cual].clabe"
-            class="form-input"
-            :class="{ 'is-invalid': erroresDe(b.cual, 'clabe') }"
-            inputmode="numeric"
-            maxlength="22"
-          />
-          <p v-if="erroresDe(b.cual, 'clabe')" class="form-error">
-            {{ erroresDe(b.cual, 'clabe') }}
-          </p>
-        </div>
-      </section>
-
-      <button type="button" class="btn-primary ancho" :disabled="guardando" @click="guardar">
-        {{ guardando ? 'Guardando…' : 'Guardar datos bancarios' }}
+      <button
+        type="button"
+        class="btn-primary ancho"
+        :disabled="guardandoElegidas"
+        @click="guardarElegidas"
+      >
+        {{ guardandoElegidas ? 'Guardando…' : 'Guardar cuentas para transferir' }}
       </button>
 
-      <h2 class="titulo-seccion">Cuentas bancarias</h2>
+      <!-- ---- Directorio único de cuentas ---- -->
+      <h2 ref="bloqueFormulario" class="titulo-seccion">
+        {{ editandoId ? 'Editar cuenta bancaria' : 'Cuentas bancarias' }}
+      </h2>
+      <p class="ayuda">
+        Cada cuenta se captura una vez: sirve para Finanzas → Bancos y, con tarjeta o CLABE, para
+        dársela al cliente.
+      </p>
 
       <p v-for="(mensaje, i) in erroresCuentaGenerales" :key="i" class="form-error">
         {{ mensaje }}
@@ -252,7 +259,7 @@ async function guardar(): Promise<void> {
         <label class="form-label" for="cb-banco">Banco</label>
         <input
           id="cb-banco"
-          v-model="nuevaCuenta.banco"
+          v-model="formulario.banco"
           class="form-input"
           :class="{ 'is-invalid': erroresCuenta.banco }"
           maxlength="80"
@@ -263,7 +270,7 @@ async function guardar(): Promise<void> {
         <label class="form-label" for="cb-cuenta">Número de cuenta</label>
         <input
           id="cb-cuenta"
-          v-model="nuevaCuenta.numeroCuenta"
+          v-model="formulario.numeroCuenta"
           class="form-input"
           :class="{ 'is-invalid': erroresCuenta.numeroCuenta }"
           inputmode="numeric"
@@ -273,21 +280,69 @@ async function guardar(): Promise<void> {
           {{ erroresCuenta.numeroCuenta }}
         </p>
 
-        <label class="form-label" for="cb-titular">Titular</label>
+        <label class="form-label" for="cb-titular">Titular (beneficiario)</label>
         <input
           id="cb-titular"
-          v-model="nuevaCuenta.titular"
+          v-model="formulario.titular"
           class="form-input"
           :class="{ 'is-invalid': erroresCuenta.titular }"
           maxlength="120"
           placeholder="Nombre de quien es la cuenta"
         />
         <p v-if="erroresCuenta.titular" class="form-error">{{ erroresCuenta.titular }}</p>
+
+        <label class="form-label" for="cb-tarjeta">Número de tarjeta (depósito) · opcional</label>
+        <input
+          id="cb-tarjeta"
+          v-model="formulario.numeroTarjeta"
+          class="form-input"
+          :class="{ 'is-invalid': erroresCuenta.numeroTarjeta }"
+          inputmode="numeric"
+          maxlength="23"
+        />
+        <p v-if="erroresCuenta.numeroTarjeta" class="form-error">
+          {{ erroresCuenta.numeroTarjeta }}
+        </p>
+
+        <label class="form-label" for="cb-clabe">
+          CLABE interbancaria (transferencia) · opcional
+        </label>
+        <input
+          id="cb-clabe"
+          v-model="formulario.clabe"
+          class="form-input"
+          :class="{ 'is-invalid': erroresCuenta.clabe }"
+          inputmode="numeric"
+          maxlength="22"
+        />
+        <p v-if="erroresCuenta.clabe" class="form-error">{{ erroresCuenta.clabe }}</p>
       </div>
 
-      <button type="button" class="btn-primary ancho" :disabled="agregando" @click="agregarCuenta">
-        {{ agregando ? 'Agregando…' : '+ Dar de alta cuenta bancaria' }}
-      </button>
+      <div class="acciones-formulario">
+        <button
+          v-if="editandoId"
+          type="button"
+          class="btn-secondary"
+          :disabled="guardandoCuenta"
+          @click="limpiarFormulario"
+        >
+          Cancelar
+        </button>
+        <button
+          type="button"
+          class="btn-primary ancho"
+          :disabled="guardandoCuenta"
+          @click="guardarCuenta"
+        >
+          {{
+            guardandoCuenta
+              ? 'Guardando…'
+              : editandoId
+                ? 'Guardar cambios'
+                : '+ Dar de alta cuenta bancaria'
+          }}
+        </button>
+      </div>
 
       <div v-if="cuentas.length > 0" class="tabla-envoltorio lista-cuentas">
         <table class="tabla">
@@ -296,17 +351,34 @@ async function guardar(): Promise<void> {
               <th>Banco</th>
               <th>Número de cuenta</th>
               <th>Titular</th>
+              <th>Tarjeta</th>
+              <th>CLABE</th>
               <th />
             </tr>
           </thead>
           <tbody>
-            <tr v-for="cuenta in cuentas" :key="cuenta.id">
+            <tr
+              v-for="cuenta in cuentas"
+              :key="cuenta.id"
+              :class="{ editando: cuenta.id === editandoId }"
+            >
               <td>
                 <span class="folio">{{ cuenta.banco }}</span>
+                <span v-if="usoDe(cuenta)" class="pastilla uso">{{ usoDe(cuenta) }}</span>
               </td>
               <td>{{ cuenta.numeroCuenta }}</td>
               <td>{{ cuenta.titular }}</td>
-              <td class="num">
+              <td>{{ cuenta.numeroTarjeta ?? '—' }}</td>
+              <td>{{ cuenta.clabe ?? '—' }}</td>
+              <td class="num acciones">
+                <button
+                  type="button"
+                  class="accion"
+                  :aria-label="`Editar la cuenta ${cuenta.numeroCuenta}`"
+                  @click="editarCuenta(cuenta)"
+                >
+                  ✏️
+                </button>
                 <button
                   type="button"
                   class="accion"
@@ -339,14 +411,10 @@ async function guardar(): Promise<void> {
   font-size: 15px;
   color: var(--ink);
   margin: 24px 0 10px;
+  scroll-margin-top: 12px;
 }
 
-.lista-cuentas {
-  margin-top: 14px;
-}
-
-/* La primera cuenta va pegada arriba; la segunda se separa con el aire del título. */
-.cuenta-pago:first-of-type .titulo-seccion {
+.titulo-seccion.primero {
   margin-top: 0;
 }
 
@@ -357,8 +425,36 @@ async function guardar(): Promise<void> {
   margin: -4px 0 10px;
 }
 
+/* Bajo un campo del bloque: pegada al selector de arriba. */
+.ayuda.campo {
+  margin: 6px 0 14px;
+}
+
+.ayuda.campo:last-child {
+  margin-bottom: 0;
+}
+
+.lista-cuentas {
+  margin-top: 14px;
+}
+
 .tabla {
-  min-width: 420px;
+  min-width: 640px;
+}
+
+.tabla tr.editando td {
+  background: color-mix(in srgb, var(--amarillo) 25%, var(--white));
+}
+
+.pastilla.uso {
+  margin-left: 6px;
+  padding: 2px 8px;
+  background: color-mix(in srgb, var(--verde) 18%, var(--white));
+  color: var(--verde-compra);
+}
+
+.acciones {
+  white-space: nowrap;
 }
 
 .accion {
@@ -369,6 +465,15 @@ async function guardar(): Promise<void> {
   border-radius: 10px;
   cursor: pointer;
   font-size: 13px;
+}
+
+.accion + .accion {
+  margin-left: 6px;
+}
+
+.acciones-formulario {
+  display: flex;
+  gap: 10px;
 }
 
 .admin-back-inline {
