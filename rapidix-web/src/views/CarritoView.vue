@@ -61,17 +61,14 @@ const cubiertoConBilletera = computed(
   () => !!previsualizacion.value && previsualizacion.value.aPagar === 0,
 )
 
-const METODOS = computed<{ valor: MetodoPago; titulo: string; detalle: string }[]>(() => [
+// Transferencia va sin detalle, a petición del negocio.
+const METODOS = computed<{ valor: MetodoPago; titulo: string; detalle?: string }[]>(() => [
   {
     valor: 'EFECTIVO',
     titulo: 'Efectivo',
     detalle: carrito.metodoEntrega === 'TIENDA' ? 'Pagas al recoger' : 'Pagas al recibir',
   },
-  {
-    valor: 'TRANSFERENCIA',
-    titulo: 'Transferencia electrónica',
-    detalle: 'Desde tu banco',
-  },
+  { valor: 'TRANSFERENCIA', titulo: 'Transferencia electrónica' },
 ])
 
 const ENTREGAS: { valor: MetodoEntrega; titulo: string }[] = [
@@ -781,13 +778,11 @@ async function confirmar(): Promise<void> {
       solo se recogen las elecciones y se pinta su respuesta.
     -->
       <section v-if="pago" class="seccion-pago res-seccion" aria-labelledby="titulo-pago">
-        <!-- La pregunta encabeza la sección: cubre billetera y método a la vez. -->
-        <p id="titulo-pago" class="form-label">¿Cómo vas a pagar?</p>
-
         <!--
-          Nace apagado. Queda en el pedido para que el panel sepa a quién
-          facturar y, con transferencia, decide la cuenta: la principal con
-          factura, la secundaria sin ella.
+          Va antes de la pregunta del pago, a petición del negocio. Nace
+          apagado. Queda en el pedido para que el panel sepa a quién facturar
+          y, con transferencia, decide la cuenta: la principal con factura, la
+          secundaria sin ella.
         -->
         <div class="bloque">
           <label class="opcion-check">
@@ -795,6 +790,9 @@ async function confirmar(): Promise<void> {
             <span>Requiero factura</span>
           </label>
         </div>
+
+        <!-- La pregunta encabeza el pago: cubre billetera y método a la vez. -->
+        <p id="titulo-pago" class="form-label">¿Cómo vas a pagar?</p>
 
         <!-- Billetera (HU-12): solo con saldo. Se combina con cualquier método. -->
         <div v-if="pago.saldoBilletera > 0" class="bloque">
@@ -839,7 +837,7 @@ async function confirmar(): Promise<void> {
                   @change="elegirMetodo(m.valor)"
                 />
                 <span class="metodo-titulo">{{ m.titulo }}</span>
-                <span class="metodo-detalle">{{ m.detalle }}</span>
+                <span v-if="m.detalle" class="metodo-detalle">{{ m.detalle }}</span>
               </label>
 
               <!-- Efectivo (HU-09): con cuánto paga, para que el repartidor lleve cambio.
@@ -872,19 +870,10 @@ async function confirmar(): Promise<void> {
               </div>
 
               <!--
-                Transferencia (HU-11): en el checkout solo se anuncia que habrá
-                datos, a petición del negocio. La cuenta (según «Requiero
-                factura»), el monto y la referencia salen en la pantalla de
-                éxito, cuando el pedido ya existe.
+                Transferencia (HU-11): en el checkout no lleva texto, a petición
+                del negocio. La cuenta (según «Requiero factura»), el monto y la
+                referencia salen en la pantalla de éxito, con el pedido hecho.
               -->
-              <div
-                v-else-if="m.valor === 'TRANSFERENCIA' && carrito.metodoPago === 'TRANSFERENCIA'"
-                class="detalle-metodo"
-              >
-                <p class="nota">
-                  Al realizar tu pedido se te darán los datos para realizar la transferencia
-                </p>
-              </div>
             </template>
           </div>
         </div>
