@@ -38,6 +38,7 @@ import VisorPdfFactura from '@/components/VisorPdfFactura.vue'
 import PestanasFinanzas from './finanzas/PestanasFinanzas.vue'
 import { buscarPedidos } from './finanzas/busqueda'
 import { montoCapturado } from './rutas/liquidacion'
+import { vEjeUnico } from '@/utils/ejeUnico'
 import type {
   BotonPago,
   EstadoPago,
@@ -271,8 +272,9 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
     <SkeletonList v-if="cargando" :cantidad="4" />
 
     <!-- Mismo formato que Operaciones: tabla del panel, pastillas y detalle.
-         «Pedido» se queda fija al desplazar a la derecha. -->
-    <div v-else-if="visibles.length > 0" class="tabla-envoltorio panel">
+         «Pedido» se queda fija al desplazar a la derecha; cada gesto mueve
+         un solo eje para que la tabla no se tambalee en diagonal. -->
+    <div v-else-if="visibles.length > 0" v-eje-unico class="tabla-envoltorio panel">
       <table class="tabla lineal panel una-fija">
         <thead>
           <tr>
@@ -310,14 +312,9 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
                     />
                   </svg>
                 </button>
+                <!-- Solo el folio: es la columna fija y en el teléfono todo lo
+                     que mida de más se le quita a las columnas que se desplazan. -->
                 <span class="folio">{{ pedido.folio }}</span>
-                <span
-                  v-if="pedido.requiereFactura"
-                  class="pastilla pide-factura"
-                  title="El cliente marcó «Requiero factura»"
-                >
-                  🧾 Factura
-                </span>
               </td>
               <!-- La tienda por la que entró; «App» o «Ruta» si no pasó por ninguna. -->
               <td>{{ pedido.canal }}</td>
