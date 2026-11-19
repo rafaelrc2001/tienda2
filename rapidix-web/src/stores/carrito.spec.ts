@@ -633,6 +633,8 @@ describe("carrito · confirmar pedido", () => {
       metodoPago: "TRANSFERENCIA",
       metodoEntrega: "DOMICILIO",
       direccion: DIRECCION,
+      // «Requiero factura» nace apagado y viaja siempre.
+      requiereFactura: false,
       aceptaTerminos: true,
     });
     expect(pedido.folio).toBe("ORD000001");

@@ -1501,12 +1501,13 @@ export interface Bancarios {
 }
 
 /**
- * `GET/PUT /admin/configuracion/bancarios`: la principal se da a quien marca
- * «Requiero factura»; la secundaria, a quien no.
+ * `GET/PUT /admin/configuracion/bancarios`: qué cuentas del directorio se dan
+ * al cliente que transfiere. La principal a quien marca «Requiero factura»; la
+ * secundaria, a quien no.
  */
 export interface DatosBancariosNegocio {
-  principal: Bancarios
-  secundaria: Bancarios
+  cuentaPrincipalId: string | null
+  cuentaSecundariaId: string | null
 }
 
 /** Lo que `GET /configuracion` le da al carrito para transferir. */
@@ -1517,12 +1518,20 @@ export interface BancariosPublicos {
   datosBancariosSinFactura: Bancarios
 }
 
-/** `GET /admin/configuracion/cuentas-bancarias`: el directorio de cuentas del negocio. */
+/**
+ * `GET /admin/configuracion/cuentas-bancarias`: el directorio único de cuentas
+ * del negocio. De aquí salen las de Finanzas → Bancos y las dos a las que
+ * transfiere el cliente.
+ */
 export interface CuentaBancaria {
   id: string
   banco: string
   numeroCuenta: string
+  /** El beneficiario que ve el cliente al transferir. */
   titular: string
+  /** Opcionales: sin tarjeta ni CLABE no se le puede dar al cliente. */
+  numeroTarjeta: string | null
+  clabe: string | null
   creadoEn: string
 }
 

@@ -5,6 +5,7 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  IsUUID,
   Matches,
   MaxLength,
   Min,
@@ -89,53 +90,38 @@ export class ParametrosDto {
   controlInventario?: boolean;
 }
 
-/** Los datos de una de las dos cuentas para transferir (principal o secundaria). */
-export class CuentaPagoDto {
-  @IsOptional()
-  @IsString()
-  @MaxLength(80)
-  banco?: string | null;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(120)
-  beneficiario?: string | null;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(40)
-  numeroCuenta?: string | null;
-
-  /** Solo digitos: el cliente lo copia tal cual a la app de su banco. */
-  @IsOptional()
-  @IsString()
-  @Matches(/^\d{15,19}$/, { message: 'El número de tarjeta debe tener entre 15 y 19 dígitos' })
-  numeroTarjeta?: string | null;
-
-  @IsOptional()
-  @IsString()
-  @Matches(/^\d{18}$/, { message: 'La CLABE debe tener 18 dígitos' })
-  clabe?: string | null;
-}
-
 /**
- * Datos bancarios (HU-A06): la cuenta principal, que se da a quien pide
- * factura, y la secundaria, que se da a quien no la pide.
+ * Datos bancarios (HU-A06): que cuentas del directorio se dan al cliente que
+ * transfiere. La principal a quien pide factura; la secundaria a quien no.
+ * `null` deja la casilla sin cuenta.
  */
 export class BancariosDto {
-  @ValidateNested()
-  @Type(() => CuentaPagoDto)
-  principal: CuentaPagoDto;
+  @IsOptional()
+  @IsUUID('all', { message: 'Elige una cuenta del directorio' })
+  cuentaPrincipalId?: string | null;
 
-  @ValidateNested()
-  @Type(() => CuentaPagoDto)
-  secundaria: CuentaPagoDto;
+  @IsOptional()
+  @IsUUID('all', { message: 'Elige una cuenta del directorio' })
+  cuentaSecundariaId?: string | null;
 }
 
 const recortado = ({ value }: { value: unknown }) =>
   typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : value;
 
-/** Alta de una cuenta en Datos bancarios -> Cuentas bancarias. Los tres obligatorios. */
+/**
+ * Tarjeta y CLABE se pegan con espacios o guiones desde la app del banco: se
+ * quedan solo los digitos, y vacias valen `null` (son opcionales).
+ */
+const soloDigitosONulo = ({ value }: { value: unknown }) => {
+  if (typeof value !== 'string') return value;
+  return value.replace(/\D/g, '') || null;
+};
+
+/**
+ * Alta o edicion de una cuenta del directorio. Banco, numero y titular son
+ * obligatorios (los pide Finanzas -> Bancos); tarjeta y CLABE solo hacen
+ * falta si la cuenta se le da al cliente para transferir.
+ */
 export class CuentaBancariaDto {
   @Transform(recortado)
   @IsString()
@@ -156,6 +142,19 @@ export class CuentaBancariaDto {
   @MinLength(1, { message: 'El titular es obligatorio' })
   @MaxLength(120)
   titular: string;
+
+  /** Solo digitos: el cliente lo copia tal cual a la app de su banco. */
+  @Transform(soloDigitosONulo)
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{15,19}$/, { message: 'El número de tarjeta debe tener entre 15 y 19 dígitos' })
+  numeroTarjeta?: string | null;
+
+  @Transform(soloDigitosONulo)
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{18}$/, { message: 'La CLABE debe tener 18 dígitos' })
+  clabe?: string | null;
 }
 
 export class NoticiaDto {

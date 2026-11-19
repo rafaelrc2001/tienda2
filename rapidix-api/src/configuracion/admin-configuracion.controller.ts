@@ -87,6 +87,14 @@ export class AdminConfiguracionController {
     return this.configuracion.crearCuentaBancaria(dto);
   }
 
+  @Put('cuentas-bancarias/:id')
+  actualizarCuentaBancaria(
+    @Param('id') id: string,
+    @Body() dto: CuentaBancariaDto,
+  ): Promise<CuentaBancaria> {
+    return this.configuracion.actualizarCuentaBancaria(id, dto);
+  }
+
   @Delete('cuentas-bancarias/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
   eliminarCuentaBancaria(@Param('id') id: string): Promise<void> {
