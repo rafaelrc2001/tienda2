@@ -870,6 +870,9 @@ input:checked + .switch-danger-slider {
   flex: 1;
   min-height: 0;
   overflow: auto;
+  /* Sin rebote en los bordes: en el iPhone la tabla se estiraba y arrastraba
+     la pantalla entera al llegar al final de las columnas o de las filas. */
+  overscroll-behavior: none;
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
 }
