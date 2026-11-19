@@ -42,7 +42,8 @@
       "PowerShell(npx prettier --single-quote --trailing-comma all --print-width 100 --no-semi --write src/components/tienda/TarjetaProducto.vue)",
       "PowerShell(gh pr list --head diagnostico-barra-safari --state all)",
       "PowerShell(git switch -c barra-compra-repinta-texto-completo origin/main)",
-      "PowerShell(git branch --unset-upstream)"
+      "PowerShell(git branch --unset-upstream)",
+      "Bash(git merge *)"
     ]
   }
 }
