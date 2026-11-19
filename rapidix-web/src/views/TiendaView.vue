@@ -646,6 +646,15 @@ async function comprarAhora(): Promise<void> {
   align-items: stretch;
   gap: 6px;
   z-index: 5;
+  /*
+   * Capa de composición propia. Sin esto, Safari en iOS no repinta bien el
+   * botón cuando cambia el importe mientras el catálogo pasa por debajo: se
+   * quedaban pedazos del texto anterior encimados («Comprar aho$580.00») hasta
+   * el siguiente toque.
+   */
+  transform: translateZ(0);
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
 }
 
 .fila-compra {
