@@ -99,6 +99,8 @@ export interface PedidoDto {
    * del catalogo del SAT.
    */
   formaPagoFactura: string;
+  /** El cliente marco "Requiero factura" en el carrito. */
+  requiereFactura: boolean;
   /** Su CFDI, si ya se timbro. Una reserva a medio timbrar no cuenta. */
   factura: {
     uuid: string;
@@ -446,6 +448,7 @@ export class PedidosService {
           pagoCon: enEfectivo && dto.pagoCon !== undefined ? new Decimal(dto.pagoCon) : null,
           cambio: enEfectivo ? pago.cambio : null,
           pagoValidadoEn: estadoPago === EstadoPago.PAGADO ? new Date() : null,
+          requiereFactura: dto.requiereFactura ?? false,
           metodoEntrega,
           // Se congela aqui y no al acreditarse: es el que vio el cliente al
           // confirmar, aunque su nivel cambie antes de que se le pague.
@@ -971,6 +974,7 @@ export class PedidosService {
       // Una reserva TIMBRANDO tampoco se ofrece: hay un timbre en camino.
       facturable: !pedido.factura && bloqueoDeFacturacion(pedido) === null,
       formaPagoFactura: formaDePago(pedido),
+      requiereFactura: pedido.requiereFactura,
       factura:
         timbrada?.uuid && timbrada.timbradaEn
           ? {

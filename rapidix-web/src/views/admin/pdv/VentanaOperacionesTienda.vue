@@ -208,6 +208,13 @@ function iconoMetodo(metodo: string): string {
                   </svg>
                 </button>
                 <span class="folio">{{ pedido.folio }}</span>
+                <span
+                  v-if="pedido.requiereFactura"
+                  class="pastilla pide-factura"
+                  title="El cliente marcó «Requiero factura»"
+                >
+                  🧾 Factura
+                </span>
               </td>
               <td>{{ pedido.clienteNombre ?? '—' }}</td>
               <td>{{ fechaNumerica(pedido.creadoEn) }}</td>

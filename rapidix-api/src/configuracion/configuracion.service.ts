@@ -30,7 +30,8 @@ export interface ParametrosResponse {
   controlInventario: boolean;
 }
 
-export interface BancariosResponse {
+/** Una de las dos cuentas para transferir. */
+export interface CuentaPagoResponse {
   banco: string | null;
   beneficiario: string | null;
   numeroCuenta: string | null;
@@ -38,12 +39,25 @@ export interface BancariosResponse {
   clabe: string | null;
 }
 
+/** Datos bancarios del panel: las dos cuentas tal como se capturaron. */
+export interface BancariosResponse {
+  principal: CuentaPagoResponse;
+  secundaria: CuentaPagoResponse;
+}
+
 /** Lo que necesita la app del cliente: horario, envio y datos de pago. */
 export interface ConfiguracionPublica {
   horario: Omit<HorarioResponse, 'incrementoFuera'> & { incrementoFuera: number };
   costoEnvio: number;
   montoEnvioGratis: number;
-  datosBancarios: BancariosResponse;
+  /** Cuenta principal: la de quien marca "Requiero factura". */
+  datosBancarios: CuentaPagoResponse;
+  /**
+   * La cuenta de quien NO pide factura, ya resuelta: la secundaria, o la
+   * principal mientras la secundaria no tenga ni tarjeta ni CLABE. Asi el
+   * cliente nunca se queda sin a donde transferir.
+   */
+  datosBancariosSinFactura: CuentaPagoResponse;
   abiertoAhora: boolean;
 }
 
@@ -115,8 +129,7 @@ export class ConfiguracionService {
     return this.verParametros();
   }
 
-  async verBancarios(): Promise<BancariosResponse> {
-    const c = await this.obtener();
+  private static principal(c: ConfiguracionNegocio): CuentaPagoResponse {
     return {
       banco: c.banco,
       beneficiario: c.beneficiario,
@@ -126,16 +139,40 @@ export class ConfiguracionService {
     };
   }
 
+  private static secundaria(c: ConfiguracionNegocio): CuentaPagoResponse {
+    return {
+      banco: c.bancoSecundaria,
+      beneficiario: c.beneficiarioSecundaria,
+      numeroCuenta: c.numeroCuentaSecundaria,
+      numeroTarjeta: c.numeroTarjetaSecundaria,
+      clabe: c.clabeSecundaria,
+    };
+  }
+
+  async verBancarios(): Promise<BancariosResponse> {
+    const c = await this.obtener();
+    return {
+      principal: ConfiguracionService.principal(c),
+      secundaria: ConfiguracionService.secundaria(c),
+    };
+  }
+
   async guardarBancarios(dto: BancariosDto): Promise<BancariosResponse> {
     await this.obtener();
+    const { principal: p, secundaria: s } = dto;
     await this.prisma.configuracionNegocio.update({
       where: { id: 1 },
       data: {
-        banco: dto.banco ?? null,
-        beneficiario: dto.beneficiario ?? null,
-        numeroCuenta: dto.numeroCuenta ?? null,
-        numeroTarjeta: dto.numeroTarjeta ?? null,
-        clabe: dto.clabe ?? null,
+        banco: p.banco ?? null,
+        beneficiario: p.beneficiario ?? null,
+        numeroCuenta: p.numeroCuenta ?? null,
+        numeroTarjeta: p.numeroTarjeta ?? null,
+        clabe: p.clabe ?? null,
+        bancoSecundaria: s.banco ?? null,
+        beneficiarioSecundaria: s.beneficiario ?? null,
+        numeroCuentaSecundaria: s.numeroCuenta ?? null,
+        numeroTarjetaSecundaria: s.numeroTarjeta ?? null,
+        clabeSecundaria: s.clabe ?? null,
       },
     });
     return this.verBancarios();
@@ -186,11 +223,16 @@ export class ConfiguracionService {
 
   async verPublica(): Promise<ConfiguracionPublica> {
     const c = await this.obtener();
+    const principal = ConfiguracionService.principal(c);
+    const secundaria = ConfiguracionService.secundaria(c);
+    // Sin tarjeta ni CLABE la secundaria no sirve para transferir.
+    const secundariaUsable = !!(secundaria.numeroTarjeta || secundaria.clabe);
     return {
       horario: await this.verHorario(),
       costoEnvio: c.costoEnvio.toNumber(),
       montoEnvioGratis: c.montoEnvioGratis.toNumber(),
-      datosBancarios: await this.verBancarios(),
+      datosBancarios: principal,
+      datosBancariosSinFactura: secundariaUsable ? secundaria : principal,
       abiertoAhora: ConfiguracionService.estaDentroDeHorario(c),
     };
   }

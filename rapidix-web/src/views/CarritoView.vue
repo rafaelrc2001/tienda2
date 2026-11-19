@@ -14,6 +14,7 @@ import { emojiDeNivel, imagenDeNivel } from '@/utils/medallas'
 import { ErrorApi, http } from '@/api/http'
 import type {
   Bancarios,
+  BancariosPublicos,
   DireccionEntrega,
   EstadoCashback,
   MetodoEntrega,
@@ -23,6 +24,7 @@ import type {
   TiendaParaRecoger,
 } from '@/api/tipos'
 import BloqueDireccionEntrega from '@/components/BloqueDireccionEntrega.vue'
+import DatosTransferencia from '@/components/DatosTransferencia.vue'
 import { direccionInicial, erroresDireccion } from '@/utils/direccion'
 
 const carrito = useCarritoStore()
@@ -36,8 +38,11 @@ const pedidoHecho = ref<Pedido | null>(null)
 const cashbackBilleteraHecho = ref<number | null>(null)
 // Nace marcado a petición del negocio; el cliente puede desmarcarlo y entonces no confirma.
 const aceptaTerminos = ref(true)
-/** Datos para la transferencia, pedidos la primera vez que se elige ese método. */
-const bancarios = ref<Bancarios | null>(null)
+/**
+ * Las dos cuentas para transferir, pedidas la primera vez que se elige ese
+ * método: la principal (con factura) y la de sin factura, ya resuelta por la API.
+ */
+const bancarios = ref<BancariosPublicos | null>(null)
 const cargandoBancarios = ref(false)
 
 const previsualizacion = computed(() => carrito.previsualizacion)
@@ -279,9 +284,12 @@ async function cargarBancarios(): Promise<void> {
   if (bancarios.value || cargandoBancarios.value) return
   cargandoBancarios.value = true
   try {
-    bancarios.value = await http
-      .get<{ datosBancarios: Bancarios }>('/configuracion')
-      .then((c) => c.datosBancarios)
+    const c = await http.get<BancariosPublicos>('/configuracion')
+    bancarios.value = {
+      datosBancarios: c.datosBancarios,
+      // Una API anterior a la cuenta secundaria no la manda: se usa la principal.
+      datosBancariosSinFactura: c.datosBancariosSinFactura ?? c.datosBancarios,
+    }
   } catch {
     bancarios.value = null
   } finally {
@@ -289,24 +297,24 @@ async function cargarBancarios(): Promise<void> {
   }
 }
 
-// El número de cuenta no se muestra al cliente: basta con tarjeta o CLABE para transferir.
-const hayBancarios = computed(
-  () => !!bancarios.value && !!(bancarios.value.clabe || bancarios.value.numeroTarjeta),
-)
-
 /**
- * Copia un dato bancario. Sin permiso de portapapeles, el dato sigue
- * seleccionable. El aviso llega ya conjugado: «CLABE copiada» pero
- * «Beneficiario copiado».
+ * La cuenta a la que se transfiere: la principal si pidió factura, la
+ * secundaria si no. `null` si no hay datos o no sirven: el número de cuenta
+ * no se muestra al cliente, así que sin tarjeta ni CLABE no hay cómo pagar.
  */
-async function copiar(texto: string, aviso: string): Promise<void> {
-  try {
-    await navigator.clipboard.writeText(texto)
-    ui.exito(aviso)
-  } catch {
-    ui.error('No pudimos copiar. Mantén presionado el número para copiarlo.')
-  }
+function cuentaPara(requiereFactura: boolean): Bancarios | null {
+  if (!bancarios.value) return null
+  const cuenta = requiereFactura
+    ? bancarios.value.datosBancarios
+    : bancarios.value.datosBancariosSinFactura
+  return cuenta.clabe || cuenta.numeroTarjeta ? cuenta : null
 }
+
+/** La del carrito sigue al check; la de la pantalla de éxito, a lo que quedó en el pedido. */
+const cuentaCarrito = computed(() => cuentaPara(carrito.requiereFactura))
+const cuentaPedido = computed(() =>
+  pedidoHecho.value ? cuentaPara(pedidoHecho.value.requiereFactura) : null,
+)
 
 // Si el método ya venía elegido (volver al carrito), los datos se piden igual.
 if (carrito.metodoPago === 'TRANSFERENCIA') cargarBancarios()
@@ -461,84 +469,13 @@ async function confirmar(): Promise<void> {
       <p class="exito-pago-titulo">
         🏦 Transferencia · <span class="pendiente">Pago pendiente</span>
       </p>
-      <dl v-if="bancarios && hayBancarios" class="datos-banco">
-        <div>
-          <dt>Banco</dt>
-          <dd>{{ bancarios.banco ?? '—' }}</dd>
-        </div>
-        <!-- Todo lo que hay que teclear en la app del banco se puede copiar. -->
-        <div v-if="bancarios.beneficiario">
-          <dt>Beneficiario</dt>
-          <dd class="dato-copiable">
-            <span class="dato-fuerte">{{ bancarios.beneficiario }}</span>
-            <button
-              type="button"
-              class="boton-copiar"
-              aria-label="Copiar beneficiario"
-              @click="copiar(bancarios.beneficiario, 'Beneficiario copiado')"
-            >
-              Copiar
-            </button>
-          </dd>
-        </div>
-        <div v-if="bancarios.numeroTarjeta">
-          <dt>Tarjeta</dt>
-          <dd class="dato-copiable">
-            <span class="dato-fuerte">{{ bancarios.numeroTarjeta }}</span>
-            <button
-              type="button"
-              class="boton-copiar"
-              aria-label="Copiar número de tarjeta"
-              @click="copiar(bancarios.numeroTarjeta, 'Tarjeta copiada')"
-            >
-              Copiar
-            </button>
-          </dd>
-        </div>
-        <div v-if="bancarios.clabe">
-          <dt>CLABE</dt>
-          <dd class="dato-copiable">
-            <span class="dato-fuerte">{{ bancarios.clabe }}</span>
-            <button
-              type="button"
-              class="boton-copiar"
-              aria-label="Copiar CLABE"
-              @click="copiar(bancarios.clabe, 'CLABE copiada')"
-            >
-              Copiar
-            </button>
-          </dd>
-        </div>
-        <div>
-          <dt>Monto</dt>
-          <dd class="dato-copiable">
-            <span class="dato-fuerte">{{ dinero(pedidoHecho.pago.aPagar) }}</span>
-            <!-- Se copia el número pelado: el «$» no se teclea en el banco. -->
-            <button
-              type="button"
-              class="boton-copiar"
-              aria-label="Copiar monto"
-              @click="copiar(pedidoHecho.pago.aPagar.toFixed(2), 'Monto copiado')"
-            >
-              Copiar
-            </button>
-          </dd>
-        </div>
-        <div>
-          <dt>Referencia</dt>
-          <dd class="dato-copiable">
-            <span class="dato-fuerte">{{ pedidoHecho.pago.referencia }}</span>
-            <button
-              type="button"
-              class="boton-copiar"
-              aria-label="Copiar referencia"
-              @click="copiar(pedidoHecho.pago.referencia, 'Referencia copiada')"
-            >
-              Copiar
-            </button>
-          </dd>
-        </div>
-      </dl>
+      <!-- La cuenta que tocaba según «Requiero factura» al confirmar. -->
+      <DatosTransferencia
+        v-if="cuentaPedido"
+        :cuenta="cuentaPedido"
+        :monto="pedidoHecho.pago.aPagar"
+        :referencia="pedidoHecho.pago.referencia"
+      />
       <p v-else class="exito-pago-linea">
         No pudimos mostrar los datos bancarios. Escríbenos y usa
         <strong>{{ pedidoHecho.pago.referencia }}</strong> como referencia.
@@ -844,6 +781,18 @@ async function confirmar(): Promise<void> {
         <!-- La pregunta encabeza la sección: cubre billetera y método a la vez. -->
         <p id="titulo-pago" class="form-label">¿Cómo vas a pagar?</p>
 
+        <!--
+          Nace apagado. Queda en el pedido para que el panel sepa a quién
+          facturar y, con transferencia, decide la cuenta: la principal con
+          factura, la secundaria sin ella.
+        -->
+        <div class="bloque">
+          <label class="opcion-check">
+            <input v-model="carrito.requiereFactura" type="checkbox" />
+            <span>Requiero factura</span>
+          </label>
+        </div>
+
         <!-- Billetera (HU-12): solo con saldo. Se combina con cualquier método. -->
         <div v-if="pago.saldoBilletera > 0" class="bloque">
           <label class="opcion-check">
@@ -920,15 +869,29 @@ async function confirmar(): Promise<void> {
               </div>
 
               <!--
-              Transferencia (HU-11): en el checkout solo se anuncia que habra
-              datos; los del negocio se muestran en la pantalla de exito, junto
-              al folio que sirve de referencia.
-            -->
+                Transferencia (HU-11): la cuenta se ve ya aquí y cambia con
+                «Requiero factura». El monto y la referencia (el folio) llegan
+                en la pantalla de éxito, cuando el pedido existe.
+              -->
               <div
                 v-else-if="m.valor === 'TRANSFERENCIA' && carrito.metodoPago === 'TRANSFERENCIA'"
                 class="detalle-metodo"
               >
-                <p class="nota">
+                <template v-if="cuentaCarrito">
+                  <p class="nota">
+                    {{
+                      carrito.requiereFactura
+                        ? 'Transfiere a esta cuenta (con factura):'
+                        : 'Transfiere a esta cuenta:'
+                    }}
+                  </p>
+                  <DatosTransferencia :cuenta="cuentaCarrito" />
+                  <p class="nota">
+                    Al confirmar te damos el monto y la referencia para tu transferencia.
+                  </p>
+                </template>
+                <p v-else-if="cargandoBancarios" class="nota">Cargando los datos bancarios…</p>
+                <p v-else class="nota">
                   Al realizar tu pedido se te darán los datos para realizar la transferencia
                 </p>
               </div>
@@ -1411,26 +1374,6 @@ async function confirmar(): Promise<void> {
   margin: 8px 0 0;
 }
 
-.dato-copiable {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.boton-copiar {
-  flex-shrink: 0;
-  font-family: var(--font-heading);
-  font-weight: 700;
-  font-size: 11px;
-  color: var(--verde-dark);
-  background: var(--white);
-  border: 1.5px solid var(--verde-dark);
-  border-radius: 999px;
-  padding: 3px 10px;
-  cursor: pointer;
-}
-
 /* ---- Método de envío ---- */
 
 .entrega {
@@ -1835,42 +1778,6 @@ async function confirmar(): Promise<void> {
 /* En la pantalla de éxito el desglose se lee como un recibo: título centrado. */
 .titulo-desglose {
   text-align: center;
-}
-
-.datos-banco {
-  margin: 10px 0 0;
-}
-
-.datos-banco div {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  padding: 6px 0;
-  border-bottom: 1px solid var(--divisor, var(--line));
-  font-size: 12px;
-}
-
-.datos-banco > div:last-child {
-  border-bottom: none;
-}
-
-.datos-banco dt {
-  color: var(--muted);
-}
-
-/* `anywhere` y no `break-all`: parte el número largo sin trocear los nombres. */
-.datos-banco dd {
-  margin: 0;
-  color: var(--ink);
-  text-align: right;
-  overflow-wrap: anywhere;
-}
-
-.datos-banco .dato-fuerte {
-  font-family: var(--font-heading);
-  font-weight: 800;
-  user-select: all;
 }
 
 /* La caja de .recompensas; aquí solo cambia su hueco y alineación en la pantalla de éxito. */

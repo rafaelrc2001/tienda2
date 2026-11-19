@@ -308,6 +308,13 @@ function marcarTodos(): void {
                   </svg>
                 </button>
                 <span class="folio">{{ pedido.folio }}</span>
+                <span
+                  v-if="pedido.requiereFactura"
+                  class="pastilla pide-factura"
+                  title="El cliente marcó «Requiero factura»"
+                >
+                  🧾 Factura
+                </span>
               </td>
               <!-- La colonia agrupa a simple vista lo que va para el mismo rumbo. -->
               <td>{{ colonia(pedido) }}</td>
