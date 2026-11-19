@@ -518,10 +518,19 @@ async function comprarAhora(): Promise<void> {
           <span class="cashback-monto">{{ dinero(cashback) }}</span>
         </span>
 
+        <!--
+          El :key recrea la etiqueta entera cada vez que cambia el importe. Safari
+          en iOS, al cambiar solo el texto del importe, repinta nada más ese
+          pedazo; como el texto va centrado, «Comprar ahora:» se recorre y se
+          quedaban sus píxeles viejos encimados («Comprar aho$580.00») hasta el
+          siguiente toque. Un nodo nuevo obliga a pintar la línea completa.
+        -->
         <button ref="botonComprar" type="button" class="comprar" @click="comprarAhora">
-          Comprar ahora:
-          <span class="amt">
-            {{ carrito.subtotal !== null ? dinero(carrito.subtotal) : '…' }}
+          <span :key="carrito.subtotal ?? 'calculando'" class="comprar-texto">
+            Comprar ahora:
+            <span class="amt">
+              {{ carrito.subtotal !== null ? dinero(carrito.subtotal) : '…' }}
+            </span>
           </span>
         </button>
       </div>
@@ -749,6 +758,14 @@ async function comprarAhora(): Promise<void> {
   letter-spacing: 0.2px;
   text-align: center;
   cursor: pointer;
+}
+
+/*
+ * En bloque para que su caja sea el ancho entero del botón: al recrearse (ver
+ * el :key en la plantilla) Safari invalida toda la línea, no solo el texto.
+ */
+.comprar-texto {
+  display: block;
 }
 
 /* El importe solo en negrita: el naranja sobre el verde no se lee. */

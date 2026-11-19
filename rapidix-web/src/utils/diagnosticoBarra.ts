@@ -64,7 +64,9 @@ function redondear(n: number): number {
 
 /** Cajas de cada línea del texto suelto «Comprar ahora:» (sin el importe). */
 function cajasDelTexto(boton: HTMLElement): Record<string, number>[] {
-  const nodo = Array.from(boton.childNodes).find(
+  // El texto va dentro de `.comprar-texto` (el bloque que se recrea con cada importe).
+  const contenedor = boton.querySelector('.comprar-texto') ?? boton
+  const nodo = Array.from(contenedor.childNodes).find(
     (n) => n.nodeType === Node.TEXT_NODE && (n.textContent ?? '').trim() !== '',
   )
   if (!nodo) return []
