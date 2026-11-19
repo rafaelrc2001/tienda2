@@ -310,8 +310,11 @@ function cuentaPara(requiereFactura: boolean): Bancarios | null {
   return cuenta.clabe || cuenta.numeroTarjeta ? cuenta : null
 }
 
-/** La del carrito sigue al check; la de la pantalla de éxito, a lo que quedó en el pedido. */
-const cuentaCarrito = computed(() => cuentaPara(carrito.requiereFactura))
+/**
+ * La de la pantalla de éxito sigue a lo que quedó en el pedido. Antes de
+ * confirmar no se muestra ninguna; los datos se piden desde que se elige
+ * transferencia solo para que la pantalla de éxito no espere.
+ */
 const cuentaPedido = computed(() =>
   pedidoHecho.value ? cuentaPara(pedidoHecho.value.requiereFactura) : null,
 )
@@ -869,29 +872,16 @@ async function confirmar(): Promise<void> {
               </div>
 
               <!--
-                Transferencia (HU-11): la cuenta se ve ya aquí y cambia con
-                «Requiero factura». El monto y la referencia (el folio) llegan
-                en la pantalla de éxito, cuando el pedido existe.
+                Transferencia (HU-11): en el checkout solo se anuncia que habrá
+                datos, a petición del negocio. La cuenta (según «Requiero
+                factura»), el monto y la referencia salen en la pantalla de
+                éxito, cuando el pedido ya existe.
               -->
               <div
                 v-else-if="m.valor === 'TRANSFERENCIA' && carrito.metodoPago === 'TRANSFERENCIA'"
                 class="detalle-metodo"
               >
-                <template v-if="cuentaCarrito">
-                  <p class="nota">
-                    {{
-                      carrito.requiereFactura
-                        ? 'Transfiere a esta cuenta (con factura):'
-                        : 'Transfiere a esta cuenta:'
-                    }}
-                  </p>
-                  <DatosTransferencia :cuenta="cuentaCarrito" />
-                  <p class="nota">
-                    Al confirmar te damos el monto y la referencia para tu transferencia.
-                  </p>
-                </template>
-                <p v-else-if="cargandoBancarios" class="nota">Cargando los datos bancarios…</p>
-                <p v-else class="nota">
+                <p class="nota">
                   Al realizar tu pedido se te darán los datos para realizar la transferencia
                 </p>
               </div>
