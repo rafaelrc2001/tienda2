@@ -5,6 +5,7 @@ import {
   ArrayMinSize,
   Equals,
   IsArray,
+  IsBoolean,
   IsDefined,
   IsEnum,
   IsInt,
@@ -285,6 +286,15 @@ export class CrearPedidoDto {
   @ValidateNested()
   @Type(() => DireccionEntregaDto)
   direccion?: DireccionEntregaDto;
+
+  /**
+   * La casilla "Requiero factura" del carrito; sin ella, no. Queda en el
+   * pedido para que el panel sepa a quien facturar, y decide a que cuenta se
+   * le pidio transferir (la principal con factura, la secundaria sin ella).
+   */
+  @IsOptional()
+  @IsBoolean({ message: 'Indica si requieres factura' })
+  requiereFactura?: boolean;
 
   /** La casilla de aviso de privacidad y terminos (HU-14). */
   @Equals(true, { message: 'Acepta el aviso de privacidad y los términos para continuar' })

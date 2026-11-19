@@ -503,6 +503,8 @@ export interface Pedido {
   facturable: boolean
   /** Forma de pago con la que «Facturar» llega elegida: la del método del pedido. */
   formaPagoFactura: string
+  /** El cliente marcó «Requiero factura» en el carrito. */
+  requiereFactura: boolean
   /** Su CFDI, si ya se timbró. */
   factura: FacturaDePedido | null
   pago: {
@@ -1488,6 +1490,7 @@ export interface Parametros {
   controlInventario: boolean
 }
 
+/** Una de las dos cuentas a las que el cliente transfiere. */
 export interface Bancarios {
   banco: string | null
   beneficiario: string | null
@@ -1495,6 +1498,23 @@ export interface Bancarios {
   numeroTarjeta: string | null
   /** 18 dígitos (SPEI). */
   clabe: string | null
+}
+
+/**
+ * `GET/PUT /admin/configuracion/bancarios`: la principal se da a quien marca
+ * «Requiero factura»; la secundaria, a quien no.
+ */
+export interface DatosBancariosNegocio {
+  principal: Bancarios
+  secundaria: Bancarios
+}
+
+/** Lo que `GET /configuracion` le da al carrito para transferir. */
+export interface BancariosPublicos {
+  /** Cuenta principal: con factura. */
+  datosBancarios: Bancarios
+  /** Sin factura: la secundaria, o la principal si la secundaria está vacía. */
+  datosBancariosSinFactura: Bancarios
 }
 
 /** `GET /admin/configuracion/cuentas-bancarias`: el directorio de cuentas del negocio. */

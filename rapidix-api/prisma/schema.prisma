@@ -928,6 +928,9 @@ model Pedido {
   pagoCon            Decimal?   @db.Decimal(12, 2)
   cambio             Decimal?   @db.Decimal(12, 2)
   pagoValidadoEn     DateTime?
+  /// El cliente marco "Requiero factura" en el carrito. Decide a que cuenta
+  /// transfiere (la principal) y le dice al panel a quien hay que facturar.
+  requiereFactura    Boolean    @default(false)
 
   /// A domicilio paga envio; recogido en tienda no.
   metodoEntrega MetodoEntrega @default(DOMICILIO)
@@ -1781,7 +1784,8 @@ model ConfiguracionNegocio {
   /// no se ha capturado.
   controlInventario Boolean @default(false)
 
-  // Datos bancarios
+  // Datos bancarios: cuenta principal. Es la que se da a quien marca
+  // "Requiero factura" en el carrito.
   banco        String?
   beneficiario String?
   numeroCuenta String?
@@ -1789,6 +1793,15 @@ model ConfiguracionNegocio {
   numeroTarjeta String?
   /// 18 digitos; es lo que pide una transferencia SPEI.
   clabe         String?
+
+  // Cuenta secundaria: la que se da a quien paga por transferencia sin pedir
+  // factura. Mismos campos que la principal. Mientras no tenga ni tarjeta ni
+  // CLABE, al cliente sin factura se le da la principal.
+  bancoSecundaria         String?
+  beneficiarioSecundaria  String?
+  numeroCuentaSecundaria  String?
+  numeroTarjetaSecundaria String?
+  clabeSecundaria         String?
 
   // Los datos fiscales del negocio viven en `RazonSocial`: puede haber varias.
 

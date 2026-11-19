@@ -89,7 +89,8 @@ export class ParametrosDto {
   controlInventario?: boolean;
 }
 
-export class BancariosDto {
+/** Los datos de una de las dos cuentas para transferir (principal o secundaria). */
+export class CuentaPagoDto {
   @IsOptional()
   @IsString()
   @MaxLength(80)
@@ -115,6 +116,20 @@ export class BancariosDto {
   @IsString()
   @Matches(/^\d{18}$/, { message: 'La CLABE debe tener 18 dígitos' })
   clabe?: string | null;
+}
+
+/**
+ * Datos bancarios (HU-A06): la cuenta principal, que se da a quien pide
+ * factura, y la secundaria, que se da a quien no la pide.
+ */
+export class BancariosDto {
+  @ValidateNested()
+  @Type(() => CuentaPagoDto)
+  principal: CuentaPagoDto;
+
+  @ValidateNested()
+  @Type(() => CuentaPagoDto)
+  secundaria: CuentaPagoDto;
 }
 
 const recortado = ({ value }: { value: unknown }) =>

@@ -145,6 +145,12 @@ export const useCarritoStore = defineStore('carrito', () => {
   const pagoCon = ref<number | null>(null)
   /** Saldo de billetera que quiere aplicar. */
   const usarBilletera = ref(0)
+  /**
+   * «Requiero factura». Nace apagado y no se guarda en el navegador, como el
+   * resto del pago. Con transferencia decide a qué cuenta se paga: la
+   * principal con factura, la secundaria sin ella.
+   */
+  const requiereFactura = ref(false)
   /** Recoger en tienda mientras no elija otra cosa, a petición del negocio. */
   const metodoEntrega = ref<MetodoEntrega>(guardado.metodoEntrega)
   /** Dónde recoge. Solo cuenta con `metodoEntrega` en TIENDA. */
@@ -169,6 +175,7 @@ export const useCarritoStore = defineStore('carrito', () => {
     metodoPago.value = null
     pagoCon.value = null
     usarBilletera.value = 0
+    requiereFactura.value = false
   }
 
   function olvidarEntrega(): void {
@@ -597,6 +604,7 @@ export const useCarritoStore = defineStore('carrito', () => {
       tiendaId: tiendaDelPedido(),
       // Copia completa, con el pin: el pedido no vuelve a leer el perfil (HU-11).
       direccion: metodoEntrega.value === 'DOMICILIO' ? (direccionPedido ?? undefined) : undefined,
+      requiereFactura: requiereFactura.value,
       aceptaTerminos,
     })
     // El servidor ya borró su copia dentro de la transacción del pedido: aquí
@@ -628,6 +636,7 @@ export const useCarritoStore = defineStore('carrito', () => {
     metodoPago,
     pagoCon,
     usarBilletera,
+    requiereFactura,
     metodoEntrega,
     tiendaId,
     direccion,

@@ -311,6 +311,13 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
                   </svg>
                 </button>
                 <span class="folio">{{ pedido.folio }}</span>
+                <span
+                  v-if="pedido.requiereFactura"
+                  class="pastilla pide-factura"
+                  title="El cliente marcó «Requiero factura»"
+                >
+                  🧾 Factura
+                </span>
               </td>
               <!-- La tienda por la que entró; «App» o «Ruta» si no pasó por ninguna. -->
               <td>{{ pedido.canal }}</td>
