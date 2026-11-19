@@ -37,22 +37,16 @@ const emit = defineEmits<{ (e: 'programar'): void }>()
 const carrito = useCarritoStore()
 
 /**
- * Pisos de respaldo de los atajos de cantidad (HU-09).
+ * Atajos de cantidad (HU-09): son los pisos de las listas de volumen y se
+ * anuncian como «Lleva más, paga menos».
  *
- * Con listas de volumen los atajos son sus pisos y se anuncian como «Lleva
- * más, paga menos». Sin listas se cae a 5 y 10, pero **no se anuncian como
- * descuento**: el precio no baja, y prometer «paga menos» y cobrar lo mismo es
- * peor que no ofrecerlo.
+ * Un producto con un solo precio (Lista 1 «en adelante») no lleva atajos: antes
+ * se caía a «+5» y «+10», y en la tarjeta parecían listas de precio que el
+ * producto no tiene. Ahí solo queda el bote para regresar a cero.
  */
-const PISOS_RESPALDO = [5, 10]
-
 const hayPrecioEscalonado = computed(() => props.producto.escalones.length > 0)
 
-const atajos = computed<{ piso: number; precio: number | null }[]>(() =>
-  hayPrecioEscalonado.value
-    ? props.producto.escalones
-    : PISOS_RESPALDO.map((piso) => ({ piso, precio: null })),
-)
+const atajos = computed(() => props.producto.escalones)
 
 const cantidad = computed(() => carrito.cantidadDe(props.producto.id))
 
@@ -198,8 +192,9 @@ function alSalirDelCampo(): void {
     <!-- La unidad va en la misma línea que el precio: se lee «$15 pza» de un vistazo. -->
     <p class="precio">
       <s v-if="precioTachado !== null" class="tachado">{{ dinero(precioTachado) }}</s>
-      <span class="entero">{{ precio.entero }}</span
-      ><span class="centavos">{{ precio.centavos }}</span>
+      <span class="entero">{{ precio.entero }}</span><span class="centavos">{{
+        precio.centavos
+      }}</span>
       <span class="unidad">{{ producto.unidad }}</span>
     </p>
     <p v-if="ahorro > 0" class="ahorro">Ahorras {{ dinero(ahorro) }}</p>
@@ -263,30 +258,24 @@ function alSalirDelCampo(): void {
       </div>
 
       <div class="volumen">
-        <span class="etiqueta" :class="{ promesa: hayPrecioEscalonado }">
-          {{ hayPrecioEscalonado ? 'Lleva más, paga menos' : 'Compra por' }}
-        </span>
-        <button
-          v-for="atajo in atajos"
-          :key="atajo.piso"
-          type="button"
-          class="piso"
-          :class="{ puesto: ultimoAtajo === atajo.piso, promesa: hayPrecioEscalonado }"
-          :aria-pressed="ultimoAtajo === atajo.piso"
-          :disabled="maximo !== null && cantidad >= maximo"
-          :title="
-            atajo.precio !== null ? `Desde ${atajo.piso}: ${dinero(atajo.precio)} c/u` : undefined
-          "
-          :aria-label="
-            atajo.precio !== null
-              ? `Sumar ${atajo.piso} (desde ${atajo.piso}: ${dinero(atajo.precio)} cada uno)`
-              : `Sumar ${atajo.piso}`
-          "
-          @click="sumarAtajo(atajo.piso)"
-        >
-          +{{ atajo.piso }}
-        </button>
-        <span class="medida">{{ producto.unidad }}</span>
+        <template v-if="hayPrecioEscalonado">
+          <span class="etiqueta promesa">Lleva más, paga menos</span>
+          <button
+            v-for="atajo in atajos"
+            :key="atajo.piso"
+            type="button"
+            class="piso promesa"
+            :class="{ puesto: ultimoAtajo === atajo.piso }"
+            :aria-pressed="ultimoAtajo === atajo.piso"
+            :disabled="maximo !== null && cantidad >= maximo"
+            :title="`Desde ${atajo.piso}: ${dinero(atajo.precio)} c/u`"
+            :aria-label="`Sumar ${atajo.piso} (desde ${atajo.piso}: ${dinero(atajo.precio)} cada uno)`"
+            @click="sumarAtajo(atajo.piso)"
+          >
+            +{{ atajo.piso }}
+          </button>
+          <span class="medida">{{ producto.unidad }}</span>
+        </template>
         <!-- El mismo bote del carrito: suelta todo lo agregado de este producto. -->
         <button
           type="button"
@@ -679,9 +668,8 @@ function alSalirDelCampo(): void {
 /*
  * Los pisos son la otra mitad de «lleva más, paga menos», así que llevan su
  * mismo amarillo: el borde dice a qué cantidades se refiere la promesa y el
- * piso elegido se rellena. Sigue la regla de la etiqueta —solo cuando el
- * descuento es real; con los pisos de respaldo (5 y 10) no baja el precio y no
- * se promete nada— y el texto va oscuro, que el blanco sobre amarillo no se lee.
+ * piso elegido se rellena. El texto va oscuro, que el blanco sobre amarillo no
+ * se lee.
  */
 .volumen .piso.promesa {
   border-color: var(--amarillo-dark);
