@@ -10,9 +10,21 @@ const config = {
   multiplicadorCashback: D(2),
   montoMinimoCashback: D(600),
   incrementoFuera: D(20),
+  atenderFuera: true,
 } as ConfiguracionNegocio;
 
 describe('CarritoService.calcularCarrito', () => {
+  it('fuera de horario cobra el recargo solo si se atiende fuera de horario', () => {
+    const base = { subtotal: D(100), baseCashback: D(0) };
+    const atendiendo = CarritoService.calcularCarrito(base, config, false, D(1));
+    expect(atendiendo.recargoFuera.toNumber()).toBe(20);
+
+    const apagado = { ...config, atenderFuera: false } as ConfiguracionNegocio;
+    const sinAtender = CarritoService.calcularCarrito(base, apagado, false, D(1));
+    expect(sinAtender.recargoFuera.toNumber()).toBe(0);
+    expect(sinAtender.total.toNumber()).toBe(130);
+  });
+
   it('el cashback sale de la base participante, no del subtotal', () => {
     // $1,000 de subtotal, pero solo $700 participan: Bronce 1 % -> $7.
     const desglose = CarritoService.calcularCarrito(

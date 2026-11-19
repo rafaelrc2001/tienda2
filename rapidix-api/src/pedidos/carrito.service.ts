@@ -729,9 +729,13 @@ export class CarritoService {
         ? new Decimal(0)
         : new Decimal(config.costoEnvio);
 
-    const recargoFuera = dentroDeHorario
-      ? new Decimal(0)
-      : subtotal.mul(config.incrementoFuera).div(100).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+    // El porcentaje solo cuenta con "Atender fuera de horario" encendido. Con el
+    // interruptor apagado el pedido fuera de horario no se puede confirmar, y la
+    // previsualizacion no debe mostrar un recargo que nunca se cobraria.
+    const recargoFuera =
+      dentroDeHorario || !config.atenderFuera
+        ? new Decimal(0)
+        : subtotal.mul(config.incrementoFuera).div(100).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
 
     const total = subtotal
       .add(envio)
