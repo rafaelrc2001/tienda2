@@ -1995,3 +1995,20 @@ model LecturaDestacados {
 
   @@map("lecturas_destacados")
 }
+
+/// TEMPORAL: telemetria para depurar en Safari iOS el importe encimado de la
+/// barra «Comprar ahora». Se borra (modelo + tabla) cuando se cierre el caso.
+model DiagnosticoUi {
+  id        BigInt   @id @default(autoincrement())
+  creadoEn  DateTime @default(now())
+  /// Id aleatorio por carga de la pagina: agrupa los eventos de una visita.
+  sesion    String
+  evento    String
+  usuarioId String?
+  userAgent String?
+  datos     Json
+
+  @@index([sesion, creadoEn])
+  @@index([creadoEn])
+  @@map("diagnostico_ui")
+}

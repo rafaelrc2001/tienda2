@@ -23,6 +23,7 @@ import { ClientesModule } from './clientes/clientes.module';
 import { FacturacionModule } from './facturacion/facturacion.module';
 import { BancosModule } from './bancos/bancos.module';
 import { UsuariosModule } from './usuarios/usuarios.module';
+import { DiagnosticoModule } from './diagnostico/diagnostico.module';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { RolesGuard } from './auth/roles.guard';
 
@@ -53,6 +54,7 @@ import { RolesGuard } from './auth/roles.guard';
     FacturacionModule,
     BancosModule,
     UsuariosModule,
+    DiagnosticoModule, // TEMPORAL: depuracion de la barra de compra en Safari
     HealthModule,
   ],
   providers: [

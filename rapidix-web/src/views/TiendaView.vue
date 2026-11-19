@@ -20,13 +20,14 @@
  * Se puede mirar sin sesión (HU-02): el visitante ve el catálogo del negocio y
  * puede armar su carrito; el login se le pide al pulsar «Comprar ahora».
  */
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { http } from '@/api/http'
 import { useAuthStore } from '@/stores/auth'
 import { useCarritoStore } from '@/stores/carrito'
 import { useUiStore } from '@/stores/ui'
 import { dinero } from '@/utils/formato'
+import * as diagnostico from '@/utils/diagnosticoBarra'
 import SkeletonCard from '@/components/SkeletonCard.vue'
 import CarruselFamilia from '@/components/tienda/CarruselFamilia.vue'
 import PanelUltimoPedido from '@/components/tienda/PanelUltimoPedido.vue'
@@ -105,6 +106,39 @@ const mostrarFastTrack = computed(
 )
 
 const cashback = computed(() => carrito.cashbackEstimado ?? 0)
+
+// ------------------------------------------------------------------
+// TEMPORAL: sonda del importe encimado en Safari iOS (ver diagnosticoBarra.ts)
+// ------------------------------------------------------------------
+
+const botonComprar = ref<HTMLElement | null>(null)
+/** Cuándo cambió el importe por última vez: los toques cercanos se registran. */
+let ultimoCambioImporte = 0
+
+watch(
+  () => carrito.subtotal,
+  async (nuevo, anterior) => {
+    ultimoCambioImporte = performance.now()
+    await nextTick()
+    diagnostico.medirTrasCambio(() => botonComprar.value, {
+      anterior,
+      nuevo,
+      piezas: carrito.lineas.reduce((s, l) => s + l.cantidad, 0),
+      calculando: carrito.calculando,
+    })
+  },
+)
+
+/** El cliente dice que al tocar se arregla: se mide justo en ese toque. */
+function alTocarParaDiagnostico(e: PointerEvent): void {
+  if (!botonComprar.value || performance.now() - ultimoCambioImporte > 10000) return
+  const objetivo = e.target as Element | null
+  diagnostico.registrar('toque', {
+    objetivo: objetivo ? `${objetivo.tagName.toLowerCase()}.${String(objetivo.className)}` : null,
+    msDesdeCambio: Math.round(performance.now() - ultimoCambioImporte),
+    ...diagnostico.medirBoton(botonComprar.value),
+  })
+}
 
 // ------------------------------------------------------------------
 // Cómo recibe el pedido: de qué inventario se le enseña
@@ -200,10 +234,16 @@ onMounted(async () => {
   if (!carrito.vacio) await carrito.refrescarImporte().catch(() => {})
 
   escucharDesplazamiento()
+
+  // TEMPORAL: sonda de Safari (ver diagnosticoBarra.ts).
+  diagnostico.escucharGlobales(() => botonComprar.value)
+  document.addEventListener('pointerdown', alTocarParaDiagnostico, true)
 })
 
 onBeforeUnmount(() => {
   contenedor?.removeEventListener('scroll', alDesplazar)
+  document.removeEventListener('pointerdown', alTocarParaDiagnostico, true)
+  diagnostico.vaciar()
 })
 
 /** Secuencia de las cargas del catálogo: cambiar dos veces de tienda deja ganar a la última. */
@@ -485,7 +525,7 @@ async function comprarAhora(): Promise<void> {
           quedaban sus píxeles viejos encimados («Comprar aho$580.00») hasta el
           siguiente toque. Un nodo nuevo obliga a pintar la línea completa.
         -->
-        <button type="button" class="comprar" @click="comprarAhora">
+        <button ref="botonComprar" type="button" class="comprar" @click="comprarAhora">
           <span :key="carrito.subtotal ?? 'calculando'" class="comprar-texto">
             Comprar ahora:
             <span class="amt">
