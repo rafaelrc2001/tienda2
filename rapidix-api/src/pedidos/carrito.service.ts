@@ -565,9 +565,13 @@ export class CarritoService {
     // Fuera de horario con recargo en 0 no hay nada que avisar: el pedido
     // cuesta lo mismo que dentro del horario.
     if (!dentroDeHorario && !config.atenderFuera) {
-      avisos.push(
-        `Ahora mismo no estamos recibiendo pedidos. Nuestro horario es de ${config.abre} a ${config.cierra}.`,
-      );
+      // DESACTIVADO a peticion del negocio hasta que definan el texto del
+      // aviso; para reactivarlo basta con descomentar el push. La rama se
+      // conserva vacia para que no caiga en el aviso de recargo de abajo.
+      // POST /pedidos sigue rechazando el pedido fuera de horario.
+      // avisos.push(
+      //   `Ahora mismo no estamos recibiendo pedidos. Nuestro horario es de ${config.abre} a ${config.cierra}.`,
+      // );
     } else if (!dentroDeHorario && config.incrementoFuera.greaterThan(0)) {
       avisos.push(
         `Estás fuera del horario de servicio (${config.abre} a ${config.cierra}): tu pedido lleva un recargo del ${config.incrementoFuera.toString()} %.`,
