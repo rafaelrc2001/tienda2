@@ -1,7 +1,7 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Tienda } from '@prisma/client';
-import { TiendasService } from './tiendas.service';
+import { ExistenciaTiendaDto, TiendasService } from './tiendas.service';
 import { TransferenciaDto, TransferenciasService } from './transferencias.service';
 import { BuscarTransferenciasDto, CrearTransferenciaDto } from './dto/transferencia.dto';
 import { RequiereSeccion } from '../auth/seccion.decorator';
@@ -29,6 +29,16 @@ export class AdminTransferenciasController {
   @Get('tiendas')
   destinos(): Promise<Tienda[]> {
     return this.tiendas.activas();
+  }
+
+  /**
+   * Productos -> Inventario con una tienda elegida: lo mismo que ve su PDV.
+   * Va tambien aqui porque quien surte desde bodega necesita ver que le falta
+   * a cada tienda sin tener la seccion PDV.
+   */
+  @Get('tiendas/:id/inventario')
+  inventarioDeTienda(@Param('id') id: string): Promise<ExistenciaTiendaDto[]> {
+    return this.tiendas.inventario(id);
   }
 
   @Get('transferencias')
