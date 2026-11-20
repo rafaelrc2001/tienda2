@@ -11,10 +11,25 @@ import type { Directive } from 'vue'
  * la inercia nativa; por eso el eje sigue fijo tras soltar, mientras dura el
  * deslizamiento, hasta el siguiente toque. El ratón y la rueda no pasan por
  * aquí: sin toque no hay eje.
+ *
+ * **En iOS no se instala.** WebKit ya bloquea el eje por su cuenta en las cajas
+ * con scroll (el *directional lock* nativo), así que ahí sobra; y peor:
+ * escribir `scrollTop`/`scrollLeft` mientras dura la inercia la interrumpe
+ * cuadro a cuadro y la tabla avanza a tirones. Todos los navegadores de iOS
+ * son WebKit, así que se mira la plataforma y no el navegador.
  */
 
 /** Píxeles de recorrido antes de decidir hacia dónde va el gesto. */
 const UMBRAL = 8
+
+/** iPhone, iPod o iPad; el iPad moderno se presenta como Mac, pero con toque. */
+function esIos(): boolean {
+  if (typeof navigator === 'undefined') return false
+  return (
+    /iP(hone|od|ad)/.test(navigator.userAgent) ||
+    (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1)
+  )
+}
 
 interface Estado {
   x: number
@@ -29,6 +44,7 @@ const estados = new WeakMap<HTMLElement, Estado>()
 
 export const vEjeUnico: Directive<HTMLElement> = {
   mounted(caja) {
+    if (esIos()) return
     const estado: Estado = { x: 0, y: 0, left: 0, top: 0, eje: null, limpiar: () => {} }
 
     const alTocar = (e: TouchEvent): void => {
