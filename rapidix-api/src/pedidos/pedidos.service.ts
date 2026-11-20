@@ -50,9 +50,9 @@ const INCLUIR_PEDIDO = {
     select: { id: true, monto: true, metodo: true, enPuerta: true, creadoEn: true },
   },
   tienda: { select: { id: true, nombre: true, direccion: true } },
-  // Solo para el canal: el pedido de mostrador no lleva `tiendaId`, su tienda
-  // es la del turno en el que se capturo.
-  turno: { select: { tienda: { select: { nombre: true } } } },
+  // Para el canal y `deTienda`: el pedido de mostrador no lleva `tiendaId`, su
+  // tienda es la del turno en el que se capturo.
+  turno: { select: { tienda: { select: { id: true, nombre: true } } } },
   factura: {
     select: { estado: true, uuid: true, modo: true, timbradaEn: true, serie: true, folio: true },
   },
@@ -156,6 +156,12 @@ export interface PedidoDto {
    * faltante del camion; "App" en los demas, que surte bodega.
    */
   canal: string;
+  /**
+   * La tienda que surte y entrega el pedido: la de su mostrador o la donde se
+   * recoge. `null` si lo surte bodega. Es de su inventario de donde sale, y
+   * Operaciones no lo mueve: lo mueve esa tienda desde su PDV.
+   */
+  deTienda: { id: string; nombre: string } | null;
   /** Snapshot de la direccion del pedido; `null` si se recoge en tienda. */
   direccion: Record<string, unknown> | null;
   cupon: { code: string; titulo: string } | null;
@@ -940,7 +946,7 @@ export class PedidosService {
         creadoEn: Date;
       }[];
       tienda: { id: string; nombre: string; direccion: string } | null;
-      turno: { tienda: { nombre: string } } | null;
+      turno: { tienda: { id: string; nombre: string } } | null;
       factura?: {
         estado: EstadoFactura;
         uuid: string | null;
@@ -1011,6 +1017,9 @@ export class PedidosService {
         pedido.turno?.tienda.nombre ??
         pedido.tienda?.nombre ??
         (pedido.porFaltante ? CANAL_RUTA : CANAL_APP),
+      deTienda:
+        pedido.turno?.tienda ??
+        (pedido.tienda ? { id: pedido.tienda.id, nombre: pedido.tienda.nombre } : null),
       direccion: PedidosService.direccionLeida(pedido.direccion),
       cupon: pedido.cupon ? { code: pedido.cupon.code, titulo: pedido.cupon.title } : null,
       // El renglon que el cliente no acepto en la puerta queda en cero: el

@@ -3,9 +3,11 @@
  * Administración → Operaciones: surtir los pedidos y dejarlos listos para
  * entrega, o entregarlos en mostrador si se recogen en tienda.
  *
- * Es lo que surte bodega. El pedido que el cliente eligió recoger en una
- * tienda no sale aquí: lo prepara y lo entrega esa tienda desde la pestaña
- * Operaciones de su PDV (`pdv/VentanaOperacionesTienda.vue`).
+ * Lista todo lo que tiene inventario apartado: sin entregar y sin cancelar, de
+ * todos los canales. Con la lista de tiendas se ve qué pedido tiene bloqueado
+ * el inventario de una. Los de una tienda (su mostrador o los que se recogen
+ * ahí) salen con candado: los mueve esa tienda desde la pestaña Operaciones de
+ * su PDV (`pdv/VentanaOperacionesTienda.vue`), y la API ya los manda así.
  *
  * La pantalla no decide nada: cada pedido llega con su `paso` calculado por la
  * API (siguiente estado, a quién le toca y por qué está bloqueado). Aquí solo
@@ -26,6 +28,8 @@ import { filtrarPorTexto } from '@/utils/busqueda'
 import SkeletonList from '@/components/SkeletonList.vue'
 import BitacoraPedido from '@/components/BitacoraPedido.vue'
 import LupaBusqueda from '@/components/LupaBusqueda.vue'
+import SelectorTienda from '@/components/SelectorTienda.vue'
+import { vEjeUnico } from '@/utils/ejeUnico'
 import { sumarProductos } from './operaciones/conteo'
 import { PASOS, bloqueoDe, esPasoSiguiente, pasoDado } from './operaciones/pasos'
 import type {
@@ -38,11 +42,15 @@ import type {
 const ui = useUiStore()
 
 /**
- * Por ahora la pantalla solo enseña lo que hay por surtir: las pestañas (En
- * ruta, Entregados, Cancelados) se quitaron para limpiar la interfaz. La API
- * sigue aceptando los otros filtros.
+ * Lo pendiente de todos los canales: lo que aparta inventario. Las pestañas
+ * (En ruta, Entregados, Cancelados) se quitaron para limpiar la interfaz; la
+ * API sigue aceptando esos filtros.
  */
-const filtro: FiltroOperaciones = 'activos'
+const filtro: FiltroOperaciones = 'pendientes'
+/** Vacío: todas; `bodega` o el id de una tienda. Lo filtra la API. */
+const tienda = ref('')
+/** El tope de la API: con todos los canales, el de 100 dejaría pedidos fuera. */
+const LIMITE = 500
 const pedidos = ref<PedidoEnPantalla[]>([])
 const cargando = ref(true)
 const abierto = ref<string | null>(null)
@@ -57,7 +65,7 @@ async function cargar(conEsqueleto = true): Promise<void> {
   if (conEsqueleto) cargando.value = true
   try {
     const respuesta = await http.get<ListadoOperaciones>('/admin/operaciones/pedidos', {
-      query: { filtro },
+      query: { filtro, limite: LIMITE, ...(tienda.value && { tienda: tienda.value }) },
     })
     if (numero !== peticion) return
     pedidos.value = respuesta.pedidos
@@ -69,6 +77,13 @@ async function cargar(conEsqueleto = true): Promise<void> {
 }
 
 onMounted(() => cargar())
+
+// Otra tienda es otra lista: el detalle abierto y lo palomeado ya no aplican.
+watch(tienda, () => {
+  abierto.value = null
+  seleccion.value = new Set()
+  cargar()
+})
 
 async function avanzar(pedido: PedidoEnPantalla): Promise<void> {
   const destino = pedido.paso.siguiente
@@ -109,9 +124,13 @@ function clasePago(estado: EstadoPago): string {
   return 'pago-liberado'
 }
 
-/** La colonia de la dirección congelada en el pedido; el de tienda no lleva. */
+/**
+ * La colonia de la dirección congelada en el pedido. El de tienda no lleva:
+ * se dice cuál, que es lo que se busca al rastrear inventario apartado.
+ */
 function colonia(pedido: PedidoEnPantalla): string {
-  if (pedido.metodoEntrega === 'TIENDA') return '🏪 Tienda'
+  if (pedido.deTienda) return `🏪 ${pedido.deTienda.nombre}`
+  if (pedido.metodoEntrega === 'TIENDA') return '🏪 Bodega'
   const d = pedido.direccion as Record<string, string | null> | null
   return d?.colonia || '—'
 }
@@ -224,6 +243,8 @@ function marcarTodos(): void {
       placeholder="Pedido, colonia, cliente, estado o estado de pago"
     />
 
+    <SelectorTienda v-model="tienda" />
+
     <!-- La cuenta de lo palomeado: cuántas piezas de cada producto hay que surtir. -->
     <section v-if="contando" class="conteo" aria-live="polite">
       <p class="conteo-titulo">
@@ -246,8 +267,9 @@ function marcarTodos(): void {
 
     <SkeletonList v-if="cargando" :cantidad="4" />
 
-    <!-- «Pedido» se queda fija: al desplazar a la derecha se sigue viendo de cuál es la fila. -->
-    <div v-else-if="visibles.length > 0" class="tabla-envoltorio panel">
+    <!-- «Pedido» se queda fija: al desplazar a la derecha se sigue viendo de cuál
+         es la fila. Cada gesto mueve un solo eje, como en Finanzas. -->
+    <div v-else-if="visibles.length > 0" v-eje-unico class="tabla-envoltorio panel">
       <table class="tabla lineal panel una-fija">
         <thead>
           <tr>
@@ -307,14 +329,9 @@ function marcarTodos(): void {
                     />
                   </svg>
                 </button>
+                <!-- Solo el folio: es la columna fija y en el teléfono lo que
+                     mida de más se le quita a las columnas que se desplazan. -->
                 <span class="folio">{{ pedido.folio }}</span>
-                <span
-                  v-if="pedido.requiereFactura"
-                  class="pastilla pide-factura"
-                  title="El cliente marcó «Requiero factura»"
-                >
-                  🧾 Factura
-                </span>
               </td>
               <!-- La colonia agrupa a simple vista lo que va para el mismo rumbo. -->
               <td>{{ colonia(pedido) }}</td>
@@ -464,7 +481,9 @@ function marcarTodos(): void {
       {{
         consulta.trim()
           ? `Ningún pedido coincide con «${consulta.trim()}».`
-          : 'No hay pedidos por surtir. 🎉'
+          : tienda
+            ? 'Esta tienda no tiene pedidos pendientes: nada le aparta inventario.'
+            : 'No hay pedidos pendientes. 🎉'
       }}
     </p>
 

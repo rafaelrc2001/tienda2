@@ -22,6 +22,7 @@ import {
 } from './flujo';
 import { PedidoDto, PedidosService } from './pedidos.service';
 import { saldoDelPedido } from './cxc';
+import { dondeTienda } from './filtro-tienda';
 
 export interface BitacoraDto {
   id: string;
@@ -53,6 +54,12 @@ export enum FiltroOperaciones {
   EN_RUTA = 'en-ruta',
   ENTREGADOS = 'entregados',
   CANCELADOS = 'cancelados',
+  /**
+   * Todo lo que tiene inventario apartado: sin entregar y sin cancelar, de
+   * cualquier canal (bodega, app para recoger y mostrador). Con `?tienda=` es
+   * justo lo que esa tienda tiene comprometido.
+   */
+  PENDIENTES = 'pendientes',
 }
 
 const NO_CANCELADO: Prisma.PedidoWhereInput = { estadoPago: { not: EstadoPago.CANCELADO } };
@@ -88,6 +95,10 @@ const WHERE_OPERACIONES: Record<FiltroOperaciones, Prisma.PedidoWhereInput> = {
     estado: EstadoPedido.ENTREGADO,
   },
   [FiltroOperaciones.CANCELADOS]: { ...DE_BODEGA, estadoPago: EstadoPago.CANCELADO },
+  [FiltroOperaciones.PENDIENTES]: {
+    ...NO_CANCELADO,
+    estado: { not: EstadoPedido.ENTREGADO },
+  },
 };
 
 export interface ListadoOperacionesDto {
@@ -138,7 +149,9 @@ export class FlujoPedidosService {
 
     await this.prisma.$transaction(async (tx) => {
       const pedido = await FlujoPedidosService.bloquear(tx, id);
-      if (pedido.tiendaId !== null) {
+      // El de mostrador tampoco: no lleva `tiendaId` pero su tienda es la del
+      // turno, y entregarlo aqui lo descontaria de bodega y no de su anaquel.
+      if (pedido.tiendaId !== null || pedido.turnoId !== null) {
         throw new ConflictException({
           statusCode: 409,
           code: 'PEDIDO_DE_TIENDA',
@@ -171,7 +184,7 @@ export class FlujoPedidosService {
 
       if (transicion.a === EstadoPedido.ENTREGADO) await FlujoPedidosService.abrirCxc(tx, id);
     });
-    return FlujoPedidosService.enPantalla(await this.pedidos.detalle(id));
+    return FlujoPedidosService.enOperaciones(await this.pedidos.detalle(id));
   }
 
   /**
@@ -224,22 +237,44 @@ export class FlujoPedidosService {
   async listarOperaciones(
     filtro: FiltroOperaciones,
     limite: number,
+    tienda?: string,
   ): Promise<ListadoOperacionesDto> {
+    const deLaTienda = dondeTienda(tienda);
+    const donde = (f: FiltroOperaciones): Prisma.PedidoWhereInput => ({
+      AND: [WHERE_OPERACIONES[f], deLaTienda],
+    });
+    const masViejoPrimero =
+      filtro === FiltroOperaciones.ACTIVOS || filtro === FiltroOperaciones.PENDIENTES;
     const [pedidos, ...cuentas] = await Promise.all([
-      this.pedidos.buscar(
-        WHERE_OPERACIONES[filtro],
-        { creadoEn: filtro === FiltroOperaciones.ACTIVOS ? 'asc' : 'desc' },
-        limite,
-      ),
-      ...Object.values(FiltroOperaciones).map((f) =>
-        this.prisma.pedido.count({ where: WHERE_OPERACIONES[f] }),
-      ),
+      this.pedidos.buscar(donde(filtro), { creadoEn: masViejoPrimero ? 'asc' : 'desc' }, limite),
+      ...Object.values(FiltroOperaciones).map((f) => this.prisma.pedido.count({ where: donde(f) })),
     ]);
     const conteos = Object.fromEntries(
       Object.values(FiltroOperaciones).map((f, i) => [f, cuentas[i]]),
     ) as Record<FiltroOperaciones, number>;
 
-    return { pedidos: pedidos.map((p) => FlujoPedidosService.enPantalla(p)), conteos };
+    return { pedidos: pedidos.map((p) => FlujoPedidosService.enOperaciones(p)), conteos };
+  }
+
+  /**
+   * `enPantalla` visto desde Operaciones. El pedido de una tienda sale en la
+   * lista —su inventario apartado es lo que se busca— pero su paso lo da esa
+   * tienda desde su PDV: el boton sale con candado y el motivo, en vez de
+   * encenderse y chocar con el 409 `PEDIDO_DE_TIENDA`.
+   */
+  static enOperaciones(pedido: PedidoDto): PedidoEnPantallaDto {
+    const enPantalla = FlujoPedidosService.enPantalla(pedido);
+    if (!pedido.deTienda || !enPantalla.paso.siguiente) return enPantalla;
+    return {
+      ...enPantalla,
+      paso: {
+        ...enPantalla.paso,
+        bloqueo: {
+          codigo: 'PEDIDO_DE_TIENDA',
+          mensaje: `Lo prepara y lo entrega ${pedido.deTienda.nombre} desde su Punto de Venta.`,
+        },
+      },
+    };
   }
 
   /** Le pone al pedido su siguiente paso, calculado aqui y no en la interfaz. */
@@ -295,7 +330,9 @@ export class FlujoPedidosService {
   static async bloquear(
     tx: Prisma.TransactionClient,
     id: string,
-  ): Promise<PedidoEnFlujo & { id: string; folio: string; tiendaId: string | null }> {
+  ): Promise<
+    PedidoEnFlujo & { id: string; folio: string; tiendaId: string | null; turnoId: string | null }
+  > {
     await FlujoPedidosService.bloquearFila(tx, id);
     return tx.pedido.findUniqueOrThrow({
       where: { id },
@@ -307,6 +344,7 @@ export class FlujoPedidosService {
         metodoEntrega: true,
         metodoPago: true,
         tiendaId: true,
+        turnoId: true,
       },
     });
   }

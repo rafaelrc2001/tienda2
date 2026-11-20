@@ -18,6 +18,7 @@ import {
   PedidoEnPantallaDto,
 } from './flujo-pedidos.service';
 import { AvanzarPedidoDto } from './dto/avanzar-pedido.dto';
+import { ParseFiltroTiendaPipe } from './filtro-tienda';
 import { RequiereSeccion } from '../auth/seccion.decorator';
 import { SoloPersonal } from '../auth/solo-personal.decorator';
 import { UsuarioActual } from '../auth/usuario-actual.decorator';
@@ -44,8 +45,10 @@ export class OperacionesController {
     )
     filtro: FiltroOperaciones,
     @Query('limite', new ParseIntPipe({ optional: true })) limite?: number,
+    /** `bodega` o el id de una tienda; sin el, todas. */
+    @Query('tienda', ParseFiltroTiendaPipe) tienda?: string,
   ): Promise<ListadoOperacionesDto> {
-    return this.flujo.listarOperaciones(filtro, Math.min(limite ?? 100, 500));
+    return this.flujo.listarOperaciones(filtro, Math.min(limite ?? 100, 500), tienda);
   }
 
   /**

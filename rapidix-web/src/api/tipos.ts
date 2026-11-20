@@ -536,6 +536,11 @@ export interface Pedido {
    * lo capturó o donde se recoge; «Ruta» o «App» si no pasó por ninguna.
    */
   canal: string
+  /**
+   * La tienda que lo surte y lo entrega (la de su mostrador o donde se
+   * recoge); `null` si lo surte bodega. Operaciones no lo mueve: lo hace ella.
+   */
+  deTienda: { id: string; nombre: string } | null
   /** Copia de la dirección del pedido; `null` si se recoge en tienda. */
   direccion: Record<string, unknown> | null
   cupon: { code: string; titulo: string } | null
@@ -636,6 +641,8 @@ export interface BloqueoPaso {
     | 'PAGO_NO_LIBERADO'
     /** Transferencia sin Pagado ni Crédito: no se entrega. El efectivo se cobra en la puerta. */
     | 'PAGO_NO_CUBIERTO'
+    /** Lo surte una tienda desde su PDV: en Operaciones sale con candado. */
+    | 'PEDIDO_DE_TIENDA'
   mensaje: string
 }
 
@@ -658,7 +665,8 @@ export interface PedidoEnPantalla extends Pedido {
   pagoCubierto: boolean
 }
 
-export type FiltroOperaciones = 'activos' | 'en-ruta' | 'entregados' | 'cancelados'
+/** `pendientes`: sin entregar ni cancelar, de todos los canales (lo que aparta inventario). */
+export type FiltroOperaciones = 'activos' | 'en-ruta' | 'entregados' | 'cancelados' | 'pendientes'
 
 /** Respuesta de `GET /admin/operaciones/pedidos`. */
 export interface ListadoOperaciones {
@@ -2072,5 +2080,12 @@ export interface ExistenciaTienda {
   nombre: string
   categoria: string
   unidad: string
+  /** Lo que hay en el anaquel. */
   cantidad: number
+  /** Piezas de pedidos confirmados que aún no se entregan. */
+  comprometido: number
+  /** Disponible para prometer (ATP): existencia menos comprometido. */
+  disponible: number
+  /** Interruptor «Habilitar» de Productos; apagado sale agotado en todas partes. */
+  habilitado: boolean
 }

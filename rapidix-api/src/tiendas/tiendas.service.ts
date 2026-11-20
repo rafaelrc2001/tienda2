@@ -12,13 +12,29 @@ import { UsuarioAutenticado } from '../auth/jwt-payload';
 import { LineaAMover } from '../inventario/salidas-del-pedido';
 import { GuardarTiendaDto } from './dto/tienda.dto';
 
-/** Una fila del inventario de una tienda. */
+/**
+ * Una fila del inventario de una tienda.
+ *
+ * `cantidad` es lo que hay en el anaquel y `disponible` lo que todavia se
+ * puede prometer (ATP): la diferencia son pedidos confirmados sin entregar.
+ * Van los tres numeros porque con solo la existencia el gerente veia piezas
+ * de sobra, no resurtia, y la Tienda las ofrecia agotadas.
+ */
 export interface ExistenciaTiendaDto {
   productoId: string;
   nombre: string;
   categoria: string;
   unidad: string;
   cantidad: number;
+  /** Piezas de pedidos sin entregar (mostrador y app por recoger) de esta tienda. */
+  comprometido: number;
+  /** Existencia menos comprometido, sin bajar de cero. Lo que se ofrece a la venta. */
+  disponible: number;
+  /**
+   * Interruptor "Habilitar" de Productos. Apagado, el producto sale agotado en
+   * todas las tiendas aunque haya disponible.
+   */
+  habilitado: boolean;
 }
 
 /** Un producto del que la tienda no tiene lo que se le pide. */
@@ -189,18 +205,27 @@ export class TiendasService {
    */
   async inventario(tiendaId: string): Promise<ExistenciaTiendaDto[]> {
     await this.exigir(tiendaId);
-    const existencias = await this.prisma.inventarioTienda.findMany({
-      where: { tiendaId, producto: { eliminadoEn: null } },
-      include: { producto: { include: { categoria: { select: { nombre: true } } } } },
-      orderBy: [{ producto: { categoria: { nombre: 'asc' } } }, { producto: { nombre: 'asc' } }],
+    const [existencias, prometido] = await Promise.all([
+      this.prisma.inventarioTienda.findMany({
+        where: { tiendaId, producto: { eliminadoEn: null } },
+        include: { producto: { include: { categoria: { select: { nombre: true } } } } },
+        orderBy: [{ producto: { categoria: { nombre: 'asc' } } }, { producto: { nombre: 'asc' } }],
+      }),
+      this.prometido(tiendaId),
+    ]);
+    return existencias.map((e) => {
+      const comprometido = prometido.get(e.productoId) ?? 0;
+      return {
+        productoId: e.productoId,
+        nombre: e.producto.nombre,
+        categoria: e.producto.categoria.nombre,
+        unidad: e.producto.unidad,
+        cantidad: e.cantidad,
+        comprometido,
+        disponible: Math.max(e.cantidad - comprometido, 0),
+        habilitado: !e.producto.agotado,
+      };
     });
-    return existencias.map((e) => ({
-      productoId: e.productoId,
-      nombre: e.producto.nombre,
-      categoria: e.producto.categoria.nombre,
-      unidad: e.producto.unidad,
-      cantidad: e.cantidad,
-    }));
   }
 
   /** Suma al inventario de la tienda lo que acaba de aceptar. */
@@ -267,6 +292,29 @@ export class TiendasService {
   }
 
   /**
+   * Piezas prometidas en pedidos sin entregar de la tienda: `productoId` ->
+   * piezas. Los de mostrador de sus turnos y los de la app que se recogen
+   * aqui; un cancelado ya no aparta nada. Lo comparten `disponibles` (lo que
+   * se vende) e `inventario` (lo que ve el gerente) para que no diverjan.
+   */
+  private async prometido(tiendaId: string, ids?: string[]): Promise<Map<string, number>> {
+    const prometidas = await this.prisma.pedidoItem.groupBy({
+      by: ['productoId'],
+      where: {
+        ...(ids && { productoId: { in: ids } }),
+        pedido: {
+          OR: [{ turno: { tiendaId } }, { tiendaId }],
+          metodoEntrega: MetodoEntrega.TIENDA,
+          estado: { not: EstadoPedido.ENTREGADO },
+          estadoPago: { not: EstadoPago.CANCELADO },
+        },
+      },
+      _sum: { cantidad: true },
+    });
+    return new Map(prometidas.map((p) => [p.productoId, p._sum.cantidad ?? 0]));
+  }
+
+  /**
    * Lo que la tienda puede vender de cada producto: `productoId` -> piezas.
    * El que no aparece esta en cero. Sin `ids`, todos los que tiene.
    *
@@ -280,28 +328,14 @@ export class TiendasService {
    * misma pieza y el segundo chocaria al entregarse.
    */
   async disponibles(tiendaId: string, ids?: string[]): Promise<Map<string, number>> {
-    const deEsos = ids && { productoId: { in: ids } };
-    const [existencias, prometidas] = await Promise.all([
+    const [existencias, prometido] = await Promise.all([
       this.prisma.inventarioTienda.findMany({
-        where: { tiendaId, ...deEsos },
+        where: { tiendaId, ...(ids && { productoId: { in: ids } }) },
         select: { productoId: true, cantidad: true },
       }),
-      this.prisma.pedidoItem.groupBy({
-        by: ['productoId'],
-        where: {
-          ...deEsos,
-          pedido: {
-            OR: [{ turno: { tiendaId } }, { tiendaId }],
-            metodoEntrega: MetodoEntrega.TIENDA,
-            estado: { not: EstadoPedido.ENTREGADO },
-            estadoPago: { not: EstadoPago.CANCELADO },
-          },
-        },
-        _sum: { cantidad: true },
-      }),
+      this.prometido(tiendaId, ids),
     ]);
 
-    const prometido = new Map(prometidas.map((p) => [p.productoId, p._sum.cantidad ?? 0]));
     return new Map(
       existencias.map((e) => [
         e.productoId,

@@ -21,6 +21,7 @@ import { computed, onMounted, ref } from 'vue'
 import { ErrorApi, http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
 import { fechaHora } from '@/utils/formato'
+import { vEjeUnico } from '@/utils/ejeUnico'
 import type {
   AfectaInventario,
   MotivoMovimiento,
@@ -313,7 +314,7 @@ async function cancelar(transferencia: Transferencia): Promise<void> {
     <!-- Captura -->
     <input v-model="busqueda" class="form-input" type="search" placeholder="Buscar producto…" />
 
-    <div v-if="visibles.length > 0" class="tabla-scroll">
+    <div v-if="visibles.length > 0" v-eje-unico class="tabla-scroll">
       <table class="tabla-captura">
         <thead>
           <tr>
@@ -360,7 +361,7 @@ async function cancelar(transferencia: Transferencia): Promise<void> {
     <!-- Transferencias a tienda: lo enviado y en qué va -->
     <section v-if="transferencias.length > 0" class="historial">
       <h4>Transferencias a tienda</h4>
-      <div class="tabla-scroll">
+      <div v-eje-unico class="tabla-scroll">
         <table>
           <thead>
             <tr>
@@ -432,7 +433,7 @@ async function cancelar(transferencia: Transferencia): Promise<void> {
 
       <p v-if="cargandoHistorial" class="empty-block">Cargando…</p>
 
-      <div v-else-if="historial.length > 0" class="tabla-scroll">
+      <div v-else-if="historial.length > 0" v-eje-unico class="tabla-scroll">
         <table class="tabla-historial">
           <thead>
             <tr>
@@ -524,8 +525,16 @@ async function cancelar(transferencia: Transferencia): Promise<void> {
   color: var(--muted);
 }
 
+/*
+ * Igual que la tabla de Finanzas: `v-eje-unico` hace que cada gesto mueva solo
+ * columnas o solo filas, y sin rebote a lo ancho la tabla no se estira ni
+ * dispara el «atrás» de Safari. A lo alto sí se encadena con la pantalla: la
+ * caja mide 55vh y al llegar a su última fila el dedo debe seguir bajando la
+ * página.
+ */
 .tabla-scroll {
   overflow: auto;
+  overscroll-behavior-x: none;
   max-height: 55vh;
   background: var(--white);
   border-radius: 14px;
