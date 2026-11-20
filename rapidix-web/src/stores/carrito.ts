@@ -139,8 +139,13 @@ export const useCarritoStore = defineStore('carrito', () => {
    * días no vale para el total de hoy. La entrega sí se guarda: es a dónde se
    * lleva, y no caduca con el total.
    */
-  /** Sin valor por defecto: el cliente elige. */
-  const metodoPago = ref<MetodoPago | null>(null)
+  /**
+   * Nace en efectivo, como en el punto de venta: sin método elegido la API
+   * marca `METODO_REQUERIDO` y el botón de confirmar se apagaba sin decir por
+   * qué. Sigue admitiendo `null` para quien lo asigne a mano.
+   */
+  const METODO_POR_DEFECTO: MetodoPago = 'EFECTIVO'
+  const metodoPago = ref<MetodoPago | null>(METODO_POR_DEFECTO)
   /** Efectivo: con cuánto va a pagar. */
   const pagoCon = ref<number | null>(null)
   /** Saldo de billetera que quiere aplicar. */
@@ -172,7 +177,7 @@ export const useCarritoStore = defineStore('carrito', () => {
   })
 
   function olvidarPago(): void {
-    metodoPago.value = null
+    metodoPago.value = METODO_POR_DEFECTO
     pagoCon.value = null
     usarBilletera.value = 0
     requiereFactura.value = false
