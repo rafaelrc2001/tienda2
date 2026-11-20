@@ -10,7 +10,7 @@
  * El inventario es de solo lectura por lo mismo que el de bodega: sube con las
  * transferencias y baja con lo que el punto de venta entrega. Entre que un
  * pedido se confirma y se entrega sus piezas siguen en el anaquel pero ya
- * están comprometidas: por eso la tabla separa existencia y disponible (ATP).
+ * están comprometidas: por eso la tabla separa inventario físico y apto para venta (ATP).
  */
 import { computed, onMounted, ref } from 'vue'
 import { ErrorApi, http } from '@/api/http'
@@ -137,19 +137,20 @@ async function aceptar(transferencia: Transferencia): Promise<void> {
         type="search"
         placeholder="Buscar en el inventario…"
       />
-      <!-- «Disponible» es el ATP: lo que todavía se puede prometer y el número
-           para decidir si se resurte. La existencia sola engaña porque incluye
-           piezas que ya tienen dueño en pedidos sin entregar; vuelven a estar
-           disponibles si el pedido se cancela. El grupo va bajo el nombre para
+      <!-- Mismos encabezados que Productos → Inventario (bodega): «Inv. físico»
+           y «Apt. venta». «Apt. venta» es el ATP: lo que todavía se puede
+           prometer y el número para decidir si se resurte. El físico solo engaña
+           porque incluye piezas comprometidas en pedidos sin entregar; vuelven a
+           estar aptas si el pedido se cancela. El grupo va bajo el nombre para
            que las cuatro columnas quepan en el teléfono. -->
       <div v-if="visibles.length > 0" class="tabla-envoltorio">
         <table class="tabla">
           <thead>
             <tr>
               <th>Producto</th>
-              <th class="num">Existencia</th>
-              <th class="num">Comprometido</th>
-              <th class="num">Disponible</th>
+              <th class="num">Inv.<br />físico</th>
+              <th class="num">Compro&shy;metido</th>
+              <th class="num">Apt.<br />venta</th>
             </tr>
           </thead>
           <tbody>
