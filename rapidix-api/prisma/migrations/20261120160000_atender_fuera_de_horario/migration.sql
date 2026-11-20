@@ -1,0 +1,12 @@
+-- A peticion del negocio, por ahora se reciben pedidos a cualquier hora.
+--
+-- Con "atender fuera de horario" apagado, fuera del horario la
+-- previsualizacion devuelve puedePedir = false y el boton de confirmar se
+-- apaga SIN aviso (el aviso esta desactivado hasta que el negocio defina su
+-- texto), asi que el cliente no sabia por que no podia comprar.
+--
+-- Solo cambia la bandera: el horario y el recargo se quedan como esten. Fuera
+-- de horario se cobra el recargo configurado (incrementoFuera); para no
+-- cobrarlo, ponerlo en 0 desde Configuracion. Se puede volver a apagar desde
+-- el panel: esta migracion corre una sola vez.
+UPDATE "configuracion_negocio" SET "atenderFuera" = true WHERE "id" = 1;
