@@ -6,18 +6,97 @@
  * dejar que un cambio quede sin bitácora: quien lo miró después no tendría
  * forma de saber quién lo movió ni por qué. Para cambiarlo está Movimientos,
  * que obliga a decir ambas cosas.
+ *
+ * **Con una tienda elegida** muestra su inventario, el mismo que ve su PDV,
+ * para saber qué le falta antes de mandarle una transferencia. La tercera
+ * columna cambia de sentido: bodega tiene camiones («en ruta») y la tienda,
+ * pedidos sin entregar que ya apartaron piezas («comprometido»). Los avisos y
+ * el filtro miran siempre el apto para venta.
  */
-import { computed, ref } from 'vue'
-import type { SaldoProducto } from '@/api/tipos'
+import { computed, ref, watch } from 'vue'
+import { ErrorApi, http } from '@/api/http'
+import type { ExistenciaTienda, SaldoProducto } from '@/api/tipos'
 import { UMBRAL_BAJO } from './etiquetas'
 import SkeletonList from '@/components/SkeletonList.vue'
+import SelectorTienda from '@/components/SelectorTienda.vue'
 
 const props = defineProps<{ saldos: SaldoProducto[]; cargando: boolean }>()
 
 type Filtro = 'todos' | 'bajos' | 'cero'
 
+/** Un renglón de la tabla, venga de bodega o de una tienda. */
+interface Fila {
+  id: string
+  nombre: string
+  unidad: string
+  categoria: string
+  fisico: number
+  apt: number
+  /** En ruta (bodega) o comprometido (tienda). */
+  tercera: number
+  /** Solo en tiendas: el interruptor «Habilitar» apagado hace que salga agotado. */
+  deshabilitado: boolean
+}
+
 const busqueda = ref('')
 const filtro = ref<Filtro>('todos')
+
+/** Vacío es bodega; si no, el id de la tienda. */
+const tienda = ref('')
+const existencias = ref<ExistenciaTienda[]>([])
+const cargandoTienda = ref(false)
+const errorTienda = ref('')
+/** Al cambiar rápido de tienda, solo pinta la respuesta de la última petición. */
+let peticion = 0
+
+watch(tienda, async (id) => {
+  const esta = ++peticion
+  existencias.value = []
+  errorTienda.value = ''
+  if (!id) {
+    cargandoTienda.value = false
+    return
+  }
+  cargandoTienda.value = true
+  try {
+    const filas = await http.get<ExistenciaTienda[]>(`/admin/inventario/tiendas/${id}/inventario`)
+    if (esta === peticion) existencias.value = filas
+  } catch (fallo) {
+    if (esta === peticion) {
+      errorTienda.value =
+        fallo instanceof ErrorApi ? fallo.message : 'No pudimos cargar el inventario de la tienda.'
+    }
+  } finally {
+    if (esta === peticion) cargandoTienda.value = false
+  }
+})
+
+const filas = computed<Fila[]>(() => {
+  if (!tienda.value) {
+    return props.saldos.map((s) => ({
+      id: s.id,
+      nombre: s.nombre,
+      unidad: s.unidad,
+      categoria: s.categoria,
+      fisico: s.inventario,
+      apt: s.aptInventario,
+      tercera: s.inventarioEnRuta,
+      deshabilitado: false,
+    }))
+  }
+  return existencias.value.map((e) => ({
+    id: e.productoId,
+    nombre: e.nombre,
+    unidad: e.unidad,
+    categoria: e.categoria,
+    fisico: e.cantidad,
+    apt: e.disponible,
+    tercera: e.comprometido,
+    deshabilitado: !e.habilitado,
+  }))
+})
+
+const cargandoFilas = computed(() => (tienda.value ? cargandoTienda.value : props.cargando))
 
 const FILTROS: { valor: Filtro; etiqueta: string }[] = [
   { valor: 'todos', etiqueta: 'Todos' },
@@ -26,30 +105,32 @@ const FILTROS: { valor: Filtro; etiqueta: string }[] = [
 ]
 
 /** Cómo se pinta el saldo de venta de una fila. */
-function estado(saldo: SaldoProducto): 'cero' | 'bajo' | 'ok' {
-  if (saldo.aptInventario === 0) return 'cero'
-  return saldo.aptInventario <= UMBRAL_BAJO ? 'bajo' : 'ok'
+function estado(fila: Fila): 'cero' | 'bajo' | 'ok' {
+  if (fila.apt === 0) return 'cero'
+  return fila.apt <= UMBRAL_BAJO ? 'bajo' : 'ok'
 }
 
-const visibles = computed<SaldoProducto[]>(() => {
+const visibles = computed<Fila[]>(() => {
   const termino = busqueda.value.trim().toLowerCase()
-  return props.saldos.filter((s) => {
-    if (termino && !`${s.nombre} ${s.categoria}`.toLowerCase().includes(termino)) return false
-    if (filtro.value === 'bajos') return estado(s) === 'bajo'
-    if (filtro.value === 'cero') return s.aptInventario === 0
+  return filas.value.filter((f) => {
+    if (termino && !`${f.nombre} ${f.categoria}`.toLowerCase().includes(termino)) return false
+    if (filtro.value === 'bajos') return estado(f) === 'bajo'
+    if (filtro.value === 'cero') return f.apt === 0
     return true
   })
 })
 
 /** Cabecera: cuántos productos están en cada situación. */
 const conteo = computed(() => ({
-  cero: props.saldos.filter((s) => s.aptInventario === 0).length,
-  bajos: props.saldos.filter((s) => estado(s) === 'bajo').length,
+  cero: filas.value.filter((f) => f.apt === 0).length,
+  bajos: filas.value.filter((f) => estado(f) === 'bajo').length,
 }))
 </script>
 
 <template>
   <div class="ventana-inventario">
+    <SelectorTienda v-model="tienda" modo="inventario" />
+
     <div class="barra-superior">
       <input
         v-model="busqueda"
@@ -62,15 +143,15 @@ const conteo = computed(() => ({
       </select>
     </div>
 
-    <div v-if="!cargando" class="avisos">
+    <p v-if="errorTienda" class="form-error">{{ errorTienda }}</p>
+
+    <div v-if="!cargandoFilas && !errorTienda" class="avisos">
       <span v-if="conteo.cero > 0" class="aviso cero">{{ conteo.cero }} sin existencia</span>
       <span v-if="conteo.bajos > 0" class="aviso bajo">{{ conteo.bajos }} por acabarse</span>
-      <span v-if="conteo.cero + conteo.bajos === 0" class="aviso ok">
-        Todo en orden
-      </span>
+      <span v-if="conteo.cero + conteo.bajos === 0" class="aviso ok"> Todo en orden </span>
     </div>
 
-    <SkeletonList v-if="cargando" :cantidad="4" />
+    <SkeletonList v-if="cargandoFilas" :cantidad="4" />
 
     <div v-else-if="visibles.length > 0" class="tabla-scroll">
       <table class="tabla-inventario">
@@ -80,35 +161,54 @@ const conteo = computed(() => ({
             <th>Grupo</th>
             <th class="num">Inv.<br />físico</th>
             <th class="num">Apt.<br />venta</th>
-            <th class="num">En<br />ruta</th>
+            <th v-if="tienda" class="num">Compro&shy;metido</th>
+            <th v-else class="num">En<br />ruta</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="saldo in visibles" :key="saldo.id">
+          <tr v-for="fila in visibles" :key="fila.id">
             <th class="col-producto" scope="row">
-              {{ saldo.nombre }}
-              <span class="unidad">{{ saldo.unidad }}</span>
+              {{ fila.nombre }}
+              <span class="unidad">{{ fila.unidad }}</span>
+              <span
+                v-if="fila.deshabilitado"
+                class="deshabilitado"
+                title="Interruptor «Habilitar» apagado en Productos"
+              >
+                Deshabilitado
+              </span>
             </th>
-            <td>{{ saldo.categoria }}</td>
-            <td class="num">{{ saldo.inventario }}</td>
-            <td class="num" :class="estado(saldo)">{{ saldo.aptInventario }}</td>
-            <td class="num" :class="{ vacio: saldo.inventarioEnRuta === 0 }">
-              {{ saldo.inventarioEnRuta }}
+            <td>{{ fila.categoria }}</td>
+            <td class="num">{{ fila.fisico }}</td>
+            <td class="num" :class="estado(fila)">{{ fila.apt }}</td>
+            <td
+              class="num"
+              :class="{ vacio: fila.tercera === 0, apartado: !!tienda && fila.tercera > 0 }"
+            >
+              {{ fila.tercera }}
             </td>
           </tr>
         </tbody>
       </table>
     </div>
 
-    <p v-else class="empty-block">
+    <p v-else-if="!errorTienda" class="empty-block">
       {{
-        saldos.length === 0
-          ? 'Todavía no hay productos en el catálogo.'
-          : 'Ningún producto coincide con el filtro.'
+        filas.length > 0
+          ? 'Ningún producto coincide con el filtro.'
+          : tienda
+            ? 'La tienda todavía no tiene inventario: se carga al aceptar una transferencia.'
+            : 'Todavía no hay productos en el catálogo.'
       }}
     </p>
 
-    <p class="nota">
+    <p v-if="tienda" class="nota">
+      Es el inventario que ve la tienda en su <strong>PDV</strong>: sube cuando acepta una
+      transferencia y baja cuando entrega un pedido. <em>Comprometido</em> son piezas de pedidos sin
+      entregar que siguen en el anaquel pero ya no se pueden vender; <em>apt. venta</em> es lo que
+      queda libre y el número para decidir si se le resurte.
+    </p>
+    <p v-else class="nota">
       El saldo no se edita aquí: se mueve en <strong>Movimientos</strong>, que deja constancia de
       quién lo movió y por qué. <em>Físico</em> es lo que hay en bodega; <em>apt. venta</em>, lo que
       el cliente puede comprar; <em>en ruta</em>, lo que va en los camiones. Al recolectar un pedido
@@ -276,6 +376,23 @@ td.num.bajo {
 /* Casi todos los productos tienen cero en ruta: apagado, resalta el que sí lleva. */
 td.num.vacio {
   color: var(--muted);
+}
+
+td.num.apartado {
+  color: var(--gold);
+  font-weight: 700;
+}
+
+.deshabilitado {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-family: var(--font-body);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--white);
+  background: var(--terracotta);
 }
 
 .nota {

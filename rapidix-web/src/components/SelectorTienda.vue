@@ -6,10 +6,16 @@
  * para lo que no pasó por ninguna tienda (domicilio y ruta) o el id de una
  * tienda. Sirve para encontrar el pedido que tiene apartado el inventario de
  * una tienda.
+ *
+ * En modo `inventario` (Productos → Inventario) no hay «Todas»: sumar los
+ * saldos de bodega y tiendas no dice nada útil. El vacío es bodega y el resto,
+ * el id de cada tienda.
  */
 import { onMounted, ref } from 'vue'
 import { http } from '@/api/http'
 import type { TiendaParaRecoger } from '@/api/tipos'
+
+const { modo = 'pedidos' } = defineProps<{ modo?: 'pedidos' | 'inventario' }>()
 
 const tienda = defineModel<string>({ required: true })
 
@@ -30,8 +36,11 @@ onMounted(async () => {
   <label class="selector-tienda">
     <span class="etiqueta">Tienda</span>
     <select v-model="tienda" class="select-input">
-      <option value="">Todas</option>
-      <option value="bodega">Bodega (domicilio y ruta)</option>
+      <template v-if="modo === 'pedidos'">
+        <option value="">Todas</option>
+        <option value="bodega">Bodega (domicilio y ruta)</option>
+      </template>
+      <option v-else value="">Bodega</option>
       <option v-for="t in tiendas" :key="t.id" :value="t.id">{{ t.nombre }}</option>
     </select>
   </label>
