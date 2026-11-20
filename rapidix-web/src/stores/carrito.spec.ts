@@ -360,6 +360,8 @@ describe("carrito · importe sin sesión (HU-11)", () => {
     expect(post).toHaveBeenCalledWith("/carrito/previsualizar", {
       items: [{ productoId: "p1", cantidad: 1 }],
       codigoCupon: undefined,
+      // Nace en efectivo: sin método la API apagaría el botón de confirmar.
+      metodoPago: "EFECTIVO",
       metodoEntrega: "TIENDA",
     });
     expect(carrito.subtotal).toBe(300);
@@ -380,6 +382,7 @@ describe("carrito · previsualización", () => {
     expect(post).toHaveBeenCalledWith("/carrito/previsualizar", {
       items: [{ productoId: "p1", cantidad: 1 }],
       codigoCupon: undefined,
+      metodoPago: "EFECTIVO",
       metodoEntrega: "TIENDA",
     });
     expect(carrito.previsualizacion?.total).toBe(290);
@@ -639,7 +642,8 @@ describe("carrito · confirmar pedido", () => {
     });
     expect(pedido.folio).toBe("ORD000001");
     expect(carrito.vacio).toBe(true);
-    expect(carrito.metodoPago).toBeNull();
+    // El pago se olvida, pero el método vuelve a su valor por defecto.
+    expect(carrito.metodoPago).toBe("EFECTIVO");
     expect(carrito.codigoCupon).toBeNull();
     expect(carrito.previsualizacion).toBeNull();
     expect(JSON.parse(localStorage.getItem(CLAVE) as string).lineas).toEqual(
