@@ -32,6 +32,7 @@ import {
 } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
 import LupaBusqueda from '@/components/LupaBusqueda.vue'
+import SelectorTienda from '@/components/SelectorTienda.vue'
 import BitacoraPedido from '@/components/BitacoraPedido.vue'
 import FacturarPedidoModal from '@/components/FacturarPedidoModal.vue'
 import VisorPdfFactura from '@/components/VisorPdfFactura.vue'
@@ -120,6 +121,17 @@ const visibles = computed(() => buscarPedidos(pedidos.value, consulta.value))
 // El detalle abierto puede quedar fuera del filtro: se cierra al escribir.
 watch(consulta, () => (abierto.value = null))
 
+/**
+ * La tienda que se mira: vacío todas, `bodega` o el id de una. La filtra la
+ * API y no la pantalla, porque el tope de pedidos dejaría fuera los viejos.
+ */
+const tienda = ref('')
+
+watch(tienda, () => {
+  abierto.value = null
+  cargar()
+})
+
 /** Una recarga puede cruzarse con otra: gana la última. */
 let peticion = 0
 
@@ -128,7 +140,7 @@ async function cargar(conEsqueleto = true): Promise<void> {
   if (conEsqueleto) cargando.value = true
   try {
     const respuesta = await http.get<ListadoFinanzas>('/admin/finanzas/pedidos', {
-      query: { filtro: 'todos', limite: LIMITE },
+      query: { filtro: 'todos', limite: LIMITE, ...(tienda.value && { tienda: tienda.value }) },
     })
     if (numero !== peticion) return
     pedidos.value = respuesta.pedidos
@@ -268,6 +280,8 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
       etiqueta="Buscar pedidos"
       placeholder="Pedido, canal, cliente, estado o estatus de pago"
     />
+
+    <SelectorTienda v-model="tienda" />
 
     <SkeletonList v-if="cargando" :cantidad="4" />
 

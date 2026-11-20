@@ -18,6 +18,7 @@ import {
   NOMBRE_ESTADO_PAGO,
 } from './flujo-pago';
 import { FlujoPedidosService } from './flujo-pedidos.service';
+import { dondeTienda } from './filtro-tienda';
 import { PedidoDto, PedidosService } from './pedidos.service';
 
 const Decimal = Prisma.Decimal;
@@ -86,12 +87,18 @@ export class FinanzasService {
   ) {}
 
   /** La pantalla de Finanzas: lo mas reciente primero, que es lo que se revisa. */
-  async listar(filtro: FiltroFinanzas, limite: number): Promise<ListadoFinanzasDto> {
+  async listar(
+    filtro: FiltroFinanzas,
+    limite: number,
+    tienda?: string,
+  ): Promise<ListadoFinanzasDto> {
+    const deLaTienda = dondeTienda(tienda);
+    const donde = (f: FiltroFinanzas): Prisma.PedidoWhereInput => ({
+      AND: [WHERE_FINANZAS[f], deLaTienda],
+    });
     const [pedidos, ...cuentas] = await Promise.all([
-      this.pedidos.buscar(WHERE_FINANZAS[filtro], { creadoEn: 'desc' }, limite),
-      ...Object.values(FiltroFinanzas).map((f) =>
-        this.prisma.pedido.count({ where: WHERE_FINANZAS[f] }),
-      ),
+      this.pedidos.buscar(donde(filtro), { creadoEn: 'desc' }, limite),
+      ...Object.values(FiltroFinanzas).map((f) => this.prisma.pedido.count({ where: donde(f) })),
     ]);
     const conteos = Object.fromEntries(
       Object.values(FiltroFinanzas).map((f, i) => [f, cuentas[i]]),

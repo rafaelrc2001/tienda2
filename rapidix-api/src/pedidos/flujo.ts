@@ -122,7 +122,9 @@ export type CodigoBloqueo =
   | 'PEDIDO_CANCELADO'
   | 'PAGO_RETENIDO'
   | 'PAGO_NO_LIBERADO'
-  | 'PAGO_NO_CUBIERTO';
+  | 'PAGO_NO_CUBIERTO'
+  /** Lo surte y lo entrega una tienda desde su PDV, no Operaciones. */
+  | 'PEDIDO_DE_TIENDA';
 
 export interface Bloqueo {
   codigo: CodigoBloqueo;

@@ -19,6 +19,7 @@ import {
 } from './finanzas.service';
 import { CambiarPagoDto } from './dto/cambiar-pago.dto';
 import { CambiarPrecioDto } from './dto/cambiar-precio.dto';
+import { ParseFiltroTiendaPipe } from './filtro-tienda';
 import { RequiereSeccion } from '../auth/seccion.decorator';
 import { SoloPersonal } from '../auth/solo-personal.decorator';
 import { UsuarioActual } from '../auth/usuario-actual.decorator';
@@ -47,8 +48,10 @@ export class FinanzasController {
     )
     filtro: FiltroFinanzas,
     @Query('limite', new ParseIntPipe({ optional: true })) limite?: number,
+    /** `bodega` o el id de una tienda; sin el, todas. */
+    @Query('tienda', ParseFiltroTiendaPipe) tienda?: string,
   ): Promise<ListadoFinanzasDto> {
-    return this.finanzas.listar(filtro, Math.min(limite ?? 100, 500));
+    return this.finanzas.listar(filtro, Math.min(limite ?? 100, 500), tienda);
   }
 
   /**
