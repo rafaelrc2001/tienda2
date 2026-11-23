@@ -960,15 +960,6 @@ input:checked + .switch-danger-slider {
   color: var(--rojo);
 }
 
-/* Junto al folio: el cliente marcó «Requiero factura» en el carrito. */
-.pastilla.pide-factura {
-  margin-left: 6px;
-  padding: 2px 8px;
-  background: var(--amarillo);
-  color: var(--ink);
-  white-space: nowrap;
-}
-
 /* Detalle: renglones y cuenta en una columna angosta a la izquierda, con una
    sola letra y un solo tamaño. Se queda fijo aunque la tabla se desplace.
    No pasa de lo que se ve de la tabla (100vw menos márgenes y rellenos): al
