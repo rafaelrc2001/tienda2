@@ -1788,6 +1788,14 @@ export interface ClienteAdmin {
   diasCredito: number | null
 }
 
+/**
+ * Cuerpo de `PATCH /admin/clientes/:id`: lo de «Mi Perfil» más el teléfono,
+ * que solo el personal puede cambiar. Responde con el `Perfil` guardado.
+ */
+export interface ActualizarClienteAdmin extends ActualizarPerfil {
+  telefono?: string
+}
+
 /** Cuerpo de PATCH /admin/clientes/:id/credito: solo lo que cambia. */
 export interface ActualizarCredito {
   credito?: boolean

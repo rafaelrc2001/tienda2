@@ -2,14 +2,15 @@
 /**
  * Administración → Clientes.
  *
- * Consume el `GET /admin/clientes` que añadió el paso 1 del SPEC 02. Se lista
- * y se filtra; abrir la ficha completa de un cliente queda fuera de alcance.
+ * Consume el `GET /admin/clientes` que añadió el paso 1 del SPEC 02. Se lista,
+ * se filtra y, tocando el nombre, se corrigen sus datos (`EditarClienteModal`).
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
 import { dinero, fecha } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
+import EditarClienteModal from './EditarClienteModal.vue'
 import type {
   ActualizarCredito,
   ClienteAdmin,
@@ -100,6 +101,15 @@ async function cargar(): Promise<void> {
   } finally {
     cargando.value = false
   }
+}
+
+/** Cliente o prospecto cuya ficha está abierta para editar. */
+const editandoId = ref<string | null>(null)
+
+/** Se relee la página: el cambio puede moverlo de lugar si cambió el nombre buscado. */
+function alGuardarCliente(): void {
+  editandoId.value = null
+  void cargar()
 }
 
 /** Clientes con un cambio de crédito en vuelo: su fila no se toca mientras. */
@@ -210,7 +220,11 @@ async function alCambiarDias(cliente: ClienteAdmin, evento: Event): Promise<void
             </thead>
             <tbody>
               <tr v-for="p in prospectos" :key="p.id">
-                <th class="col-nombre" scope="row">{{ p.nombre }}</th>
+                <th class="col-nombre" scope="row">
+                  <button type="button" class="nombre-editable" @click="editandoId = p.id">
+                    {{ p.nombre }} <span class="lapiz" aria-hidden="true">✎</span>
+                  </button>
+                </th>
                 <td class="tel">{{ p.telefono }}</td>
                 <td>{{ fecha(p.creado) }}</td>
                 <td>{{ p.fuenteCodigo ?? '—' }}</td>
@@ -258,7 +272,11 @@ async function alCambiarDias(cliente: ClienteAdmin, evento: Event): Promise<void
           </thead>
           <tbody>
             <tr v-for="cliente in clientes" :key="cliente.id">
-              <th class="col-nombre" scope="row">{{ cliente.nombre }}</th>
+              <th class="col-nombre" scope="row">
+                <button type="button" class="nombre-editable" @click="editandoId = cliente.id">
+                  {{ cliente.nombre }} <span class="lapiz" aria-hidden="true">✎</span>
+                </button>
+              </th>
               <td class="tel">{{ cliente.telefono }}</td>
               <td>
                 <span v-if="cliente.nivel" class="mini-tag">{{ cliente.nivel }}</span>
@@ -316,6 +334,13 @@ async function alCambiarDias(cliente: ClienteAdmin, evento: Event): Promise<void
     <p v-else class="empty-block">
       {{ busqueda ? 'Ningún cliente coincide con la búsqueda.' : 'Todavía no hay clientes.' }}
     </p>
+
+    <EditarClienteModal
+      v-if="editandoId"
+      :id="editandoId"
+      @cerrar="editandoId = null"
+      @guardado="alGuardarCliente"
+    />
   </div>
 </template>
 
@@ -436,6 +461,41 @@ async function alCambiarDias(cliente: ClienteAdmin, evento: Event): Promise<void
   font-weight: 700;
   color: var(--ink);
   box-shadow: 1px 0 0 var(--line);
+  /*
+   * Ancho acotado y con salto de línea: la columna es fija, y un nombre largo
+   * de una sola línea la ensanchaba hasta tapar el resto de la tabla.
+   */
+  width: 220px;
+  min-width: 220px;
+  max-width: 220px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.3;
+}
+
+/* En el celular deja a la vista casi toda la pantalla para el resto de columnas. */
+@media (max-width: 600px) {
+  .tabla-clientes .col-nombre {
+    width: 120px;
+    min-width: 120px;
+    max-width: 120px;
+  }
+}
+
+/* El nombre abre la ficha para editarlo: se ve como texto con un lápiz. */
+.nombre-editable {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.lapiz {
+  color: var(--terracotta);
+  font-size: 12px;
 }
 
 .tabla-clientes thead .col-nombre {
