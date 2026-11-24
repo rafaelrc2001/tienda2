@@ -28,6 +28,18 @@ html {
   text-size-adjust: 100%;
 }
 
+/*
+ * Sin zoom por doble toque: en Safari del iPhone pulsar «+» dos veces seguidas
+ * agrandaba la página en vez de sumar. Pellizcar con dos dedos sigue
+ * ampliando, que es lo que necesita quien no alcanza a leer. Va en todos los
+ * elementos y no solo en `html` porque quien hace scroll es `.app-screen`, y
+ * dentro de una caja con scroll propio Safari no siempre lo hereda. Lo que
+ * necesita otro valor (la firma de Rutas, el mapa) lo declara más específico.
+ */
+* {
+  touch-action: manipulation;
+}
+
 /* Safari no hereda la letra en botones y campos: sin esto salen con la del sistema. */
 button,
 input,

@@ -26,7 +26,7 @@ import type {
 import BloqueDireccionEntrega from '@/components/BloqueDireccionEntrega.vue'
 import DatosTransferencia from '@/components/DatosTransferencia.vue'
 import { direccionInicial, erroresDireccion } from '@/utils/direccion'
-import { resumenHorario } from '@/utils/horario'
+import HorarioTiendaModal from '@/components/HorarioTiendaModal.vue'
 
 const carrito = useCarritoStore()
 const ui = useUiStore()
@@ -185,6 +185,9 @@ function elegirTienda(id: string): void {
 
 /** La tienda elegida, para enseñar dónde queda bajo el método de envío. */
 const tiendaElegida = computed(() => tiendas.value.find((t) => t.id === carrito.tiendaId) ?? null)
+
+/** La ventana con los horarios de la tienda elegida, día por día. */
+const horariosAbiertos = ref(false)
 
 /** Cada cambio va al borrador del pedido; el perfil se actualiza al confirmarlo. */
 function cambiarDireccion(nueva: DireccionEntrega): void {
@@ -717,11 +720,17 @@ async function confirmar(): Promise<void> {
         </div>
         <p v-if="!aDomicilio && tiendaElegida" class="tienda-direccion">
           📍 {{ tiendaElegida.nombre }} · {{ tiendaElegida.direccion }}
-          <!-- Solo informativo: fuera de horario el aviso de arriba dice para cuándo queda. -->
-          <span v-if="tiendaElegida.horario" class="tienda-horario">
-            🕒 {{ resumenHorario(tiendaElegida.horario) }}
-          </span>
+          <!-- Solo informativo: fuera de horario el aviso de arriba lo dice. -->
+          <button type="button" class="ver-horarios" @click="horariosAbiertos = true">
+            🕒 Ver horarios
+          </button>
         </p>
+        <HorarioTiendaModal
+          v-if="horariosAbiertos && tiendaElegida"
+          :nombre="tiendaElegida.nombre"
+          :horario="tiendaElegida.horario"
+          @cerrar="horariosAbiertos = false"
+        />
       </fieldset>
 
       <!-- Lo que falta para envío gratis (HU-20) va pegado a quien lo decide: el envío. -->
@@ -1441,9 +1450,18 @@ async function confirmar(): Promise<void> {
   color: var(--muted);
 }
 
-.tienda-horario {
+/* Se ve como enlace: abre la ventana con los horarios. */
+.ver-horarios {
   display: block;
-  margin-top: 3px;
+  margin-top: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 700;
+  color: var(--terracotta-dark);
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 .cambio {

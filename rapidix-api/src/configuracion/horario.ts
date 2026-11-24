@@ -20,16 +20,6 @@ export interface HorasDelDia {
 /** `null` (o ausente) es que ese dia no abre. */
 export type HorarioSemanal = Partial<Record<ClaveDia, HorasDelDia | null>>;
 
-const NOMBRE_DIA: Record<ClaveDia, string> = {
-  dom: 'domingo',
-  lun: 'lunes',
-  mar: 'martes',
-  mie: 'miércoles',
-  jue: 'jueves',
-  vie: 'viernes',
-  sab: 'sábado',
-};
-
 /** Zona del negocio si no hay `ZONA_HORARIA`. Mexico no tiene horario de verano desde 2022. */
 export const ZONA_HORARIA_NEGOCIO = 'America/Mexico_City';
 
@@ -102,30 +92,9 @@ export function estaAbierto(
 }
 
 /**
- * Cuando vuelve a abrir, dicho como lo leeria el cliente: "hoy a las 09:00",
- * "mañana a las 09:00" o "el lunes a las 09:00". `null` si no abre ningun dia.
- */
-export function siguienteApertura(
-  horario: HorarioSemanal,
-  momento = new Date(),
-  zona = zonaPorDefecto(),
-): string | null {
-  const { dia, minutos } = relojLocal(momento, zona);
-  for (let enDias = 0; enDias <= 7; enDias++) {
-    const clave = CLAVES_DIA[(dia + enDias) % 7];
-    const horas = horario[clave];
-    if (!horas) continue;
-    // Hoy solo vale si todavia no ha abierto.
-    if (enDias === 0 && minutos >= aMinutos(horas.abre)) continue;
-    const cuando = enDias === 0 ? 'hoy' : enDias === 1 ? 'mañana' : `el ${NOMBRE_DIA[clave]}`;
-    return `${cuando} a las ${horas.abre}`;
-  }
-  return null;
-}
-
-/**
  * El aviso del carrito fuera de horario. El pedido se acepta igual: solo se
- * le dice al cliente que se atiende en la siguiente apertura.
+ * le dice al cliente que se atiende el dia siguiente habil. El texto es fijo a
+ * peticion del negocio; el horario completo lo ve el cliente en "Ver horarios".
  */
 export function avisoFueraDeHorario(
   horario: HorarioSemanal,
@@ -134,8 +103,5 @@ export function avisoFueraDeHorario(
   zona = zonaPorDefecto(),
 ): string | null {
   if (estaAbierto(horario, momento, zona)) return null;
-  const cuando = siguienteApertura(horario, momento, zona);
-  return cuando
-    ? `${donde} está fuera de horario: tu pedido queda programado para ${cuando}.`
-    : `${donde} está fuera de horario: tu pedido se atenderá en el siguiente horario hábil.`;
+  return `${donde} está fuera de horario: tu pedido quedará programado para el día siguiente hábil.`;
 }
