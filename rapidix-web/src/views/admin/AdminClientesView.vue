@@ -3,7 +3,8 @@
  * Administración → Clientes.
  *
  * Consume el `GET /admin/clientes` que añadió el paso 1 del SPEC 02. Se lista,
- * se filtra y, tocando el nombre, se corrigen sus datos (`EditarClienteModal`).
+ * se filtra y, con el lápiz de la última columna, se corrigen sus datos
+ * (`EditarClienteModal`).
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { http } from '@/api/http'
@@ -216,18 +217,25 @@ async function alCambiarDias(cliente: ClienteAdmin, evento: Event): Promise<void
                 <th>Teléfono</th>
                 <th>Se registró</th>
                 <th>Fuente</th>
+                <th class="centro">Editar</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="p in prospectos" :key="p.id">
-                <th class="col-nombre" scope="row">
-                  <button type="button" class="nombre-editable" @click="editandoId = p.id">
-                    {{ p.nombre }} <span class="lapiz" aria-hidden="true">✎</span>
-                  </button>
-                </th>
+                <th class="col-nombre" scope="row">{{ p.nombre }}</th>
                 <td class="tel">{{ p.telefono }}</td>
                 <td>{{ fecha(p.creado) }}</td>
                 <td>{{ p.fuenteCodigo ?? '—' }}</td>
+                <td class="centro">
+                  <button
+                    type="button"
+                    class="btn-editar"
+                    :aria-label="`Editar a ${p.nombre}`"
+                    @click="editandoId = p.id"
+                  >
+                    ✎
+                  </button>
+                </td>
               </tr>
             </tbody>
           </table>
@@ -268,15 +276,12 @@ async function alCambiarDias(cliente: ClienteAdmin, evento: Event): Promise<void
               <th>Fuente</th>
               <th class="centro">Crédito</th>
               <th class="num">Días</th>
+              <th class="centro">Editar</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="cliente in clientes" :key="cliente.id">
-              <th class="col-nombre" scope="row">
-                <button type="button" class="nombre-editable" @click="editandoId = cliente.id">
-                  {{ cliente.nombre }} <span class="lapiz" aria-hidden="true">✎</span>
-                </button>
-              </th>
+              <th class="col-nombre" scope="row">{{ cliente.nombre }}</th>
               <td class="tel">{{ cliente.telefono }}</td>
               <td>
                 <span v-if="cliente.nivel" class="mini-tag">{{ cliente.nivel }}</span>
@@ -314,6 +319,16 @@ async function alCambiarDias(cliente: ClienteAdmin, evento: Event): Promise<void
                   :aria-label="`Días de crédito de ${cliente.nombre}`"
                   @change="alCambiarDias(cliente, $event)"
                 />
+              </td>
+              <td class="centro">
+                <button
+                  type="button"
+                  class="btn-editar"
+                  :aria-label="`Editar a ${cliente.nombre}`"
+                  @click="editandoId = cliente.id"
+                >
+                  ✎
+                </button>
               </td>
             </tr>
           </tbody>
@@ -482,20 +497,17 @@ async function alCambiarDias(cliente: ClienteAdmin, evento: Event): Promise<void
   }
 }
 
-/* El nombre abre la ficha para editarlo: se ve como texto con un lápiz. */
-.nombre-editable {
-  padding: 0;
-  border: 0;
-  background: none;
-  font: inherit;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.lapiz {
+/* Última columna: abre la ficha del cliente para corregir sus datos. */
+.btn-editar {
+  width: 32px;
+  height: 32px;
+  border: 1.5px solid var(--line);
+  border-radius: 8px;
+  background: var(--white);
   color: var(--terracotta);
-  font-size: 12px;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
 }
 
 .tabla-clientes thead .col-nombre {
