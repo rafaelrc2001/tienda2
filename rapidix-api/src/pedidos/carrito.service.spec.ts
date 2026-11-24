@@ -9,20 +9,17 @@ const config = {
   montoEnvioGratis: D(599.99),
   multiplicadorCashback: D(2),
   montoMinimoCashback: D(600),
-  incrementoFuera: D(20),
-  atenderFuera: true,
 } as ConfiguracionNegocio;
 
 describe('CarritoService.calcularCarrito', () => {
-  it('fuera de horario cobra el recargo solo si se atiende fuera de horario', () => {
-    const base = { subtotal: D(100), baseCashback: D(0) };
-    const atendiendo = CarritoService.calcularCarrito(base, config, false, D(1));
-    expect(atendiendo.recargoFuera.toNumber()).toBe(20);
-
-    const apagado = { ...config, atenderFuera: false } as ConfiguracionNegocio;
-    const sinAtender = CarritoService.calcularCarrito(base, apagado, false, D(1));
-    expect(sinAtender.recargoFuera.toNumber()).toBe(0);
-    expect(sinAtender.total.toNumber()).toBe(130);
+  it('no cobra recargo: el pedido cuesta lo mismo a cualquier hora', () => {
+    const desglose = CarritoService.calcularCarrito(
+      { subtotal: D(100), baseCashback: D(0) },
+      config,
+      D(1),
+    );
+    expect(desglose.recargoFuera.toNumber()).toBe(0);
+    expect(desglose.total.toNumber()).toBe(130);
   });
 
   it('el cashback sale de la base participante, no del subtotal', () => {
@@ -30,7 +27,6 @@ describe('CarritoService.calcularCarrito', () => {
     const desglose = CarritoService.calcularCarrito(
       { subtotal: D(1000), baseCashback: D(700) },
       config,
-      true,
       D(1),
     );
     expect(desglose.cashback.toNumber()).toBe(7);
@@ -41,7 +37,6 @@ describe('CarritoService.calcularCarrito', () => {
     const gratis = CarritoService.calcularCarrito(
       { subtotal: D(599.99), baseCashback: D(0) },
       config,
-      true,
       D(1),
     );
     expect(gratis.envio.toNumber()).toBe(0);
@@ -49,7 +44,6 @@ describe('CarritoService.calcularCarrito', () => {
     const cobrado = CarritoService.calcularCarrito(
       { subtotal: D(599.98), baseCashback: D(0) },
       config,
-      true,
       D(1),
     );
     expect(cobrado.envio.toNumber()).toBe(30);
@@ -59,7 +53,6 @@ describe('CarritoService.calcularCarrito', () => {
     const tienda = CarritoService.calcularCarrito(
       { subtotal: D(100), baseCashback: D(0) },
       config,
-      true,
       D(1),
       D(0),
       D(0),
@@ -77,13 +70,13 @@ describe('CarritoService: cupon y billetera', () => {
   const base = { subtotal: D(700), baseCashback: D(700) };
 
   it('el cupon no baja la base del cashback', () => {
-    const conCupon = CarritoService.calcularCarrito(base, config, true, D(1), D(100));
+    const conCupon = CarritoService.calcularCarrito(base, config, D(1), D(100));
     expect(conCupon.total.toNumber()).toBe(600);
     expect(conCupon.cashback.toNumber()).toBe(7);
   });
 
   it('la billetera reduce lo que se cobra, no el total del pedido', () => {
-    const desglose = CarritoService.calcularCarrito(base, config, true, D(1), D(100), D(50));
+    const desglose = CarritoService.calcularCarrito(base, config, D(1), D(100), D(50));
     expect(desglose.total.toNumber()).toBe(600);
     expect(desglose.billetera.toNumber()).toBe(50);
     expect(desglose.aPagar.toNumber()).toBe(550);
@@ -91,7 +84,7 @@ describe('CarritoService: cupon y billetera', () => {
   });
 
   it('la billetera nunca deja lo que se cobra por debajo de cero', () => {
-    const desglose = CarritoService.calcularCarrito(base, config, true, D(1), D(0), D(9999));
+    const desglose = CarritoService.calcularCarrito(base, config, D(1), D(0), D(9999));
     expect(desglose.billetera.toNumber()).toBe(700);
     expect(desglose.aPagar.toNumber()).toBe(0);
   });

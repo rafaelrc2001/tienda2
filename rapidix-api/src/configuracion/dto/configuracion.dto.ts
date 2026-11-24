@@ -25,7 +25,13 @@ export class DiasServicioDto {
   @IsBoolean() dom: boolean;
 }
 
-/** Word 6.8 recomienda validar formato de hora y telefono. Aqui se hace. */
+/**
+ * Horario general: el del envio a domicilio. Word 6.8 recomienda validar
+ * formato de hora y telefono. Aqui se hace.
+ *
+ * "Atender fuera de horario" y su recargo se quitaron: fuera de horario el
+ * pedido siempre se acepta, sin recargo, y queda para la siguiente apertura.
+ */
 export class HorarioDto {
   @IsObject()
   @ValidateNested()
@@ -37,14 +43,6 @@ export class HorarioDto {
 
   @Matches(HORA, { message: 'La hora de cierre debe tener formato HH:MM' })
   cierra: string;
-
-  @IsBoolean()
-  atenderFuera: boolean;
-
-  @Type(() => Number)
-  @IsNumber({ maxDecimalPlaces: 2 })
-  @Min(0)
-  incrementoFuera: number;
 
   @IsOptional()
   @IsString()

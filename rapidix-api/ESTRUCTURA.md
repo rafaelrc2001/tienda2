@@ -116,7 +116,7 @@ negocio, el [README](README.md); esto es el *dónde está cada cosa*.
 - Enums: `TipoDescuento`, `EstadoCupon` (ACTIVE/USED/EXPIRED/CANCELLED), `OrigenCupon` (LIFECYCLE/CAMPAIGN), `TipoAudiencia`, `TipoFuente`.
 
 **Configuración y contenido**
-- `ConfiguracionNegocio` — fila única (`id = 1`): horario, envío, recargo, parámetros de cashback, datos bancarios y `controlInventario`, el interruptor que decide si un pedido descuenta existencias.
+- `ConfiguracionNegocio` — fila única (`id = 1`): horario del envío a domicilio, envío, parámetros de cashback, datos bancarios y `controlInventario`, el interruptor que decide si un pedido descuenta existencias.
 - `NivelFidelidad` — escalera de niveles con `umbralGasto`, `orden` y `porcentaje` de cashback. `Cliente.pctExtra` es el bono manual que se le suma, editado a mano en la base.
 - `MovimientoCashback` — cada acreditación, para poder recalcular.
 - `NoticiaDestacada`, `Aviso` — contenido del panel de Destacados.

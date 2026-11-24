@@ -19,6 +19,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CashbackService } from '../cashback/cashback.service';
 import { ConfiguracionService } from '../configuracion/configuracion.service';
+import { HorarioSemanal, avisoFueraDeHorario, leerHorario } from '../configuracion/horario';
 import {
   ahorro,
   importeDeLinea,
@@ -188,6 +189,10 @@ export interface PrevisualizacionCarritoDto {
   pago: PagoPrevisualizadoDto;
   /** El que se uso para el envio: sin elegir, a domicilio. */
   metodoEntrega: MetodoEntrega;
+  /**
+   * false: quien atiende (la tienda o el envio a domicilio) esta cerrado. El
+   * pedido se puede hacer igual; el aviso dice para cuando queda programado.
+   */
   dentroDeHorario: boolean;
   /**
    * false si no se puede confirmar el pedido tal y como esta el carrito. No
@@ -556,27 +561,19 @@ export class CarritoService {
       this.cashback.porcentajePara(clienteId),
       this.saldoBilletera(clienteId),
     ]);
-    const dentroDeHorario = enMostrador || ConfiguracionService.estaDentroDeHorario(config);
     const metodoEntrega = dto.metodoEntrega ?? MetodoEntrega.DOMICILIO;
 
     const carrito = await this.resolverTolerante(dto.items);
     const avisos = [...carrito.avisos];
 
-    // Fuera de horario con recargo en 0 no hay nada que avisar: el pedido
-    // cuesta lo mismo que dentro del horario.
-    if (!dentroDeHorario && !config.atenderFuera) {
-      // DESACTIVADO a peticion del negocio hasta que definan el texto del
-      // aviso; para reactivarlo basta con descomentar el push. La rama se
-      // conserva vacia para que no caiga en el aviso de recargo de abajo.
-      // POST /pedidos sigue rechazando el pedido fuera de horario.
-      // avisos.push(
-      //   `Ahora mismo no estamos recibiendo pedidos. Nuestro horario es de ${config.abre} a ${config.cierra}.`,
-      // );
-    } else if (!dentroDeHorario && config.incrementoFuera.greaterThan(0)) {
-      avisos.push(
-        `Estás fuera del horario de servicio (${config.abre} a ${config.cierra}): tu pedido lleva un recargo del ${config.incrementoFuera.toString()} %.`,
-      );
-    }
+    // A domicilio manda el horario general; al recoger, el de la tienda (abajo).
+    // Fuera de horario el pedido se acepta igual: solo se avisa cuando se
+    // atiende. En mostrador no aplica: hay un cajero cobrando.
+    let horarioDelPedido: HorarioSemanal | null =
+      !enMostrador && metodoEntrega === MetodoEntrega.DOMICILIO
+        ? ConfiguracionService.horarioDomicilio(config)
+        : null;
+    let quienAtiende = 'El envío a domicilio';
 
     // Recoger en tienda: el pedido sale del anaquel de la tienda elegida, asi
     // que aqui se dice si falta elegirla o si no tiene lo que se pide, en vez
@@ -594,8 +591,17 @@ export class CarritoService {
         const faltantes = await this.tiendas.faltantes(recogida.tienda.id, carrito.disponibles);
         avisos.push(...faltantes.map((f) => TiendasService.mensajeDeFaltante(f)));
         recogidaLista = faltantes.length === 0;
+        // Una tienda sin horario capturado no avisa nada.
+        horarioDelPedido = leerHorario(recogida.tienda.horario);
+        quienAtiende = recogida.tienda.nombre;
       }
     }
+
+    const fueraDeHorario = horarioDelPedido
+      ? avisoFueraDeHorario(horarioDelPedido, quienAtiende)
+      : null;
+    if (fueraDeHorario) avisos.push(fueraDeHorario);
+    const dentroDeHorario = fueraDeHorario === null;
 
     // El cupon se valida contra las lineas comprables, que son las que suman.
     let descuento = new Decimal(0);
@@ -624,7 +630,6 @@ export class CarritoService {
     const sinBilletera = CarritoService.calcularCarrito(
       carrito,
       config,
-      dentroDeHorario,
       porcentaje,
       descuento,
       new Decimal(0),
@@ -638,7 +643,6 @@ export class CarritoService {
     const desglose = CarritoService.calcularCarrito(
       carrito,
       config,
-      dentroDeHorario,
       porcentaje,
       descuento,
       billetera.monto,
@@ -659,12 +663,9 @@ export class CarritoService {
 
     // DECISION DEL SPEC 02: una linea agotada tambien bloquea el pedido. El
     // boton de confirmar se apaga con el motivo a la vista, en vez de dejar
-    // que el cliente choque con el 409 de POST /pedidos.
+    // que el cliente choque con el 409 de POST /pedidos. El horario no bloquea.
     const puedePedir =
-      (dentroDeHorario || config.atenderFuera) &&
-      carrito.agotadas.length === 0 &&
-      carrito.disponibles.length > 0 &&
-      recogidaLista;
+      carrito.agotadas.length === 0 && carrito.disponibles.length > 0 && recogidaLista;
 
     return {
       items: [
@@ -699,7 +700,7 @@ export class CarritoService {
   }
 
   /**
-   * Envio, recargo fuera de horario, total y cashback de un carrito.
+   * Envio, total y cashback de un carrito.
    *
    * Unico sitio donde vive esta aritmetica. `PedidosService.crear` la llama
    * dentro de su transaccion y `POST /carrito/previsualizar` la llama sin
@@ -712,7 +713,6 @@ export class CarritoService {
   static calcularCarrito(
     carrito: Pick<CarritoResuelto, 'subtotal' | 'baseCashback'>,
     config: ConfiguracionNegocio,
-    dentroDeHorario: boolean,
     porcentajeCashback: Decimal,
     descuento: Decimal = new Decimal(0),
     billeteraSolicitada: Decimal = new Decimal(0),
@@ -729,19 +729,11 @@ export class CarritoService {
         ? new Decimal(0)
         : new Decimal(config.costoEnvio);
 
-    // El porcentaje solo cuenta con "Atender fuera de horario" encendido. Con el
-    // interruptor apagado el pedido fuera de horario no se puede confirmar, y la
-    // previsualizacion no debe mostrar un recargo que nunca se cobraria.
-    const recargoFuera =
-      dentroDeHorario || !config.atenderFuera
-        ? new Decimal(0)
-        : subtotal.mul(config.incrementoFuera).div(100).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+    // Ya no hay recargo fuera de horario: el pedido cuesta lo mismo a cualquier
+    // hora. La columna sigue en `pedidos` por los que se cobraron antes.
+    const recargoFuera = new Decimal(0);
 
-    const total = subtotal
-      .add(envio)
-      .add(recargoFuera)
-      .sub(descuento)
-      .toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+    const total = subtotal.add(envio).sub(descuento).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
 
     // DECISION (HU-10): ni el cupon ni la billetera bajan la base del cashback.
     // La base son los productos participantes a precio escalonado; el cupon ya
