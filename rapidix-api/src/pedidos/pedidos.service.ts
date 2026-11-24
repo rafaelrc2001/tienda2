@@ -243,7 +243,7 @@ export class PedidosService {
    * a medias con el cupon ya quemado. Los pasos, en orden:
    *
    *  1. Resolver el carrito contra la base (precios reales, nada del cliente).
-   *  2. Calcular envio y recargo fuera de horario.
+   *  2. Calcular envio y total.
    *  3. Bloquear la fila del cupon y revalidarlo.
    *  4. Convertir al prospecto en cliente, si es su primera compra.
    *  5. Crear el pedido y sus lineas.
@@ -257,8 +257,7 @@ export class PedidosService {
    * 12. Acreditar el cashback, solo si ya nace pagado.
    *
    * Con `mostrador` el pedido lo captura un cajero en el punto de venta, y
-   * cambian cuatro cosas: no mira el horario de la app (si hay cajero, la
-   * tienda esta abierta, y no hay recargo), queda atado a su turno, lo firma
+   * cambian tres cosas: queda atado a su turno, lo firma
    * el cajero y —si se lleva en mostrador— no aparta nada en bodega: esa
    * mercancia sale del inventario de la tienda al entregarse. Y nace
    * PAGADO, vaya a donde vaya: el punto de venta cobra de contado.
@@ -287,14 +286,9 @@ export class PedidosService {
       throw new ConflictException('Completa tu nombre en Mi Perfil antes de pedir.');
     }
 
+    // El horario no se mira aqui: fuera de horario el pedido se acepta igual y
+    // queda para la siguiente apertura (el carrito ya se lo aviso al cliente).
     const config = await this.configuracion.obtener();
-    const dentroDeHorario =
-      mostrador !== undefined || ConfiguracionService.estaDentroDeHorario(config);
-    if (!dentroDeHorario && !config.atenderFuera) {
-      throw new ConflictException(
-        `Ahora mismo no estamos recibiendo pedidos. Nuestro horario es de ${config.abre} a ${config.cierra}.`,
-      );
-    }
 
     const metodoEntrega = dto.metodoEntrega ?? MetodoEntrega.DOMICILIO;
     // En mostrador la tienda es la del turno, y su faltante ya lo reviso el PDV.
@@ -352,7 +346,6 @@ export class PedidosService {
       const sinBilletera = CarritoService.calcularCarrito(
         carrito,
         config,
-        dentroDeHorario,
         porcentajeCashback,
         descuento,
         new Decimal(0),
@@ -370,7 +363,6 @@ export class PedidosService {
       const desglose = CarritoService.calcularCarrito(
         carrito,
         config,
-        dentroDeHorario,
         porcentajeCashback,
         descuento,
         billetera.monto,

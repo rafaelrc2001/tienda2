@@ -11,6 +11,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { UsuarioAutenticado } from '../auth/jwt-payload';
 import { LineaAMover } from '../inventario/salidas-del-pedido';
 import { GuardarTiendaDto } from './dto/tienda.dto';
+import { HorarioSemanal, leerHorario } from '../configuracion/horario';
 
 /**
  * Una fila del inventario de una tienda.
@@ -51,6 +52,8 @@ export interface TiendaParaRecogerDto {
   id: string;
   nombre: string;
   direccion: string;
+  /** Para enseñarlo al elegir tienda. `null` si no se ha capturado. */
+  horario: HorarioSemanal | null;
 }
 
 /**
@@ -110,7 +113,12 @@ export class TiendasService {
   /** Las tiendas entre las que el cliente elige al pedir «Recoger en tienda». */
   async paraRecoger(): Promise<TiendaParaRecogerDto[]> {
     const tiendas = await this.activas();
-    return tiendas.map((t) => ({ id: t.id, nombre: t.nombre, direccion: t.direccion }));
+    return tiendas.map((t) => ({
+      id: t.id,
+      nombre: t.nombre,
+      direccion: t.direccion,
+      horario: leerHorario(t.horario),
+    }));
   }
 
   /**
@@ -412,6 +420,11 @@ export class TiendasService {
       responsable: dto.responsable.trim(),
       ...(dto.activa !== undefined && { activa: dto.activa }),
       ...(dto.emisorRfc !== undefined && { emisorRfc: dto.emisorRfc || null }),
+      // Se guarda normalizado (los siete dias, los cerrados en null) para que
+      // quien lo lea no tenga que adivinar que significa un dia ausente.
+      ...(dto.horario !== undefined && {
+        horario: dto.horario ? (leerHorario(dto.horario) as Prisma.InputJsonObject) : Prisma.DbNull,
+      }),
     };
   }
 }

@@ -261,10 +261,12 @@ Ninguna de las dos fuentes los define. Están aislados para poder cambiarlos.
    nivel del cliente más su `pctExtra`; `multiplicadorCashback` es el ×2 al ir a
    la billetera, que es lo que se acredita. Está en `CashbackService`; cada
    acreditación queda en `MovimientoCashback`, así que se puede recalcular.
-2. **Recargo fuera de horario** — se aplica sobre el subtotal cuando el pedido
-   entra fuera de servicio y `atenderFuera` está activo; si está desactivado, el
-   pedido se rechaza con 409. El Word define el parámetro pero no cómo se aplica.
-   Se guarda en su propia columna `Pedido.recargoFuera` para poder auditarlo.
+2. **Fuera de horario** — no bloquea ni encarece. Cada tienda tiene su horario
+   día por día (`Tienda.horario`) y el envío a domicilio usa el horario general
+   de Configuración. Fuera de él el pedido se acepta y el carrito avisa que
+   queda programado para la siguiente apertura. El recargo y el interruptor
+   «Atender fuera de horario» se quitaron; `Pedido.recargoFuera` se conserva
+   (siempre 0 en los pedidos nuevos) por los que se cobraron antes.
 3. **Niveles de fidelidad** — Bronce $0 (1 %), Plata $30,000 (1.5 %), Oro
    $60,000 (2 %), Platino $90,000 (2.5 %), según la tabla del negocio (HU-17).
    Pendiente: hoy el nivel se mide sobre el gasto histórico total (`totalGastado`,

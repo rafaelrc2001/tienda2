@@ -507,6 +507,11 @@ model Tienda {
   /// factura.com del servidor (`EmisorService`). Null = la principal. El punto
   /// de venta puede cambiarlo al facturar.
   emisorRfc   String?
+  /// Horario por dia: `{ lun: { abre: "09:00", cierra: "18:00" }, ..., dom: null }`.
+  /// `null` en un dia = no abre. Es informativo: no bloquea pedidos; fuera de
+  /// el el carrito avisa que el pedido queda para la siguiente apertura. Null
+  /// entero = sin capturar, y no se avisa nada.
+  horario     Json?
 
   creadoEn      DateTime @default(now())
   actualizadoEn DateTime @updatedAt
@@ -1759,14 +1764,12 @@ model FuenteAdquisicion {
 model ConfiguracionNegocio {
   id Int @id @default(1)
 
-  // Horario de servicio
+  // Horario del envio a domicilio. No bloquea ni encarece: fuera de el el
+  // pedido se acepta y queda para la siguiente apertura.
   /// {lun:true, mar:true, ..., dom:false}
   diasServicio    Json
   abre            String
   cierra          String
-  atenderFuera    Boolean
-  /// Porcentaje de incremento al atender fuera de horario.
-  incrementoFuera Decimal @db.Decimal(5, 2)
   whatsappAyuda   String?
 
   // Parametros del negocio

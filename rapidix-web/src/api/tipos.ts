@@ -1479,14 +1479,25 @@ export interface MovimientoCashback {
 
 export type ClaveDia = 'lun' | 'mar' | 'mie' | 'jue' | 'vie' | 'sab' | 'dom'
 
+/**
+ * Horario general: el del envío a domicilio. No bloquea ni encarece pedidos;
+ * fuera de él el carrito avisa que el pedido queda para la siguiente apertura.
+ */
 export interface Horario {
   diasServicio: Record<string, boolean>
   abre: string
   cierra: string
-  atenderFuera: boolean
-  incrementoFuera: number
   whatsappAyuda: string | null
 }
+
+/** Horas de un día, `HH:MM`. Si cierra antes de abrir, cruza la medianoche. */
+export interface HorasDelDia {
+  abre: string
+  cierra: string
+}
+
+/** Horario de una tienda, día por día. `null` en un día = no abre. */
+export type HorarioSemanal = Record<ClaveDia, HorasDelDia | null>
 
 export interface Parametros {
   costoEnvio: number
@@ -1930,6 +1941,8 @@ export interface Tienda {
   activa: boolean
   /** RFC con el que factura por defecto; `null` = el principal. */
   emisorRfc: string | null
+  /** Informativo: no bloquea pedidos. `null` = sin capturar. */
+  horario: HorarioSemanal | null
 }
 
 /** Una cuenta del personal en Configuración → Usuarios. */
@@ -1955,6 +1968,8 @@ export interface TiendaParaRecoger {
   id: string
   nombre: string
   direccion: string
+  /** Para enseñarlo al elegir tienda. `null` si no se ha capturado. */
+  horario: HorarioSemanal | null
 }
 
 /**

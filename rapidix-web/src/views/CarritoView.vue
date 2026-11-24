@@ -26,6 +26,7 @@ import type {
 import BloqueDireccionEntrega from '@/components/BloqueDireccionEntrega.vue'
 import DatosTransferencia from '@/components/DatosTransferencia.vue'
 import { direccionInicial, erroresDireccion } from '@/utils/direccion'
+import { resumenHorario } from '@/utils/horario'
 
 const carrito = useCarritoStore()
 const ui = useUiStore()
@@ -716,6 +717,10 @@ async function confirmar(): Promise<void> {
         </div>
         <p v-if="!aDomicilio && tiendaElegida" class="tienda-direccion">
           📍 {{ tiendaElegida.nombre }} · {{ tiendaElegida.direccion }}
+          <!-- Solo informativo: fuera de horario el aviso de arriba dice para cuándo queda. -->
+          <span v-if="tiendaElegida.horario" class="tienda-horario">
+            🕒 {{ resumenHorario(tiendaElegida.horario) }}
+          </span>
         </p>
       </fieldset>
 
@@ -1434,6 +1439,11 @@ async function confirmar(): Promise<void> {
   margin: 6px 0 0;
   font-size: 11.5px;
   color: var(--muted);
+}
+
+.tienda-horario {
+  display: block;
+  margin-top: 3px;
 }
 
 .cambio {

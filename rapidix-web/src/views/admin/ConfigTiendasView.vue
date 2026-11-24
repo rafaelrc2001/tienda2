@@ -12,11 +12,16 @@
  * Cada tienda factura por defecto con una de las cuentas de factura.com del
  * servidor (Configuración → Fiscal); sin elegir, con la principal. El punto
  * de venta puede cambiarla al facturar.
+ *
+ * El horario es día por día (el sábado puede cerrar antes y no todas abren el
+ * domingo). Es informativo: no bloquea pedidos; fuera de él el carrito avisa
+ * que el pedido queda programado para la siguiente apertura.
  */
 import { computed, onMounted, ref } from 'vue'
 import { ErrorApi, http } from '@/api/http'
 import { useUiStore } from '@/stores/ui'
-import type { EmisorServidor, Tienda } from '@/api/tipos'
+import { DIAS_SEMANA, horarioPorDefecto, resumenHorario } from '@/utils/horario'
+import type { ClaveDia, EmisorServidor, HorarioSemanal, Tienda } from '@/api/tipos'
 
 const ui = useUiStore()
 
@@ -37,7 +42,13 @@ const formulario = ref({
   activa: true,
   /** `''` = la cuenta principal. */
   emisorRfc: '',
+  horario: horarioPorDefecto(),
 })
+
+/** Prender un día le pone las horas de siempre; apagarlo lo deja cerrado. */
+function alternarDia(clave: ClaveDia, abre: boolean): void {
+  formulario.value.horario[clave] = abre ? { abre: '09:00', cierra: '18:00' } : null
+}
 
 /** Las cuentas de factura.com del servidor. Si no se leen, la tienda se edita igual. */
 const emisores = ref<EmisorServidor['emisores']>([])
@@ -77,11 +88,26 @@ function abrir(tienda: Tienda | null): void {
         responsable: tienda.responsable,
         activa: tienda.activa,
         emisorRfc: tienda.emisorRfc ?? '',
+        // Copia: editar la ficha no debe tocar la fila de la tabla si se cancela.
+        horario: tienda.horario ? copiarHorario(tienda.horario) : horarioPorDefecto(),
       }
-    : { nombre: '', direccion: '', responsable: '', activa: true, emisorRfc: '' }
+    : {
+        nombre: '',
+        direccion: '',
+        responsable: '',
+        activa: true,
+        emisorRfc: '',
+        horario: horarioPorDefecto(),
+      }
   errores.value = {}
   erroresGenerales.value = []
   modalAbierto.value = true
+}
+
+function copiarHorario(horario: HorarioSemanal): HorarioSemanal {
+  return Object.fromEntries(
+    DIAS_SEMANA.map(({ clave }) => [clave, horario[clave] ? { ...horario[clave] } : null]),
+  ) as HorarioSemanal
 }
 
 async function guardar(): Promise<void> {
@@ -95,6 +121,7 @@ async function guardar(): Promise<void> {
       responsable: formulario.value.responsable.trim(),
       activa: formulario.value.activa,
       emisorRfc: formulario.value.emisorRfc || null,
+      horario: formulario.value.horario,
     }
     if (editando.value) {
       await http.patch(`/admin/configuracion/tiendas/${editando.value.id}`, cuerpo)
@@ -137,6 +164,7 @@ async function guardar(): Promise<void> {
             <th>Dirección</th>
             <th>Responsable</th>
             <th>Factura como</th>
+            <th>Horario</th>
             <th>Estatus</th>
             <th />
           </tr>
@@ -149,6 +177,9 @@ async function guardar(): Promise<void> {
             <td>{{ tienda.direccion }}</td>
             <td>{{ tienda.responsable }}</td>
             <td>{{ facturaComo(tienda) }}</td>
+            <td class="horario-resumen">
+              {{ tienda.horario ? resumenHorario(tienda.horario) : 'Sin capturar' }}
+            </td>
             <td>
               <span class="mini-tag">{{ tienda.activa ? 'Activa' : 'Desactivada' }}</span>
             </td>
@@ -224,6 +255,40 @@ async function guardar(): Promise<void> {
           <p class="form-hint">El punto de venta puede cambiarlo al facturar.</p>
         </template>
 
+        <label class="form-label">Horario</label>
+        <div class="zona-horario">
+          <div v-for="dia in DIAS_SEMANA" :key="dia.clave" class="fila-dia">
+            <label class="dia-check">
+              <input
+                type="checkbox"
+                :checked="formulario.horario[dia.clave] !== null"
+                @change="alternarDia(dia.clave, ($event.target as HTMLInputElement).checked)"
+              />
+              {{ dia.largo }}
+            </label>
+            <template v-if="formulario.horario[dia.clave]">
+              <input
+                v-model="formulario.horario[dia.clave]!.abre"
+                class="form-input hora"
+                type="time"
+                :aria-label="`${dia.largo}: abre`"
+              />
+              <span class="a">a</span>
+              <input
+                v-model="formulario.horario[dia.clave]!.cierra"
+                class="form-input hora"
+                type="time"
+                :aria-label="`${dia.largo}: cierra`"
+              />
+            </template>
+            <span v-else class="cerrado">Cerrado</span>
+          </div>
+        </div>
+        <p class="form-hint">
+          Informativo: fuera de horario el pedido se acepta y se le avisa al cliente que queda
+          programado para la siguiente apertura.
+        </p>
+
         <div v-if="editando" class="toggle-row">
           <div>
             <p class="t-lbl">Tienda activa</p>
@@ -271,6 +336,70 @@ async function guardar(): Promise<void> {
 }
 
 .apagada td {
+  color: var(--muted);
+}
+
+.horario-resumen {
+  min-width: 180px;
+  white-space: normal;
+  font-size: 11.5px;
+}
+
+/* Bloque gris con los campos en blanco: se ve dónde se escribe. */
+.zona-horario {
+  background: var(--cream-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 6px 10px;
+  margin-bottom: 6px;
+}
+
+.fila-dia {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+}
+
+.fila-dia + .fila-dia {
+  border-top: 1px solid var(--line);
+}
+
+.dia-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 104px;
+  flex-shrink: 0;
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 12.5px;
+  color: var(--ink);
+}
+
+.dia-check input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--sage);
+}
+
+.hora {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 6px 8px;
+  background: var(--white);
+  /* 16px reales: con menos, Safari en iPhone amplía la página al enfocar el campo. */
+  font-size: 16px;
+}
+
+.a {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.cerrado {
+  font-size: 12px;
   color: var(--muted);
 }
 

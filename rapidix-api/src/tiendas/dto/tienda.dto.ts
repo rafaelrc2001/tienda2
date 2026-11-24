@@ -1,4 +1,36 @@
-import { IsBoolean, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
+import { Type } from 'class-transformer';
+import {
+  IsBoolean,
+  IsObject,
+  IsOptional,
+  IsString,
+  Matches,
+  MaxLength,
+  MinLength,
+  ValidateNested,
+} from 'class-validator';
+
+const HORA = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/** Las horas de un dia. Si cierra antes de abrir, cruza la medianoche. */
+export class HorasDelDiaDto {
+  @Matches(HORA, { message: 'La hora de apertura debe tener formato HH:MM' })
+  abre: string;
+
+  @Matches(HORA, { message: 'La hora de cierre debe tener formato HH:MM' })
+  cierra: string;
+}
+
+/** Un dia en `null` (o sin mandar) es que ese dia no abre. */
+export class HorarioTiendaDto {
+  @IsOptional() @ValidateNested() @Type(() => HorasDelDiaDto) lun?: HorasDelDiaDto | null;
+  @IsOptional() @ValidateNested() @Type(() => HorasDelDiaDto) mar?: HorasDelDiaDto | null;
+  @IsOptional() @ValidateNested() @Type(() => HorasDelDiaDto) mie?: HorasDelDiaDto | null;
+  @IsOptional() @ValidateNested() @Type(() => HorasDelDiaDto) jue?: HorasDelDiaDto | null;
+  @IsOptional() @ValidateNested() @Type(() => HorasDelDiaDto) vie?: HorasDelDiaDto | null;
+  @IsOptional() @ValidateNested() @Type(() => HorasDelDiaDto) sab?: HorasDelDiaDto | null;
+  @IsOptional() @ValidateNested() @Type(() => HorasDelDiaDto) dom?: HorasDelDiaDto | null;
+}
 
 /** Alta y edicion de una tienda (Configuracion -> Tiendas). */
 export class GuardarTiendaDto {
@@ -32,4 +64,15 @@ export class GuardarTiendaDto {
   @IsString()
   @Matches(/^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/, { message: 'emisorRfc no es un RFC válido' })
   emisorRfc?: string | null;
+
+  /**
+   * Horario dia por dia. Informativo: no bloquea pedidos; fuera de el el
+   * carrito avisa que el pedido queda para la siguiente apertura. `null` lo
+   * borra; sin mandar, se deja el que tenia.
+   */
+  @IsOptional()
+  @IsObject()
+  @ValidateNested()
+  @Type(() => HorarioTiendaDto)
+  horario?: HorarioTiendaDto | null;
 }

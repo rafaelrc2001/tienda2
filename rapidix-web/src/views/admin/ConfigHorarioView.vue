@@ -2,8 +2,9 @@
 /**
  * Configuración → Horario de servicio (HU-A04).
  *
- * Los días y las horas deciden si un pedido lleva recargo: es la misma
- * configuración que lee `POST /carrito/previsualizar`.
+ * Es el horario del envío a domicilio. No bloquea ni encarece pedidos: fuera
+ * de él `POST /carrito/previsualizar` avisa que el pedido queda programado
+ * para la siguiente apertura.
  */
 import { onMounted, ref } from 'vue'
 import { ErrorApi, http } from '@/api/http'
@@ -12,7 +13,7 @@ import type { ClaveDia, Horario } from '@/api/tipos'
 
 const ui = useUiStore()
 
-const CAMPOS = ['abre', 'cierra', 'incrementoFuera', 'whatsappAyuda', 'diasServicio'] as const
+const CAMPOS = ['abre', 'cierra', 'whatsappAyuda', 'diasServicio'] as const
 
 const DIAS: { clave: ClaveDia; etiqueta: string }[] = [
   { clave: 'lun', etiqueta: 'Lun' },
@@ -55,8 +56,6 @@ async function guardar(): Promise<void> {
       diasServicio: horario.value.diasServicio,
       abre: horario.value.abre,
       cierra: horario.value.cierra,
-      atenderFuera: horario.value.atenderFuera,
-      incrementoFuera: horario.value.incrementoFuera,
       whatsappAyuda: horario.value.whatsappAyuda || null,
     })
     ui.exito('Horario guardado')
@@ -125,35 +124,11 @@ async function guardar(): Promise<void> {
           </div>
         </div>
         <p class="nota">
-          Un horario que cierra antes de abrir se entiende como que cruza la medianoche.
+          Es el horario del envío a domicilio; cada tienda tiene el suyo en Configuración → Tiendas.
+          Fuera de horario el pedido se acepta igual y se le avisa al cliente que queda programado
+          para la siguiente apertura. Un horario que cierra antes de abrir se entiende como que
+          cruza la medianoche.
         </p>
-      </div>
-
-      <div class="form-block">
-        <div class="toggle-row sin-margen">
-          <div>
-            <p class="t-lbl">Atender fuera de horario</p>
-            <p class="t-sub">Si está apagado, fuera del horario no se pueden confirmar pedidos.</p>
-          </div>
-          <label class="switch">
-            <input v-model="horario.atenderFuera" type="checkbox" />
-            <span class="slider-switch" />
-          </label>
-        </div>
-
-        <label class="form-label recargo-label" for="incremento">
-          Recargo fuera de horario (%)
-        </label>
-        <input
-          id="incremento"
-          v-model.number="horario.incrementoFuera"
-          class="form-input"
-          :class="{ 'is-invalid': errores.incrementoFuera }"
-          type="number"
-          step="0.01"
-          min="0"
-        />
-        <p v-if="errores.incrementoFuera" class="form-error">{{ errores.incrementoFuera }}</p>
       </div>
 
       <div class="form-block">
@@ -219,16 +194,6 @@ async function guardar(): Promise<void> {
   background: var(--sage);
   border-color: var(--sage);
   color: var(--white);
-}
-
-.sin-margen {
-  margin-bottom: 0;
-  box-shadow: none;
-  background: var(--cream);
-}
-
-.recargo-label {
-  margin-top: 14px;
 }
 
 .nota {

@@ -572,8 +572,6 @@ async function seedConfiguracion(): Promise<void> {
       },
       abre: '08:00',
       cierra: '18:00',
-      atenderFuera: true,
-      incrementoFuera: 20,
       whatsappAyuda: null,
       // Parametros vigentes del negocio (HU-16). El multiplicador es el x2 de
       // la billetera, no un porcentaje.
