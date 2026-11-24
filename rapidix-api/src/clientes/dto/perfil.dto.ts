@@ -8,6 +8,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  Matches,
   Max,
   MaxLength,
   Min,
@@ -100,6 +101,23 @@ export class ActualizarPerfilDto {
   @IsOptional()
   @IsBoolean()
   notificaciones?: boolean;
+}
+
+/**
+ * Cuerpo de PATCH /admin/clientes/:id: lo mismo que "Mi Perfil" mas el
+ * telefono.
+ *
+ * El cliente no puede cambiar su telefono porque es con lo que entra; el
+ * personal si, para corregir un numero mal capturado o uno que cambio. El
+ * servicio lo normaliza igual que el login y comprueba que no lo tenga nadie
+ * mas, ni cliente ni prospecto. La sesion abierta del cliente no se cae: el
+ * token apunta a su id, no a su telefono.
+ */
+export class ActualizarClienteAdminDto extends ActualizarPerfilDto {
+  @IsOptional()
+  @IsString()
+  @Matches(/^[+\d][\d\s\-()]{6,19}$/, { message: 'El teléfono no tiene un formato válido' })
+  telefono?: string;
 }
 
 /** Direccion de envio tal y como la pinta la pantalla de Perfil. */

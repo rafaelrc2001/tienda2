@@ -2,11 +2,13 @@ import { Body, Controller, Get, Param, Patch, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ClientesService } from './clientes.service';
 import {
+  ActualizarClienteAdminDto,
   ActualizarCreditoDto,
   BuscarClientesDto,
   ClienteAdminDto,
   PaginaClientesDto,
   PaginaProspectosDto,
+  PerfilDto,
 } from './dto/perfil.dto';
 import { RequiereSeccion } from '../auth/seccion.decorator';
 
@@ -38,6 +40,21 @@ export class AdminClientesController {
   @Get('prospectos')
   prospectos(@Query() filtros: BuscarClientesDto): Promise<PaginaProspectosDto> {
     return this.clientes.listarProspectosParaAdmin(filtros);
+  }
+
+  /**
+   * Ficha de un cliente o de un prospecto para editarla. Va despues de
+   * `prospectos`: si no, esa ruta literal caeria aqui como un id.
+   */
+  @Get(':id')
+  ficha(@Param('id') id: string): Promise<PerfilDto> {
+    return this.clientes.fichaParaAdmin(id);
+  }
+
+  /** Nombre, telefono, correo, direccion... lo de "Mi Perfil" mas el telefono. */
+  @Patch(':id')
+  actualizar(@Param('id') id: string, @Body() dto: ActualizarClienteAdminDto): Promise<PerfilDto> {
+    return this.clientes.actualizarDesdeAdmin(id, dto);
   }
 
   /** Credito del cliente: el check y su plazo en dias. */

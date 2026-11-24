@@ -1,7 +1,14 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuthService } from '../auth/auth.service';
 import {
+  ActualizarClienteAdminDto,
   ActualizarCreditoDto,
   ActualizarPerfilDto,
   BuscarClientesDto,
@@ -149,7 +156,84 @@ export class ClientesService {
    * `telefono` no se toca: no esta en el DTO y `forbidNonWhitelisted` rechaza
    * el intento con un 400 antes de llegar aqui.
    */
-  async actualizar(duenioId: string, cambios: ActualizarPerfilDto): Promise<PerfilDto> {
+  actualizar(duenioId: string, cambios: ActualizarPerfilDto): Promise<PerfilDto> {
+    return this.guardarPerfil(duenioId, cambios, 'No encontramos tu perfil');
+  }
+
+  /**
+   * Administracion -> Clientes: la ficha de un cliente o de un prospecto.
+   *
+   * Es el mismo perfil que ve el cliente en su app; el panel lo pide para
+   * llenar el formulario de edicion.
+   */
+  async fichaParaAdmin(id: string): Promise<PerfilDto> {
+    try {
+      return await this.perfil(id);
+    } catch (fallo) {
+      if (fallo instanceof NotFoundException) throw new NotFoundException('Cliente no encontrado');
+      throw fallo;
+    }
+  }
+
+  /**
+   * Administracion -> Clientes: el personal corrige los datos de un cliente.
+   *
+   * Lo mismo que edita el cliente en "Mi Perfil" mas el telefono. El telefono
+   * se guarda normalizado como lo guarda el login, para que el cliente pueda
+   * entrar con el numero nuevo, y no puede repetirse en ninguna de las dos
+   * tablas: es la identidad con la que se busca al iniciar sesion.
+   */
+  async actualizarDesdeAdmin(id: string, dto: ActualizarClienteAdminDto): Promise<PerfilDto> {
+    const { telefono, ...resto } = dto;
+    if (telefono === undefined) return this.guardarPerfil(id, resto, 'Cliente no encontrado');
+
+    const normalizado = AuthService.normalizarTelefono(telefono);
+    // Se compara contra todas las formas en que pudo guardarse (con o sin lada),
+    // igual que al buscar en el mostrador: 9991234567 y +529991234567 son el
+    // mismo WhatsApp.
+    const variantes = AuthService.variantesDeTelefono(normalizado);
+    const donde = { telefono: { in: variantes }, id: { not: id } };
+    const [enClientes, enProspectos] = await Promise.all([
+      this.prisma.cliente.findFirst({ where: donde, select: { nombre: true } }),
+      this.prisma.prospecto.findFirst({ where: donde, select: { nombre: true } }),
+    ]);
+    const duenio = enClientes ?? enProspectos;
+    if (duenio) {
+      throw new ConflictException({
+        statusCode: 409,
+        code: 'TELEFONO_EN_USO',
+        message: `Ese teléfono ya es de ${duenio.nombre}.`,
+      });
+    }
+
+    try {
+      return await this.guardarPerfil(
+        id,
+        { ...resto, telefono: normalizado },
+        'Cliente no encontrado',
+      );
+    } catch (fallo) {
+      // Otro registro se quedo con el numero entre la comprobacion y el guardado.
+      if (fallo instanceof Prisma.PrismaClientKnownRequestError && fallo.code === 'P2002') {
+        throw new ConflictException({
+          statusCode: 409,
+          code: 'TELEFONO_EN_USO',
+          message: 'Ese teléfono ya lo tiene otro cliente.',
+        });
+      }
+      throw fallo;
+    }
+  }
+
+  /**
+   * Guarda el perfil en la tabla donde viva: `clientes` o, si todavia no ha
+   * comprado, `prospectos`. Lo comparten "Mi Perfil" y el panel.
+   */
+  private async guardarPerfil(
+    duenioId: string,
+    cambios: ActualizarPerfilDto & { telefono?: string },
+    noEncontrado: string,
+  ): Promise<PerfilDto> {
     // Solo se elige entre las tiendas abiertas: es la que el carrito propondra
     // para recoger, y una apagada ahi daria TIENDA_NO_DISPONIBLE.
     if (cambios.tiendaId) {
@@ -181,7 +265,7 @@ export class ClientesService {
     // Todavia no ha comprado: lo que escriba se guarda en `prospectos` y viaja
     // al cliente cuando confirme su primer pedido.
     if (!(await this.prisma.prospecto.count({ where: { id: duenioId } }))) {
-      throw new NotFoundException('No encontramos tu perfil');
+      throw new NotFoundException(noEncontrado);
     }
     const prospecto = await this.prisma.prospecto.update({
       where: { id: duenioId },
