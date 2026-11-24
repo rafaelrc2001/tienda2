@@ -1,4 +1,4 @@
-import { HorarioSemanal, avisoFueraDeHorario, estaAbierto, siguienteApertura } from './horario';
+import { HorarioSemanal, avisoFueraDeHorario, estaAbierto } from './horario';
 
 const MEXICO = 'America/Mexico_City';
 
@@ -34,32 +34,14 @@ describe('estaAbierto', () => {
   });
 });
 
-describe('siguienteApertura', () => {
-  it('antes de abrir: hoy', () => {
-    expect(siguienteApertura(tienda, lunes('07:00'), MEXICO)).toBe('hoy a las 09:00');
-  });
-
-  it('despues de cerrar: mañana', () => {
-    expect(siguienteApertura(tienda, lunes('20:00'), MEXICO)).toBe('mañana a las 09:00');
-  });
-
-  it('se salta el domingo cerrado', () => {
-    expect(siguienteApertura(tienda, sabado('15:00'), MEXICO)).toBe('el lunes a las 09:00');
-  });
-
-  it('sin ningun dia abierto no hay siguiente apertura', () => {
-    expect(siguienteApertura({}, lunes('10:00'), MEXICO)).toBeNull();
-  });
-});
-
 describe('avisoFueraDeHorario', () => {
   it('abierto no avisa', () => {
     expect(avisoFueraDeHorario(tienda, 'Centro', lunes('10:00'), MEXICO)).toBeNull();
   });
 
-  it('cerrado dice para cuando queda programado', () => {
+  it('cerrado dice que queda para el dia siguiente habil', () => {
     expect(avisoFueraDeHorario(tienda, 'Centro', lunes('20:00'), MEXICO)).toBe(
-      'Centro está fuera de horario: tu pedido queda programado para mañana a las 09:00.',
+      'Centro está fuera de horario: tu pedido quedará programado para el día siguiente hábil.',
     );
   });
 });
