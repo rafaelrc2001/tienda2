@@ -8,7 +8,7 @@ import {
   IsUUID,
   Matches,
 } from 'class-validator';
-import { DatosFiscalesDto } from './factura.dto';
+import { DatosFiscalesDto, FacturarPedidoDto } from './factura.dto';
 
 /**
  * Cuantos pedidos caben en una factura consolidada. Cada uno suma sus
@@ -32,6 +32,33 @@ export class PedidosAFacturarDto {
   })
   @IsUUID('all', { each: true, message: 'Alguno de los pedidos no es válido' })
   pedidoIds: string[];
+}
+
+/**
+ * «Facturar varios» de Mis pedidos: los mismos datos que la factura de un
+ * pedido, para varios pedidos del cliente en un solo CFDI. Sin `emisorRfc`:
+ * el cliente no elige quien le factura.
+ */
+export class FacturarVariosPedidosDto extends FacturarPedidoDto {
+  @IsArray()
+  @ArrayMinSize(2, { message: 'Elige al menos dos pedidos para facturarlos juntos' })
+  @ArrayMaxSize(MAXIMO_PEDIDOS_POR_FACTURA, {
+    message: `Una factura junta como máximo ${MAXIMO_PEDIDOS_POR_FACTURA} pedidos`,
+  })
+  @IsUUID('all', { each: true, message: 'Alguno de los pedidos no es válido' })
+  pedidoIds: string[];
+}
+
+/**
+ * «Facturar varios» de Finanzas: varios pedidos de un mismo cliente, a su
+ * nombre, y Finanzas elige con cual cuenta de factura.com se emite.
+ */
+export class FacturarVariosPedidosFinanzasDto extends FacturarVariosPedidosDto {
+  /** RFC del emisor. Sin el, el de la tienda de los pedidos (o el principal). */
+  @IsOptional()
+  @IsString()
+  @Matches(/^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/, { message: 'emisorRfc no es un RFC válido' })
+  emisorRfc?: string;
 }
 
 /**

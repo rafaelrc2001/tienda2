@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { http } from '@/api/http'
 import type {
   CarritoGuardado,
@@ -48,6 +48,14 @@ interface CarritoLocal {
    * `null` mientras no la toque: entonces el checkout parte del perfil.
    */
   direccion: DireccionEntrega | null
+  /**
+   * Cómo pagó la última vez: el siguiente pedido arranca igual. Solo el
+   * método, nunca el «con cuánto paga» ni el Monedero, que dependen del total
+   * y del saldo de ese día.
+   */
+  metodoPago: MetodoPago
+  /** «Requiero factura» del pedido anterior: quien factura suele facturar siempre. */
+  requiereFactura: boolean
 }
 
 /** Descarta un borrador guardado con otra forma en vez de romper el checkout. */
@@ -79,6 +87,8 @@ function leerGuardado(): CarritoLocal {
     metodoEntrega: 'TIENDA',
     tiendaId: null,
     direccion: null,
+    metodoPago: 'EFECTIVO',
+    requiereFactura: false,
   }
   try {
     const crudo = localStorage.getItem(CLAVE_CARRITO)
@@ -96,6 +106,8 @@ function leerGuardado(): CarritoLocal {
       metodoEntrega: datos.metodoEntrega === 'DOMICILIO' ? 'DOMICILIO' : 'TIENDA',
       tiendaId: typeof datos.tiendaId === 'string' ? datos.tiendaId : null,
       direccion: leerDireccion(datos.direccion),
+      metodoPago: datos.metodoPago === 'TRANSFERENCIA' ? 'TRANSFERENCIA' : 'EFECTIVO',
+      requiereFactura: datos.requiereFactura === true,
     }
   } catch {
     return vacio
@@ -134,28 +146,29 @@ export const useCarritoStore = defineStore('carrito', () => {
   const errorCupon = ref('')
 
   /*
-   * Pago (HU-09 a HU-12). Vive solo en memoria, a propósito: `localStorage`
-   * guarda lo que se compra, no cómo se paga. Un monto de efectivo de hace tres
-   * días no vale para el total de hoy. La entrega sí se guarda: es a dónde se
-   * lleva, y no caduca con el total.
+   * Pago (HU-09 a HU-12). Se recuerdan las preferencias (método y factura),
+   * como la entrega: el siguiente pedido arranca como el anterior. Los montos
+   * viven solo en memoria, a propósito: un efectivo de hace tres días no vale
+   * para el total de hoy, ni el Monedero para el saldo de hoy.
    */
   /**
-   * Nace en efectivo, como en el punto de venta: sin método elegido la API
-   * marca `METODO_REQUERIDO` y el botón de confirmar se apagaba sin decir por
-   * qué. Sigue admitiendo `null` para quien lo asigne a mano.
+   * La primera vez nace en efectivo, como en el punto de venta: sin método
+   * elegido la API marca `METODO_REQUERIDO` y el botón de confirmar se apagaba
+   * sin decir por qué. Sigue admitiendo `null` para quien lo asigne a mano.
    */
   const METODO_POR_DEFECTO: MetodoPago = 'EFECTIVO'
-  const metodoPago = ref<MetodoPago | null>(METODO_POR_DEFECTO)
+  const metodoPago = ref<MetodoPago | null>(guardado.metodoPago)
   /** Efectivo: con cuánto va a pagar. */
   const pagoCon = ref<number | null>(null)
   /** Saldo de billetera que quiere aplicar. */
   const usarBilletera = ref(0)
   /**
-   * «Requiero factura». Nace apagado y no se guarda en el navegador, como el
-   * resto del pago. Con transferencia decide a qué cuenta se paga: la
-   * principal con factura, la secundaria sin ella.
+   * «Requiero factura». La primera vez nace apagado; después queda como en el
+   * pedido anterior. Con transferencia decide a qué cuenta se paga: la
+   * principal con factura, la secundaria sin ella. La pantalla de éxito toma
+   * la cuenta de lo que quedó en el pedido, así que no se cruzan.
    */
-  const requiereFactura = ref(false)
+  const requiereFactura = ref(guardado.requiereFactura)
   /** Recoger en tienda mientras no elija otra cosa, a petición del negocio. */
   const metodoEntrega = ref<MetodoEntrega>(guardado.metodoEntrega)
   /** Dónde recoge. Solo cuenta con `metodoEntrega` en TIENDA. */
@@ -176,10 +189,16 @@ export const useCarritoStore = defineStore('carrito', () => {
     return !!pago && !pago.errorPago && !pago.errorBilletera
   })
 
-  function olvidarPago(): void {
-    metodoPago.value = METODO_POR_DEFECTO
+  /** Los montos del pago: dependen del total y del saldo de hoy. */
+  function olvidarMontos(): void {
     pagoCon.value = null
     usarBilletera.value = 0
+  }
+
+  /** Todo el pago, preferencias incluidas: al cerrar sesión o cambiar de dueño. */
+  function olvidarPago(): void {
+    olvidarMontos()
+    metodoPago.value = METODO_POR_DEFECTO
     requiereFactura.value = false
   }
 
@@ -254,12 +273,17 @@ export const useCarritoStore = defineStore('carrito', () => {
           metodoEntrega: metodoEntrega.value,
           tiendaId: tiendaId.value,
           direccion: direccion.value,
+          metodoPago: metodoPago.value ?? METODO_POR_DEFECTO,
+          requiereFactura: requiereFactura.value,
         }),
       )
     } catch {
       // Almacenamiento bloqueado: el carrito dura lo que la pestaña.
     }
   }
+
+  // La pantalla los cambia con v-model: se guardan en cuanto se tocan.
+  watch([metodoPago, requiereFactura], persistir)
 
   // ------------------------------------------------------------------
   // Copia en el servidor (HU-13)
@@ -436,7 +460,7 @@ export const useCarritoStore = defineStore('carrito', () => {
     previsualizacion.value = null
     importePublico.value = null
     errorCupon.value = ''
-    olvidarPago()
+    olvidarMontos()
     persistir()
     programarSincronizacion()
   }
@@ -620,9 +644,10 @@ export const useCarritoStore = defineStore('carrito', () => {
     previsualizacion.value = null
     importePublico.value = null
     errorCupon.value = ''
-    olvidarPago()
+    olvidarMontos()
     // La dirección quedó copiada en el pedido; el próximo parte del perfil.
-    // El método de entrega y la tienda se quedan: son preferencias, no un borrador.
+    // La entrega, la tienda, el método de pago y la factura se quedan: son
+    // preferencias, no un borrador.
     direccion.value = null
     persistir()
     return pedido

@@ -52,16 +52,32 @@ import type {
   VistaFactura,
 } from '@/api/tipos'
 
-const props = defineProps<{ pedido: Pedido; porFinanzas?: boolean }>()
+/**
+ * Uno o varios pedidos. Con varios («Facturar varios» de Mis pedidos o de
+ * Finanzas) salen en un solo CFDI por `…/factura-conjunta`. Son del mismo
+ * cliente: de él salen los datos fiscales (los del primero) y lo exige la API.
+ */
+const props = defineProps<{ pedidos: Pedido[]; porFinanzas?: boolean }>()
+
+const varios = computed(() => props.pedidos.length > 1)
+/** El de mayor importe: de él sale la forma de pago con la que llega la hoja. */
+const mayor = computed(() => props.pedidos.reduce((m, p) => (p.total > m.total ? p : m)))
+const folios = computed(() => props.pedidos.map((p) => p.folio).join(', '))
 
 /** Las del cliente, o las del panel, que facturan a nombre del cliente del pedido. */
 const base = computed(() =>
-  props.porFinanzas ? `/admin/finanzas/pedidos/${props.pedido.id}` : null,
+  props.porFinanzas ? `/admin/finanzas/pedidos/${props.pedidos[0].id}` : null,
 )
 const rutaDatos = computed(() =>
   base.value ? `${base.value}/datos-fiscales` : '/perfil/datos-fiscales',
 )
-const rutaFactura = computed(() => `${base.value ?? `/pedidos/${props.pedido.id}`}/factura`)
+const rutaFactura = computed(() =>
+  varios.value
+    ? props.porFinanzas
+      ? '/admin/finanzas/pedidos/factura-conjunta'
+      : '/pedidos/factura-conjunta'
+    : `${base.value ?? `/pedidos/${props.pedidos[0].id}`}/factura`,
+)
 const emit = defineEmits<{
   (e: 'cerrar'): void
   /** Ya tiene CFDI (o alguien lo timbró mientras tanto): quien abrió relee la lista. */
@@ -88,11 +104,12 @@ const formulario = ref<FormularioFiscal>({
   email: '',
 })
 /**
- * Llega con la forma en que se pagó el pedido. Se puede cambiar por otra del
- * catálogo del SAT (pagó con tarjeta en la terminal, por ejemplo) y no se
- * guarda con los datos fiscales: es de este pedido.
+ * Llega con la forma en que se pagó el pedido (con varios, la del de mayor
+ * importe, como la pone la API). Se puede cambiar por otra del catálogo del
+ * SAT (pagó con tarjeta en la terminal, por ejemplo) y no se guarda con los
+ * datos fiscales: es de esta factura.
  */
-const formaPago = ref(props.pedido.formaPagoFactura)
+const formaPago = ref(mayor.value.formaPagoFactura)
 /** Solo Finanzas: RFC con el que se emite. */
 const emisorRfc = ref('')
 const emisores = computed(() => catalogos.value?.emisores ?? [])
@@ -114,9 +131,14 @@ const simulado = computed(() => catalogos.value?.modo === 'SIMULADO')
 
 /**
  * A PÚBLICO EN GENERAL el SAT la trata como factura global y pide el periodo
- * que cubre (CFDI40130). Llega con diario y el mes y año de la venta.
+ * que cubre (CFDI40130). Llega con diario y el mes y año de la venta (con
+ * varios, la más reciente, como la API).
  */
-const periodo = ref<PeriodoGlobal>(periodoDeLaVenta(props.pedido.creadoEn))
+const periodo = ref<PeriodoGlobal>(
+  periodoDeLaVenta(
+    props.pedidos.map((p) => p.creadoEn).reduce((a, b) => (new Date(b) > new Date(a) ? b : a)),
+  ),
+)
 const errorPeriodo = ref('')
 const esGlobal = computed(() =>
   esPublicoEnGeneral(formulario.value.rfc, formulario.value.razonSocial),
@@ -196,6 +218,7 @@ function cuerpo() {
     guardarDatos: true,
     formaPago: formaPago.value,
     ...(esGlobal.value && { ...periodo.value }),
+    ...(varios.value && { pedidoIds: props.pedidos.map((p) => p.id) }),
     // El cliente no lo manda: su ruta no lo acepta.
     ...(props.porFinanzas && emisorRfc.value && { emisorRfc: emisorRfc.value }),
   }
@@ -227,7 +250,11 @@ async function timbrar(): Promise<void> {
   limpiarErrores()
   try {
     const factura = await http.post<FacturaDePedido>(rutaFactura.value, cuerpo())
-    ui.exito(`Factura del pedido ${props.pedido.folio} timbrada`)
+    ui.exito(
+      varios.value
+        ? `Factura de ${props.pedidos.length} pedidos timbrada`
+        : `Factura del pedido ${props.pedidos[0].folio} timbrada`,
+    )
     emit('facturado', factura)
   } catch (fallo) {
     // Lo que haya que corregir se ve en el formulario, no en la vista.
@@ -281,7 +308,10 @@ function mostrarFallo(fallo: unknown): void {
     <div class="modal-sheet" role="dialog" aria-modal="true" aria-label="Facturar pedido">
       <div class="modal-handle" />
       <div class="cabecera">
-        <p class="modal-title">🧾 Facturar {{ pedido.folio }} · {{ dinero(pedido.total) }}</p>
+        <p v-if="varios" class="modal-title">🧾 Facturar {{ pedidos.length }} pedidos</p>
+        <p v-else class="modal-title">
+          🧾 Facturar {{ pedidos[0].folio }} · {{ dinero(pedidos[0].total) }}
+        </p>
         <!-- Mientras timbra no se cierra: la respuesta del SAT tiene que llegar a la hoja. -->
         <button
           type="button"
@@ -293,6 +323,8 @@ function mostrarFallo(fallo: unknown): void {
           ✕
         </button>
       </div>
+      <!-- Cuáles van juntos: el total lo da la vista previa, no se suma aquí. -->
+      <p v-if="varios" class="folios">{{ folios }}</p>
 
       <p v-if="cargando" class="modal-texto">Cargando…</p>
 
@@ -317,7 +349,7 @@ function mostrarFallo(fallo: unknown): void {
         </p>
         <p class="modal-texto">
           <template v-if="porFinanzas">
-            Los datos de {{ pedido.clienteNombre ?? 'el cliente' }} tal cual aparecen en su
+            Los datos de {{ pedidos[0].clienteNombre ?? 'el cliente' }} tal cual aparecen en su
             Constancia de Situación Fiscal. Si ya los tenía guardados, vienen llenos.
           </template>
           <template v-else>
@@ -352,7 +384,8 @@ function mostrarFallo(fallo: unknown): void {
           <p class="periodo-titulo">Información global</p>
           <p class="form-hint">
             A público en general el SAT la trata como factura global: di qué periodo de ventas
-            cubre. Ya viene con el mes de este pedido. El código postal será el de quien factura.
+            cubre. Ya viene con el mes {{ varios ? 'del pedido más reciente' : 'de este pedido' }}.
+            El código postal será el de quien factura.
           </p>
 
           <label class="form-label" for="fa-periodicidad">Periodicidad</label>
@@ -398,7 +431,13 @@ function mostrarFallo(fallo: unknown): void {
         </select>
         <p v-if="errorFormaPago" class="form-error">{{ errorFormaPago }}</p>
         <p class="form-hint">
-          Ya viene con la forma en que {{ porFinanzas ? 'se pagó' : 'pagaste' }} este pedido.
+          <template v-if="varios">
+            Ya viene con la forma en que {{ porFinanzas ? 'se pagó' : 'pagaste' }} el pedido de
+            mayor importe.
+          </template>
+          <template v-else>
+            Ya viene con la forma en que {{ porFinanzas ? 'se pagó' : 'pagaste' }} este pedido.
+          </template>
         </p>
 
         <p class="nota-guardado">
@@ -427,6 +466,13 @@ function mostrarFallo(fallo: unknown): void {
 
 .cabecera .close-x {
   flex-shrink: 0;
+}
+
+.folios {
+  margin: -4px 0 10px;
+  font-size: 11.5px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
 }
 
 .modal-texto {

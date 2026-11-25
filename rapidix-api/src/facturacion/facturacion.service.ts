@@ -325,7 +325,7 @@ export class FacturacionService implements OnModuleInit {
   }
 
   // ----------------------------------------------------------------
-  // Un pedido: Mis pedidos y Finanzas
+  // Pedidos del cliente: Mis pedidos (uno o varios) y Finanzas (uno)
   // ----------------------------------------------------------------
 
   /**
@@ -334,21 +334,48 @@ export class FacturacionService implements OnModuleInit {
    */
   async previsualizar(
     clienteId: string,
-    pedidoId: string,
+    pedidoIds: string[],
     dto: FacturarPedidoDto & { emisorRfc?: string },
   ): Promise<VistaFacturaDto> {
-    const pedidos = await this.cargarFacturables([pedidoId], { clienteId });
-    const emisor = await this.emisorDelPedido(pedidos[0], dto.emisorRfc);
-    return this.vista(await this.preparar(pedidos, dto, emisor));
+    return this.vista(await this.prepararDelCliente(clienteId, pedidoIds, dto));
+  }
+
+  /** Los pedidos de ese cliente, armados con su emisor. 404 si alguno no es suyo. */
+  private async prepararDelCliente(
+    clienteId: string,
+    pedidoIds: string[],
+    dto: FacturarPedidoDto & { emisorRfc?: string },
+  ): Promise<FacturaPreparada> {
+    const pedidos = await this.cargarFacturables(pedidoIds, { clienteId });
+    const emisor = await this.emisorDePedidos(pedidos, dto.emisorRfc);
+    return this.preparar(pedidos, dto, emisor);
   }
 
   /**
-   * Con quien se factura un pedido desde Mis pedidos o Finanzas: el que elija
-   * Finanzas (`emisorRfc`; el cliente no puede mandarlo), si no el de la
-   * tienda donde se recogio o se capturo; a domicilio, el principal.
+   * Con quien se factura desde Mis pedidos o Finanzas: el que elija Finanzas
+   * (`emisorRfc`; el cliente no puede mandarlo), si no el de la tienda donde se
+   * recogio o se capturo; a domicilio, el principal.
+   *
+   * Varios pedidos van juntos solo si les toca la misma razon social: un CFDI
+   * tiene un solo emisor, y facturar con la de otra tienda le cargaria a esa
+   * los ingresos de la otra. Si no coinciden, 409 `EMISORES_DISTINTOS`.
    */
-  private emisorDelPedido(pedido: PedidoFacturable, rfc?: string): Promise<EmisorElegido> {
-    return this.emisores.elegir({ rfc, tiendaId: this.tiendaDelPedido(pedido) });
+  private async emisorDePedidos(pedidos: PedidoFacturable[], rfc?: string): Promise<EmisorElegido> {
+    if (rfc) return this.emisores.elegir({ rfc });
+    const tiendas = [...new Set(pedidos.map((p) => this.tiendaDelPedido(p)))];
+    const elegidos = await Promise.all(
+      tiendas.map((tiendaId) => this.emisores.elegir({ tiendaId })),
+    );
+    if (new Set(elegidos.map((e) => e.rfc)).size > 1) {
+      throw new ConflictException({
+        statusCode: 409,
+        code: 'EMISORES_DISTINTOS',
+        message:
+          'Estos pedidos se facturan a nombre de razones sociales distintas (son de tiendas ' +
+          'diferentes). Factura juntos solo los de la misma tienda.',
+      });
+    }
+    return elegidos[0];
   }
 
   private tiendaDelPedido(pedido: { tiendaId: string | null; turno: { tiendaId: string } | null }) {
@@ -392,13 +419,11 @@ export class FacturacionService implements OnModuleInit {
    */
   async facturar(
     clienteId: string,
-    pedidoId: string,
+    pedidoIds: string[],
     dto: FacturarPedidoDto & { emisorRfc?: string },
     autor: AutorFactura,
   ): Promise<FacturaDto> {
-    const pedidos = await this.cargarFacturables([pedidoId], { clienteId });
-    const emisor = await this.emisorDelPedido(pedidos[0], dto.emisorRfc);
-    const preparada = await this.preparar(pedidos, dto, emisor);
+    const preparada = await this.prepararDelCliente(clienteId, pedidoIds, dto);
     const factura = await this.timbrar(preparada, autor);
 
     if (dto.guardarDatos) {
@@ -920,6 +945,31 @@ export class FacturacionService implements OnModuleInit {
     });
     if (!pedido) throw new NotFoundException('Pedido no encontrado');
     return pedido.clienteId;
+  }
+
+  /**
+   * El cliente de varios pedidos, para que Finanzas los facture juntos. Un
+   * CFDI tiene un solo receptor y sus datos fiscales salen del perfil de ese
+   * cliente: con pedidos de dos clientes, 409 `CLIENTES_DISTINTOS`.
+   */
+  async clienteDeLosPedidos(pedidoIds: string[]): Promise<string> {
+    const ids = [...new Set(pedidoIds)];
+    const pedidos = await this.prisma.pedido.findMany({
+      where: { id: { in: ids } },
+      select: { clienteId: true },
+    });
+    if (pedidos.length !== ids.length) {
+      throw new NotFoundException('Alguno de los pedidos no se encontró.');
+    }
+    const clientes = new Set(pedidos.map((p) => p.clienteId));
+    if (clientes.size > 1) {
+      throw new ConflictException({
+        statusCode: 409,
+        code: 'CLIENTES_DISTINTOS',
+        message: 'Solo se facturan juntos pedidos del mismo cliente.',
+      });
+    }
+    return pedidos[0].clienteId;
   }
 
   // ----------------------------------------------------------------
