@@ -23,6 +23,7 @@ import {
   VistaFacturaDto,
 } from './facturacion.service';
 import { DatosFiscalesDto, FacturarPedidoDto } from './dto/factura.dto';
+import { FacturarVariosPedidosDto } from './dto/factura-pdv.dto';
 
 /**
  * Facturacion del cliente: sus datos fiscales y el CFDI de cada pedido.
@@ -66,7 +67,35 @@ export class FacturacionController {
     @Body() dto: FacturarPedidoDto,
   ): Promise<FacturaDto> {
     soloCliente(usuario);
-    return this.facturacion.facturar(usuario.sub, id, dto, autorDe(usuario));
+    return this.facturacion.facturar(usuario.sub, [id], dto, autorDe(usuario));
+  }
+
+  /**
+   * «Facturar varios»: dos o mas pedidos del cliente en un solo CFDI. Mismos
+   * codigos que la de un pedido (con el folio del que falla), mas 409
+   * `EMISORES_DISTINTOS` si son de tiendas que facturan con otra razon social.
+   * La ruta es literal y no choca con `pedidos/:id/factura`.
+   */
+  @Post('pedidos/factura-conjunta')
+  @HttpCode(HttpStatus.CREATED)
+  facturarVarios(
+    @UsuarioActual() usuario: UsuarioAutenticado,
+    @Body() dto: FacturarVariosPedidosDto,
+  ): Promise<FacturaDto> {
+    soloCliente(usuario);
+    const { pedidoIds, ...datos } = dto;
+    return this.facturacion.facturar(usuario.sub, pedidoIds, datos, autorDe(usuario));
+  }
+
+  @Post('pedidos/factura-conjunta/vista-previa')
+  @HttpCode(HttpStatus.OK)
+  previsualizarVarios(
+    @UsuarioActual() usuario: UsuarioAutenticado,
+    @Body() dto: FacturarVariosPedidosDto,
+  ): Promise<VistaFacturaDto> {
+    soloCliente(usuario);
+    const { pedidoIds, ...datos } = dto;
+    return this.facturacion.previsualizar(usuario.sub, pedidoIds, datos);
   }
 
   /** El CFDI que se timbraria con estos datos, sin timbrar. Mismos candados que el POST. */
@@ -78,7 +107,7 @@ export class FacturacionController {
     @Body() dto: FacturarPedidoDto,
   ): Promise<VistaFacturaDto> {
     soloCliente(usuario);
-    return this.facturacion.previsualizar(usuario.sub, id, dto);
+    return this.facturacion.previsualizar(usuario.sub, [id], dto);
   }
 
   @Get('pedidos/:id/factura/pdf')

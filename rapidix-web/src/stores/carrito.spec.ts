@@ -1,5 +1,6 @@
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { nextTick } from "vue";
 
 /**
  * El store llama a la API a través de `http`, así que se sustituye. Lo que se
@@ -628,6 +629,7 @@ describe("carrito · confirmar pedido", () => {
     carrito.fijarEntrega("DOMICILIO");
     carrito.metodoPago = "TRANSFERENCIA";
     carrito.pagoCon = 500;
+    carrito.usarBilletera = 20;
     const pedido = await carrito.confirmar(true, DIRECCION);
 
     // En transferencia no viaja el monto de efectivo que quedó escrito.
@@ -636,19 +638,46 @@ describe("carrito · confirmar pedido", () => {
       metodoPago: "TRANSFERENCIA",
       metodoEntrega: "DOMICILIO",
       direccion: DIRECCION,
+      usarBilletera: 20,
       // «Requiero factura» nace apagado y viaja siempre.
       requiereFactura: false,
       aceptaTerminos: true,
     });
     expect(pedido.folio).toBe("ORD000001");
     expect(carrito.vacio).toBe(true);
-    // El pago se olvida, pero el método vuelve a su valor por defecto.
-    expect(carrito.metodoPago).toBe("EFECTIVO");
+    // Los montos se olvidan; el método queda para el siguiente pedido.
+    expect(carrito.metodoPago).toBe("TRANSFERENCIA");
+    expect(carrito.pagoCon).toBeNull();
+    expect(carrito.usarBilletera).toBe(0);
     expect(carrito.codigoCupon).toBeNull();
     expect(carrito.previsualizacion).toBeNull();
     expect(JSON.parse(localStorage.getItem(CLAVE) as string).lineas).toEqual(
       [],
     );
+  });
+
+  it("recuerda el método de pago y la factura al recargar, y los olvida al cerrar sesión", async () => {
+    const carrito = useCarritoStore();
+    carrito.metodoPago = "TRANSFERENCIA";
+    carrito.requiereFactura = true;
+    carrito.pagoCon = 500;
+    await nextTick();
+
+    const guardado = JSON.parse(localStorage.getItem(CLAVE) as string);
+    expect(guardado.metodoPago).toBe("TRANSFERENCIA");
+    expect(guardado.requiereFactura).toBe(true);
+    // El monto de efectivo nunca se guarda.
+    expect(guardado.pagoCon).toBeUndefined();
+
+    setActivePinia(createPinia());
+    const recargado = useCarritoStore();
+    expect(recargado.metodoPago).toBe("TRANSFERENCIA");
+    expect(recargado.requiereFactura).toBe(true);
+    expect(recargado.pagoCon).toBeNull();
+
+    recargado.olvidar();
+    expect(recargado.metodoPago).toBe("EFECTIVO");
+    expect(recargado.requiereFactura).toBe(false);
   });
 
   /** Si la API rechaza, el cliente conserva lo que había armado. */

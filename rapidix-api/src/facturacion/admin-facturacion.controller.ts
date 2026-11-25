@@ -23,6 +23,7 @@ import {
   VistaFacturaDto,
 } from './facturacion.service';
 import { FacturarPedidoFinanzasDto } from './dto/factura.dto';
+import { FacturarVariosPedidosFinanzasDto } from './dto/factura-pdv.dto';
 import { EmisorOpcionDto } from './emisor.service';
 
 /**
@@ -42,6 +43,40 @@ import { EmisorOpcionDto } from './emisor.service';
 @SoloPersonal()
 export class AdminFacturacionController {
   constructor(private readonly facturacion: FacturacionService) {}
+
+  /**
+   * «Facturar varios»: dos o mas pedidos del mismo cliente en un CFDI a su
+   * nombre. Mismos codigos que la de un pedido, mas 409 `CLIENTES_DISTINTOS`
+   * y, sin `emisorRfc`, `EMISORES_DISTINTOS` si sus tiendas facturan con
+   * razones sociales distintas. Literales, antes de las rutas con `:id`.
+   */
+  @Post('factura-conjunta')
+  @HttpCode(HttpStatus.CREATED)
+  async facturarVarios(
+    @Body() dto: FacturarVariosPedidosFinanzasDto,
+    @UsuarioActual() usuario: UsuarioAutenticado,
+  ): Promise<FacturaDto> {
+    const { pedidoIds, ...datos } = dto;
+    return this.facturacion.facturar(
+      await this.facturacion.clienteDeLosPedidos(pedidoIds),
+      pedidoIds,
+      datos,
+      autorDe(usuario),
+    );
+  }
+
+  @Post('factura-conjunta/vista-previa')
+  @HttpCode(HttpStatus.OK)
+  async previsualizarVarios(
+    @Body() dto: FacturarVariosPedidosFinanzasDto,
+  ): Promise<VistaFacturaDto> {
+    const { pedidoIds, ...datos } = dto;
+    return this.facturacion.previsualizar(
+      await this.facturacion.clienteDeLosPedidos(pedidoIds),
+      pedidoIds,
+      datos,
+    );
+  }
 
   /**
    * Lo que el cliente tiene guardado, para pre-llenar, los catalogos del SAT
@@ -69,7 +104,7 @@ export class AdminFacturacionController {
     // El CFDI es del cliente; quien lo pidio queda como autor.
     return this.facturacion.facturar(
       await this.facturacion.clienteDelPedido(id),
-      id,
+      [id],
       dto,
       autorDe(usuario),
     );
@@ -82,7 +117,7 @@ export class AdminFacturacionController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: FacturarPedidoFinanzasDto,
   ): Promise<VistaFacturaDto> {
-    return this.facturacion.previsualizar(await this.facturacion.clienteDelPedido(id), id, dto);
+    return this.facturacion.previsualizar(await this.facturacion.clienteDelPedido(id), [id], dto);
   }
 
   @Get(':id/factura/pdf')

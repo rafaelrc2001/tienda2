@@ -29,7 +29,8 @@ const pedidos = ref<Pedido[]>([])
 const cargando = ref(true)
 const abierto = ref<string | null>(null)
 const cancelando = ref<string | null>(null)
-const facturando = ref<Pedido | null>(null)
+/** Los pedidos de la hoja «Facturar»: uno, o varios con «Facturar varios». */
+const facturando = ref<Pedido[] | null>(null)
 const descargando = ref<string | null>(null)
 /** El PDF se abre en el visor; desde ahí se comparte o se descarga. */
 const viendoPdf = ref<Pedido | null>(null)
@@ -97,7 +98,31 @@ watch(consulta, () => (abierto.value = null))
  */
 async function alFacturar(): Promise<void> {
   facturando.value = null
+  seleccionando.value = false
+  seleccion.value = []
   await cargar()
+}
+
+/*
+ * «Facturar varios»: palomear pedidos y timbrarlos en un solo CFDI. Las
+ * casillas solo salen con el modo encendido, para que la lista de siempre no
+ * cambie. Qué se puede facturar lo dice la API (`facturable`); si los pedidos
+ * son de tiendas que facturan con razones sociales distintas, también lo dice
+ * ella al revisar la factura.
+ */
+const seleccionando = ref(false)
+const seleccion = ref<string[]>([])
+
+const facturables = computed(() => pedidos.value.filter((p) => p.facturable && !p.factura))
+
+function alternarSeleccion(): void {
+  seleccionando.value = !seleccionando.value
+  seleccion.value = []
+}
+
+function facturarSeleccion(): void {
+  // En el orden de la lista, no en el que se palomearon.
+  facturando.value = pedidos.value.filter((p) => seleccion.value.includes(p.id))
 }
 
 async function descargarXml(pedido: Pedido): Promise<void> {
@@ -126,10 +151,27 @@ async function descargarXml(pedido: Pedido): Promise<void> {
 
     <SkeletonList v-if="cargando" :cantidad="3" />
 
-    <div v-else-if="visibles.length > 0" class="tabla-envoltorio">
+    <!-- Solo con dos o más por facturar: con uno basta su botón. -->
+    <div v-if="!cargando && facturables.length > 1" class="varios">
+      <p v-if="seleccionando" class="varios-ayuda">
+        Palomea los pedidos que quieres en una sola factura.
+      </p>
+      <button
+        type="button"
+        class="btn-secondary"
+        :class="{ activo: seleccionando }"
+        :aria-pressed="seleccionando"
+        @click="alternarSeleccion"
+      >
+        {{ seleccionando ? 'Cancelar' : '🧾 Facturar varios' }}
+      </button>
+    </div>
+
+    <div v-if="!cargando && visibles.length > 0" class="tabla-envoltorio">
       <table class="tabla">
         <thead>
           <tr>
+            <th v-if="seleccionando" class="casilla" aria-label="Facturar"></th>
             <th>Pedido</th>
             <th>Estado</th>
             <th class="num">Total</th>
@@ -141,13 +183,26 @@ async function descargarXml(pedido: Pedido): Promise<void> {
             <!-- Toda la fila abre el detalle; el teclado entra con Enter o espacio. -->
             <tr
               class="fila-pedido"
-              :class="{ 'con-detalle': abierto === pedido.id }"
+              :class="{
+                'con-detalle': abierto === pedido.id,
+                palomeado: seleccion.includes(pedido.id),
+              }"
               tabindex="0"
               :aria-expanded="abierto === pedido.id"
               @click="alternar(pedido.id)"
               @keydown.enter.prevent="alternar(pedido.id)"
               @keydown.space.prevent="alternar(pedido.id)"
             >
+              <!-- La casilla no abre el detalle: el toque se queda en ella. -->
+              <td v-if="seleccionando" class="casilla" @click.stop @keydown.stop>
+                <input
+                  v-if="pedido.facturable && !pedido.factura"
+                  v-model="seleccion"
+                  type="checkbox"
+                  :value="pedido.id"
+                  :aria-label="`Facturar el pedido ${pedido.folio}`"
+                />
+              </td>
               <td>
                 <span class="folio">{{ pedido.folio }}</span>
                 <span class="sub">{{ fechaHora(pedido.creadoEn) }}</span>
@@ -164,7 +219,7 @@ async function descargarXml(pedido: Pedido): Promise<void> {
             </tr>
 
             <tr v-if="abierto === pedido.id" class="fila-detalle">
-              <td colspan="4">
+              <td :colspan="seleccionando ? 5 : 4">
                 <table class="tabla-lineas">
                   <thead>
                     <tr>
@@ -274,7 +329,7 @@ async function descargarXml(pedido: Pedido): Promise<void> {
                   </div>
                 </div>
                 <div v-else-if="pedido.facturable" class="factura">
-                  <button type="button" class="btn-primary" @click="facturando = pedido">
+                  <button type="button" class="btn-primary" @click="facturando = [pedido]">
                     🧾 Facturar
                   </button>
                 </div>
@@ -300,7 +355,22 @@ async function descargarXml(pedido: Pedido): Promise<void> {
       </table>
     </div>
 
-    <p v-else class="empty-block">
+    <!-- Pegada abajo mientras se palomea: con la lista larga sigue a la mano. -->
+    <div v-if="seleccionando" class="seleccion">
+      <span class="seleccion-cuenta">
+        {{ seleccion.length }} {{ seleccion.length === 1 ? 'pedido' : 'pedidos' }}
+      </span>
+      <button
+        type="button"
+        class="btn-primary"
+        :disabled="seleccion.length < 2"
+        @click="facturarSeleccion"
+      >
+        Facturar juntos
+      </button>
+    </div>
+
+    <p v-if="!cargando && visibles.length === 0" class="empty-block">
       {{
         consulta.trim()
           ? `Ningún pedido coincide con «${consulta.trim()}».`
@@ -310,7 +380,7 @@ async function descargarXml(pedido: Pedido): Promise<void> {
 
     <FacturarPedidoModal
       v-if="facturando"
-      :pedido="facturando"
+      :pedidos="facturando"
       @cerrar="facturando = null"
       @facturado="alFacturar"
     />
@@ -451,6 +521,82 @@ async function descargarXml(pedido: Pedido): Promise<void> {
   font-size: 11.5px;
   color: var(--muted);
   text-align: right;
+}
+
+.varios {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.varios-ayuda {
+  margin: 0;
+  flex: 1;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.varios .btn-secondary {
+  width: auto;
+  padding: 8px 14px;
+  font-size: 12.5px;
+}
+
+.varios .btn-secondary.activo {
+  border-color: var(--terracotta);
+  color: var(--terracotta-dark);
+}
+
+.tabla > thead > tr > th.casilla,
+.tabla > tbody > tr > td.casilla {
+  width: 1%;
+  padding-right: 0;
+}
+
+.casilla input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--terracotta);
+  cursor: pointer;
+}
+
+.tabla > tbody > tr.palomeado > td {
+  background: var(--cream-2);
+}
+
+.seleccion {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: var(--cream-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+
+.seleccion-cuenta {
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 15px;
+  color: var(--ink);
+}
+
+.seleccion .btn-primary {
+  flex: 0 0 auto;
+  width: auto;
+  padding: 10px 16px;
+}
+
+.seleccion .btn-primary:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 
 .cashback {

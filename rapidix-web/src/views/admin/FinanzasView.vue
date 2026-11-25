@@ -75,18 +75,51 @@ const bitacoraDe = ref<PedidoEnFinanzas | null>(null)
 // ------------------------------------------------------------------
 
 /**
- * El pedido que se está facturando. Si se puede lo dice la API
- * (`facturable`: pagado y sin CFDI), igual que en Mis pedidos.
+ * Los pedidos que se están facturando: uno, o varios con «Facturar varios».
+ * Si se puede lo dice la API (`facturable`: pagado y sin CFDI), igual que en
+ * Mis pedidos.
  */
-const facturando = ref<PedidoEnFinanzas | null>(null)
+const facturando = ref<PedidoEnFinanzas[] | null>(null)
 const descargando = ref<string | null>(null)
 /** El PDF se abre en el visor; desde ahí se comparte o se descarga. */
 const viendoPdf = ref<PedidoEnFinanzas | null>(null)
 
 async function alFacturar(): Promise<void> {
   facturando.value = null
+  seleccionando.value = false
+  seleccion.value = []
   // La fila tiene que enseñar ya su PDF y su XML en vez del botón.
   await cargar(false)
+}
+
+/*
+ * «Facturar varios»: tickets de un mismo cliente, sin factura, en un solo
+ * CFDI a su nombre. Con el modo encendido la columna Factura cambia el botón
+ * por una casilla; al palomear el primero solo quedan disponibles los de ese
+ * cliente (la API lo vuelve a exigir: `CLIENTES_DISTINTOS`).
+ */
+const seleccionando = ref(false)
+const seleccion = ref<string[]>([])
+
+const palomeados = computed(() => pedidos.value.filter((p) => seleccion.value.includes(p.id)))
+/** El cliente de lo palomeado: el del primero. */
+const clienteSeleccion = computed(() => palomeados.value[0] ?? null)
+
+function seleccionable(pedido: PedidoEnFinanzas): boolean {
+  return pedido.facturable && !pedido.factura
+}
+
+function deOtroCliente(pedido: PedidoEnFinanzas): boolean {
+  return clienteSeleccion.value !== null && pedido.clienteId !== clienteSeleccion.value.clienteId
+}
+
+function alternarSeleccion(): void {
+  seleccionando.value = !seleccionando.value
+  seleccion.value = []
+}
+
+function facturarSeleccion(): void {
+  facturando.value = palomeados.value
 }
 
 async function descargarXml(pedido: PedidoEnFinanzas): Promise<void> {
@@ -129,6 +162,8 @@ const tienda = ref('')
 
 watch(tienda, () => {
   abierto.value = null
+  // Lo palomeado era de la lista anterior.
+  seleccion.value = []
   cargar()
 })
 
@@ -283,6 +318,21 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
 
     <SelectorTienda v-model="tienda" />
 
+    <div v-if="!cargando" class="varios">
+      <p v-if="seleccionando" class="varios-ayuda">
+        Palomea en la columna Factura los tickets de un mismo cliente que van en una sola factura.
+      </p>
+      <button
+        type="button"
+        class="btn-secondary"
+        :class="{ activo: seleccionando }"
+        :aria-pressed="seleccionando"
+        @click="alternarSeleccion"
+      >
+        {{ seleccionando ? 'Cancelar' : '🧾 Facturar varios' }}
+      </button>
+    </div>
+
     <SkeletonList v-if="cargando" :cantidad="4" />
 
     <!-- Mismo formato que Operaciones: tabla del panel, pastillas y detalle.
@@ -305,7 +355,12 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
         </thead>
         <tbody>
           <template v-for="pedido in visibles" :key="pedido.id">
-            <tr :class="{ 'con-detalle': abierto === pedido.id }">
+            <tr
+              :class="{
+                'con-detalle': abierto === pedido.id,
+                palomeado: seleccion.includes(pedido.id),
+              }"
+            >
               <td>
                 <button
                   type="button"
@@ -366,7 +421,28 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
               <!-- Facturado: sus archivos. Si no, el botón, apagado con su motivo
                    mientras no esté pagado. Cancelado no se factura. -->
               <td class="factura">
-                <span v-if="pedido.factura" class="en-linea">
+                <!-- Facturar varios: la casilla en lugar del botón. Los de otro
+                     cliente se apagan en cuanto se palomea el primero. -->
+                <label
+                  v-if="seleccionando && seleccionable(pedido)"
+                  class="casilla"
+                  :class="{ apagada: deOtroCliente(pedido) }"
+                  :title="
+                    deOtroCliente(pedido)
+                      ? `Solo tickets de ${clienteSeleccion?.clienteNombre ?? 'el mismo cliente'}`
+                      : undefined
+                  "
+                >
+                  <input
+                    v-model="seleccion"
+                    type="checkbox"
+                    :value="pedido.id"
+                    :disabled="deOtroCliente(pedido)"
+                    :aria-label="`Facturar el pedido ${pedido.folio}`"
+                  />
+                  Incluir
+                </label>
+                <span v-else-if="pedido.factura" class="en-linea">
                   <button type="button" class="enlace" @click="viendoPdf = pedido">PDF</button>
                   <button
                     type="button"
@@ -383,7 +459,7 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
                   class="btn-primary"
                   :disabled="!pedido.facturable"
                   :title="pedido.facturable ? undefined : 'Se puede facturar cuando esté pagado.'"
-                  @click="facturando = pedido"
+                  @click="facturando = [pedido]"
                 >
                   Facturar
                 </button>
@@ -489,6 +565,26 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
     <p v-else class="empty-block">
       {{ consulta.trim() ? `Ningún pedido coincide con «${consulta.trim()}».` : 'No hay pedidos.' }}
     </p>
+
+    <!-- Pegada abajo mientras se palomea: con la lista larga sigue a la mano. -->
+    <div v-if="seleccionando" class="seleccion">
+      <div>
+        <span class="seleccion-cuenta">
+          {{ seleccion.length }} {{ seleccion.length === 1 ? 'ticket' : 'tickets' }}
+        </span>
+        <span v-if="clienteSeleccion" class="seleccion-cliente">
+          {{ clienteSeleccion.clienteNombre ?? '' }}
+        </span>
+      </div>
+      <button
+        type="button"
+        class="btn-primary"
+        :disabled="seleccion.length < 2"
+        @click="facturarSeleccion"
+      >
+        Facturar juntos
+      </button>
+    </div>
 
     <!-- Confirmación de lo que mueve dinero. -->
     <div v-if="confirmando" class="modal-overlay" @click.self="confirmando = null">
@@ -598,7 +694,7 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
 
     <FacturarPedidoModal
       v-if="facturando"
-      :pedido="facturando"
+      :pedidos="facturando"
       por-finanzas
       @cerrar="facturando = null"
       @facturado="alFacturar"
@@ -725,6 +821,97 @@ function direccionCorta(pedido: PedidoEnFinanzas): string {
 
 .sin-factura {
   color: var(--muted);
+}
+
+.varios {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.varios-ayuda {
+  margin: 0;
+  flex: 1;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.varios .btn-secondary {
+  width: auto;
+  padding: 8px 14px;
+  font-size: 12.5px;
+}
+
+.varios .btn-secondary.activo {
+  border-color: var(--terracotta);
+  color: var(--terracotta-dark);
+}
+
+.tabla .factura .casilla {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--ink);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.tabla .factura .casilla input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--terracotta);
+  cursor: pointer;
+}
+
+.tabla .factura .casilla.apagada {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.tabla > tbody > tr.palomeado > td {
+  background: var(--cream-2);
+}
+
+.seleccion {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: var(--cream-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+
+.seleccion-cuenta {
+  display: block;
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 15px;
+  color: var(--ink);
+}
+
+.seleccion-cliente {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.seleccion .btn-primary {
+  flex: 0 0 auto;
+  width: auto;
+  padding: 10px 16px;
+}
+
+.seleccion .btn-primary:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 
 .tabla .detalle-pedido .enlace.cambiar-precio {

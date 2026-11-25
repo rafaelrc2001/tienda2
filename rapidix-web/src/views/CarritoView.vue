@@ -793,8 +793,8 @@ async function confirmar(): Promise<void> {
     -->
       <section v-if="pago" class="seccion-pago res-seccion" aria-labelledby="titulo-pago">
         <!--
-          Va antes de la pregunta del pago, a petición del negocio. Nace
-          apagado. Queda en el pedido para que el panel sepa a quién facturar
+          Va antes de la pregunta del pago, a petición del negocio. La primera
+          vez nace apagado; después queda como en el pedido anterior. Queda en el pedido para que el panel sepa a quién facturar
           y, con transferencia, decide la cuenta: la principal con factura, la
           secundaria sin ella.
         -->
