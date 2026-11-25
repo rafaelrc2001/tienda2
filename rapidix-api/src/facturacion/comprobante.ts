@@ -247,18 +247,19 @@ export function repartirDescuento(
 }
 
 /**
- * El total de la factura: el del pedido al peso mas cercano. Desde .50 sube y
- * hasta .49 baja ($22.50 → $23, $22.49 → $22). Solo la factura se redondea:
- * el pedido, lo que se cobra y el corte siguen con sus centavos.
+ * El total de la factura: el del pedido con sus centavos, $22.50 se factura en
+ * $22.50. Antes se redondeaba al peso ($22.50 → $23) y se quito: la factura
+ * tiene que decir lo cobrado. Lo unico que puede moverla es el IVA redondeado
+ * a centavos: con un solo producto al 16 % hay totales que no se alcanzan y
+ * quedan un centavo arriba ($10,147.50 sale en $10,147.51, `baseQueDa`).
  */
 export function totalFacturado(total: Decimal): Decimal {
-  return total.toDecimalPlaces(0, Decimal.ROUND_HALF_UP);
+  return total.toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
 }
 
 /**
  * Por cuanto sale la factura de un pedido: lo que se pago aparte del
- * monedero, al peso (`totalFacturado`). $5.50 con $2 de monedero son $3.50,
- * que se facturan en $4.
+ * monedero (`totalFacturado`). $5.50 con $2 de monedero se facturan en $3.50.
  */
 export function totalAFacturar(
   pedido: Pick<PedidoFacturable, 'total' | 'pagadoConBilletera'>,
@@ -367,12 +368,11 @@ function concepto(
  * el ticket lo siguen mostrando aparte. Sin productos que lo reciban vuelve a
  * ir como servicio. El cupon se reparte antes, solo sobre lo que valian los
  * productos: nunca toco el envio (el envio gratis se mide antes del
- * descuento). La factura es por lo pagado aparte del monedero, al peso mas
- * cercano (`totalAFacturar`): la diferencia del redondeo se suma con el envio
- * en partes iguales y el monedero se resta en partes iguales como descuento
- * (`repartirMonedero`). Solo el total queda en pesos enteros: $3 y $2.50 con
- * $2 de monedero son $3.25 y $2.75 con $1 de descuento cada uno, $4 en
- * total. Lo que no quepa en los productos sale del recargo. Primero van los conceptos
+ * descuento). La factura es por lo pagado aparte del monedero, con sus
+ * centavos (`totalAFacturar`), y el monedero se resta en partes iguales como
+ * descuento (`repartirMonedero`): $3 y $2.50 con $2 de monedero llevan $1 de
+ * descuento cada uno, $3.50 en total. Lo que no quepa en los productos sale
+ * del recargo. Primero van los conceptos
  * al 16 % y despues los de tasa 0, que absorben sin perdida el centavo que
  * aquellos no alcanzan. Si no hay ninguno al 0 %, el centavo se le pasa a otro
  * al 16 % que si lo alcance; con uno solo al 16 % puede quedar a un centavo:
@@ -394,9 +394,10 @@ export function armarComprobante(
     categoria: r.categoria,
   }));
   const descuentos = repartirDescuento(brutos, pedido.descuento, categoriasDelCupon);
-  // Lo que separa lo pagado aparte del monedero del facturado (de -0.49 a
-  // +0.50) viaja con el envio: tampoco es un producto. Sin productos no hay
-  // donde ponerlo.
+  // Lo que separa lo pagado aparte del monedero del facturado viaja con el
+  // envio: tampoco es un producto. Hoy es cero (`totalFacturado` ya no
+  // redondea al peso); se queda por si la factura vuelve a ajustar el total.
+  // Sin productos no hay donde ponerlo.
   const pagadoAparte = pedido.total.sub(pedido.pagadoConBilletera);
   const ajusteDelTotal =
     renglones.length > 0 ? totalAFacturar(pedido).sub(pagadoAparte) : new Decimal(0);

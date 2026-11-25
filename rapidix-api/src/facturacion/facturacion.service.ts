@@ -542,7 +542,7 @@ export class FacturacionService implements OnModuleInit {
         this.claves,
         retiene,
       );
-      // La factura va por lo pagado aparte del monedero, redondeado al peso
+      // La factura va por lo pagado aparte del monedero, con sus centavos
       // (`totalAFacturar`). Sin ningun producto al 0 % el desglose puede quedar
       // a un centavo de el (`armarComprobante`): eso se acepta. Mas que eso es
       // que el pedido tiene columnas que no suman, y un CFDI timbrado no se

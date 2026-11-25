@@ -75,8 +75,8 @@ describe('bloqueoDeFacturacion', () => {
   it('sin importe aparte del monedero no hay que facturar', () => {
     expect(bloqueo(EstadoPago.PAGADO, 99)).toBeNull();
     expect(bloqueo(EstadoPago.PAGADO, 100)).toBe('PAGADO_CON_MONEDERO');
-    // Quedan 30 centavos, que al peso son cero.
-    expect(bloqueo(EstadoPago.PAGADO, '99.70')).toBe('PAGADO_CON_MONEDERO');
+    // Quedan 30 centavos: se facturan, ya no se redondean a cero.
+    expect(bloqueo(EstadoPago.PAGADO, '99.70')).toBeNull();
   });
 
   it('nada que no este pagado, ni el efectivo cobrado en la puerta', () => {
@@ -183,10 +183,10 @@ describe('repartirMonedero', () => {
 });
 
 describe('totalAFacturar', () => {
-  it('lo pagado aparte del monedero, al peso', () => {
-    expect(totalAFacturar({ total: D('5.50'), pagadoConBilletera: D(2) }).toFixed(2)).toBe('4.00');
+  it('lo pagado aparte del monedero, con sus centavos', () => {
+    expect(totalAFacturar({ total: D('5.50'), pagadoConBilletera: D(2) }).toFixed(2)).toBe('3.50');
     expect(totalAFacturar({ total: D(100), pagadoConBilletera: D('10.60') }).toFixed(2)).toBe(
-      '89.00',
+      '89.40',
     );
   });
 });
@@ -279,7 +279,7 @@ describe('armarComprobante', () => {
     expect(dos.total.toFixed(2)).toBe('28.00');
   });
 
-  it('los productos no se redondean: solo el total va en pesos enteros', () => {
+  it('los productos no se redondean', () => {
     const c = armarComprobante(
       pedido({
         items: [renglon({ precio: 10, cantidad: 1 }), renglon({ precio: 12, cantidad: 1 })],
@@ -296,19 +296,25 @@ describe('armarComprobante', () => {
     expect(c.total.toFixed(2)).toBe('27.00');
   });
 
-  it('la factura va por el total al peso mas cercano: .50 sube y .49 baja', () => {
-    const facturado = (precio: string, tasaIva: TasaIva = TasaIva.CERO) =>
+  it('la factura va por el total con sus centavos, sin redondear al peso', () => {
+    const facturado = (precio: string, tasaIva: TasaIva = TasaIva.CERO, cantidad = 1) =>
       armarComprobante(
-        pedido({ items: [renglon({ precio, cantidad: 1, tasaIva })], total: Number(precio) }),
+        pedido({
+          items: [renglon({ precio, cantidad, tasaIva })],
+          total: Number(precio) * cantidad,
+        }),
         [],
         CLAVES,
       ).total.toFixed(2);
-    expect(facturado('22.50')).toBe('23.00');
-    expect(facturado('22.49')).toBe('22.00');
-    expect(facturado('22.83')).toBe('23.00');
-    expect(facturado('22.27')).toBe('22.00');
-    // Como ORD000147: un producto al 16 % cobrado en $22.50 se factura en $23.
-    expect(facturado('22.50', TasaIva.DIECISEIS)).toBe('23.00');
+    expect(facturado('22.50')).toBe('22.50');
+    expect(facturado('22.49')).toBe('22.49');
+    expect(facturado('22.83')).toBe('22.83');
+    // Como ORD000147: un producto al 16 % cobrado en $22.50 se factura en $22.50.
+    expect(facturado('22.50', TasaIva.DIECISEIS)).toBe('22.50');
+    // Como ORD000020: 656 garrafas al 16 % por $10,147.50. Ninguna base da
+    // .50 con su IVA redondeado (8,747.84 da .49 y 8,747.85 da .51): un
+    // centavo arriba, nunca $10,148.
+    expect(facturado('15.46875', TasaIva.DIECISEIS, 656)).toBe('10147.51');
   });
 
   it('un solo producto al 16 % que no alcanza el entero se pasa un centavo arriba', () => {
@@ -331,8 +337,13 @@ describe('armarComprobante', () => {
     }
   });
 
-  it('producto de 67.80 con envio de 3: la factura dice un solo producto de 71', () => {
-    for (const tasaIva of [TasaIva.CERO, TasaIva.DIECISEIS]) {
+  it('producto de 67.80 con envio de 3: la factura dice un solo producto de 70.80', () => {
+    // Al 16 % 70.80 no tiene base exacta (61.03 da 70.79 y 61.04 da 70.81):
+    // queda un centavo arriba.
+    for (const [tasaIva, esperado] of [
+      [TasaIva.CERO, '70.80'],
+      [TasaIva.DIECISEIS, '70.81'],
+    ] as const) {
       const c = armarComprobante(
         pedido({
           items: [renglon({ precio: '67.80', cantidad: 1, tasaIva })],
@@ -344,12 +355,12 @@ describe('armarComprobante', () => {
       );
       exigirConceptosValidos(c);
       expect(c.conceptos).toHaveLength(1);
-      expect(c.conceptos[0].base.add(c.conceptos[0].iva).toFixed(2)).toBe('71.00');
-      expect(c.total.toFixed(2)).toBe('71.00');
+      expect(c.conceptos[0].base.add(c.conceptos[0].iva).toFixed(2)).toBe(esperado);
+      expect(c.total.toFixed(2)).toBe(esperado);
     }
   });
 
-  it('el redondeo del total se reparte parejo, con tasas mezcladas', () => {
+  it('el envio se reparte parejo, con tasas mezcladas', () => {
     const c = armarComprobante(
       pedido({
         items: [
@@ -363,11 +374,10 @@ describe('armarComprobante', () => {
       CLAVES,
     );
     exigirConceptosValidos(c);
-    // $23.70 se factura en $24: el envio y los 30 centavos son 3.15 para
-    // cada uno, y quedan en 13.55 y 10.45.
+    // $23.70 se factura en $23.70: 3 de envio a cada uno, 13.40 y 10.30.
     const conIva = c.conceptos.map((k) => k.base.add(k.iva).toFixed(2));
-    expect(conIva).toEqual(['13.55', '10.45']);
-    expect(c.total.toFixed(2)).toBe('24.00');
+    expect(conIva).toEqual(['13.40', '10.30']);
+    expect(c.total.toFixed(2)).toBe('23.70');
   });
 
   it('el envio dentro de un producto al 16 % lleva su IVA y no cuenta como descuento', () => {
@@ -402,10 +412,10 @@ describe('armarComprobante', () => {
       'Producto',
       'Recargo por servicio fuera de horario',
     ]);
-    // $132.90 se factura en $133: los 10 centavos van al producto con el envio.
-    expect(c.conceptos[0].importe.toFixed(2)).toBe('124.10');
+    // $132.90 se factura en $132.90: el envio va dentro del producto.
+    expect(c.conceptos[0].importe.toFixed(2)).toBe('124.00');
     expect(c.conceptos[1].claveUnidad).toBe('E48');
-    expect(c.total.toFixed(2)).toBe('133.00');
+    expect(c.total.toFixed(2)).toBe('132.90');
   });
 
   it('con cupon y tasas mezcladas cuadra al centavo', () => {
@@ -424,12 +434,12 @@ describe('armarComprobante', () => {
       CLAVES,
     );
     exigirConceptosValidos(c);
-    // $202.63 se factura en $203.
-    expect(c.total.toFixed(2)).toBe('203.00');
+    // $202.63 se factura en $202.63.
+    expect(c.total.toFixed(2)).toBe('202.63');
     expect(c.descuento.greaterThan(0)).toBe(true);
   });
 
-  it('con dos o mas al 16 % y ninguno al 0 % el total es el redondeado exacto', () => {
+  it('con dos o mas al 16 % y ninguno al 0 % el total es el cobrado exacto', () => {
     for (let centavos = 101; centavos <= 2000; centavos += 1) {
       const precio = centavos / 100;
       const c = armarComprobante(
@@ -509,7 +519,7 @@ describe('armarComprobante', () => {
     }
   });
 
-  it('como ORD000162: $3 y $2.50 al 16 % con $2 de monedero se facturan en $4', () => {
+  it('como ORD000162: $3 y $2.50 al 16 % con $2 de monedero se facturan en $3.50', () => {
     const c = armarComprobante(
       pedido({
         items: [
@@ -524,19 +534,19 @@ describe('armarComprobante', () => {
       CLAVES,
     );
     exigirConceptosValidos(c);
-    // $3.50 pagados aparte se facturan en $4: los 50 centavos suben 25 a cada
-    // uno (3.25 y 2.75) y el monedero resta $1 a cada uno como descuento.
-    expect(c.conceptos.map((k) => k.base.add(k.iva).toFixed(2))).toEqual(['2.25', '1.75']);
+    // $3.50 pagados aparte se facturan en $3.50: el monedero resta $1 a cada
+    // uno como descuento.
+    expect(c.conceptos.map((k) => k.base.add(k.iva).toFixed(2))).toEqual(['2.00', '1.50']);
     expect(c.conceptos.map((k) => [k.importe.toFixed(2), k.base.toFixed(2)])).toEqual([
-      ['2.80', '1.94'],
-      ['2.37', '1.51'],
+      ['2.59', '1.72'],
+      ['2.16', '1.29'],
     ]);
-    expect(c.descuento.toFixed(2)).toBe('1.72');
-    expect(c.total.toFixed(2)).toBe('4.00');
+    expect(c.descuento.toFixed(2)).toBe('1.74');
+    expect(c.total.toFixed(2)).toBe('3.50');
     expect(c.formaPago).toBe('03');
   });
 
-  it('con un producto al 0 % absorbe el centavo y el total es el redondeado exacto', () => {
+  it('con un producto al 0 % absorbe el centavo y el total es el cobrado exacto', () => {
     for (let centavos = 101; centavos <= 400; centavos += 7) {
       const precio = centavos / 100;
       const total = D(precio).add(18);

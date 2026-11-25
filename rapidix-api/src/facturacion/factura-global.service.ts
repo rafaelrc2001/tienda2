@@ -136,8 +136,8 @@ interface Armada {
  * Finanzas -> Bancos -> Factura global: los depositos de quien no pidio
  * factura, timbrados juntos a PUBLICO EN GENERAL.
  *
- * El total es la suma exacta de los depositos palomeados (con centavos, sin
- * redondear al peso como la factura de un pedido) y los productos los elige
+ * El total es la suma exacta de los depositos palomeados (con centavos, como
+ * la factura de un pedido) y los productos los elige
  * Finanzas; los precios los reparte `armarFacturaGlobal` para que todo cuadre.
  * Al timbrar, el folio se escribe en la columna Factura de esos depositos.
  */

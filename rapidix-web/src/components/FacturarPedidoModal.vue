@@ -280,7 +280,19 @@ function mostrarFallo(fallo: unknown): void {
   <div class="modal-overlay">
     <div class="modal-sheet" role="dialog" aria-modal="true" aria-label="Facturar pedido">
       <div class="modal-handle" />
-      <p class="modal-title">🧾 Facturar {{ pedido.folio }} · {{ dinero(pedido.total) }}</p>
+      <div class="cabecera">
+        <p class="modal-title">🧾 Facturar {{ pedido.folio }} · {{ dinero(pedido.total) }}</p>
+        <!-- Mientras timbra no se cierra: la respuesta del SAT tiene que llegar a la hoja. -->
+        <button
+          type="button"
+          class="close-x"
+          aria-label="Cerrar"
+          :disabled="enviando"
+          @click="emit('cerrar')"
+        >
+          ✕
+        </button>
+      </div>
 
       <p v-if="cargando" class="modal-texto">Cargando…</p>
 
@@ -406,6 +418,17 @@ function mostrarFallo(fallo: unknown): void {
 </template>
 
 <style scoped>
+.cabecera {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.cabecera .close-x {
+  flex-shrink: 0;
+}
+
 .modal-texto {
   margin: 0 0 12px;
   font-size: 12.5px;
