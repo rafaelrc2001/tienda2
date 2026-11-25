@@ -14,6 +14,35 @@ export interface PeriodoFacturasDto {
   cantidad: number;
 }
 
+/**
+ * Una razon social que ha emitido, con los meses en que lo hizo. `rfc` null
+ * agrupa las de antes de que se congelara el emisor en la factura.
+ */
+export interface EmisorConFacturasDto {
+  rfc: string | null;
+  nombre: string;
+  periodos: PeriodoFacturasDto[];
+}
+
+/** Lo que pide el filtro de emisor para las facturas sin emisor congelado. */
+export const SIN_EMISOR = 'SIN_EMISOR';
+
+const SOLO_EMISOR = { select: { rfc: true, nombre: true } } as const;
+
+/**
+ * El RFC que emitio: el congelado al timbrar y, en las que solo apuntan a una
+ * razon social, el de esa. Null en las de antes de que hubiera varias.
+ */
+function rfcDelEmisor(f: { emisorRfc: string | null; emisor: { rfc: string } | null }) {
+  return f.emisorRfc ?? f.emisor?.rfc ?? null;
+}
+
+/** El `where` que deja las facturas de ese RFC, con el mismo criterio que `rfcDelEmisor`. */
+function filtroDeEmisor(rfc: string | null) {
+  if (rfc === null) return { emisorRfc: null, razonSocialId: null };
+  return { OR: [{ emisorRfc: rfc }, { emisorRfc: null, emisor: { is: { rfc } } }] };
+}
+
 /** Un renglon de la tabla de Facturacion: un CFDI de pedido o una factura global. */
 export interface FacturaEmitidaDto {
   id: string;
@@ -69,36 +98,89 @@ export class FacturasEmitidasService {
     private readonly catalogoSat: CatalogoSatService,
   ) {}
 
-  /** Los meses que tienen al menos una factura, del mas reciente al mas viejo. */
-  async periodos(): Promise<PeriodoFacturasDto[]> {
+  /**
+   * Las razones sociales que han emitido, cada una con sus meses: el primer
+   * selector de la pantalla y, con la elegida, el de periodo.
+   *
+   * Salen de las propias facturas y no de las cuentas de factura.com: una
+   * cuenta que ya no esta configurada sigue teniendo sus facturas, y asi no se
+   * llama al proveedor para abrir la pantalla. La de mas reciente factura va
+   * primero; las de antes de que se congelara el emisor, al final.
+   */
+  async emisores(): Promise<EmisorConFacturasDto[]> {
     const donde = { estado: EstadoFactura.TIMBRADA };
     const [dePedidos, globales] = await Promise.all([
-      this.prisma.factura.findMany({ where: donde, select: { timbradaEn: true } }),
-      this.prisma.facturaGlobal.findMany({ where: donde, select: { timbradaEn: true } }),
+      this.prisma.factura.findMany({
+        where: donde,
+        select: { timbradaEn: true, emisorRfc: true, emisorNombre: true, emisor: SOLO_EMISOR },
+      }),
+      this.prisma.facturaGlobal.findMany({
+        where: donde,
+        select: { timbradaEn: true, emisorRfc: true, emisor: SOLO_EMISOR },
+      }),
     ]);
+
     const zona = zonaDelNegocio();
-    const cuenta = new Map<string, number>();
-    for (const { timbradaEn } of [...dePedidos, ...globales]) {
-      if (!timbradaEn) continue;
-      const mes = diaEn(timbradaEn, zona).slice(0, 7);
-      cuenta.set(mes, (cuenta.get(mes) ?? 0) + 1);
+    const porRfc = new Map<
+      string | null,
+      { nombre: string; ultima: Date; meses: Map<string, number> }
+    >();
+    const facturas = [
+      ...dePedidos,
+      ...globales.map((g) => ({ ...g, emisorNombre: null as string | null })),
+    ];
+    for (const f of facturas) {
+      if (!f.timbradaEn) continue;
+      const rfc = rfcDelEmisor(f);
+      const nombre = f.emisor?.nombre || f.emisorNombre || '';
+      let grupo = porRfc.get(rfc);
+      if (!grupo) {
+        grupo = { nombre, ultima: f.timbradaEn, meses: new Map() };
+        porRfc.set(rfc, grupo);
+      }
+      // El nombre de la factura mas nueva: si la razon social lo corrigio, ese.
+      if (f.timbradaEn >= grupo.ultima) {
+        grupo.ultima = f.timbradaEn;
+        if (nombre) grupo.nombre = nombre;
+      } else if (!grupo.nombre) {
+        grupo.nombre = nombre;
+      }
+      const mes = diaEn(f.timbradaEn, zona).slice(0, 7);
+      grupo.meses.set(mes, (grupo.meses.get(mes) ?? 0) + 1);
     }
-    return [...cuenta.entries()]
-      .sort(([a], [b]) => b.localeCompare(a))
-      .map(([mes, cantidad]) => ({
-        anio: Number(mes.slice(0, 4)),
-        mes: Number(mes.slice(5, 7)),
-        cantidad,
+
+    return [...porRfc.entries()]
+      .sort(([rfcA, a], [rfcB, b]) =>
+        rfcA === null ? 1 : rfcB === null ? -1 : b.ultima.getTime() - a.ultima.getTime(),
+      )
+      .map(([rfc, g]) => ({
+        rfc,
+        nombre: g.nombre || rfc || 'Sin emisor registrado',
+        periodos: [...g.meses.entries()]
+          .sort(([a], [b]) => b.localeCompare(a))
+          .map(([mes, cantidad]) => ({
+            anio: Number(mes.slice(0, 4)),
+            mes: Number(mes.slice(5, 7)),
+            cantidad,
+          })),
       }));
   }
 
-  /** Las facturas de un mes, de la mas reciente a la mas vieja. */
-  async delMes(anio: number, mes: number): Promise<FacturaEmitidaDto[]> {
+  /**
+   * Las facturas de un mes, de la mas reciente a la mas vieja. Con `emisor`,
+   * solo las de esa razon social: su RFC, o `SIN_EMISOR` para las de antes de
+   * que se congelara.
+   */
+  async delMes(anio: number, mes: number, emisor?: string): Promise<FacturaEmitidaDto[]> {
     const zona = zonaDelNegocio();
     const dia = (a: number, m: number) => `${a}-${String(m).padStart(2, '0')}-01`;
     const inicio = inicioDelDia(dia(anio, mes), zona);
     const fin = inicioDelDia(mes === 12 ? dia(anio + 1, 1) : dia(anio, mes + 1), zona);
-    const donde = { estado: EstadoFactura.TIMBRADA, timbradaEn: { gte: inicio, lt: fin } };
+    const donde = {
+      estado: EstadoFactura.TIMBRADA,
+      timbradaEn: { gte: inicio, lt: fin },
+      ...(emisor ? filtroDeEmisor(emisor === SIN_EMISOR ? null : emisor) : {}),
+    };
 
     const [dePedidos, globales] = await Promise.all([
       this.prisma.factura.findMany({ where: donde, include: INCLUIR_DE_PEDIDOS }),

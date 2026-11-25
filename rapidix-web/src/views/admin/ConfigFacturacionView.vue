@@ -1,12 +1,13 @@
 <script setup lang="ts">
 /**
- * Configuración → Fiscal → Facturación: todas las facturas que emitió el
- * negocio, las de los pedidos y las globales, mes por mes. Cada una dice qué
- * razón social la emitió, cuándo se creó y quién la creó.
+ * Configuración → Fiscal → Facturación: las facturas que emitió el negocio,
+ * las de los pedidos y las globales, por razón social y mes por mes. Cada una
+ * dice cuándo se creó y quién la creó.
  *
- * El selector solo ofrece los meses que tienen facturas (los corta la API en
- * la hora de México). El PDF se abre en el visor, que ya trae compartir y
- * descargar; el XML se descarga directo.
+ * Primero se elige la razón social y luego el periodo: los dos selectores solo
+ * ofrecen lo que tiene facturas (los meses los corta la API en la hora de
+ * México). El PDF se abre en el visor, que ya trae compartir y descargar; el
+ * XML se descarga directo.
  *
  * Palomeando facturas se bajan o se comparten juntos su PDF y su XML. En el
  * iPhone, compartir es la forma de guardarlos («Guardar en Archivos»): Safari
@@ -20,7 +21,8 @@ import SkeletonList from '@/components/SkeletonList.vue'
 import VisorPdfFactura from '@/components/VisorPdfFactura.vue'
 import PestanasFiscal from './fiscal/PestanasFiscal.vue'
 import { nombreRol } from './fiscal/roles'
-import type { FacturaEmitida, PeriodoFacturas } from '@/api/tipos'
+import { SIN_EMISOR } from '@/api/tipos'
+import type { EmisorConFacturas, FacturaEmitida, PeriodoFacturas } from '@/api/tipos'
 
 const ui = useUiStore()
 
@@ -60,18 +62,29 @@ function ruta(f: FacturaEmitida, formato: 'pdf' | 'xml'): string {
   return `${BASE}/${f.tipo === 'GLOBAL' ? 'global' : 'pedido'}/${f.id}/${formato}`
 }
 
-const periodos = ref<PeriodoFacturas[]>([])
+/** El valor del selector de razón social: su RFC, o `SIN_EMISOR` para las de antes. */
+function claveEmisor(e: EmisorConFacturas): string {
+  return e.rfc ?? SIN_EMISOR
+}
+
+const emisores = ref<EmisorConFacturas[]>([])
+const emisor = ref('')
 const periodo = ref('')
 const facturas = ref<FacturaEmitida[]>([])
 const cargando = ref(true)
 const cargandoMes = ref(false)
 
+/** Los meses de la razón social elegida: el segundo selector. */
+const periodos = computed<PeriodoFacturas[]>(
+  () => emisores.value.find((e) => claveEmisor(e) === emisor.value)?.periodos ?? [],
+)
+
 onMounted(async () => {
   try {
-    periodos.value = await http.get<PeriodoFacturas[]>(`${BASE}/periodos`)
-    if (periodos.value[0]) {
-      periodo.value = clave(periodos.value[0])
-      await cargarMes()
+    emisores.value = await http.get<EmisorConFacturas[]>(`${BASE}/emisores`)
+    if (emisores.value[0]) {
+      emisor.value = claveEmisor(emisores.value[0])
+      await cambiarEmisor()
     }
   } catch (fallo) {
     ui.errorDeApi(fallo)
@@ -80,16 +93,34 @@ onMounted(async () => {
   }
 })
 
+/**
+ * Otra razón social: se queda en el mismo mes si ella también facturó en él
+ * (para comparar una con otra), si no en su mes más reciente.
+ */
+async function cambiarEmisor(): Promise<void> {
+  if (!periodos.value.some((p) => clave(p) === periodo.value)) {
+    periodo.value = periodos.value[0] ? clave(periodos.value[0]) : ''
+  }
+  await cargarMes()
+}
+
 /** Cambiar de mes deprisa deja respuestas viejas en el aire: gana la última. */
 let peticion = 0
 
 async function cargarMes(): Promise<void> {
   const numero = ++peticion
-  const [anio, mes] = periodo.value.split('-').map(Number)
   seleccion.value = []
+  if (!periodo.value) {
+    facturas.value = []
+    cargandoMes.value = false
+    return
+  }
+  const [anio, mes] = periodo.value.split('-').map(Number)
   cargandoMes.value = true
   try {
-    const respuesta = await http.get<FacturaEmitida[]>(BASE, { query: { anio, mes } })
+    const respuesta = await http.get<FacturaEmitida[]>(BASE, {
+      query: { anio, mes, emisor: emisor.value },
+    })
     if (numero === peticion) facturas.value = respuesta
   } catch (fallo) {
     if (numero === peticion) ui.errorDeApi(fallo)
@@ -310,13 +341,20 @@ async function compartir(): Promise<void> {
 
     <SkeletonList v-if="cargando" :cantidad="3" />
 
-    <p v-else-if="periodos.length === 0" class="empty-block">
+    <p v-else-if="emisores.length === 0" class="empty-block">
       Todavía no se ha emitido ninguna factura.
     </p>
 
     <template v-else>
       <!-- Bloque crema y campo blanco: se ve dónde se elige. -->
       <div class="filtros">
+        <label class="form-label" for="facturas-emisor">Razón social</label>
+        <select id="facturas-emisor" v-model="emisor" class="form-input" @change="cambiarEmisor">
+          <option v-for="e in emisores" :key="claveEmisor(e)" :value="claveEmisor(e)">
+            {{ e.rfc ? `${e.nombre} · ${e.rfc}` : e.nombre }}
+          </option>
+        </select>
+
         <label class="form-label" for="facturas-periodo">Periodo</label>
         <select id="facturas-periodo" v-model="periodo" class="form-input" @change="cargarMes">
           <option v-for="p in periodos" :key="clave(p)" :value="clave(p)">
@@ -372,7 +410,6 @@ async function compartir(): Promise<void> {
               <th>RFC</th>
               <th>Nombre</th>
               <th>Método pago</th>
-              <th>Emisor</th>
               <th class="num">Total</th>
               <th>Creada</th>
               <th>Creó</th>
@@ -417,7 +454,6 @@ async function compartir(): Promise<void> {
                 {{ f.formaPago.clave
                 }}<template v-if="f.formaPago.nombre"> · {{ f.formaPago.nombre }}</template>
               </td>
-              <td class="rfc" :title="f.emisor?.nombre">{{ f.emisor?.rfc ?? '—' }}</td>
               <td class="num importe">{{ dinero(f.total) }}</td>
               <td class="fecha">{{ fechaHora(f.creadaEn) }}</td>
               <td>
@@ -442,7 +478,7 @@ async function compartir(): Promise<void> {
               </td>
             </tr>
             <tr v-if="facturas.length === 0 && !cargandoMes">
-              <td colspan="12" class="vacio">
+              <td colspan="11" class="vacio">
                 Sin facturas en {{ elegido ? nombrePeriodo(elegido) : 'este mes' }}.
               </td>
             </tr>
@@ -485,6 +521,10 @@ async function compartir(): Promise<void> {
 }
 
 .filtros .form-label {
+  margin-top: 10px;
+}
+
+.filtros .form-label:first-child {
   margin-top: 0;
 }
 
@@ -532,7 +572,7 @@ async function compartir(): Promise<void> {
 }
 
 .tabla {
-  min-width: 1060px;
+  min-width: 960px;
 }
 
 .dato-chico {
