@@ -6,9 +6,9 @@ import { SoloPersonal } from '../auth/solo-personal.decorator';
 import { DocumentoFactura, FacturacionService } from './facturacion.service';
 import { FacturaGlobalService } from './factura-global.service';
 import {
+  EmisorConFacturasDto,
   FacturaEmitidaDto,
   FacturasEmitidasService,
-  PeriodoFacturasDto,
 } from './facturas-emitidas.service';
 import { MesFacturasDto } from './dto/facturas-emitidas.dto';
 
@@ -33,15 +33,15 @@ export class AdminFacturasController {
     private readonly facturaGlobal: FacturaGlobalService,
   ) {}
 
-  /** Los meses con facturas, para el selector de periodo. */
-  @Get('periodos')
-  periodos(): Promise<PeriodoFacturasDto[]> {
-    return this.emitidas.periodos();
+  /** Las razones sociales que han emitido, con sus meses: los dos selectores. */
+  @Get('emisores')
+  emisores(): Promise<EmisorConFacturasDto[]> {
+    return this.emitidas.emisores();
   }
 
   @Get()
   delMes(@Query() dto: MesFacturasDto): Promise<FacturaEmitidaDto[]> {
-    return this.emitidas.delMes(dto.anio, dto.mes);
+    return this.emitidas.delMes(dto.anio, dto.mes, dto.emisor);
   }
 
   @Get('pedido/:id/pdf')

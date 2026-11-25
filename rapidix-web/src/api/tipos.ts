@@ -1206,14 +1206,27 @@ export interface FacturaGlobal {
   timbradaEn: string
 }
 
-/** `GET /admin/configuracion/facturas/periodos`: un mes con facturas. */
+/** Un mes con facturas de una razón social. */
 export interface PeriodoFacturas {
   anio: number
   mes: number
   cantidad: number
 }
 
-/** `GET /admin/configuracion/facturas?anio&mes`: un CFDI de pedido o una factura global. */
+/**
+ * `GET /admin/configuracion/facturas/emisores`: una razón social que ha emitido,
+ * con sus meses. `rfc` null agrupa las de antes de que se guardara el emisor.
+ */
+export interface EmisorConFacturas {
+  rfc: string | null
+  nombre: string
+  periodos: PeriodoFacturas[]
+}
+
+/** Lo que se manda en `emisor` para pedir las facturas con `rfc` null. */
+export const SIN_EMISOR = 'SIN_EMISOR'
+
+/** `GET /admin/configuracion/facturas?anio&mes&emisor`: un CFDI de pedido o una factura global. */
 export interface FacturaEmitida {
   id: string
   tipo: 'PEDIDO' | 'GLOBAL'
