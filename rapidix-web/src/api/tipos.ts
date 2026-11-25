@@ -1592,7 +1592,7 @@ export interface PedidoPorFacturar {
   creadoEn: string
   cliente: { id: string; nombre: string; telefono: string; conDatosFiscales: boolean }
   total: number
-  /** Por cuánto sale su factura: lo pagado aparte del monedero, al peso. */
+  /** Por cuánto sale su factura: lo pagado aparte del monedero, con sus centavos. */
   aFacturar: number
   estadoPago: EstadoPago
   /** Null si ya se puede facturar; si no, por qué todavía no. */

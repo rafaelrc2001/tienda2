@@ -37,7 +37,7 @@ export interface PedidoPorFacturarDto {
     conDatosFiscales: boolean;
   };
   total: number;
-  /** Por cuanto sale su factura: lo pagado aparte del monedero, al peso. */
+  /** Por cuanto sale su factura: lo pagado aparte del monedero, con sus centavos. */
   aFacturar: number;
   estadoPago: EstadoPago;
   /** Null si ya se puede facturar; si no, por que todavia no. */

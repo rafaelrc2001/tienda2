@@ -183,13 +183,25 @@ function mostrarFallo(fallo: unknown): void {
   <div class="modal-overlay">
     <div class="modal-sheet hoja-ancha" role="dialog" aria-modal="true" aria-label="Facturar">
       <div class="modal-handle" />
-      <p class="modal-title">
-        🧾 Facturar
-        <template v-if="datos">
-          {{ varios ? `${datos.pedidos.length} pedidos` : datos.pedidos[0]?.folio }} ·
-          {{ dinero(datos.aFacturar) }}
-        </template>
-      </p>
+      <div class="cabecera">
+        <p class="modal-title">
+          🧾 Facturar
+          <template v-if="datos">
+            {{ varios ? `${datos.pedidos.length} pedidos` : datos.pedidos[0]?.folio }} ·
+            {{ dinero(datos.aFacturar) }}
+          </template>
+        </p>
+        <!-- Mientras timbra no se cierra: la respuesta del SAT tiene que llegar a la hoja. -->
+        <button
+          type="button"
+          class="close-x"
+          aria-label="Cerrar"
+          :disabled="enviando"
+          @click="emit('cerrar')"
+        >
+          ✕
+        </button>
+      </div>
 
       <p v-if="cargando" class="modal-texto">Cargando…</p>
 
@@ -333,6 +345,17 @@ function mostrarFallo(fallo: unknown): void {
 </template>
 
 <style scoped>
+.cabecera {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.cabecera .close-x {
+  flex-shrink: 0;
+}
+
 /* En el punto de venta la pantalla es ancha: la hoja aprovecha un poco más. */
 .hoja-ancha {
   max-width: 560px;
