@@ -8,9 +8,10 @@
  * pestaña enseña en pequeño lo que ya lleva: quién es el cliente, cuántas
  * piezas y cuánto se va a cobrar.
  *
- *  1. **Teléfono del cliente**, con su teclado: es el mismo identificador con
- *     el que entra a la app. Desde el tercer dígito propone los teléfonos ya
- *     registrados que lo contienen; si no está registrado se le pide el nombre.
+ *  1. **Teléfono o nombre del cliente**, con su teclado: como en el login de
+ *     la app, el mismo campo acepta los dos. Desde el tercer dígito (o la
+ *     segunda letra) despliega a los registrados que coinciden y se toca uno;
+ *     un teléfono que no está registrado pide el nombre para darlo de alta.
  *  2. **Tienda**: el catálogo, en el orden que ese cliente vería en la Tienda,
  *     con «repite tu última compra».
  *  3. **Pedido**: el resumen, cómo se lo lleva, cómo paga y los tres botones.
@@ -63,6 +64,7 @@ type Paso = 'telefono' | 'tienda' | 'pedido'
 const paso = ref<Paso>('telefono')
 
 // ---- Cliente ----
+/** Lo que hay en el visor: dígitos del teléfono o, si lleva letras, un nombre. */
 const telefono = ref('')
 const cliente = ref<ClientePdv | null>(null)
 const buscando = ref(false)
@@ -70,10 +72,19 @@ const buscando = ref(false)
 const pidiendoNombre = ref(false)
 const nombreNuevo = ref('')
 const errorCliente = ref('')
-/** Registrados cuyo teléfono contiene lo tecleado. Se toca uno y se atiende. */
+/** Registrados cuyo teléfono o nombre contiene lo escrito. Se toca uno y se atiende. */
 const sugerencias = ref<ClientePdv[]>([])
 /** A partir de cuántos dígitos se propone: con menos, casi todos coinciden. */
 const DIGITOS_PARA_SUGERIR = 3
+/** Con una letra ya basta, pero «a» casa con media cartera: desde dos. */
+const LETRAS_PARA_SUGERIR = 2
+const LARGO_NOMBRE = 80
+
+/**
+ * Se buscó por nombre y no por número. Basta con una letra: un teléfono solo
+ * lleva dígitos. Es el mismo criterio que el login y que la API.
+ */
+const porNombre = computed(() => /\p{L}/u.test(telefono.value))
 
 // ---- Catálogo ----
 const catalogo = ref<CatalogoPdv | null>(null)
@@ -242,8 +253,9 @@ function aceptarUpsell(producto: ProductoPdv): void {
 // Cliente
 // ----------------------------------------------------------------
 
+/** El teclado numérico es del teléfono: con un nombre en el visor no le añade dígitos. */
 function teclear(digito: string): void {
-  if (cliente.value || telefono.value.length >= DIGITOS_TELEFONO) return
+  if (cliente.value || porNombre.value || telefono.value.length >= DIGITOS_TELEFONO) return
   telefono.value += digito
 }
 
@@ -255,22 +267,34 @@ function borrar(): void {
 let peticionSugerencias = 0
 let esperaSugerencias: ReturnType<typeof setTimeout> | undefined
 
+function pedirSugerencias(q: string): Promise<ClientePdv[]> {
+  return http.get<ClientePdv[]>(`/admin/pdv/clientes/sugerencias?q=${encodeURIComponent(q)}`)
+}
+
+/** Lo escrito alcanza para proponer: dos letras de un nombre o tres dígitos. */
+function bastaParaSugerir(escrito: string): boolean {
+  const limpio = escrito.trim()
+  return porNombre.value
+    ? limpio.length >= LETRAS_PARA_SUGERIR
+    : limpio.length >= DIGITOS_PARA_SUGERIR
+}
+
 /**
  * Se piden con una pausa, no en cada tecla, y las respuestas viejas se
- * descartan: la lista siempre es la del teléfono que está en el visor.
+ * descartan: la lista siempre es la de lo que está en el visor.
  */
 watch(telefono, (escrito) => {
   const numero = ++peticionSugerencias
   clearTimeout(esperaSugerencias)
-  if (cliente.value || escrito.length < DIGITOS_PARA_SUGERIR) {
+  // Cambió el visor: el alta que se pedía era para otro teléfono.
+  pidiendoNombre.value = false
+  if (cliente.value || !bastaParaSugerir(escrito)) {
     sugerencias.value = []
     return
   }
   esperaSugerencias = setTimeout(async () => {
     try {
-      const encontrados = await http.get<ClientePdv[]>(
-        `/admin/pdv/clientes/sugerencias?telefono=${escrito}`,
-      )
+      const encontrados = await pedirSugerencias(escrito.trim())
       if (numero === peticionSugerencias) sugerencias.value = encontrados
     } catch {
       // Es una ayuda: si falla, el cajero termina de teclear e ingresa como siempre.
@@ -298,14 +322,59 @@ async function elegir(sugerido: ClientePdv): Promise<void> {
   }
 }
 
+/**
+ * Con letras se deja tal cual, que es un nombre; sin ellas se queda en los
+ * dígitos del teléfono, sin espacios ni guiones de cuando se pega.
+ */
 function alEscribirTelefono(evento: Event): void {
   const entrada = evento.target as HTMLInputElement
-  telefono.value = entrada.value.replace(/\D/g, '').slice(0, DIGITOS_TELEFONO)
+  telefono.value = /\p{L}/u.test(entrada.value)
+    ? entrada.value.slice(0, LARGO_NOMBRE)
+    : entrada.value.replace(/\D/g, '').slice(0, DIGITOS_TELEFONO)
   entrada.value = telefono.value
+}
+
+/**
+ * «Ingresar» con un nombre: si solo uno coincide se le atiende; si hay varios
+ * se deja la lista a la vista para tocar el bueno. Un nombre no da de alta a
+ * nadie: para eso hace falta su teléfono.
+ */
+async function ingresarPorNombre(): Promise<void> {
+  const nombre = telefono.value.trim()
+  if (nombre.length < LETRAS_PARA_SUGERIR) {
+    errorCliente.value = 'Escribe el nombre del cliente.'
+    return
+  }
+  buscando.value = true
+  try {
+    // Se pide de nuevo: la lista en pantalla puede venir de lo que había antes de la pausa.
+    peticionSugerencias++
+    clearTimeout(esperaSugerencias)
+    const encontrados = await pedirSugerencias(nombre)
+    sugerencias.value = encontrados
+    if (encontrados.length === 1) {
+      await atender(encontrados[0])
+      telefono.value = telefonoLocal(encontrados[0].telefono)
+    } else if (encontrados.length === 0) {
+      errorCliente.value =
+        'No encontramos a nadie con ese nombre. Escribe su teléfono para registrarlo.'
+    } else {
+      errorCliente.value = 'Hay varios clientes con ese nombre: toca el que es en la lista.'
+    }
+  } catch (fallo) {
+    cliente.value = null
+    errorCliente.value = fallo instanceof ErrorApi ? fallo.message : 'No pudimos buscar al cliente.'
+  } finally {
+    buscando.value = false
+  }
 }
 
 async function ingresar(): Promise<void> {
   errorCliente.value = ''
+  if (porNombre.value) {
+    await ingresarPorNombre()
+    return
+  }
   if (telefono.value.length !== DIGITOS_TELEFONO) {
     errorCliente.value = 'El teléfono debe tener 10 dígitos.'
     return
@@ -794,13 +863,14 @@ function limpiar(): void {
 
     <!-- 1. Teléfono del cliente -->
     <section v-show="paso === 'telefono'" class="columna col-telefono">
-      <label class="titulo-columna" for="pdv-telefono">Teléfono cliente</label>
+      <label class="titulo-columna" for="pdv-telefono">Teléfono o nombre del cliente</label>
+      <!-- Texto y no `numeric`: con el teclado numérico del sistema no se escribe un nombre. -->
       <input
         id="pdv-telefono"
         class="visor"
-        inputmode="numeric"
+        type="text"
         autocomplete="off"
-        placeholder="Ej. 5512245678"
+        placeholder="Ej. 5512245678 o Ana López"
         :value="telefono"
         :disabled="cliente !== null"
         @input="alEscribirTelefono"
@@ -812,10 +882,11 @@ function limpiar(): void {
         class="sugerencias"
         aria-label="Clientes registrados"
       >
+        <!-- En grande va lo que se está buscando; debajo, lo que lo confirma. -->
         <li v-for="s in sugerencias" :key="s.id">
           <button type="button" :disabled="buscando" @click="elegir(s)">
-            <span class="s-telefono">{{ telefonoLocal(s.telefono) }}</span>
-            <span class="s-nombre">{{ s.nombre }}</span>
+            <span class="s-principal">{{ porNombre ? s.nombre : telefonoLocal(s.telefono) }}</span>
+            <span class="s-secundario">{{ porNombre ? telefonoLocal(s.telefono) : s.nombre }}</span>
           </button>
         </li>
       </ul>
@@ -1618,8 +1689,11 @@ function limpiar(): void {
   background: var(--cream);
 }
 
-.s-telefono {
+.s-principal {
   display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-family: var(--font-heading);
   font-weight: 800;
   font-size: 13px;
@@ -1627,7 +1701,7 @@ function limpiar(): void {
   color: var(--ink);
 }
 
-.s-nombre {
+.s-secundario {
   display: block;
   font-size: 11px;
   color: var(--muted);

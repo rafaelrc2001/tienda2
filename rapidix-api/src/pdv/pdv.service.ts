@@ -648,15 +648,25 @@ export class PdvService {
   }
 
   /**
-   * Autocompletado del telefono: quienes ya estan registrados y cuyo numero
-   * contiene lo tecleado. "Contiene" y no "empieza por" porque el login pudo
-   * guardarlo con lada (`+52...`) y el cajero teclea los 10 digitos.
+   * Autocompletado del visor: quienes ya estan registrados y cuyo numero o
+   * nombre contiene lo escrito. Con una letra es un nombre (sin distinguir
+   * mayusculas); si no, son digitos del telefono. "Contiene" y no "empieza
+   * por" porque el login pudo guardarlo con lada (`+52...`) y el cajero teclea
+   * los 10 digitos, y porque del nombre se suele recordar el apellido.
    *
    * Los clientes van antes que los prospectos: es mas probable que quien esta
    * en el mostrador ya haya comprado.
    */
-  async sugerirClientes(digitos: string): Promise<ClientePdvDto[]> {
-    const where = { telefono: { contains: digitos } };
+  async sugerirClientes(q: string): Promise<ClientePdvDto[]> {
+    const texto = q.trim().replace(/\s+/g, ' ');
+    const digitos = texto.replace(/\D/g, '');
+    const esNombre = /\p{L}/u.test(texto);
+    // Con uno o dos digitos casaria casi cualquier telefono.
+    if (esNombre ? texto.length < 2 : digitos.length < 3) return [];
+
+    const where = esNombre
+      ? { nombre: { contains: texto, mode: 'insensitive' as const } }
+      : { telefono: { contains: digitos } };
     const [clientes, prospectos] = await Promise.all([
       this.prisma.cliente.findMany({
         where,

@@ -169,10 +169,10 @@ export class TurnosController {
     return this.pdv.entregar(id, usuario);
   }
 
-  /** Autocompletado: los registrados cuyo telefono contiene lo tecleado. */
+  /** Autocompletado: los registrados cuyo telefono o nombre contiene lo escrito. */
   @Get('clientes/sugerencias')
   sugerirClientes(@Query() dto: SugerirClientesDto): Promise<ClientePdvDto[]> {
-    return this.pdv.sugerirClientes(dto.telefono);
+    return this.pdv.sugerirClientes(dto.q);
   }
 
   /** 200 con `null` si ese telefono no esta registrado: toca pedir el nombre. */
