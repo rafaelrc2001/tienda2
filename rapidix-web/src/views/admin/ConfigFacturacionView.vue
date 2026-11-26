@@ -21,6 +21,12 @@ import SkeletonList from '@/components/SkeletonList.vue'
 import VisorPdfFactura from '@/components/VisorPdfFactura.vue'
 import PestanasFiscal from './fiscal/PestanasFiscal.vue'
 import { nombreRol } from './fiscal/roles'
+import {
+  ordenarFacturas,
+  siguienteOrdenFacturas,
+  type ColumnaFacturas,
+  type OrdenFacturas,
+} from './fiscal/ordenFacturas'
 import { SIN_EMISOR } from '@/api/tipos'
 import type { EmisorConFacturas, FacturaEmitida, PeriodoFacturas } from '@/api/tipos'
 
@@ -128,6 +134,36 @@ async function cargarMes(): Promise<void> {
     if (numero === peticion) cargandoMes.value = false
   }
 }
+
+// ------------------------------------------------------------------
+// Orden: tocar un encabezado, como en Finanzas → Bancos
+// ------------------------------------------------------------------
+
+/** Se queda al cambiar de razón social o de mes: quien ordena suele querer verlo así. */
+const orden = ref<OrdenFacturas | null>(null)
+
+const COLUMNAS: { columna: ColumnaFacturas; titulo: string; clase?: string }[] = [
+  { columna: 'fecha', titulo: 'Fecha' },
+  { columna: 'serieFolio', titulo: 'Serie-folio' },
+  { columna: 'rfc', titulo: 'RFC' },
+  { columna: 'nombre', titulo: 'Nombre' },
+  { columna: 'formaPago', titulo: 'Método pago' },
+  { columna: 'total', titulo: 'Total', clase: 'num' },
+  { columna: 'creada', titulo: 'Creada' },
+  { columna: 'creo', titulo: 'Creó' },
+]
+
+function ordenarPor(columna: ColumnaFacturas): void {
+  orden.value = siguienteOrdenFacturas(orden.value, columna)
+}
+
+/** Para lectores de pantalla: cómo está ordenada cada columna. */
+function ariaSort(columna: ColumnaFacturas): 'ascending' | 'descending' | 'none' {
+  if (orden.value?.columna !== columna) return 'none'
+  return orden.value.direccion === 'asc' ? 'ascending' : 'descending'
+}
+
+const ordenadas = computed(() => ordenarFacturas(facturas.value, orden.value))
 
 const elegido = computed(() => periodos.value.find((p) => clave(p) === periodo.value) ?? null)
 
@@ -405,20 +441,33 @@ async function compartir(): Promise<void> {
                   @change="palomearTodas(($event.target as HTMLInputElement).checked)"
                 />
               </th>
-              <th>Fecha</th>
-              <th>Serie-folio</th>
-              <th>RFC</th>
-              <th>Nombre</th>
-              <th>Método pago</th>
-              <th class="num">Total</th>
-              <th>Creada</th>
-              <th>Creó</th>
+              <!-- Tocar un encabezado ordena: ascendente, descendente y vuelta a
+                   la más reciente primero. La flecha dice cómo está. -->
+              <th
+                v-for="c in COLUMNAS"
+                :key="c.columna"
+                :class="c.clase"
+                :aria-sort="ariaSort(c.columna)"
+              >
+                <button
+                  type="button"
+                  class="ordenar"
+                  :class="{ activo: orden?.columna === c.columna }"
+                  :title="`Ordenar por ${c.titulo.toLowerCase()}`"
+                  @click="ordenarPor(c.columna)"
+                >
+                  {{ c.titulo }}
+                  <span class="flecha" aria-hidden="true">{{
+                    orden?.columna !== c.columna ? '↕' : orden.direccion === 'asc' ? '▲' : '▼'
+                  }}</span>
+                </button>
+              </th>
               <th class="archivo">PDF</th>
               <th class="archivo">XML</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="f in facturas" :key="f.id" :class="{ palomeado: seleccion.includes(f.id) }">
+            <tr v-for="f in ordenadas" :key="f.id" :class="{ palomeado: seleccion.includes(f.id) }">
               <td class="casilla">
                 <input
                   v-model="seleccion"
@@ -432,13 +481,6 @@ async function compartir(): Promise<void> {
                 {{ f.serieFolio }}
                 <span v-if="f.tipo === 'GLOBAL'" class="mini-tag" title="Factura global">
                   Global
-                </span>
-                <span
-                  v-else-if="f.pedidos.length > 1"
-                  class="mini-tag"
-                  :title="`Pedidos ${f.pedidos.join(', ')}`"
-                >
-                  {{ f.pedidos.length }} pedidos
                 </span>
                 <span
                   v-if="f.modo === 'SIMULADO'"
@@ -617,6 +659,35 @@ async function compartir(): Promise<void> {
 
 .tabla .archivo .enlace {
   padding: 0;
+}
+
+/* El encabezado entero es el botón de ordenar, y se lee igual que un encabezado. */
+.ordenar {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ordenar .flecha {
+  font-size: 9px;
+  opacity: 0.45;
+}
+
+/* La columna por la que se ordena se distingue: flecha y texto en terracota. */
+.ordenar.activo,
+.ordenar.activo .flecha {
+  color: var(--terracotta-dark);
+  opacity: 1;
 }
 
 .mini-tag {
