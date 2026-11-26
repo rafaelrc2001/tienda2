@@ -37,11 +37,15 @@ export class BuscarClienteDto {
   telefono: string;
 }
 
-/** Lo que el cajero lleva tecleado: de 3 a 10 digitos del telefono. */
+/**
+ * Lo que el cajero lleva escrito en el visor: digitos del telefono o el nombre
+ * del cliente, como el campo del login. El servicio decide cual es.
+ */
 export class SugerirClientesDto {
   @IsString()
-  @Matches(/^\d{3,10}$/, { message: 'Escribe al menos 3 dígitos del teléfono' })
-  telefono: string;
+  @MinLength(2, { message: 'Escribe al menos 2 letras del nombre o 3 dígitos del teléfono' })
+  @MaxLength(80)
+  q: string;
 }
 
 /** Quien llega al mostrador sin estar registrado: basta su telefono y su nombre. */
