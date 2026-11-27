@@ -220,6 +220,8 @@ export interface VentaEnMostrador {
   turnoId: string;
   /** Quien lo capturo: firma la bitacora en lugar del cliente. */
   cajero: ActorDeBitacora;
+  /** Va en el primer renglon de su bitacora: p. ej. a que pedido corrige. */
+  nota?: string;
 }
 
 @Injectable()
@@ -266,11 +268,16 @@ export class PedidosService {
    * cliente (409 `TIENDA_REQUERIDA`, `TIENDA_NO_DISPONIBLE`). Tampoco aparta
    * en bodega: lo surte esa tienda de su inventario, asi que solo se confirma
    * lo que tiene (409 `SIN_EXISTENCIA_EN_TIENDA`).
+   *
+   * Con `enCurso` corre dentro de esa transaccion en vez de abrir la suya: la
+   * correccion de un pedido del PDV cancela el equivocado y crea el bueno en
+   * una sola, para que nunca quede uno sin el otro.
    */
   async crear(
     duenioId: string,
     dto: DatosDelPedido,
     mostrador?: VentaEnMostrador,
+    enCurso?: Prisma.TransactionClient,
   ): Promise<PedidoDto> {
     // `duenioId` puede ser un cliente o un prospecto: este es el pedido que lo
     // convierte. Todavia no se toca nada, solo se comprueba que existe en
@@ -302,7 +309,7 @@ export class PedidosService {
     // en el nivel de entrada.
     const porcentajeCashback = await this.cashback.porcentajePara(duenioId);
 
-    return this.prisma.$transaction(async (tx) => {
+    const confirmar = async (tx: Prisma.TransactionClient): Promise<PedidoDto> => {
       const carrito = await this.carrito.resolver(dto.items);
       const subtotal = carrito.subtotal;
 
@@ -582,7 +589,12 @@ export class PedidosService {
       await registrarEnBitacora(
         tx,
         pedido.id,
-        { eje: EjeBitacora.PEDIDO, estadoAnterior: null, estadoNuevo: EstadoPedido.CONFIRMADO },
+        {
+          eje: EjeBitacora.PEDIDO,
+          estadoAnterior: null,
+          estadoNuevo: EstadoPedido.CONFIRMADO,
+          nota: mostrador?.nota,
+        },
         creador,
       );
       await registrarEnBitacora(
@@ -604,7 +616,9 @@ export class PedidosService {
           include: INCLUIR_PEDIDO,
         }),
       );
-    });
+    };
+
+    return enCurso ? confirmar(enCurso) : this.prisma.$transaction(confirmar);
   }
 
   /**

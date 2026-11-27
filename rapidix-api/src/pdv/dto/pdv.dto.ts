@@ -56,10 +56,25 @@ export class RegistrarClienteDto extends BuscarClienteDto {
   nombre: string;
 }
 
+/**
+ * El catalogo de la caja. Con `reemplaza` —el pedido que se esta corrigiendo—
+ * lo que ese pedido llevo de la tienda cuenta como disponible.
+ */
+export class CatalogoPdvQueryDto extends DeLaTiendaDto {
+  @IsOptional()
+  @IsUUID('all', { message: 'El pedido que se corrige no es válido' })
+  reemplaza?: string;
+}
+
 /** La previsualizacion del carrito de la app, mas para quien es. */
 export class PrevisualizarPdvDto extends PrevisualizarCarritoDto {
   @IsUUID('all', { message: 'Identifica primero al cliente' })
   clienteId: string;
+
+  /** El pedido que se esta corrigiendo: su mercancia y su monedero vuelven al cancelarlo. */
+  @IsOptional()
+  @IsUUID('all', { message: 'El pedido que se corrige no es válido' })
+  reemplaza?: string;
 }
 
 /**

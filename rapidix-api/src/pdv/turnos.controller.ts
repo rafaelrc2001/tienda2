@@ -20,6 +20,7 @@ import { RegistrarAbonoDto } from '../rutas/dto/corte.dto';
 import {
   CatalogoPdvDto,
   ClientePdvDto,
+  CorreccionPdvDto,
   PdvService,
   TurnoConPedidosDto,
   TurnoDto,
@@ -27,6 +28,7 @@ import {
 import {
   AbrirTurnoDto,
   BuscarClienteDto,
+  CatalogoPdvQueryDto,
   CorteDeCajaDto,
   CrearPedidoPdvDto,
   DeLaTiendaDto,
@@ -169,6 +171,32 @@ export class TurnosController {
     return this.pdv.entregar(id, usuario);
   }
 
+  /**
+   * Un pedido del turno abierto, listo para cargarlo en la caja y corregirlo.
+   * 409 `TURNO_CERRADO`, `PEDIDO_FACTURADO`, `PEDIDO_EN_CAMINO`… si ya no se puede.
+   */
+  @Get('pedidos/:id/correccion')
+  datosDeCorreccion(
+    @Param('id') id: string,
+    @UsuarioActual() usuario: UsuarioAutenticado,
+  ): Promise<CorreccionPdvDto> {
+    return this.pdv.datosDeCorreccion(id, usuario);
+  }
+
+  /**
+   * "Guardar correccion": cancela ese pedido y captura el bueno en el mismo
+   * turno, en una sola transaccion. Devuelve el pedido nuevo.
+   */
+  @Post('pedidos/:id/corregir')
+  @HttpCode(HttpStatus.CREATED)
+  corregirPedido(
+    @Param('id') id: string,
+    @Body() dto: CrearPedidoPdvDto,
+    @UsuarioActual() usuario: UsuarioAutenticado,
+  ): Promise<PedidoDto> {
+    return this.pdv.corregirPedido(id, dto, usuario);
+  }
+
   /** Autocompletado: los registrados cuyo telefono o nombre contiene lo escrito. */
   @Get('clientes/sugerencias')
   sugerirClientes(@Query() dto: SugerirClientesDto): Promise<ClientePdvDto[]> {
@@ -189,8 +217,12 @@ export class TurnosController {
 
   /** El catalogo de ese cliente con lo que tiene la tienda desde la que se vende. */
   @Get('clientes/:id/catalogo')
-  catalogo(@Param('id') id: string, @Query() dto: DeLaTiendaDto): Promise<CatalogoPdvDto> {
-    return this.pdv.catalogo(id, dto.tiendaId);
+  catalogo(
+    @Param('id') id: string,
+    @Query() dto: CatalogoPdvQueryDto,
+    @UsuarioActual() usuario: UsuarioAutenticado,
+  ): Promise<CatalogoPdvDto> {
+    return this.pdv.catalogo(id, dto.tiendaId, usuario, dto.reemplaza);
   }
 
   @Get('clientes/:id/ultimo-pedido')

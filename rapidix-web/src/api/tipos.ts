@@ -2108,6 +2108,23 @@ export type TurnoPdvConPedidos = TurnoPdv & {
   pedidos: Pedido[]
   /** Lo que salió de la tienda, sumado por producto. */
   productosEntregados: ProductoEntregado[]
+  /**
+   * Los ids de los pedidos que todavía se pueden corregir. Vacío en un turno
+   * cortado. Lo decide la API: el botón «Editar» no lleva copia de la regla.
+   */
+  corregibles: string[]
+}
+
+/** Un pedido del turno cargado en la caja para corregirlo. */
+export interface CorreccionPdv {
+  pedido: { id: string; folio: string; entregado: boolean }
+  /** Con el monedero que le quedará al cancelar el pedido equivocado. */
+  cliente: ClientePdv
+  items: { productoId: string; cantidad: number }[]
+  metodoEntrega: MetodoEntrega
+  metodoPago: MetodoPago
+  /** Lo que pagó con su monedero. */
+  usarBilletera: number
 }
 
 /** Una fila del inventario de una tienda. */

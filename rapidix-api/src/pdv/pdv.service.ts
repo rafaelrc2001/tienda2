@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import {
   ConceptoIngreso,
+  EjeBitacora,
   EstadoCorte,
   EstadoPago,
   EstadoPedido,
@@ -27,7 +28,7 @@ import {
   ProductoRecomendadoDto,
   RecomendacionesService,
 } from '../catalogo/recomendaciones.service';
-import { actorDe } from '../pedidos/bitacora';
+import { actorDe, registrarEnBitacora } from '../pedidos/bitacora';
 import { CarritoService, PrevisualizacionCarritoDto } from '../pedidos/carrito.service';
 import { DireccionEntregaDto } from '../pedidos/dto/carrito.dto';
 import { FinanzasService } from '../pedidos/finanzas.service';
@@ -49,6 +50,7 @@ import {
 import { PedidoDto, PedidosService, UltimoPedidoDto } from '../pedidos/pedidos.service';
 import { TiendasService } from '../tiendas/tiendas.service';
 import { PedidoDelTurno, productosEntregados, totalesDelTurno } from './corte-de-caja';
+import { bloqueoDeCorreccion, saldoTrasCancelar } from './correccion';
 import {
   AbrirTurnoDto,
   CorteDeCajaDto,
@@ -173,7 +175,25 @@ export type TurnoConPedidosDto = TurnoDto & {
   pedidos: PedidoDto[];
   /** Lo que salio de la tienda, sumado por producto. */
   productosEntregados: ProductoEntregadoDto[];
+  /**
+   * Los ids de los pedidos que todavia se pueden corregir (`bloqueoDeCorreccion`).
+   * Vacio en un turno cortado. Lo decide la API para que el boton «Editar» no
+   * lleve copia de la regla.
+   */
+  corregibles: string[];
 };
+
+/** Un pedido del turno abierto en la caja para corregirlo. */
+export interface CorreccionPdvDto {
+  pedido: { id: string; folio: string; entregado: boolean };
+  /** Con el monedero que le quedara al cancelar el pedido equivocado. */
+  cliente: ClientePdvDto;
+  items: { productoId: string; cantidad: number }[];
+  metodoEntrega: MetodoEntrega;
+  metodoPago: MetodoPago;
+  /** Lo que pago con su monedero. */
+  usarBilletera: number;
+}
 
 const INCLUIR_TURNO = {
   tienda: { select: { id: true, nombre: true } },
@@ -284,7 +304,7 @@ export class PdvService {
         }),
       );
       this.logger.log(`Turno ${turno.folio} abierto en ${tienda.nombre} por ${usuario.nombre}`);
-      return { ...PdvService.aDto(turno), pedidos: [], productosEntregados: [] };
+      return { ...PdvService.aDto(turno), pedidos: [], productosEntregados: [], corregibles: [] };
     } catch (fallo) {
       if (fallo instanceof Prisma.PrismaClientKnownRequestError && fallo.code === 'P2002') {
         throw new ConflictException({
@@ -711,10 +731,17 @@ export class PdvService {
    * tiene: cada uno lleva `enTienda` y el que esta en cero viaja como agotado
    * aunque en bodega haya. Cada tienda tiene su inventario, y aqui manda ese.
    */
-  async catalogo(clienteId: string, tiendaId: string): Promise<CatalogoPdvDto> {
+  async catalogo(
+    clienteId: string,
+    tiendaId: string,
+    usuario: UsuarioAutenticado,
+    /** El pedido que se corrige: lo que llevo de la tienda vuelve a contar. */
+    reemplaza?: string,
+  ): Promise<CatalogoPdvDto> {
+    const { liberadas } = await this.loQueLibera(reemplaza, clienteId, usuario);
     const [catalogo, disponibles] = await Promise.all([
       this.recomendaciones.catalogoPara(clienteId),
-      this.tiendas.disponibles(tiendaId),
+      this.tiendas.disponibles(tiendaId, undefined, liberadas),
     ]);
     return {
       ...catalogo,
@@ -742,13 +769,20 @@ export class PdvService {
     usuario: UsuarioAutenticado,
   ): Promise<PrevisualizacionCarritoDto> {
     const turno = await this.exigirAbierto(turnoId, usuario);
-    const { clienteId, ...carrito } = dto;
+    const { clienteId, reemplaza, ...carrito } = dto;
     const metodoEntrega = carrito.metodoEntrega ?? MetodoEntrega.TIENDA;
-    const previa = await this.carrito.previsualizar(clienteId, { ...carrito, metodoEntrega }, true);
+    // Corrigiendo: lo que el pedido equivocado devuelve cuenta ya como suyo.
+    const libera = await this.loQueLibera(reemplaza, clienteId, usuario);
+    const previa = await this.carrito.previsualizar(
+      clienteId,
+      { ...carrito, metodoEntrega },
+      true,
+      libera.saldo,
+    );
 
     // Lo que no hay en la tienda apaga «Confirmar pedido» con el motivo a la
     // vista, en vez de dejar que el cajero choque con el 409 al confirmar.
-    const faltantes = await this.tiendas.faltantes(turno.tiendaId, carrito.items);
+    const faltantes = await this.tiendas.faltantes(turno.tiendaId, carrito.items, libera.liberadas);
     if (faltantes.length === 0) return previa;
     return {
       ...previa,
@@ -863,26 +897,293 @@ export class PdvService {
         );
       }
 
-      await this.tiendas.salir(tx, pedido.turno.tiendaId, pedido.items, controlInventario);
-
-      await FlujoPedidosService.aplicar(
-        tx,
-        pedidoId,
-        { de: pedido.estado, a: EstadoPedido.ENTREGADO, seccion: 'pdv', exigeLiberado: true },
-        quien,
-        'Entregado en el punto de venta',
-      );
-
-      if (pedido.estadoPago === EstadoPago.CREDITO) {
-        if (pedido.cxcDesde === null) {
-          await FlujoPedidosService.entrarACxc(tx, pedidoId, new Date());
-        }
-      } else {
-        await this.finanzas.marcarPagado(tx, pedidoId, quien, 'Cobrado en el punto de venta');
-      }
+      await this.darPorEntregado(tx, pedidoId, pedido, pedido.turno.tiendaId, quien, {
+        controlInventario,
+        nota: 'Entregado en el punto de venta',
+      });
     });
 
     return this.pedidos.detalle(pedidoId);
+  }
+
+  /**
+   * Lo que hace "Entregado" con la fila ya bloqueada y los candados ya
+   * revisados: la mercancia sale de la tienda, el pedido salta a ENTREGADO y
+   * queda cobrado, o en CXC si es a credito. Lo comparten la entrega y la
+   * correccion de un pedido que ya se habia entregado.
+   */
+  private async darPorEntregado(
+    tx: Prisma.TransactionClient,
+    pedidoId: string,
+    pedido: {
+      estado: EstadoPedido;
+      estadoPago: EstadoPago;
+      cxcDesde: Date | null;
+      items: { productoId: string; cantidad: number }[];
+    },
+    tiendaId: string,
+    quien: ReturnType<typeof actorDe>,
+    { controlInventario, nota }: { controlInventario: boolean; nota: string },
+  ): Promise<void> {
+    await this.tiendas.salir(tx, tiendaId, pedido.items, controlInventario);
+
+    await FlujoPedidosService.aplicar(
+      tx,
+      pedidoId,
+      { de: pedido.estado, a: EstadoPedido.ENTREGADO, seccion: 'pdv', exigeLiberado: true },
+      quien,
+      nota,
+    );
+
+    if (pedido.estadoPago === EstadoPago.CREDITO) {
+      if (pedido.cxcDesde === null) {
+        await FlujoPedidosService.entrarACxc(tx, pedidoId, new Date());
+      }
+    } else {
+      await this.finanzas.marcarPagado(tx, pedidoId, quien, 'Cobrado en el punto de venta');
+    }
+  }
+
+  // ----------------------------------------------------------------
+  // Corregir un pedido del turno
+  // ----------------------------------------------------------------
+
+  /**
+   * Lo que la caja necesita para abrir un pedido del turno en modo
+   * correccion: su cliente —con el monedero que le quedara al cancelarlo—, lo
+   * que llevaba y como se pago. 409 si ya no se puede corregir.
+   */
+  async datosDeCorreccion(
+    pedidoId: string,
+    usuario: UsuarioAutenticado,
+  ): Promise<CorreccionPdvDto> {
+    const pedido = await PdvService.exigirCorregible(this.prisma, pedidoId, usuario);
+    // Quien tiene un pedido ya es cliente: el primero lo convirtio.
+    const cliente = await this.prisma.cliente.findUnique({
+      where: { id: pedido.clienteId },
+      select: { ...CAMPOS_DIRECCION, saldoCashback: true, credito: true },
+    });
+    if (!cliente) throw new NotFoundException('Cliente no encontrado');
+    const saldo = saldoTrasCancelar(cliente.saldoCashback, pedido);
+    return {
+      pedido: {
+        id: pedido.id,
+        folio: pedido.folio,
+        entregado: pedido.estado === EstadoPedido.ENTREGADO,
+      },
+      cliente: PdvService.aCliente(cliente, false, saldo.toNumber(), cliente.credito),
+      items: pedido.items.map((i) => ({ productoId: i.productoId, cantidad: i.cantidad })),
+      metodoEntrega: pedido.metodoEntrega,
+      metodoPago: pedido.metodoPago,
+      usarBilletera: pedido.pagadoConBilletera.toNumber(),
+    };
+  }
+
+  /**
+   * "Guardar correccion": cancela el pedido equivocado y captura el bueno en
+   * el mismo turno, en una sola transaccion (`correccion.ts`).
+   *
+   * El bueno pasa por el checkout de siempre (`PedidosService.crear`) y por
+   * los mismos candados de la tienda que "Confirmar pedido", contando como
+   * disponible lo que el equivocado tenia. Si el equivocado ya se habia
+   * entregado, su mercancia vuelve al anaquel y el bueno se da por entregado
+   * en la misma transaccion: el cliente ya se fue con ella.
+   *
+   * La fila del turno se bloquea primero: el corte de caja espera a que la
+   * correccion termine, o la correccion se encuentra el turno ya cortado (409
+   * `TURNO_CERRADO`) y no toca nada.
+   */
+  async corregirPedido(
+    pedidoId: string,
+    dto: CrearPedidoPdvDto,
+    usuario: UsuarioAutenticado,
+  ): Promise<PedidoDto> {
+    const controlInventario = (await this.configuracion.obtener()).controlInventario;
+    const quien = actorDe(usuario);
+    const metodoEntrega = dto.metodoEntrega ?? MetodoEntrega.TIENDA;
+
+    // Antes de abrir la transaccion, para responder con el motivo claro.
+    const previo = await PdvService.exigirCorregible(this.prisma, pedidoId, usuario);
+    const faltantes = await this.tiendas.faltantes(
+      previo.turno.tiendaId,
+      dto.items,
+      PdvService.liberadas(previo),
+    );
+    if (faltantes.length > 0) {
+      throw PdvService.conflicto(
+        'SIN_EXISTENCIA_EN_TIENDA',
+        faltantes.map((f) => TiendasService.mensajeDeFaltante(f)).join(' '),
+      );
+    }
+    const direccion =
+      metodoEntrega === MetodoEntrega.DOMICILIO
+        ? await this.direccionDelPerfil(dto.clienteId)
+        : undefined;
+
+    const nuevoId = await this.prisma.$transaction(
+      async (tx) => {
+        await PdvService.bloquearAbierto(tx, previo.turnoId, usuario);
+        await FlujoPedidosService.bloquearFila(tx, pedidoId);
+        // Releido con todo bloqueado: entre medias pudo entregarse o facturarse.
+        const anterior = await PdvService.exigirCorregible(tx, pedidoId, usuario);
+        const yaEntregado = anterior.estado === EstadoPedido.ENTREGADO;
+
+        // Lo que el cliente se llevo regresa al anaquel; lo no entregado solo
+        // deja de estar prometido al cancelarse. A domicilio salio de bodega,
+        // y eso lo devuelve la cancelacion.
+        if (yaEntregado && anterior.metodoEntrega === MetodoEntrega.TIENDA) {
+          await this.tiendas.entrar(tx, anterior.turno.tiendaId, anterior.items);
+        }
+
+        await this.finanzas.cancelarEnTransaccion(
+          tx,
+          pedidoId,
+          quien,
+          'Corregido en el punto de venta.',
+        );
+
+        const nuevo = await this.pedidos.crear(
+          dto.clienteId,
+          {
+            items: dto.items,
+            metodoPago: dto.metodoPago,
+            pagoCon: dto.pagoCon,
+            usarBilletera: dto.usarBilletera,
+            metodoEntrega,
+            direccion,
+          },
+          {
+            turnoId: anterior.turnoId,
+            cajero: quien,
+            nota: `Corrige el pedido ${anterior.folio}.`,
+          },
+          tx,
+        );
+
+        // El cancelado dice quien lo sustituye: Finanzas sigue el rastro desde los dos.
+        await registrarEnBitacora(
+          tx,
+          pedidoId,
+          {
+            eje: EjeBitacora.PAGO,
+            estadoAnterior: EstadoPago.CANCELADO,
+            estadoNuevo: EstadoPago.CANCELADO,
+            nota: `Lo sustituye el pedido ${nuevo.folio}.`,
+          },
+          quien,
+        );
+
+        if (yaEntregado && metodoEntrega === MetodoEntrega.TIENDA) {
+          const recien = await tx.pedido.findUniqueOrThrow({
+            where: { id: nuevo.id },
+            select: {
+              estado: true,
+              estadoPago: true,
+              cxcDesde: true,
+              items: { select: { productoId: true, cantidad: true } },
+            },
+          });
+          await this.darPorEntregado(tx, nuevo.id, recien, anterior.turno.tiendaId, quien, {
+            controlInventario,
+            nota: `Entregado en el punto de venta (corrige el pedido ${anterior.folio})`,
+          });
+        }
+
+        this.logger.log(
+          `Pedido ${anterior.folio} corregido por ${usuario.nombre}: lo sustituye ${nuevo.folio}`,
+        );
+        return nuevo.id;
+      },
+      // Cancelar, volver a capturar y entregar en una sola: mas que el
+      // checkout solo.
+      { timeout: 20_000 },
+    );
+
+    return this.pedidos.detalle(nuevoId);
+  }
+
+  /**
+   * El pedido con lo que hace falta para corregirlo, ya comprobado: es del
+   * mostrador de un turno de quien pregunta, el turno sigue abierto y nada lo
+   * bloquea (`bloqueoDeCorreccion`).
+   */
+  private static async exigirCorregible(
+    db: Prisma.TransactionClient,
+    pedidoId: string,
+    usuario: UsuarioAutenticado,
+  ) {
+    const pedido = await db.pedido.findUnique({
+      where: { id: pedidoId },
+      select: {
+        id: true,
+        folio: true,
+        clienteId: true,
+        turnoId: true,
+        tiendaId: true,
+        estado: true,
+        estadoPago: true,
+        metodoEntrega: true,
+        metodoPago: true,
+        facturaId: true,
+        pagadoConBilletera: true,
+        cashbackGenerado: true,
+        cashbackAcreditadoEn: true,
+        turno: true,
+        items: { select: { productoId: true, cantidad: true } },
+        _count: { select: { pagos: true } },
+      },
+    });
+    if (!pedido) throw new NotFoundException('Pedido no encontrado');
+
+    const { turno, turnoId } = pedido;
+    if (!turno || !turnoId) {
+      throw PdvService.conflicto(
+        'NO_ES_DEL_PDV',
+        `El pedido ${pedido.folio} no se capturó en el punto de venta.`,
+      );
+    }
+    PdvService.exigirPropio(turno, usuario);
+    PdvService.exigirSinCerrar(turno);
+
+    const bloqueo = bloqueoDeCorreccion({
+      estado: pedido.estado,
+      estadoPago: pedido.estadoPago,
+      metodoEntrega: pedido.metodoEntrega,
+      deLaApp: pedido.tiendaId !== null,
+      facturado: pedido.facturaId !== null,
+      abonos: pedido._count.pagos,
+    });
+    if (bloqueo) throw PdvService.conflicto(bloqueo.codigo, bloqueo.mensaje);
+
+    return { ...pedido, turno, turnoId };
+  }
+
+  /** Lo que el pedido que se corrige devuelve a la tienda al cancelarse. */
+  private static liberadas(pedido: {
+    metodoEntrega: MetodoEntrega;
+    items: { productoId: string; cantidad: number }[];
+  }): { productoId: string; cantidad: number }[] {
+    return pedido.metodoEntrega === MetodoEntrega.TIENDA ? pedido.items : [];
+  }
+
+  /** Lo que el pedido que se corrige devuelve a la tienda y al monedero, si `reemplaza` viene. */
+  private async loQueLibera(
+    reemplaza: string | undefined,
+    clienteId: string,
+    usuario: UsuarioAutenticado,
+  ): Promise<{ liberadas: { productoId: string; cantidad: number }[]; saldo?: Prisma.Decimal }> {
+    if (!reemplaza) return { liberadas: [] };
+    const pedido = await PdvService.exigirCorregible(this.prisma, reemplaza, usuario);
+    // El monedero solo cambia si el corregido sigue siendo para el mismo cliente.
+    if (pedido.clienteId !== clienteId) return { liberadas: PdvService.liberadas(pedido) };
+    const cliente = await this.prisma.cliente.findUnique({
+      where: { id: clienteId },
+      select: { saldoCashback: true },
+    });
+    return {
+      liberadas: PdvService.liberadas(pedido),
+      saldo: saldoTrasCancelar(cliente?.saldoCashback ?? new Decimal(0), pedido),
+    };
   }
 
   // ----------------------------------------------------------------
@@ -1052,6 +1353,22 @@ export class PdvService {
           items: p.items,
         })),
       ).map((p) => ({ ...p, importe: p.importe.toNumber() })),
+      corregibles:
+        turno.cerradoEn === null
+          ? pedidos
+              .filter(
+                (p) =>
+                  bloqueoDeCorreccion({
+                    estado: p.estado,
+                    estadoPago: p.pago.estado,
+                    metodoEntrega: p.metodoEntrega,
+                    deLaApp: p.tienda !== null,
+                    facturado: p.factura !== null,
+                    abonos: p.pago.abonos.length,
+                  }) === null,
+              )
+              .map((p) => p.id)
+          : [],
     };
   }
 
