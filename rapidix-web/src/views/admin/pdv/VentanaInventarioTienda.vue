@@ -18,6 +18,12 @@ import { useUiStore } from '@/stores/ui'
 import { fechaHora } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
 import type { ExistenciaTienda, Tienda, Transferencia } from '@/api/tipos'
+import {
+  ordenarInventarioTienda,
+  siguienteOrdenInventarioTienda,
+  type ColumnaInventarioTienda,
+  type OrdenInventarioTienda,
+} from './ordenInventarioTienda'
 
 /** La tienda desde la que se mira el PDV: todo lo de esta pestaña es suyo. */
 const props = defineProps<{ tienda: Tienda }>()
@@ -32,12 +38,47 @@ const error = ref('')
 const aceptando = ref('')
 const busqueda = ref('')
 
+/** Se queda al recargar tras aceptar una transferencia: quien ordena suele querer verlo así. */
+const orden = ref<OrdenInventarioTienda | null>(null)
+
+/**
+ * `\n` parte el encabezado en dos renglones y el guion suave deja cortar
+ * «Comprometido»: así las cuatro columnas caben en el teléfono.
+ */
+const COLUMNAS: {
+  columna: ColumnaInventarioTienda
+  titulo: string
+  /** Para el `title` del botón: «Ordenar por …». */
+  nombre: string
+  clase?: string
+}[] = [
+  { columna: 'producto', titulo: 'Producto', nombre: 'producto' },
+  { columna: 'fisico', titulo: 'Inv.\nfísico', nombre: 'inventario físico', clase: 'num' },
+  {
+    columna: 'comprometido',
+    titulo: 'Compro­metido',
+    nombre: 'comprometido',
+    clase: 'num',
+  },
+  { columna: 'disponible', titulo: 'Apt.\nventa', nombre: 'apto para venta', clase: 'num' },
+]
+
+function ordenarPor(columna: ColumnaInventarioTienda): void {
+  orden.value = siguienteOrdenInventarioTienda(orden.value, columna)
+}
+
+/** Para lectores de pantalla: cómo está ordenada cada columna. */
+function ariaSort(columna: ColumnaInventarioTienda): 'ascending' | 'descending' | 'none' {
+  if (orden.value?.columna !== columna) return 'none'
+  return orden.value.direccion === 'asc' ? 'ascending' : 'descending'
+}
+
 const visibles = computed<ExistenciaTienda[]>(() => {
   const termino = busqueda.value.trim().toLowerCase()
-  if (!termino) return existencias.value
-  return existencias.value.filter((e) =>
-    `${e.nombre} ${e.categoria}`.toLowerCase().includes(termino),
-  )
+  const filtradas = termino
+    ? existencias.value.filter((e) => `${e.nombre} ${e.categoria}`.toLowerCase().includes(termino))
+    : existencias.value
+  return ordenarInventarioTienda(filtradas, orden.value)
 })
 
 onMounted(cargar)
@@ -146,11 +187,28 @@ async function aceptar(transferencia: Transferencia): Promise<void> {
       <div v-if="visibles.length > 0" class="tabla-envoltorio">
         <table class="tabla">
           <thead>
+            <!-- Tocar un encabezado ordena: ascendente, descendente y vuelta al
+                 orden en que llega. La flecha dice cómo está. -->
             <tr>
-              <th>Producto</th>
-              <th class="num">Inv.<br />físico</th>
-              <th class="num">Compro&shy;metido</th>
-              <th class="num">Apt.<br />venta</th>
+              <th
+                v-for="c in COLUMNAS"
+                :key="c.columna"
+                :class="c.clase"
+                :aria-sort="ariaSort(c.columna)"
+              >
+                <button
+                  type="button"
+                  class="ordenar"
+                  :class="{ activo: orden?.columna === c.columna }"
+                  :title="`Ordenar por ${c.nombre}`"
+                  @click="ordenarPor(c.columna)"
+                >
+                  <span class="titulo">{{ c.titulo }}</span>
+                  <span class="flecha" aria-hidden="true">{{
+                    orden?.columna !== c.columna ? '↕' : orden.direccion === 'asc' ? '▲' : '▼'
+                  }}</span>
+                </button>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -231,6 +289,41 @@ h4 {
 .aceptar {
   width: auto;
   padding: 0 16px;
+}
+
+/* El encabezado entero es el botón de ordenar, y se lee igual que un
+   encabezado. A diferencia de Facturación sí parte en renglones («Inv.» /
+   «físico»): en el teléfono no caben las cuatro columnas de otro modo. */
+.ordenar {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  text-align: inherit;
+  cursor: pointer;
+}
+
+.ordenar .titulo {
+  white-space: pre-line;
+}
+
+.ordenar .flecha {
+  font-size: 9px;
+  opacity: 0.45;
+}
+
+/* La columna por la que se ordena se distingue: flecha y texto en terracota. */
+.ordenar.activo,
+.ordenar.activo .flecha {
+  color: var(--terracotta-dark);
+  opacity: 1;
 }
 
 td.num.disponible {
