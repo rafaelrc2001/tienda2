@@ -334,8 +334,16 @@ export class TiendasService {
    * ya esta prometido en pedidos sin entregar —los de mostrador de sus turnos
    * y los de la app que se recogen aqui—: si no, dos pedidos confirmarian la
    * misma pieza y el segundo chocaria al entregarse.
+   *
+   * `liberadas` son las piezas de un pedido del mostrador que se esta
+   * corrigiendo: al cancelarlo vuelven al anaquel —o dejan de estar
+   * prometidas—, asi que el corregido puede volver a venderlas.
    */
-  async disponibles(tiendaId: string, ids?: string[]): Promise<Map<string, number>> {
+  async disponibles(
+    tiendaId: string,
+    ids?: string[],
+    liberadas: LineaAMover[] = [],
+  ): Promise<Map<string, number>> {
     const [existencias, prometido] = await Promise.all([
       this.prisma.inventarioTienda.findMany({
         where: { tiendaId, ...(ids && { productoId: { in: ids } }) },
@@ -344,12 +352,17 @@ export class TiendasService {
       this.prometido(tiendaId, ids),
     ]);
 
-    return new Map(
+    const disponibles = new Map(
       existencias.map((e) => [
         e.productoId,
         Math.max(e.cantidad - (prometido.get(e.productoId) ?? 0), 0),
       ]),
     );
+    for (const l of liberadas) {
+      if (ids && !ids.includes(l.productoId)) continue;
+      disponibles.set(l.productoId, (disponibles.get(l.productoId) ?? 0) + l.cantidad);
+    }
+    return disponibles;
   }
 
   /**
@@ -360,7 +373,12 @@ export class TiendasService {
    * tienda) antes de confirmar un pedido: no se vende lo que no esta en el
    * anaquel.
    */
-  async faltantes(tiendaId: string, lineas: LineaAMover[]): Promise<FaltanteEnTienda[]> {
+  async faltantes(
+    tiendaId: string,
+    lineas: LineaAMover[],
+    /** Las de un pedido que se esta corrigiendo (`disponibles`). */
+    liberadas: LineaAMover[] = [],
+  ): Promise<FaltanteEnTienda[]> {
     const pedidas = new Map<string, number>();
     for (const l of lineas) {
       if (l.cantidad <= 0) continue;
@@ -370,7 +388,7 @@ export class TiendasService {
     if (ids.length === 0) return [];
 
     const [disponibles, productos] = await Promise.all([
-      this.disponibles(tiendaId, ids),
+      this.disponibles(tiendaId, ids, liberadas),
       this.prisma.producto.findMany({
         where: { id: { in: ids } },
         select: { id: true, nombre: true },

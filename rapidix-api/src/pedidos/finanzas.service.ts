@@ -436,6 +436,36 @@ export class FinanzasService {
   }
 
   /**
+   * Cancela un pedido desde otra transaccion: la que corrige un pedido del
+   * punto de venta, que en la misma crea el bueno. Es el mismo camino que
+   * `cancelar` —estatus, renglon de bitacora y `deshacer()`—; los candados de
+   * lo que se puede corregir ya los reviso quien llama (`bloqueoDeCorreccion`),
+   * con la fila ya bloqueada.
+   */
+  async cancelarEnTransaccion(
+    tx: Prisma.TransactionClient,
+    pedidoId: string,
+    quien: ActorDeBitacora,
+    nota: string,
+  ): Promise<void> {
+    const pedido = await tx.pedido.findUniqueOrThrow({
+      where: { id: pedidoId },
+      select: {
+        id: true,
+        folio: true,
+        clienteId: true,
+        estadoPago: true,
+        total: true,
+        pagadoConBilletera: true,
+        cashbackGenerado: true,
+        cashbackAcreditadoEn: true,
+      },
+    });
+    await this.aplicarPago(tx, pedido, EstadoPago.CANCELADO, quien, nota);
+    await this.deshacer(tx, pedido, quien);
+  }
+
+  /**
    * Deja pagado un pedido desde otra transaccion: la de "Entrega aceptada",
    * que paga los pedidos en efectivo de un corte, y la del pago que salda una
    * cuenta por cobrar.

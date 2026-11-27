@@ -26,6 +26,14 @@
  * se lo lleve o vaya a domicilio. «Entregado» lo da por entregado, y es cuando la mercancía sale
  * del inventario de la tienda. Un pedido a domicilio se confirma aquí y sigue
  * por Operaciones y Rutas.
+ *
+ * Con `correccion` la caja abre ya llena con un pedido del turno que se
+ * capturó mal (Pedidos del turno → «Editar»): su cliente, lo que llevaba y
+ * cómo pagó. Todo se puede cambiar, también el cliente, y «Guardar
+ * corrección» cancela el equivocado y captura el bueno en su lugar. La API
+ * cuenta como disponible lo que el equivocado tenía, así que el catálogo y la
+ * previsualización lo piden con `reemplaza`. Si ya se había entregado, el
+ * bueno nace entregado.
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ErrorApi, http } from '@/api/http'
@@ -36,6 +44,7 @@ import PanelUltimoPedido from '@/components/tienda/PanelUltimoPedido.vue'
 import type {
   CatalogoPdv,
   ClientePdv,
+  CorreccionPdv,
   MetodoEntrega,
   MetodoPago,
   Pedido,
@@ -45,7 +54,11 @@ import type {
   UltimoPedido,
 } from '@/api/tipos'
 
-const props = defineProps<{ turno: TurnoPdv }>()
+const props = defineProps<{ turno: TurnoPdv; correccion?: CorreccionPdv | null }>()
+const emit = defineEmits<{ terminarCorreccion: [] }>()
+
+/** El pedido que se está corrigiendo, para el `reemplaza` de la API. */
+const reemplaza = computed(() => props.correccion?.pedido.id ?? null)
 
 const ui = useUiStore()
 
@@ -211,7 +224,12 @@ const billeteraRechazada = computed(
 )
 
 const puedeEntregar = computed(
-  () => pedido.value !== null && pedido.value.metodoEntrega === 'TIENDA' && !entregando.value,
+  () =>
+    pedido.value !== null &&
+    pedido.value.metodoEntrega === 'TIENDA' &&
+    // El corregido de uno que ya se había entregado nace entregado.
+    pedido.value.estado !== 'ENTREGADO' &&
+    !entregando.value,
 )
 
 /**
@@ -423,7 +441,8 @@ async function atender(encontrado: ClientePdv): Promise<void> {
   sugerencias.value = []
   const [suCatalogo, suUltimo] = await Promise.all([
     http.get<CatalogoPdv>(
-      `/admin/pdv/clientes/${encontrado.id}/catalogo?tiendaId=${props.turno.tienda.id}`,
+      `/admin/pdv/clientes/${encontrado.id}/catalogo?tiendaId=${props.turno.tienda.id}` +
+        (reemplaza.value ? `&reemplaza=${reemplaza.value}` : ''),
     ),
     http.get<UltimoPedido | null>(`/admin/pdv/clientes/${encontrado.id}/ultimo-pedido`),
   ])
@@ -698,6 +717,7 @@ async function previsualizar(): Promise<void> {
       `/admin/pdv/turnos/${props.turno.id}/previsualizar`,
       {
         clienteId: cliente.value.id,
+        ...(reemplaza.value && { reemplaza: reemplaza.value }),
         items: items.value,
         metodoEntrega: metodoEntrega.value,
         metodoPago: metodoPago.value,
@@ -761,6 +781,7 @@ onMounted(() => {
   contenedor?.addEventListener('scroll', alDesplazar, { passive: true })
   document.addEventListener('pointerdown', alTocarFuera)
   window.addEventListener('resize', ubicarTeclado)
+  if (props.correccion) void cargarCorreccion(props.correccion)
 })
 
 onBeforeUnmount(() => {
@@ -775,22 +796,97 @@ async function confirmar(): Promise<void> {
   if (!puedeConfirmar.value || !cliente.value || !previa.value) return
   confirmando.value = true
   errorOrden.value = ''
+  const orden = {
+    clienteId: cliente.value.id,
+    items: items.value,
+    metodoEntrega: metodoEntrega.value,
+    metodoPago: metodoPago.value,
+    ...(metodoPago.value === 'EFECTIVO' && pagoCon.value && { pagoCon: Number(pagoCon.value) }),
+    // Lo que la API dijo que cabía, no el saldo entero: de más, el pedido se rechaza.
+    ...(previa.value.billetera > 0 && { usarBilletera: previa.value.billetera }),
+  }
   try {
-    pedido.value = await http.post<Pedido>(`/admin/pdv/turnos/${props.turno.id}/pedidos`, {
-      clienteId: cliente.value.id,
-      items: items.value,
-      metodoEntrega: metodoEntrega.value,
-      metodoPago: metodoPago.value,
-      ...(metodoPago.value === 'EFECTIVO' && pagoCon.value && { pagoCon: Number(pagoCon.value) }),
-      // Lo que la API dijo que cabía, no el saldo entero: de más, el pedido se rechaza.
-      ...(previa.value.billetera > 0 && { usarBilletera: previa.value.billetera }),
-    })
-    ui.exito(`Pedido ${pedido.value.folio} confirmado`)
+    if (props.correccion) {
+      const nuevo = await http.post<Pedido>(
+        `/admin/pdv/pedidos/${props.correccion.pedido.id}/corregir`,
+        orden,
+      )
+      ui.exito(`Pedido ${props.correccion.pedido.folio} corregido: ahora es el ${nuevo.folio}`)
+      pedido.value = nuevo
+      // Ya entregado: el cliente se fue con la mercancía, se le manda el comprobante bueno.
+      if (nuevo.estado === 'ENTREGADO') comprobante.value = nuevo
+    } else {
+      pedido.value = await http.post<Pedido>(`/admin/pdv/turnos/${props.turno.id}/pedidos`, orden)
+      ui.exito(`Pedido ${pedido.value.folio} confirmado`)
+    }
   } catch (fallo) {
     errorOrden.value = fallo instanceof ErrorApi ? fallo.message : 'No pudimos confirmar el pedido.'
   } finally {
     confirmando.value = false
   }
+}
+
+/**
+ * Abre la caja con el pedido que se va a corregir: su cliente, lo que llevaba
+ * y cómo pagó. Con cuánto pagó en efectivo se vuelve a preguntar: el total
+ * corregido puede ser otro.
+ */
+async function cargarCorreccion(datos: CorreccionPdv): Promise<void> {
+  telefono.value = telefonoLocal(datos.cliente.telefono)
+  buscando.value = true
+  try {
+    await atender(datos.cliente)
+  } catch (fallo) {
+    errorCliente.value = fallo instanceof ErrorApi ? fallo.message : 'No pudimos cargar al cliente.'
+  } finally {
+    buscando.value = false
+  }
+  cantidades.value = Object.fromEntries(datos.items.map((i) => [i.productoId, i.cantidad]))
+  metodoEntrega.value = datos.metodoEntrega
+  metodoPago.value = datos.metodoPago
+  if (datos.usarBilletera > 0) {
+    usarBilletera.value = true
+    montoBilletera.value = String(datos.usarBilletera)
+  }
+  // La repetición de la última compra no aplica: la orden ya es la del pedido.
+  ultimo.value = null
+  paso.value = 'pedido'
+}
+
+/**
+ * «Cambiar de cliente». Corrigiendo, el error pudo ser justo el cliente: se
+ * cambia sin perder lo que lleva la orden. Fuera de una corrección es
+ * «Limpiar orden».
+ */
+function cambiarDeCliente(): void {
+  if (!props.correccion || pedido.value) {
+    limpiar()
+    return
+  }
+  peticion++
+  clearTimeout(temporizador)
+  telefono.value = ''
+  cliente.value = null
+  pidiendoNombre.value = false
+  nombreNuevo.value = ''
+  errorCliente.value = ''
+  catalogo.value = null
+  familia.value = ''
+  ultimo.value = null
+  // El monedero era del otro cliente.
+  usarBilletera.value = false
+  montoBilletera.value = ''
+  previa.value = null
+  calculando.value = false
+  paso.value = 'telefono'
+}
+
+/**
+ * «Cancelar corrección»: el pedido se queda como estaba y la caja vuelve a
+ * estar libre. Es `limpiar`, que en una corrección avisa de que terminó.
+ */
+function cancelarCorreccion(): void {
+  limpiar()
 }
 
 async function entregar(): Promise<void> {
@@ -836,11 +932,27 @@ function limpiar(): void {
   pedido.value = null
   errorOrden.value = ''
   paso.value = 'telefono'
+  // Con la corrección ya guardada, limpiar es volver a la caja de siempre.
+  if (props.correccion) emit('terminarCorreccion')
 }
 </script>
 
 <template>
   <div ref="raiz" class="caja">
+    <div v-if="correccion" class="aviso-correccion">
+      <p v-if="!pedido">
+        Corrigiendo el pedido <strong>{{ correccion.pedido.folio }}</strong>. Cambia lo que haga
+        falta y toca «Guardar corrección»: ese pedido se cancela y lo sustituye uno nuevo.
+      </p>
+      <p v-else>
+        El pedido <strong>{{ correccion.pedido.folio }}</strong> quedó cancelado y lo sustituye el
+        <strong>{{ pedido.folio }}</strong>.
+      </p>
+      <button v-if="!pedido" type="button" :disabled="confirmando" @click="cancelarCorreccion">
+        Cancelar corrección
+      </button>
+    </div>
+
     <div class="pasos" role="tablist" aria-label="Pasos de la orden">
       <button
         v-for="(p, i) in pasos"
@@ -951,7 +1063,7 @@ function limpiar(): void {
           type="button"
           class="btn-ingresar"
           :disabled="confirmando || entregando"
-          @click="limpiar"
+          @click="cambiarDeCliente"
         >
           Cambiar de cliente
         </button>
@@ -1467,7 +1579,15 @@ function limpiar(): void {
               :disabled="!puedeConfirmar"
               @click="confirmar"
             >
-              {{ confirmando ? 'Confirmando…' : 'Confirmar pedido' }}
+              {{
+                confirmando
+                  ? correccion
+                    ? 'Guardando…'
+                    : 'Confirmando…'
+                  : correccion && !pedido
+                    ? 'Guardar corrección'
+                    : 'Confirmar pedido'
+              }}
             </button>
             <button
               type="button"
@@ -1497,6 +1617,38 @@ function limpiar(): void {
   display: grid;
   gap: 12px;
   grid-template-columns: minmax(0, 1fr);
+}
+
+/* Corrigiendo: que no se confunda con una venta nueva. En dorado, como un aviso. */
+.aviso-correccion {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: var(--cream);
+  border: 1.5px solid var(--gold);
+  border-radius: 12px;
+  padding: 9px 12px;
+}
+
+.aviso-correccion p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ink);
+  line-height: 1.4;
+}
+
+.aviso-correccion button {
+  flex-shrink: 0;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--white);
+  color: var(--terracotta-dark);
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 11.5px;
+  padding: 7px 12px;
+  cursor: pointer;
 }
 
 /*

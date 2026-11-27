@@ -4,8 +4,12 @@
  *
  * Sin turno abierto solo hay «Crear turno», que es la lógica de crear un
  * reparto en Rutas: dentro de él se capturan los pedidos, que ahí mismo se
- * entregan y se cobran, y se cierra con su corte de caja. Con turno, solo la
- * caja: la tabla de los pedidos del turno está en la pestaña Corte de caja.
+ * entregan y se cobran, y se cierra con su corte de caja.
+ *
+ * Con turno, dos vistas: la **Caja** y **Pedidos del turno**, donde se abre
+ * en la caja un pedido para corregirlo. Mientras se corrige, la caja lleva
+ * la corrección (`correccion`); al terminar vuelve a ser la de siempre. La
+ * tabla completa del turno, con su dinero, sigue en la pestaña Corte de caja.
  */
 import { onMounted, ref } from 'vue'
 import { ErrorApi, http } from '@/api/http'
@@ -13,24 +17,36 @@ import { useUiStore } from '@/stores/ui'
 import { fechaHora } from '@/utils/formato'
 import SkeletonList from '@/components/SkeletonList.vue'
 import CajaPdv from './CajaPdv.vue'
-import type { Tienda, TurnoPdv } from '@/api/tipos'
+import PedidosDelTurno from './PedidosDelTurno.vue'
+import type { CorreccionPdv, Tienda, TurnoPdvConPedidos } from '@/api/tipos'
 
 /** La tienda desde la que se mira el PDV: el turno es el de esta tienda. */
 const props = defineProps<{ tienda: Tienda }>()
 
 const ui = useUiStore()
 
-const turno = ref<TurnoPdv | null>(null)
+const turno = ref<TurnoPdvConPedidos | null>(null)
 const cargando = ref(true)
 const error = ref('')
 const creando = ref(false)
+
+type Vista = 'caja' | 'pedidos'
+const vista = ref<Vista>('caja')
+
+/** El pedido que la caja está corrigiendo, o `null` si captura uno nuevo. */
+const correccion = ref<CorreccionPdv | null>(null)
+/**
+ * Sube al abrir una corrección: la caja se vuelve a montar ya llena. Al
+ * terminar no se remonta, para no tirar el comprobante que esté enseñando.
+ */
+const vueltaCaja = ref(0)
 
 onMounted(cargar)
 
 async function cargar(): Promise<void> {
   error.value = ''
   try {
-    turno.value = await http.get<TurnoPdv | null>(
+    turno.value = await http.get<TurnoPdvConPedidos | null>(
       `/admin/pdv/turnos/abierto?tiendaId=${props.tienda.id}`,
     )
   } catch (fallo) {
@@ -43,7 +59,7 @@ async function cargar(): Promise<void> {
 async function crearTurno(): Promise<void> {
   creando.value = true
   try {
-    turno.value = await http.post<TurnoPdv>('/admin/pdv/turnos', {
+    turno.value = await http.post<TurnoPdvConPedidos>('/admin/pdv/turnos', {
       tiendaId: props.tienda.id,
     })
     ui.exito(`Turno ${turno.value.folio} abierto`)
@@ -54,6 +70,22 @@ async function crearTurno(): Promise<void> {
   } finally {
     creando.value = false
   }
+}
+
+/** Los pedidos se vuelven a pedir cada vez: la caja pudo capturar o entregar mientras tanto. */
+function mostrar(destino: Vista): void {
+  vista.value = destino
+  if (destino === 'pedidos') void cargar()
+}
+
+function editar(elegida: CorreccionPdv): void {
+  correccion.value = elegida
+  vueltaCaja.value++
+  vista.value = 'caja'
+}
+
+function terminarCorreccion(): void {
+  correccion.value = null
 }
 </script>
 
@@ -77,7 +109,38 @@ async function crearTurno(): Promise<void> {
         {{ fechaHora(turno.abiertoEn) }}
       </p>
 
-      <CajaPdv :turno="turno" />
+      <div class="subtab-row vistas" role="tablist" aria-label="Turno">
+        <button
+          type="button"
+          role="tab"
+          class="subtab"
+          :class="{ active: vista === 'caja' }"
+          :aria-selected="vista === 'caja'"
+          @click="mostrar('caja')"
+        >
+          {{ correccion ? `Caja · corrigiendo ${correccion.pedido.folio}` : 'Caja' }}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          class="subtab"
+          :class="{ active: vista === 'pedidos' }"
+          :aria-selected="vista === 'pedidos'"
+          @click="mostrar('pedidos')"
+        >
+          Pedidos del turno
+        </button>
+      </div>
+
+      <!-- `v-show`: la caja conserva la orden a medias al ir a ver los pedidos. -->
+      <CajaPdv
+        v-show="vista === 'caja'"
+        :key="`caja-${vueltaCaja}`"
+        :turno="turno"
+        :correccion="correccion"
+        @terminar-correccion="terminarCorreccion"
+      />
+      <PedidosDelTurno v-if="vista === 'pedidos'" :turno="turno" @editar="editar" />
     </template>
   </div>
 </template>
@@ -115,5 +178,9 @@ async function crearTurno(): Promise<void> {
 .turno-abierto strong {
   font-family: var(--font-heading);
   color: var(--ink);
+}
+
+.vistas {
+  margin: 0 0 10px;
 }
 </style>

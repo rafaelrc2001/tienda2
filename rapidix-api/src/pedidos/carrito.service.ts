@@ -555,12 +555,18 @@ export class CarritoService {
     dto: PrevisualizarCarritoDto,
     /** Venta en el punto de venta: la tienda esta abierta si hay un cajero cobrando. */
     enMostrador = false,
+    /**
+     * El saldo con el que se mide el monedero en lugar del guardado: al
+     * corregir un pedido del PDV, el que le quedara al cancelar el equivocado.
+     */
+    saldoEnLugarDelGuardado?: Prisma.Decimal,
   ): Promise<PrevisualizacionCarritoDto> {
-    const [config, porcentaje, saldoBilletera] = await Promise.all([
+    const [config, porcentaje, saldoGuardado] = await Promise.all([
       this.configuracion.obtener(),
       this.cashback.porcentajePara(clienteId),
       this.saldoBilletera(clienteId),
     ]);
+    const saldoBilletera = saldoEnLugarDelGuardado ?? saldoGuardado;
     const metodoEntrega = dto.metodoEntrega ?? MetodoEntrega.DOMICILIO;
 
     const carrito = await this.resolverTolerante(dto.items);
